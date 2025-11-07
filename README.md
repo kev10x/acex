@@ -277,6 +277,83 @@ For support and questions:
 - Check the troubleshooting section
 - Review the API documentation
 
+## New Features (Latest Version)
+
+### Assessment Type & Level Selection
+- **Assessment Types**: Choose from Assignment, Test, Treatise, or Thesis
+- **Educational Levels**: Select Primary School, High School, Undergraduate, or Postgraduate
+- **Customized AI Prompts**: The AI automatically adjusts its language, terminology, and feedback style based on your selections
+- **Level-Appropriate Feedback**: 
+  - Primary School: Simple, encouraging language
+  - High School: Clear, supportive feedback
+  - Undergraduate: Academic, analytical feedback
+  - Postgraduate: Scholarly, rigorous feedback
+
+### Confidence Scoring System
+- **Per-Criterion Confidence**: Each marking criterion receives a confidence score (0-100)
+- **Overall Confidence**: Aggregate confidence score for the entire assessment
+- **Visual Indicators**: Color-coded badges (High/Medium/Low) in the results dashboard
+- **Human Review Flags**: Assessments with confidence < 70% are automatically flagged for review
+- **Review Recommendations**: Clear indicators showing which assessments need human verification
+
+### PDF Annotations
+- **Clickable Comment Bubbles**: Comments appear as PDF annotations (sticky notes) attached to relevant text
+- **Non-Intrusive**: Comments don't cover the student's work - they appear as small icons
+- **Text-Attached**: Comments are positioned near the relevant questions/answers when possible
+- **Standard PDF Feature**: Works with all PDF viewers (Adobe, Chrome, Edge, etc.)
+- **Toggle Comments**: Comments can be shown/hidden in PDF viewers
+
+## Quick Start Guide
+
+### For High School Teachers
+See `MARKMATE_HIGH_SCHOOL_GUIDE.md` for a detailed guide tailored to high school use cases.
+
+### For University Lecturers
+1. Select "Undergraduate" or "Postgraduate" as the educational level
+2. Choose the appropriate assessment type (Assignment, Test, Treatise, or Thesis)
+3. The AI will automatically use appropriate academic terminology and standards
+
+### For Primary School Teachers
+1. Select "Primary School" as the educational level
+2. Choose "Assignment" or "Test" as the assessment type
+3. The AI will provide age-appropriate, encouraging feedback
+
+## Configuration Examples
+
+### Example .env File
+```env
+# Database (use SQLite for easy setup)
+DATABASE_URL=sqlite:./database.sqlite
+
+# OpenAI API Key (required)
+OPENAI_API_KEY=sk-your-api-key-here
+
+# Server Configuration
+PORT=3001
+NODE_ENV=development
+
+# Client URL
+REACT_APP_API_URL=http://localhost:3001/api
+```
+
+## Troubleshooting
+
+### PDF Annotations Not Appearing
+- Ensure you selected "Annotate PDF" as the output type (not "Create Assessment Report")
+- Check server console logs for annotation errors
+- Verify the PDF has extractable text (not just images)
+
+### Low Confidence Scores
+- Low confidence (< 70%) indicates the AI is uncertain about the marking
+- Review these assessments manually
+- Consider providing more detailed rubrics
+- Check if the student's work is clear and complete
+
+### Comments Appearing in Wrong Location
+- Comments attach to text when anchor phrases are found
+- If no match is found, comments appear in the right margin
+- The AI generates anchor phrases automatically from the feedback
+
 ## Future Enhancements
 
 - [ ] User authentication and authorization
@@ -291,4 +368,6 @@ For support and questions:
 ---
 
 **MarkMate** - Making assignment marking efficient, accurate, and effortless with AI technology.
+
+**Repository**: https://github.com/kev10x/MarkMate.git
 
