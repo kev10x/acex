@@ -1,0 +1,47 @@
+{
+  "name": "markmate",
+  "version": "1.0.0",
+  "description": "AI-powered PDF assignment marking application",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon server/index.js",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "start": "node server/index.js",
+    "setup": "node setup.js && npm install && cd client && npm install",
+    "demo": "node demo-data.js",
+    "postinstall": "node setup.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.15.3",
+    "openai": "^4.20.1",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1",
+    "pdf2pic": "^2.2.4",
+    "pdfjs-dist": "^5.4.296",
+    "pdfkit": "^0.17.2",
+    "pg": "^8.11.3",
+    "sqlite3": "^5.1.7",
+    "uuid": "^9.0.1",
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "pdf",
+    "marking",
+    "ai",
+    "education",
+    "assignment"
+  ],
+  "author": "MarkMate Team",
+  "license": "MIT"
+}

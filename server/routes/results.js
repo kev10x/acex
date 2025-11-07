@@ -1,0 +1,495 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const { query } = require('../database/connection');
+
+const router = express.Router();
+
+// Get all marking results
+router.get('/', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT 
+        mr.*,
+        a.filename,
+        a.file_path,
+        a.uploaded_at,
+        r.name as rubric_name
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      ORDER BY mr.marked_at DESC
+    `);
+    
+    res.json({
+      success: true,
+      results: result.rows
+    });
+  } catch (error) {
+    console.error('Get results error:', error);
+    res.status(500).json({ error: 'Failed to fetch results' });
+  }
+});
+
+// Group results by rubric and date (YYYY-MM-DD)
+router.get('/grouped', async (req, res) => {
+  try {
+    const byRubric = await query(`
+      SELECT r.name as rubric_name, COUNT(*) as count
+      FROM marking_results mr
+      JOIN rubrics r ON mr.rubric_id = r.id
+      GROUP BY r.name
+      ORDER BY count DESC
+    `);
+
+    const byDate = await query(`
+      SELECT DATE(mr.marked_at) as date, COUNT(*) as count
+      FROM marking_results mr
+      GROUP BY DATE(mr.marked_at)
+      ORDER BY DATE(mr.marked_at) DESC
+    `);
+
+    res.json({
+      success: true,
+      grouped: {
+        byRubric: byRubric.rows,
+        byDate: byDate.rows
+      }
+    });
+  } catch (error) {
+    console.error('Get grouped results error:', error);
+    res.status(500).json({ error: 'Failed to fetch grouped results' });
+  }
+});
+
+// Re-run AI marking using existing result id
+router.post('/rerun/:result_id', async (req, res) => {
+  try {
+    const { result_id } = req.params;
+    const { document_type } = req.body || {};
+
+    const existing = await query(
+      `SELECT mr.*, a.file_path, r.* as rubric_json FROM marking_results mr
+       JOIN assignments a ON mr.assignment_id = a.id
+       JOIN rubrics r ON mr.rubric_id = r.id
+       WHERE mr.id = ?`,
+      [result_id]
+    );
+    if (!existing.rows || existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+    const row = existing.rows[0];
+
+    // Extract text
+    const fs = require('fs');
+    const pdfParse = require('pdf-parse');
+    const dataBuffer = fs.readFileSync(row.file_path);
+    const data = await pdfParse(dataBuffer);
+    if (!data.text || data.text.trim().length === 0) {
+      return res.status(400).json({ error: 'No text could be extracted from the PDF' });
+    }
+
+    // Use generateMarking from mark.js indirectly to avoid circular require
+    const { generateMarking: gen } = require('./mark');
+    const rubric = row; // row includes rubric fields; routes/mark expects criteria under rubric.criteria
+
+    const marking = await gen(data.text, rubric, document_type || 'treatise');
+
+    const insert = await query(
+      'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score) VALUES (?, ?, ?, ?, ?, ?)',
+      [row.assignment_id, row.rubric_id, row.student_name || null, JSON.stringify(marking.scores), marking.overall_feedback, marking.total_score]
+    );
+    const insertedId = insert.lastID || insert.rows?.[0]?.id;
+
+    res.json({ success: true, new_result_id: insertedId });
+  } catch (error) {
+    console.error('Rerun marking error:', error);
+    res.status(500).json({ error: 'Failed to rerun marking' });
+  }
+});
+
+// Export selected result IDs as CSV
+router.post('/export/selected', async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array is required' });
+    }
+    const placeholders = ids.map(() => '?').join(',');
+    const result = await query(`
+      SELECT mr.id, mr.student_name, a.filename, r.name as rubric_name, mr.total_score, mr.scores, mr.feedback, mr.marked_at
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.id IN (${placeholders})
+      ORDER BY mr.marked_at DESC
+    `, ids);
+
+    let csvContent = 'ID,Student Name,Filename,Rubric,Total Score,Marked At\n';
+    (result.rows || []).forEach(row => {
+      csvContent += `"${row.id}","${row.student_name || ''}","${row.filename}","${row.rubric_name}","${row.total_score}","${row.marked_at}"\n`;
+    });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=selected_results.csv');
+    res.send(csvContent);
+  } catch (error) {
+    console.error('Export selected error:', error);
+    res.status(500).json({ error: 'Failed to export selected results' });
+  }
+});
+
+// Get a specific marking result
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await query(`
+      SELECT 
+        mr.*,
+        a.filename,
+        a.uploaded_at,
+        r.name as rubric_name,
+        r.criteria as rubric_criteria
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.id = ?
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
+    res.json({
+      success: true,
+      result: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Get result error:', error);
+    res.status(500).json({ error: 'Failed to fetch result' });
+  }
+});
+
+// Get results by assignment
+router.get('/assignment/:assignment_id', async (req, res) => {
+  try {
+    const { assignment_id } = req.params;
+    
+    const result = await query(`
+      SELECT 
+        mr.*,
+        a.filename,
+        a.uploaded_at,
+        r.name as rubric_name,
+        r.criteria as rubric_criteria
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.assignment_id = ?
+      ORDER BY mr.marked_at DESC
+    `, [assignment_id]);
+
+    res.json({
+      success: true,
+      results: result.rows
+    });
+  } catch (error) {
+    console.error('Get results by assignment error:', error);
+    res.status(500).json({ error: 'Failed to fetch results' });
+  }
+});
+
+// Get results by rubric
+router.get('/rubric/:rubric_id', async (req, res) => {
+  try {
+    const { rubric_id } = req.params;
+    
+    const result = await query(`
+      SELECT 
+        mr.*,
+        a.filename,
+        a.uploaded_at,
+        r.name as rubric_name,
+        r.criteria as rubric_criteria
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.rubric_id = ?
+      ORDER BY mr.marked_at DESC
+    `, [rubric_id]);
+
+    res.json({
+      success: true,
+      results: result.rows
+    });
+  } catch (error) {
+    console.error('Get results by rubric error:', error);
+    res.status(500).json({ error: 'Failed to fetch results' });
+  }
+});
+
+// Export results to CSV format
+router.get('/export/csv', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT 
+        mr.id,
+        mr.student_name,
+        a.filename,
+        r.name as rubric_name,
+        mr.total_score,
+        mr.scores,
+        mr.feedback,
+        mr.marked_at
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      ORDER BY mr.marked_at DESC
+    `);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No results found to export' });
+    }
+
+    // Generate CSV content
+    let csvContent = 'ID,Student Name,Filename,Rubric,Total Score,Marked At\n';
+    
+    result.rows.forEach(row => {
+      const scores = typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores;
+      const scoresText = scores.map(s => `${s.criterion_name}: ${s.points_awarded}/${s.max_points}`).join('; ');
+      
+      csvContent += `"${row.id}","${row.student_name || ''}","${row.filename}","${row.rubric_name}","${row.total_score}","${row.marked_at}"\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=marking_results.csv');
+    res.send(csvContent);
+  } catch (error) {
+    console.error('Export CSV error:', error);
+    res.status(500).json({ error: 'Failed to export results' });
+  }
+});
+
+// Get statistics
+router.get('/stats/overview', async (req, res) => {
+  try {
+    // Total results count
+    const totalResults = await query('SELECT COUNT(*) as count FROM marking_results');
+    
+    // Average score
+    const avgScore = await query('SELECT AVG(total_score) as average FROM marking_results');
+    
+    // Results by status
+    const statusCounts = await query(`
+      SELECT 
+        a.status,
+        COUNT(*) as count
+      FROM assignments a
+      LEFT JOIN marking_results mr ON a.id = mr.assignment_id
+      GROUP BY a.status
+    `);
+    
+    // Recent results (last 7 days)
+    const recentResults = await query(`
+      SELECT COUNT(*) as count
+      FROM marking_results
+      WHERE marked_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    `);
+
+    res.json({
+      success: true,
+      stats: {
+        totalResults: parseInt(totalResults.rows[0].count),
+        averageScore: parseFloat(avgScore.rows[0].average || 0),
+        statusCounts: statusCounts.rows,
+        recentResults: parseInt(recentResults.rows[0].count)
+      }
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch statistics' });
+  }
+});
+
+// Delete a marking result
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await query(
+      'DELETE FROM marking_results WHERE id = ?',
+      [id]
+    );
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Result deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete result error:', error);
+    res.status(500).json({ error: 'Failed to delete result' });
+  }
+});
+
+// Delete all marking results
+router.delete('/', async (req, res) => {
+  try {
+    const result = await query('DELETE FROM marking_results');
+    
+    res.json({
+      success: true,
+      message: `All marking results deleted successfully (${result.changes || 0} results removed)`
+    });
+  } catch (error) {
+    console.error('Delete all results error:', error);
+    res.status(500).json({ error: 'Failed to delete all results' });
+  }
+});
+
+// Download all results as JSON
+router.get('/download/all', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT 
+        mr.*,
+        a.filename,
+        a.uploaded_at,
+        r.name as rubric_name,
+        r.criteria as rubric_criteria
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      ORDER BY mr.marked_at DESC
+    `);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No results found to download' });
+    }
+
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `marking_results_${timestamp}.json`;
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.json({
+      success: true,
+      exported_at: new Date().toISOString(),
+      total_results: result.rows.length,
+      results: result.rows
+    });
+  } catch (error) {
+    console.error('Download all results error:', error);
+    res.status(500).json({ error: 'Failed to download results' });
+  }
+});
+
+// Get annotated PDF for a marking result
+router.get('/annotated-pdf/:resultId', async (req, res) => {
+  try {
+    const { resultId } = req.params;
+
+    // Get marking result with assignment file path
+    const result = await query(`
+      SELECT 
+        mr.*,
+        a.filename,
+        a.file_path
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      WHERE mr.id = ?
+    `, [resultId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Marking result not found' });
+    }
+
+    const markingResult = result.rows[0];
+    const originalPath = markingResult.file_path;
+    
+    // Check if annotated PDF exists
+    const annotatedPath = originalPath.replace(/\.pdf$/i, '.annotated.pdf');
+    
+    if (!fs.existsSync(annotatedPath)) {
+      return res.status(404).json({ 
+        error: 'Annotated PDF not found',
+        message: 'The annotated PDF file does not exist. This may occur if annotation was not selected or failed during marking.'
+      });
+    }
+
+    // Send the annotated PDF file
+    res.setHeader('Content-Type', 'application/pdf');
+    const filename = markingResult.filename.replace(/\.pdf$/i, '') + '_annotated.pdf';
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+    const fileStream = fs.createReadStream(annotatedPath);
+    fileStream.pipe(res);
+
+    fileStream.on('error', (error) => {
+      console.error('Error streaming annotated PDF:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream annotated PDF' });
+      }
+    });
+  } catch (error) {
+    console.error('Get annotated PDF error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get annotated PDF',
+      details: error.message
+    });
+  }
+});
+
+// Download all results as detailed CSV
+router.get('/download/csv', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT 
+        mr.id,
+        mr.student_name,
+        a.filename,
+        r.name as rubric_name,
+        mr.total_score,
+        mr.scores,
+        mr.feedback,
+        mr.marked_at,
+        r.total_points as max_points
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      JOIN rubrics r ON mr.rubric_id = r.id
+      ORDER BY mr.marked_at DESC
+    `);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No results found to export' });
+    }
+
+    // Generate detailed CSV content
+    let csvContent = 'ID,Student Name,Filename,Rubric,Total Score,Max Points,Percentage,Marked At,Feedback\n';
+    
+    result.rows.forEach(row => {
+      const percentage = row.max_points > 0 ? ((row.total_score / row.max_points) * 100).toFixed(2) : '0.00';
+      const feedback = (row.feedback || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      
+      csvContent += `"${row.id}","${row.student_name || ''}","${row.filename}","${row.rubric_name}","${row.total_score}","${row.max_points}","${percentage}%","${row.marked_at}","${feedback}"\n`;
+    });
+
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `marking_results_detailed_${timestamp}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csvContent);
+  } catch (error) {
+    console.error('Download CSV error:', error);
+    res.status(500).json({ error: 'Failed to download CSV' });
+  }
+});
+
+module.exports = router;
+

@@ -1,0 +1,959 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, Filter, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield } from 'lucide-react';
+import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
+
+type GroupByOption = 'none' | 'rubric' | 'date';
+
+const ResultsDashboard: React.FC = () => {
+  const [allResults, setAllResults] = useState<MarkingResult[]>([]);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<{
+    totalResults: number;
+    averageScore: number;
+    statusCounts: any[];
+    recentResults: number;
+  } | null>(null);
+  const [selectedResult, setSelectedResult] = useState<MarkingResult | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // Filtering and grouping state
+  const [selectedRubric, setSelectedRubric] = useState<string>('all');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [groupBy, setGroupBy] = useState<GroupByOption>('none');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [resultsRes, statsRes, rubricsRes] = await Promise.all([
+        resultsAPI.getResults(),
+        resultsAPI.getStats(),
+        rubricsAPI.getRubrics()
+      ]);
+      setAllResults(resultsRes.data.results);
+      setStats(statsRes.data.stats);
+      setRubrics(rubricsRes.data.rubrics);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const response = await resultsAPI.exportCSV();
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'marking_results.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to export CSV');
+    }
+  };
+
+  // Filter and group results
+  const filteredAndGroupedResults = useMemo(() => {
+    let filtered = allResults;
+
+    // Filter by rubric
+    if (selectedRubric !== 'all') {
+      filtered = filtered.filter(result => result.rubric_name === selectedRubric);
+    }
+
+    // Filter by date range
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom);
+      filtered = filtered.filter(result => new Date(result.marked_at) >= fromDate);
+    }
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      toDate.setHours(23, 59, 59, 999); // End of day
+      filtered = filtered.filter(result => new Date(result.marked_at) <= toDate);
+    }
+
+    // Group results
+    if (groupBy === 'none') {
+      return { grouped: false, data: filtered };
+    }
+
+    if (groupBy === 'rubric') {
+      const grouped: Record<string, MarkingResult[]> = {};
+      filtered.forEach(result => {
+        const key = result.rubric_name || 'Unknown Rubric';
+        if (!grouped[key]) {
+          grouped[key] = [];
+        }
+        grouped[key].push(result);
+      });
+      return { grouped: true, data: grouped };
+    }
+
+    if (groupBy === 'date') {
+      const grouped: Record<string, MarkingResult[]> = {};
+      filtered.forEach(result => {
+        const date = new Date(result.marked_at).toISOString().split('T')[0];
+        if (!grouped[date]) {
+          grouped[date] = [];
+        }
+        grouped[date].push(result);
+      });
+      return { grouped: true, data: grouped };
+    }
+
+    return { grouped: false, data: filtered };
+  }, [allResults, selectedRubric, dateFrom, dateTo, groupBy]);
+
+  // Initialize expanded groups when groupBy changes
+  useEffect(() => {
+    if (groupBy !== 'none' && filteredAndGroupedResults.grouped) {
+      const groupedData = filteredAndGroupedResults.data as Record<string, MarkingResult[]>;
+      const keys = Object.keys(groupedData);
+      if (keys.length > 0) {
+        setExpandedGroups(prev => {
+          // Only set if currently empty
+          if (prev.size === 0) {
+            return new Set(keys);
+          }
+          // Otherwise merge new keys with existing
+          const newSet = new Set(prev);
+          keys.forEach(key => newSet.add(key));
+          return newSet;
+        });
+      }
+    } else if (groupBy === 'none') {
+      setExpandedGroups(new Set());
+    }
+  }, [groupBy, filteredAndGroupedResults.grouped]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
+  const clearFilters = () => {
+    setSelectedRubric('all');
+    setDateFrom('');
+    setDateTo('');
+  };
+
+  const handleDeleteResult = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this result?')) return;
+
+    try {
+      await resultsAPI.deleteResult(id);
+      setAllResults(prev => prev.filter(result => result.id !== id));
+      if (selectedResult?.id === id) {
+        setSelectedResult(null);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to delete result');
+    }
+  };
+
+  const handleViewAnnotatedPDF = async (resultId: number) => {
+    try {
+      const response = await resultsAPI.getAnnotatedPDF(resultId);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      // Clean up the URL after a delay
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        setError('Annotated PDF not found. This result may have been marked with report generation instead of annotation.');
+      } else {
+        setError(err.response?.data?.error || 'Failed to view annotated PDF');
+      }
+    }
+  };
+
+  const handleDownloadPDF = async (resultId: number) => {
+    try {
+      const response = await reportsAPI.generatePDF(resultId);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `assignment_report_${resultId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate PDF report');
+    }
+  };
+
+  const handleDownloadBatchPDF = async () => {
+    const displayResults: MarkingResult[] = filteredAndGroupedResults.grouped 
+      ? Object.values(filteredAndGroupedResults.data as Record<string, MarkingResult[]>).flat() 
+      : (filteredAndGroupedResults.data as MarkingResult[]);
+
+    if (displayResults.length === 0) {
+      setError('No results available for batch download');
+      return;
+    }
+
+    try {
+      const resultIds = displayResults.map((result: MarkingResult) => result.id);
+      const response = await reportsAPI.generateBatchPDF(resultIds);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `batch_report_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate batch PDF report');
+    }
+  };
+
+  const handleDeleteAllResults = () => {
+    if (allResults.length === 0) {
+      setError('No results to delete');
+      return;
+    }
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteAll = async () => {
+    try {
+      await resultsAPI.deleteAllResults();
+      setAllResults([]);
+      setSelectedResult(null);
+      setStats(prev => prev ? { ...prev, totalResults: 0 } : null);
+      setShowDeleteConfirm(false);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to delete all results');
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    if (allResults.length === 0) {
+      setError('No results available for download');
+      return;
+    }
+
+    try {
+      const response = await resultsAPI.downloadAll();
+      const blob = new Blob([response.data], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `marking_results_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to download results');
+    }
+  };
+
+  const handleDownloadCSV = async () => {
+    const displayResults: MarkingResult[] = filteredAndGroupedResults.grouped 
+      ? Object.values(filteredAndGroupedResults.data as Record<string, MarkingResult[]>).flat() 
+      : (filteredAndGroupedResults.data as MarkingResult[]);
+
+    if (displayResults.length === 0) {
+      setError('No results available for download');
+      return;
+    }
+
+    try {
+      const response = await resultsAPI.downloadCSV();
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `marking_results_detailed_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to download CSV');
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getGradeColor = (score: number, maxScore: number) => {
+    const percentage = (score / maxScore) * 100;
+    if (percentage >= 90) return 'text-green-600 bg-green-50';
+    if (percentage >= 80) return 'text-blue-600 bg-blue-50';
+    if (percentage >= 70) return 'text-yellow-600 bg-yellow-50';
+    if (percentage >= 60) return 'text-orange-600 bg-orange-50';
+    return 'text-red-600 bg-red-50';
+  };
+
+  const getConfidenceColor = (confidence: number) => {
+    if (confidence >= 80) return 'text-green-600 bg-green-50';
+    if (confidence >= 60) return 'text-yellow-600 bg-yellow-50';
+    return 'text-red-600 bg-red-50';
+  };
+
+  const getConfidenceLabel = (confidence: number) => {
+    if (confidence >= 80) return 'High';
+    if (confidence >= 60) return 'Medium';
+    return 'Low';
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Results Dashboard</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            View and manage marking results.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <div className="flex space-x-2">
+            <button
+              onClick={handleDownloadAll}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download All (JSON)
+            </button>
+            <button
+              onClick={handleDownloadCSV}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download CSV
+            </button>
+            <button
+              onClick={handleDownloadBatchPDF}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Download All PDFs
+            </button>
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={handleDeleteAllResults}
+              className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md shadow-sm text-red-700 bg-white hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete All Results
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <div className="flex">
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">Error</h3>
+              <p className="mt-1 text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Statistics Cards */}
+      {stats && (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <CheckCircle className="h-6 w-6 text-green-400" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">
+                      Total Results
+                    </dt>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {stats.totalResults}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <TrendingUp className="h-6 w-6 text-blue-400" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">
+                      Average Score
+                    </dt>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {stats.averageScore.toFixed(1)}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <Clock className="h-6 w-6 text-yellow-400" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">
+                      Recent (7 days)
+                    </dt>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {stats.recentResults}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <BarChart3 className="h-6 w-6 text-purple-400" />
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">
+                      Status Counts
+                    </dt>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {stats.statusCounts.length}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters and Grouping */}
+      <div className="bg-white shadow rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <div className="flex flex-wrap items-end gap-4 mb-4">
+            <div className="flex-1 min-w-[200px]">
+              <label htmlFor="rubricFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                Filter by Rubric
+              </label>
+              <select
+                id="rubricFilter"
+                value={selectedRubric}
+                onChange={(e) => setSelectedRubric(e.target.value)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              >
+                <option value="all">All Rubrics</option>
+                {Array.from(new Set(allResults.map(r => r.rubric_name).filter(Boolean))).map(rubricName => (
+                  <option key={rubricName} value={rubricName}>{rubricName}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="min-w-[150px]">
+              <label htmlFor="dateFrom" className="block text-sm font-medium text-gray-700 mb-1">
+                From Date
+              </label>
+              <input
+                type="date"
+                id="dateFrom"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              />
+            </div>
+
+            <div className="min-w-[150px]">
+              <label htmlFor="dateTo" className="block text-sm font-medium text-gray-700 mb-1">
+                To Date
+              </label>
+              <input
+                type="date"
+                id="dateTo"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              />
+            </div>
+
+            <div className="min-w-[150px]">
+              <label htmlFor="groupBy" className="block text-sm font-medium text-gray-700 mb-1">
+                Group By
+              </label>
+              <select
+                id="groupBy"
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupByOption)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              >
+                <option value="none">No Grouping</option>
+                <option value="rubric">By Rubric</option>
+                <option value="date">By Date</option>
+              </select>
+            </div>
+
+            {(selectedRubric !== 'all' || dateFrom || dateTo) && (
+              <button
+                onClick={clearFilters}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <X className="w-4 h-4 mr-1" />
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Results Table */}
+      <div className="bg-white shadow rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">
+            {`Marking Results (${filteredAndGroupedResults.grouped 
+              ? Object.values(filteredAndGroupedResults.data as Record<string, MarkingResult[]>).flat().length 
+              : (filteredAndGroupedResults.data as MarkingResult[]).length})`}
+          </h3>
+          
+          {(() => {
+            const displayResults: MarkingResult[] = filteredAndGroupedResults.grouped 
+              ? Object.values(filteredAndGroupedResults.data as Record<string, MarkingResult[]>).flat() 
+              : (filteredAndGroupedResults.data as MarkingResult[]);
+
+            if (displayResults.length === 0) {
+              return (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No marking results found.</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    {allResults.length === 0 
+                      ? 'Mark some assignments to see results here.'
+                      : 'Try adjusting your filters.'}
+                  </p>
+                </div>
+              );
+            }
+
+            const renderResultsTable = (resultsToShow: MarkingResult[]) => (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Student/Assignment
+                      </th>
+                      {groupBy !== 'rubric' && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Rubric
+                        </th>
+                      )}
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Score
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Confidence
+                      </th>
+                      {groupBy !== 'date' && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Marked At
+                        </th>
+                      )}
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {resultsToShow.map((result, index) => (
+                      <tr 
+                        key={result.id || `result-${index}`} 
+                        className={`hover:bg-gray-50 ${result.needs_review ? 'bg-red-50 border-l-4 border-red-400' : ''}`}
+                      >
+                        <td className="px-6 py-4 max-w-xs">
+                          <div>
+                            <div className="flex items-start space-x-2 flex-wrap">
+                              <div className="text-sm font-medium text-gray-900 break-words min-w-0 flex-1">
+                                {result.student_name || 'Unnamed Student'}
+                              </div>
+                              {result.needs_review && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 flex-shrink-0" title="Needs Human Review">
+                                  <AlertTriangle className="w-3 h-3 mr-1" />
+                                  Review
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-500 break-words mt-1">
+                              {result.filename}
+                            </div>
+                          </div>
+                        </td>
+                        {groupBy !== 'rubric' && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {result.rubric_name}
+                          </td>
+                        )}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGradeColor(
+                              result.total_score,
+                              100
+                            )}`}
+                          >
+                            {result.total_score}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {result.overall_confidence !== undefined ? (
+                            <div className="flex items-center space-x-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getConfidenceColor(
+                                  result.overall_confidence
+                                )}`}
+                                title={`Confidence: ${result.overall_confidence}%`}
+                              >
+                                <Shield className="w-3 h-3 mr-1" />
+                                {result.overall_confidence}%
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                ({getConfidenceLabel(result.overall_confidence)})
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">N/A</span>
+                          )}
+                        </td>
+                        {groupBy !== 'date' && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {formatDate(result.marked_at)}
+                          </td>
+                        )}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => setSelectedResult(result)}
+                              className="text-primary-600 hover:text-primary-900"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleViewAnnotatedPDF(result.id)}
+                              className="text-green-600 hover:text-green-900"
+                              title="View Annotated PDF"
+                            >
+                              <FileCheck className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDownloadPDF(result.id)}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Download PDF Report"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteResult(result.id)}
+                              className="text-red-600 hover:text-red-900"
+                              title="Delete Result"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+
+            if (filteredAndGroupedResults.grouped) {
+              const groupedData = filteredAndGroupedResults.data as Record<string, MarkingResult[]>;
+              const sortedKeys = Object.keys(groupedData).sort((a, b) => {
+                if (groupBy === 'date') {
+                  return b.localeCompare(a); // Descending dates
+                }
+                return a.localeCompare(b); // Alphabetical
+              });
+
+              return (
+                <div className="space-y-4">
+                  {sortedKeys.map(key => {
+                    const groupResults = groupedData[key];
+                    const isExpanded = expandedGroups.has(key);
+                    const avgScore = groupResults.reduce((sum, r) => sum + r.total_score, 0) / groupResults.length;
+
+                    return (
+                      <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => toggleGroup(key)}
+                          className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex justify-between items-center"
+                        >
+                          <div className="flex items-center space-x-3">
+                            {isExpanded ? (
+                              <ChevronDown className="w-5 h-5 text-gray-500" />
+                            ) : (
+                              <ChevronUp className="w-5 h-5 text-gray-500" />
+                            )}
+                            <div className="text-left">
+                              <div className="font-medium text-gray-900">
+                                {groupBy === 'date' 
+                                  ? new Date(key).toLocaleDateString('en-US', { 
+                                      year: 'numeric', 
+                                      month: 'long', 
+                                      day: 'numeric' 
+                                    })
+                                  : key}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {groupResults.length} result{groupResults.length !== 1 ? 's' : ''} • 
+                                Avg Score: {avgScore.toFixed(1)}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="p-4">
+                            {renderResultsTable(groupResults)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            return renderResultsTable(displayResults);
+          })()}
+        </div>
+      </div>
+
+      {/* Result Detail Modal */}
+      {selectedResult && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Marking Details
+                </h3>
+                <button
+                  onClick={() => setSelectedResult(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <span className="sr-only">Close</span>
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700">Assignment</h4>
+                  <p className="text-sm text-gray-900">{selectedResult.filename}</p>
+                  {selectedResult.student_name && (
+                    <p className="text-sm text-gray-600">Student: {selectedResult.student_name}</p>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700">Rubric</h4>
+                  <p className="text-sm text-gray-900">{selectedResult.rubric_name}</p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700">Scores</h4>
+                  <div className="space-y-2">
+                    {selectedResult.scores.map((score, index) => (
+                      <div key={`score-${selectedResult.id}-${index}`} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                        <div className="flex-1">
+                          <span className="text-sm text-gray-900">{score.criterion_name}</span>
+                          {score.confidence !== undefined && (
+                            <div className="mt-1">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getConfidenceColor(score.confidence)}`}>
+                                <Shield className="w-3 h-3 mr-1" />
+                                Confidence: {score.confidence}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-sm font-medium text-gray-900 ml-2">
+                          {score.points_awarded}/{score.max_points}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between items-center p-2 bg-primary-50 rounded border-t">
+                      <span className="text-sm font-medium text-gray-900">Total Score</span>
+                      <span className="text-sm font-bold text-primary-900">
+                        {selectedResult.total_score}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedResult.overall_confidence !== undefined && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Assessment Confidence</h4>
+                    <div className="flex items-center space-x-3">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-600">Overall Confidence</span>
+                          <span className={`text-sm font-medium ${getConfidenceColor(selectedResult.overall_confidence).split(' ')[0]}`}>
+                            {selectedResult.overall_confidence}% ({getConfidenceLabel(selectedResult.overall_confidence)})
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${
+                              selectedResult.overall_confidence >= 80 ? 'bg-green-500' :
+                              selectedResult.overall_confidence >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                            }`}
+                            style={{ width: `${selectedResult.overall_confidence}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      {selectedResult.needs_review && (
+                        <div className="flex items-center px-3 py-2 bg-red-50 border border-red-200 rounded-md">
+                          <AlertTriangle className="w-4 h-4 text-red-600 mr-2" />
+                          <span className="text-xs text-red-800 font-medium">Needs Review</span>
+                        </div>
+                      )}
+                    </div>
+                    {selectedResult.min_criterion_confidence !== undefined && (
+                      <p className="mt-2 text-xs text-gray-500">
+                        Minimum criterion confidence: {selectedResult.min_criterion_confidence}%
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700">Feedback</h4>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">
+                    {selectedResult.feedback}
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700">Marked At</h4>
+                  <p className="text-sm text-gray-900">{formatDate(selectedResult.marked_at)}</p>
+                </div>
+
+                <div className="flex space-x-2 pt-4">
+                  <button
+                    onClick={() => handleViewAnnotatedPDF(selectedResult.id)}
+                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  >
+                    <FileCheck className="w-4 h-4 mr-2" />
+                    View Annotated PDF
+                  </button>
+                  <button
+                    onClick={() => handleDownloadPDF(selectedResult.id)}
+                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Download Report
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => setSelectedResult(null)}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <Trash2 className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mt-4">Delete All Results</h3>
+              <div className="mt-2 px-7 py-3">
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to delete ALL {allResults.length} marking results? This action cannot be undone.
+                </p>
+              </div>
+              <div className="items-center px-4 py-3">
+                <button
+                  onClick={confirmDeleteAll}
+                  className="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 mr-2 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ResultsDashboard;
