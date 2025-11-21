@@ -262,7 +262,7 @@ Respond with ONLY a JSON object:
 };
 
 // Generate AI marking using OpenAI or Anthropic
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict') => {
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null) => {
   try {
     // Auto-detect document type if not provided
     if (!documentType) {
@@ -651,6 +651,15 @@ ${evaluationGuidelines}
 
 ${getStrictnessGuidelines(strictnessLevel)}
 
+CONSISTENCY REQUIREMENTS:
+- Apply the SAME marking standards across all similar assignments
+- Use consistent scoring patterns - if similar work received X points, award similar points
+- Maintain consistency in feedback tone and structure
+- Reference rubric criteria in the SAME way each time
+- Use consistent terminology and evaluation language
+${previousMarkingExamples ? `- IMPORTANT: This assignment was previously marked. Maintain consistency with previous marking while being fair and accurate. Previous total score: ${previousMarkingExamples.total_score}` : ''}
+${calibrationExamples ? `- Use these similar assignments as reference for consistent scoring patterns:\n${calibrationExamples.map((ex, i) => `  Example ${i + 1}: Total score ${ex.total_score}, Criteria scores: ${ex.scores.map(s => `${s.criterion_name}: ${s.points_awarded}/${s.max_points}`).join(', ')}`).join('\n')}` : ''}
+
 IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how confident you are in the marking. Consider:
 - Clarity of the student's work
 - Ambiguity in the rubric or student response
@@ -679,6 +688,13 @@ JSON format (return ONLY this, no other text):
 
     console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
     
+    // Generate a consistent seed based on rubric ID for reproducibility
+    // This ensures the same rubric produces similar outputs across iterations
+    const seed = rubric.id ? Math.abs(parseInt(rubric.id.toString().slice(-6), 10)) % 2147483647 : null;
+    if (seed) {
+      console.log(`🎲 Using seed ${seed} for consistency (based on rubric ID)`);
+    }
+    
     // Use unified AI service with retry logic (more retries for marking operations)
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
@@ -690,7 +706,8 @@ JSON format (return ONLY this, no other text):
         }
       ],
       temperature: config.temperature,
-      maxTokens: requestMaxTokens
+      maxTokens: requestMaxTokens,
+      seed: seed // Add seed for OpenAI models to improve consistency
     }, 5); // Increased retries for marking operations
 
     console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
@@ -987,7 +1004,7 @@ router.post('/single', async (req, res) => {
       // Generate AI marking (use assessment_type if provided, otherwise auto-detect document type)
       // Provider can be specified in request or will use default from config
       const docType = assessment_type || document_type || null;
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level);
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id);
 
       // Get current version number for this assignment
       const versionResult = await query(
@@ -1375,7 +1392,7 @@ router.post('/multiple', async (req, res) => {
           // Generate AI marking (use assessment_type if provided, otherwise use document_type)
           // Provider can be specified in request or will use default from config
           const docType = assessment_type || document_type || null;
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level);
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id);
 
           // Get current version number for this assignment
           const versionResult = await query(

@@ -38,9 +38,10 @@ class AIService {
    * @param {number} params.temperature - Temperature setting
    * @param {number} params.maxTokens - Maximum tokens for completion
    * @param {string} params.user - User identifier (for OpenAI)
+   * @param {number} params.seed - Seed for reproducibility (OpenAI only)
    * @returns {Promise<Object>} Completion result with standardized format
    */
-  async createCompletion({ provider, model, messages, temperature, maxTokens, user = 'anonymous' }) {
+  async createCompletion({ provider, model, messages, temperature, maxTokens, user = 'anonymous', seed = null }) {
     const selectedProvider = provider || aiConfig.defaultProvider;
 
     if (selectedProvider === 'openai') {
@@ -55,18 +56,26 @@ class AIService {
   /**
    * Create completion using OpenAI
    */
-  async _createOpenAICompletion({ model, messages, temperature, maxTokens, user }) {
+  async _createOpenAICompletion({ model, messages, temperature, maxTokens, user, seed = null }) {
     if (!this.openai) {
       throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
     }
 
-    const completion = await this.openai.chat.completions.create({
+    const completionParams = {
       model,
       messages,
       temperature,
       max_tokens: maxTokens,
       user
-    });
+    };
+
+    // Add seed for reproducibility (OpenAI GPT-4 and newer models support this)
+    // Seed ensures more deterministic outputs for consistency
+    if (seed !== null && (model.includes('gpt-4') || model.includes('gpt-3.5'))) {
+      completionParams.seed = seed;
+    }
+
+    const completion = await this.openai.chat.completions.create(completionParams);
 
     // Standardize the response format
     return {

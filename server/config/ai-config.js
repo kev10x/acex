@@ -39,13 +39,15 @@ module.exports = {
     },
     
     // Temperature settings for different evaluation types
+    // Lower temperatures = more consistent, deterministic outputs
+    // For consistency, we use very low temperatures
     temperature: {
-      treatise: 0.2,       // More focused for academic evaluation
-      assignment: 0.3,      // Balanced creativity and consistency
-      report: 0.25,         // Slightly more focused for reports
-      question_paper: 0.1,  // Very focused for objective marking
-      memo: 0.15,           // Focused for memo-based marking
-      default: 0.3
+      treatise: 0.1,       // Very low for consistent academic evaluation
+      assignment: 0.1,      // Low for consistency across iterations
+      report: 0.1,         // Low for consistent report marking
+      question_paper: 0.05, // Very low for objective marking consistency
+      memo: 0.05,          // Very low for memo-based marking consistency
+      default: 0.1         // Low default for consistency
     }
   },
 
@@ -73,13 +75,14 @@ module.exports = {
     },
     
     // Temperature settings (same as OpenAI for consistency)
+    // Lower temperatures = more consistent, deterministic outputs
     temperature: {
-      treatise: 0.2,       // More focused for academic evaluation
-      assignment: 0.3,      // Balanced creativity and consistency
-      report: 0.25,         // Slightly more focused for reports
-      question_paper: 0.1,  // Very focused for objective marking
-      memo: 0.15,           // Focused for memo-based marking
-      default: 0.3
+      treatise: 0.1,       // Very low for consistent academic evaluation
+      assignment: 0.1,      // Low for consistency across iterations
+      report: 0.1,         // Low for consistent report marking
+      question_paper: 0.05, // Very low for objective marking consistency
+      memo: 0.05,          // Very low for memo-based marking consistency
+      default: 0.1         // Low default for consistency
     }
   },
 

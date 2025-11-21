@@ -14,7 +14,8 @@ router.get('/', async (req, res) => {
         a.filename,
         a.file_path,
         a.uploaded_at,
-        r.name as rubric_name
+        r.name as rubric_name,
+        r.total_points as max_points
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id

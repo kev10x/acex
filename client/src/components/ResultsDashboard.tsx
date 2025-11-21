@@ -750,14 +750,26 @@ const ResultsDashboard: React.FC = () => {
                           </td>
                         )}
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGradeColor(
-                              result.total_score,
-                              100
-                            )}`}
-                          >
-                            {result.total_score}
-                          </span>
+                          {(() => {
+                            const maxPoints = result.max_points || 100;
+                            const percentage = ((result.total_score / maxPoints) * 100).toFixed(1);
+                            return (
+                              <div className="flex flex-col">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGradeColor(
+                                    result.total_score,
+                                    maxPoints
+                                  )}`}
+                                >
+                                  {result.total_score}
+                                  {result.max_points ? ` / ${result.max_points}` : ''}
+                                </span>
+                                <span className="text-xs text-gray-500 mt-1">
+                                  {isFinite(Number(percentage)) ? `${percentage}%` : 'N/A'}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {result.overall_confidence !== undefined ? (
@@ -942,9 +954,17 @@ const ResultsDashboard: React.FC = () => {
                     ))}
                     <div className="flex justify-between items-center p-2 bg-primary-50 rounded border-t">
                       <span className="text-sm font-medium text-gray-900">Total Score</span>
-                      <span className="text-sm font-bold text-primary-900">
-                        {selectedResult.total_score}
-                      </span>
+                      <div className="text-sm font-bold text-primary-900 flex items-center space-x-2">
+                        <span>
+                          {selectedResult.total_score}
+                          {selectedResult.max_points ? ` / ${selectedResult.max_points}` : ''}
+                        </span>
+                        {selectedResult.max_points && selectedResult.max_points > 0 && (
+                          <span className="text-xs font-medium text-primary-600">
+                            {((selectedResult.total_score / selectedResult.max_points) * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

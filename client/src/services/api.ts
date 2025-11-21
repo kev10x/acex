@@ -84,6 +84,7 @@ export interface MarkingResult {
   marked_at: string;
   filename?: string;
   rubric_name?: string;
+  max_points?: number;
   overall_confidence?: number; // 0-100 overall confidence in the assessment
   confidence_level?: 'low' | 'medium' | 'high'; // Categorized confidence level
   needs_review?: boolean; // Flag indicating if human review is recommended
