@@ -1,11 +1,16 @@
 // AI Configuration for MarkMate
-// This file contains settings for OpenAI API calls and document processing
+// This file contains settings for OpenAI and Anthropic API calls and document processing
 
 module.exports = {
+  // Default AI provider: 'openai' or 'anthropic'
+  // Can be overridden via AI_PROVIDER environment variable
+  defaultProvider: process.env.AI_PROVIDER || 'openai',
+
   // Document processing limits
   documentLimits: {
     // Maximum characters to process for different document types
-    treatise: 200000,     // For Masters treatises (approximately 50,000 tokens) - increased for large documents
+    // Claude has much larger context windows, so we can process more
+    treatise: 800000,     // For Masters treatises - increased for Claude's 200K token context
     assignment: 15000,     // For regular assignments (approximately 3,750 tokens)
     report: 25000,         // For research reports (approximately 6,250 tokens)
     question_paper: 30000, // For exam/test papers (approximately 7,500 tokens)
@@ -44,26 +49,85 @@ module.exports = {
     }
   },
 
-  // Cost estimation (GPT-4o pricing as of 2024)
-  pricing: {
-    promptTokens: 0.005,      // $0.005 per 1K prompt tokens (GPT-4o)
-    completionTokens: 0.015   // $0.015 per 1K completion tokens (GPT-4o)
+  // Anthropic (Claude) API settings
+  // Note: If you get 404 errors, your API key may only have access to claude-3-haiku-20240307
+  // To use Claude 3.5 Sonnet, you may need to upgrade your Anthropic account
+  anthropic: {
+    models: {
+      treatise: "claude-3-haiku-20240307",  // Using Haiku (Sonnet requires account upgrade)
+      assignment: "claude-3-haiku-20240307", // Using Haiku (Sonnet requires account upgrade)
+      question_paper: "claude-3-haiku-20240307",
+      memo: "claude-3-haiku-20240307",
+      report: "claude-3-haiku-20240307",
+      default: "claude-3-haiku-20240307"
+    },
+    
+    // Max tokens for completion (Claude uses max_tokens instead of maxTokens)
+    maxTokens: {
+      treatise: 16000,     // Claude can handle longer outputs for detailed feedback
+      assignment: 4000,    // Standard feedback for assignments
+      report: 8000,        // Comprehensive feedback for reports
+      question_paper: 10000, // Detailed marking for question papers
+      memo: 8000,          // Feedback when using memo as rubric
+      default: 4000        // Basic feedback
+    },
+    
+    // Temperature settings (same as OpenAI for consistency)
+    temperature: {
+      treatise: 0.2,       // More focused for academic evaluation
+      assignment: 0.3,      // Balanced creativity and consistency
+      report: 0.25,         // Slightly more focused for reports
+      question_paper: 0.1,  // Very focused for objective marking
+      memo: 0.15,           // Focused for memo-based marking
+      default: 0.3
+    }
   },
 
-  // Get configuration for a specific document type
-  getConfig: function(documentType = 'default') {
+  // Cost estimation (pricing as of 2024)
+  pricing: {
+    openai: {
+      promptTokens: 0.005,      // $0.005 per 1K prompt tokens (GPT-4o)
+      completionTokens: 0.015   // $0.015 per 1K completion tokens (GPT-4o)
+    },
+    anthropic: {
+      promptTokens: 0.003,      // $0.003 per 1K prompt tokens (Claude 3.5 Sonnet)
+      completionTokens: 0.015    // $0.015 per 1K completion tokens (Claude 3.5 Sonnet)
+    }
+  },
+
+  // Get configuration for a specific document type and provider
+  getConfig: function(documentType = 'default', provider = null) {
+    const selectedProvider = provider || this.defaultProvider;
+    const providerConfig = this[selectedProvider];
+    
+    if (!providerConfig) {
+      throw new Error(`Invalid provider: ${selectedProvider}. Must be 'openai' or 'anthropic'`);
+    }
+
     return {
+      provider: selectedProvider,
       maxTextLength: this.documentLimits[documentType] || this.documentLimits.default,
-      model: this.openai.models[documentType] || this.openai.models.default,
-      maxTokens: this.openai.maxTokens[documentType] || this.openai.maxTokens.default,
-      temperature: this.openai.temperature[documentType] || this.openai.temperature.default
+      model: providerConfig.models[documentType] || providerConfig.models.default,
+      maxTokens: providerConfig.maxTokens[documentType] || providerConfig.maxTokens.default,
+      temperature: providerConfig.temperature[documentType] || providerConfig.temperature.default
     };
   },
 
-  // Estimate cost based on token usage
-  estimateCost: function(promptTokens, completionTokens) {
-    const promptCost = (promptTokens / 1000) * this.pricing.promptTokens;
-    const completionCost = (completionTokens / 1000) * this.pricing.completionTokens;
+  // Estimate cost based on token usage and provider
+  estimateCost: function(promptTokens, completionTokens, provider = null) {
+    const selectedProvider = provider || this.defaultProvider;
+    const pricing = this.pricing[selectedProvider];
+    
+    if (!pricing) {
+      console.warn(`No pricing info for provider ${selectedProvider}, using OpenAI pricing`);
+      const defaultPricing = this.pricing.openai;
+      const promptCost = (promptTokens / 1000) * defaultPricing.promptTokens;
+      const completionCost = (completionTokens / 1000) * defaultPricing.completionTokens;
+      return promptCost + completionCost;
+    }
+    
+    const promptCost = (promptTokens / 1000) * pricing.promptTokens;
+    const completionCost = (completionTokens / 1000) * pricing.completionTokens;
     return promptCost + completionCost;
   }
 };

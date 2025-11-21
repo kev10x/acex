@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { uploadAPI, rubricsAPI, markingAPI, Assignment, Rubric } from '../services/api';
 
 const MarkingInterface: React.FC = () => {
@@ -11,10 +11,19 @@ const MarkingInterface: React.FC = () => {
   const [outputType, setOutputType] = useState<'annotate' | 'report'>('annotate');
   const [assessmentType, setAssessmentType] = useState<'assignment' | 'test' | 'treatise' | 'thesis'>('assignment');
   const [level, setLevel] = useState<'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate'>('high_school');
+  const [provider, setProvider] = useState<'openai' | 'anthropic'>('anthropic');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isMarkedAssignmentsExpanded, setIsMarkedAssignmentsExpanded] = useState(true);
+  const [retryingAssignment, setRetryingAssignment] = useState<number | null>(null);
+  const [lastMarkingParams, setLastMarkingParams] = useState<{
+    rubric_id: number;
+    assessment_type: string;
+    level: string;
+    provider: string;
+    output_type: string;
+  } | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -66,13 +75,23 @@ const MarkingInterface: React.FC = () => {
     try {
       const studentNamesArray = selectedAssignments.map(id => studentNames[id] || null);
       
+      // Store marking parameters for retry functionality
+      setLastMarkingParams({
+        rubric_id: selectedRubric,
+        assessment_type: assessmentType,
+        level: level,
+        provider: provider,
+        output_type: outputType
+      });
+
       const response = await markingAPI.markMultiple({
         assignment_ids: selectedAssignments,
         rubric_id: selectedRubric,
         student_names: studentNamesArray,
         output_type: outputType,
         assessment_type: assessmentType,
-        level: level
+        level: level,
+        provider: provider
       });
 
       setSuccess(`Successfully marked ${response.data.results.length} assignments`);
@@ -121,6 +140,42 @@ const MarkingInterface: React.FC = () => {
     }
   };
 
+  const handleRetryAssignment = async (assignmentId: number) => {
+    if (!lastMarkingParams) {
+      setError('Cannot retry: No previous marking parameters found. Please mark the assignment again with your settings.');
+      return;
+    }
+
+    setRetryingAssignment(assignmentId);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // Find the assignment to get student name if it was set
+      const assignment = assignments.find(a => a.id === assignmentId);
+      const studentName = assignment ? studentNames[assignmentId] || undefined : undefined;
+
+      const response = await markingAPI.markSingle({
+        assignment_id: assignmentId,
+        rubric_id: lastMarkingParams.rubric_id,
+        student_name: studentName,
+        output_type: lastMarkingParams.output_type as 'annotate' | 'report',
+        assessment_type: lastMarkingParams.assessment_type as 'assignment' | 'test' | 'treatise' | 'thesis',
+        level: lastMarkingParams.level as 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate',
+        provider: lastMarkingParams.provider as 'openai' | 'anthropic'
+      });
+
+      setSuccess(`Successfully retried marking for ${response.data.result.filename || 'assignment'}`);
+      
+      // Refresh assignments to show updated status
+      await fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to retry marking assignment');
+    } finally {
+      setRetryingAssignment(null);
+    }
+  };
+
   const availableAssignments = assignments.filter(a => a.status === 'uploaded');
   const markedAssignments = assignments.filter(a => a.status === 'completed' || a.status === 'error');
 
@@ -162,7 +217,7 @@ const MarkingInterface: React.FC = () => {
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Assessment Settings</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Assessment Type */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -200,6 +255,26 @@ const MarkingInterface: React.FC = () => {
               </select>
               <p className="mt-1 text-xs text-gray-500">
                 Select the educational level of the students
+              </p>
+            </div>
+
+            {/* AI Provider */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                AI Model
+              </label>
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as 'openai' | 'anthropic')}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="anthropic">Claude 3.5 Sonnet (Anthropic)</option>
+                <option value="openai">GPT-4o (OpenAI)</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {provider === 'anthropic' 
+                  ? 'Best for large documents and academic analysis'
+                  : 'Fast and reliable for most assignments'}
               </p>
             </div>
           </div>
@@ -366,13 +441,35 @@ const MarkingInterface: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
-                        assignment.status
-                      )}`}
-                    >
-                      {assignment.status}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      {assignment.status === 'error' && (
+                        <button
+                          onClick={() => handleRetryAssignment(assignment.id)}
+                          disabled={retryingAssignment === assignment.id || !lastMarkingParams}
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={!lastMarkingParams ? 'Cannot retry: Please mark an assignment first to save settings' : 'Retry marking this assignment'}
+                        >
+                          {retryingAssignment === assignment.id ? (
+                            <>
+                              <Loader className="w-3 h-3 mr-1 animate-spin" />
+                              Retrying...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              Retry
+                            </>
+                          )}
+                        </button>
+                      )}
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
+                          assignment.status
+                        )}`}
+                      >
+                        {assignment.status}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>

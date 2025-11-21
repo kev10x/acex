@@ -139,6 +139,7 @@ export const markingAPI = {
     output_type?: 'annotate' | 'report';
     assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
+    provider?: 'openai' | 'anthropic';
   }) => api.post('/mark/single', data),
 
   markMultiple: (data: {
@@ -148,6 +149,7 @@ export const markingAPI = {
     output_type?: 'annotate' | 'report';
     assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
+    provider?: 'openai' | 'anthropic';
   }) => api.post('/mark/multiple', data),
 
   markManual: (data: {

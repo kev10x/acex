@@ -1,9 +1,9 @@
 const express = require('express');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
-const OpenAI = require('openai');
 const { query } = require('../database/connection');
 const aiConfig = require('../config/ai-config');
+const aiService = require('../services/aiService');
 const { annotatePdfWithIssues, buildIssuesFromMarking } = require('../services/pdfAnnotator');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
 
@@ -86,10 +86,10 @@ router.post('/debug', async (req, res) => {
       });
     }
     
-    // Test AI marking
-    let markingResult;
-    try {
-      markingResult = await generateMarking(assignmentText, rubricData, null);
+      // Test AI marking (use default provider)
+      let markingResult;
+      try {
+        markingResult = await generateMarking(assignmentText, rubricData, null, null, null);
     } catch (error) {
       return res.status(500).json({ 
         error: 'AI marking failed', 
@@ -115,10 +115,7 @@ router.post('/debug', async (req, res) => {
   }
 });
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// AI Service is initialized in aiService.js
 
 // Extract text from PDF (with OCR/Vision API fallback for handwritten text)
 const extractTextFromPDF = async (filePath) => {
@@ -187,15 +184,17 @@ Respond with ONLY a JSON object:
   "reason": "brief explanation"
 }`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    // Use default provider for memo detection (usually fast, so mini model is fine)
+    const config = aiConfig.getConfig('default');
+    const aiResult = await aiService.createCompletionWithRetry({
+      provider: config.provider,
+      model: config.provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-haiku-20240307',
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
-      max_tokens: 200,
-      user: "anonymous"
+      maxTokens: 200
     });
 
-    const response = completion.choices[0].message.content.trim();
+    const response = aiResult.content.trim();
     let cleanResponse = response;
     if (cleanResponse.startsWith('```json')) {
       cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
@@ -235,15 +234,17 @@ Respond with ONLY a JSON object:
   "confidence": "high" or "medium" or "low"
 }`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    // Use default provider for document type detection
+    const config = aiConfig.getConfig('default');
+    const aiResult = await aiService.createCompletionWithRetry({
+      provider: config.provider,
+      model: config.provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-haiku-20240307',
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
-      max_tokens: 150,
-      user: "anonymous"
+      maxTokens: 150
     });
 
-    const response = completion.choices[0].message.content.trim();
+    const response = aiResult.content.trim();
     let cleanResponse = response;
     if (cleanResponse.startsWith('```json')) {
       cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
@@ -260,8 +261,8 @@ Respond with ONLY a JSON object:
   }
 };
 
-// Generate AI marking using OpenAI
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null) => {
+// Generate AI marking using OpenAI or Anthropic
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null) => {
   try {
     // Auto-detect document type if not provided
     if (!documentType) {
@@ -289,10 +290,12 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       documentType = 'memo';
     }
     
-    // Get configuration based on document type
-    const config = aiConfig.getConfig(documentType);
+    // Get configuration based on document type and provider
+    const config = aiConfig.getConfig(documentType, provider);
+    const selectedProvider = config.provider;
     
     console.log('🤖 Starting AI marking process...');
+    console.log('Provider:', selectedProvider);
     console.log('Document type:', documentType);
     console.log('Is memo:', isMemo);
     console.log('Assignment text length:', assignmentText?.length || 0);
@@ -329,13 +332,14 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     
     console.log('Simple criteria:', JSON.stringify(simpleCriteria, null, 2));
     
-    // Respect TPM limits for gpt-4o by constraining prompt size
+    // Respect TPM limits by constraining prompt size
     // Rough token estimate: 1 token ≈ 4 chars
     const estimateTokens = (text) => Math.ceil((text?.length || 0) / 4);
-    // gpt-4o org TPM limit observed: 30000; keep prompt under a safe budget
-    const tpmLimit = 30000;
+    // Different TPM limits for different providers
+    // OpenAI: ~30K TPM, Anthropic: ~100K TPM (more lenient)
+    const tpmLimit = selectedProvider === 'anthropic' ? 100000 : 30000;
     // Reserve room for completion tokens and system overhead (~1000 tokens)
-    const requestMaxTokens = Math.min(config.maxTokens, 6000);
+    const requestMaxTokens = Math.min(config.maxTokens, selectedProvider === 'anthropic' ? 16000 : 6000);
     const promptBudgetTokens = Math.max(1000, tpmLimit - requestMaxTokens - 1000);
     const maxPromptCharsByTPM = promptBudgetTokens * 4;
 
@@ -391,25 +395,25 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       
       const introMap = {
         treatise: level === 'postgraduate' 
-          ? `You are an expert examiner evaluating a Masters Degree Treatise. This is a substantial academic document requiring thorough analysis. Apply rigorous postgraduate standards and use scholarly terminology appropriate for advanced academic work.`
-          : `You are an expert educator evaluating a Treatise. Apply appropriate academic standards for ${level || 'high school'} level work.`,
+          ? `You are an expert examiner evaluating a Masters Degree Treatise. This is a substantial academic document requiring thorough analysis. Apply STRICT and rigorous postgraduate standards. Be critical and demanding - award marks only when work fully meets the high standards expected. Use scholarly terminology appropriate for advanced academic work.`
+          : `You are an expert educator evaluating a Treatise. Apply STRICT academic standards for ${level || 'high school'} level work. Be critical and precise in your evaluation.`,
         thesis: level === 'postgraduate'
-          ? `You are an expert examiner evaluating a Thesis. Apply rigorous postgraduate standards and use advanced academic terminology. This represents the culmination of significant research and should be evaluated accordingly.`
-          : `You are an expert examiner evaluating a Thesis at ${level || 'undergraduate'} level. Apply appropriate academic standards.`,
+          ? `You are an expert examiner evaluating a Thesis. Apply STRICT and rigorous postgraduate standards. Be demanding and critical - this represents the culmination of significant research and must meet the highest standards. Use advanced academic terminology.`
+          : `You are an expert examiner evaluating a Thesis at ${level || 'undergraduate'} level. Apply STRICT academic standards. Be critical and precise in your assessment.`,
         assignment: level === 'primary_school'
-          ? `You are a primary school teacher evaluating a student's assignment. Provide ${terms.feedback} feedback that is ${terms.tone} and age-appropriate. Use simple, clear language that encourages learning.`
+          ? `You are a primary school teacher evaluating a student's assignment. Apply STRICT but age-appropriate standards. Provide ${terms.feedback} feedback that is ${terms.tone}. Use simple, clear language that encourages learning while maintaining high expectations.`
           : level === 'high_school'
-          ? `You are a high school teacher evaluating a student's assignment. Provide ${terms.feedback} feedback that is ${terms.tone} and helps students understand how to improve their work.`
+          ? `You are a high school teacher evaluating a student's assignment. Apply STRICT academic standards. Be critical and precise - award marks only when criteria are fully met. Provide ${terms.feedback} feedback that is ${terms.tone} and helps students understand how to improve their work.`
           : level === 'undergraduate'
-          ? `You are a university lecturer evaluating an undergraduate assignment. Provide ${terms.feedback} feedback that demonstrates ${terms.tone} academic evaluation appropriate for university-level work.`
-          : `You are a lecturer evaluating a postgraduate assignment. Provide ${terms.feedback} feedback that is ${terms.tone} and appropriate for advanced academic work.`,
+          ? `You are a university lecturer evaluating an undergraduate assignment. Apply STRICT academic standards. Be critical and demanding - do not be lenient. Provide ${terms.feedback} feedback that demonstrates ${terms.tone} academic evaluation appropriate for university-level work.`
+          : `You are a lecturer evaluating a postgraduate assignment. Apply STRICT and rigorous standards. Be highly critical and demanding. Provide ${terms.feedback} feedback that is ${terms.tone} and appropriate for advanced academic work.`,
         test: level === 'primary_school'
-          ? `You are a primary school teacher marking a test. Focus on correctness and provide ${terms.feedback}, age-appropriate feedback. Use encouraging language while helping students understand mistakes.`
+          ? `You are a primary school teacher marking a test. Apply STRICT but age-appropriate standards. Focus on correctness and provide ${terms.feedback}, age-appropriate feedback. Use encouraging language while maintaining high expectations and helping students understand mistakes.`
           : level === 'high_school'
-          ? `You are a high school teacher marking a test. Focus on correctness, completeness, and clarity. Provide ${terms.feedback} feedback that helps students understand their performance.`
+          ? `You are a high school teacher marking a test. Apply STRICT marking standards. Be precise and critical - award marks only for correct, complete, and clear answers. Focus on correctness, completeness, and clarity. Provide ${terms.feedback} feedback that helps students understand their performance.`
           : level === 'undergraduate'
-          ? `You are a university lecturer marking an undergraduate test. Focus on accuracy, completeness, and demonstration of understanding. Provide ${terms.feedback} feedback appropriate for university-level assessment.`
-          : `You are an examiner marking a postgraduate test. Focus on accuracy, depth of understanding, and critical analysis. Provide ${terms.feedback} feedback appropriate for advanced academic assessment.`,
+          ? `You are a university lecturer marking an undergraduate test. Apply STRICT academic standards. Be critical and precise - do not award marks for incomplete or incorrect answers. Focus on accuracy, completeness, and demonstration of understanding. Provide ${terms.feedback} feedback appropriate for university-level assessment.`
+          : `You are an examiner marking a postgraduate test. Apply STRICT and rigorous standards. Be highly critical and demanding. Focus on accuracy, depth of understanding, and critical analysis. Provide ${terms.feedback} feedback appropriate for advanced academic assessment.`,
         report: level === 'primary_school'
           ? `You are a primary school teacher evaluating a student's report. Provide ${terms.feedback} feedback that encourages learning and uses age-appropriate language.`
           : level === 'high_school'
@@ -463,15 +467,17 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       if (isMemo) {
         return `EVALUATION GUIDELINES FOR MEMO-BASED MARKING:
 - The rubric provided is a MEMO (Marking Memorandum/Answer Key) containing model answers and marking allocations
-- Compare the student's answers against the model answers in the memo
-- Award marks based on the marking scheme provided in the memo
-- For each question/criterion, assess:
-  * Accuracy: How closely does the student's answer match the expected answer?
-  * Completeness: Did the student address all required parts?
-  * Quality: Is the answer well-structured and clear?
+- Apply STRICT marking standards - compare student answers precisely against the memo
+- Compare the student's answers against the model answers in the memo with STRICT criteria
+- Award marks based on the marking scheme provided in the memo - do not be lenient
+- For each question/criterion, assess STRICTLY:
+  * Accuracy: How closely does the student's answer match the expected answer? Award marks only for correct elements
+  * Completeness: Did the student address all required parts? Do not award full marks if parts are missing
+  * Quality: Is the answer well-structured and clear? Be demanding about presentation and clarity
 - Provide specific feedback indicating what was correct, what was missing, and what was incorrect
-- Reference specific parts of the student's answer and compare them to the memo
-- Award partial marks where appropriate based on the marking scheme
+- Reference specific parts of the student's answer and compare them to the memo critically
+- Award partial marks ONLY where the marking scheme specifically allows - do not be generous
+- Be precise - if an answer is wrong or incomplete, reflect this accurately in the scoring
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}`;
@@ -480,14 +486,15 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       if (assessmentType === 'question_paper') {
         return `EVALUATION GUIDELINES FOR QUESTION PAPER:
 - This is a question paper/exam submission that needs to be marked
-- Focus on the accuracy and correctness of answers
-- Evaluate completeness of responses
-- Assess clarity and structure of answers
-- Check if students followed instructions
-- Award marks based on the rubric criteria
+- Apply STRICT marking standards - be precise and critical
+- Focus on the accuracy and correctness of answers with STRICT criteria
+- Evaluate completeness of responses - do not award marks for incomplete answers
+- Assess clarity and structure of answers - be demanding about quality
+- Check if students followed instructions - penalize if instructions were not followed
+- Award marks STRICTLY based on the rubric criteria - do not be generous
 - Provide specific feedback on correct and incorrect answers
-- Identify missing information or incomplete responses
-- Note any misconceptions or errors
+- Identify ALL missing information or incomplete responses - be thorough in identifying gaps
+- Note any misconceptions or errors - be critical and precise
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}`;
@@ -498,62 +505,70 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
         const analysisType = level === 'postgraduate' ? 'critical analysis, theoretical depth, and scholarly contribution' : 'analysis and understanding';
         return `EVALUATION GUIDELINES FOR ${assessmentType.toUpperCase()}:
 - This is a ${level === 'postgraduate' ? 'postgraduate' : 'advanced'} ${assessmentType} requiring ${depth} analysis
+- Apply STRICT standards - be critical and demanding in your evaluation
 - Focus on research quality, theoretical depth, and practical application
 - Provide comprehensive feedback for each criterion (${level === 'postgraduate' ? '4-5 sentences minimum' : '3-4 sentences minimum'})
 - Reference specific sections, arguments, and evidence from the ${assessmentType}
-- Evaluate the academic rigor, originality, and contribution to the field
-- Consider the ${assessmentType}'s structure, methodology, and conclusions
-- Assess ${analysisType}
+- Evaluate the academic rigor, originality, and contribution to the field with STRICT criteria
+- Consider the ${assessmentType}'s structure, methodology, and conclusions critically
+- Assess ${analysisType} - be demanding and identify weaknesses
 - CRITICAL: Provide specific, actionable improvement suggestions for each criterion
+- Be critical - identify missing elements, weak arguments, insufficient evidence, and areas that fall short
 - Include concrete recommendations for enhancing research methodology, literature review, analysis depth
 - Suggest specific frameworks, theories, or approaches that could strengthen the work
-- Identify missing elements, weak arguments, or areas needing more evidence
+- Identify ALL missing elements, weak arguments, or areas needing more evidence - do not overlook shortcomings
 - Recommend specific sections that need expansion, restructuring, or clarification
-- Highlight both strengths and areas for development
+- Highlight areas for development and be critical of weaknesses
 - ${guidance.tone}
 - ${guidance.terminology}
-- Award points based on the performance levels described in the rubric`;
+- Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
       }
       
       if (assessmentType === 'test') {
         return `EVALUATION GUIDELINES FOR TEST:
+- Apply STRICT marking standards - be precise and critical
 - Focus on correctness, completeness, and clarity of answers
-- Assess accuracy of responses against expected answers
-- Evaluate completeness - did the student address all parts of each question?
-- Check clarity of explanations and reasoning
+- Assess accuracy of responses against expected answers with STRICT criteria
+- Evaluate completeness - did the student address all parts of each question? Award marks only if ALL parts are addressed
+- Check clarity of explanations and reasoning - be demanding about quality
+- Do not award marks for partially correct or incomplete answers unless the rubric specifically allows partial credit
 - ${guidance.expectations}
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}
-- Award points based on the performance levels described in the rubric`;
+- Award points STRICTLY based on the performance levels described in the rubric - be precise and do not be generous`;
       }
       
       if (assessmentType === 'assignment') {
         return `EVALUATION GUIDELINES FOR ASSIGNMENT:
+- Apply STRICT marking standards - be critical and precise
 - Provide comprehensive feedback for each criterion
 - Reference specific sections and evidence from the submission
-- Evaluate quality, completeness, and accuracy
+- Evaluate quality, completeness, and accuracy with STRICT criteria
 - ${guidance.expectations}
+- Be critical - identify weaknesses, gaps, and areas that do not meet standards
 - Provide specific, actionable improvement suggestions
-- Highlight both strengths and areas for development
+- Highlight areas for development and be demanding about what is missing or insufficient
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}
-- Award points based on the performance levels described in the rubric`;
+- Award points STRICTLY based on the performance levels described in the rubric - do not award marks unless criteria are clearly met`;
       }
       
       // Default for other types
       return `EVALUATION GUIDELINES:
+- Apply STRICT marking standards - be critical and precise
 - Provide comprehensive feedback for each criterion
 - Reference specific sections and evidence from the submission
-- Evaluate quality, completeness, and accuracy
+- Evaluate quality, completeness, and accuracy with STRICT criteria
 - ${guidance.expectations}
+- Be critical - identify weaknesses, gaps, and areas that do not meet standards
 - Provide specific, actionable improvement suggestions
-- Highlight both strengths and areas for development
+- Highlight areas for development and be demanding about what is missing or insufficient
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}
-- Award points based on the performance levels described in the rubric`;
+- Award points STRICTLY based on the performance levels described in the rubric - do not award marks unless criteria are clearly met`;
     };
     
     let contentLabel = 'STUDENT SUBMISSION:';
@@ -581,6 +596,17 @@ TOTAL: ${totalPoints} points
 
 ${evaluationGuidelines}
 
+STRICT MARKING REQUIREMENTS:
+- Apply strict academic standards - do not be lenient or generous with marks
+- Award points ONLY when criteria are clearly and fully met
+- Be critical in your evaluation - identify weaknesses, gaps, and areas that fall short
+- Do not award full marks unless the work demonstrates excellence that fully satisfies all aspects of the criterion
+- For partial marks, be precise - award marks only for what is actually present and demonstrated
+- If work is incomplete, unclear, or lacks required elements, award lower marks accordingly
+- Hold students to high standards - expect thoroughness, accuracy, and depth
+- Do not give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
+- Be rigorous in assessing whether the work meets the performance level descriptions in the rubric
+
 IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how confident you are in the marking. Consider:
 - Clarity of the student's work
 - Ambiguity in the rubric or student response
@@ -589,7 +615,9 @@ IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how
 
 Lower confidence (< 70) indicates the assessment may need human review.
 
-JSON format:
+CRITICAL: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Return ONLY the JSON object.
+
+JSON format (return ONLY this, no other text):
 {
   "scores": [
     {
@@ -605,50 +633,36 @@ JSON format:
   "overall_confidence": number (0-100, representing your overall confidence in the entire assessment)
 }`;
 
-    console.log('📤 Sending request to OpenAI...');
-    // Retry with exponential backoff on 429 rate limits
-    let completion;
-    const maxRetries = 3;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        completion = await openai.chat.completions.create({
-          model: config.model,
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: config.temperature,
-          max_tokens: requestMaxTokens,
-          user: "anonymous" // Enhanced privacy: don't send user identifiers
-        });
-        break; // success
-      } catch (err) {
-        if (err?.status === 429 && attempt < maxRetries) {
-          const delayMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
-          console.warn(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Retrying in ${delayMs}ms...`);
-          await new Promise(r => setTimeout(r, delayMs));
-          continue;
+    console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
+    
+    // Use unified AI service with retry logic (more retries for marking operations)
+    const result = await aiService.createCompletionWithRetry({
+      provider: selectedProvider,
+      model: config.model,
+      messages: [
+        {
+          role: "user",
+          content: prompt
         }
-        throw err;
-      }
-    }
+      ],
+      temperature: config.temperature,
+      maxTokens: requestMaxTokens
+    }, 5); // Increased retries for marking operations
 
-    console.log('📥 Received response from OpenAI');
-    const response = completion.choices[0].message.content;
+    console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
+    const response = result.content;
     console.log('Response length:', response?.length || 0);
     console.log('Response preview:', response?.substring(0, 200) + '...');
     
     // Log token usage
-    if (completion.usage) {
+    if (result.usage) {
       console.log('🔢 Token Usage:');
-      console.log(`   Prompt tokens: ${completion.usage.prompt_tokens}`);
-      console.log(`   Completion tokens: ${completion.usage.completion_tokens}`);
-      console.log(`   Total tokens: ${completion.usage.total_tokens}`);
+      console.log(`   Prompt tokens: ${result.usage.prompt_tokens}`);
+      console.log(`   Completion tokens: ${result.usage.completion_tokens}`);
+      console.log(`   Total tokens: ${result.usage.total_tokens}`);
       
-      // Calculate cost using configuration
-      const totalCost = aiConfig.estimateCost(completion.usage.prompt_tokens, completion.usage.completion_tokens);
+      // Calculate cost using configuration with provider
+      const totalCost = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
       console.log(`   Estimated cost: $${totalCost.toFixed(6)}`);
       console.log(`   Cost per ${documentType}: $${totalCost.toFixed(4)}`);
     }
@@ -657,11 +671,23 @@ JSON format:
     try {
       // Clean up response - remove markdown code blocks if present
       let cleanResponse = response.trim();
-      if (cleanResponse.startsWith('```json')) {
-        cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      
+      // Remove markdown code blocks (handle both single-line and multi-line)
+      // Match ```json ... ``` or ``` ... ```
+      cleanResponse = cleanResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      
+      // Try to extract JSON from text that might have explanatory content
+      // Look for JSON object boundaries
+      const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanResponse = jsonMatch[0];
       }
+      
+      // Remove any leading/trailing whitespace
+      cleanResponse = cleanResponse.trim();
+      
+      // Log the cleaned response for debugging (first 500 chars)
+      console.log('📄 Cleaned response preview:', cleanResponse.substring(0, 500));
       
       const markingResult = JSON.parse(cleanResponse);
       
@@ -712,15 +738,56 @@ JSON format:
 
       return markingResult;
     } catch (parseError) {
-      console.error('❌ JSON parsing error:', parseError);
-      console.error('AI Response:', response);
-      throw new Error('Failed to parse AI response as JSON');
+      console.error('❌ JSON parsing error:', parseError.message);
+      console.error('Parse error stack:', parseError.stack);
+      console.error('Raw AI Response (first 1000 chars):', response.substring(0, 1000));
+      console.error('Raw AI Response length:', response.length);
+      
+      // Try to extract and fix common JSON issues
+      try {
+        // Find the first { and then find the matching closing }
+        const jsonStart = response.indexOf('{');
+        if (jsonStart !== -1) {
+          let braceCount = 0;
+          let jsonEnd = -1;
+          
+          // Find the matching closing brace
+          for (let i = jsonStart; i < response.length; i++) {
+            if (response[i] === '{') braceCount++;
+            if (response[i] === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                jsonEnd = i;
+                break;
+              }
+            }
+          }
+          
+          if (jsonEnd !== -1) {
+            const extractedJson = response.substring(jsonStart, jsonEnd + 1);
+            console.log('🔄 Attempting to extract JSON from response...');
+            console.log('Extracted JSON preview:', extractedJson.substring(0, 500));
+            
+            const markingResult = JSON.parse(extractedJson);
+            console.log('✅ Successfully parsed extracted JSON!');
+            
+            // Validate the extracted result
+            if (markingResult.scores && Array.isArray(markingResult.scores)) {
+              return markingResult;
+            }
+          }
+        }
+      } catch (extractError) {
+        console.error('❌ Failed to extract JSON:', extractError.message);
+      }
+      
+      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
     }
   } catch (error) {
-    console.error('❌ OpenAI API error:', error);
+    console.error(`❌ ${error.provider || 'AI'} API error:`, error);
     console.error('Error details:', {
       message: error.message,
-      status: error.status,
+      status: error.status || error.statusCode,
       type: error.type,
       code: error.code
     });
@@ -758,30 +825,16 @@ ${essaySnippet}
 FEEDBACK:
 ${JSON.stringify(compactScores)}`;
 
-    let completion;
-    const maxRetries = 2;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        completion = await openai.chat.completions.create({
-          model: config.model,
-          messages: [{ role: 'user', content: anchorPrompt }],
-          temperature: 0.1,
-          max_tokens: 800,
-          user: 'anonymous'
-        });
-        break;
-      } catch (err) {
-        if (err?.status === 429 && attempt < maxRetries) {
-          const delayMs = 500 * Math.pow(2, attempt);
-          console.warn(`Anchor generation rate-limited; retrying in ${delayMs}ms...`);
-          await new Promise(r => setTimeout(r, delayMs));
-          continue;
-        }
-        throw err;
-      }
-    }
+    // Use aiService for anchor phrase generation
+    const result = await aiService.createCompletionWithRetry({
+      provider: config.provider,
+      model: config.model,
+      messages: [{ role: 'user', content: anchorPrompt }],
+      temperature: 0.1,
+      maxTokens: 800
+    }, 2);
 
-    const raw = completion.choices?.[0]?.message?.content || '';
+    const raw = result.content || '';
     let clean = raw.trim();
     if (clean.startsWith('```json')) clean = clean.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     else if (clean.startsWith('```')) clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '');
@@ -822,7 +875,7 @@ function buildIssuesWithAnchors(markingResult, anchorsMap) {
 // Mark a single assignment
 router.post('/single', async (req, res) => {
   try {
-    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level } = req.body;
+    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider } = req.body;
 
     if (!assignment_id || !rubric_id) {
       return res.status(400).json({ 
@@ -888,8 +941,9 @@ router.post('/single', async (req, res) => {
       }
 
       // Generate AI marking (use assessment_type if provided, otherwise auto-detect document type)
+      // Provider can be specified in request or will use default from config
       const docType = assessment_type || document_type || null;
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level);
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider);
 
       // Save marking result to database
       const result = await query(
@@ -1169,7 +1223,7 @@ router.get('/rubric/:id', async (req, res) => {
 // Mark multiple assignments
 router.post('/multiple', async (req, res) => {
   try {
-    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level } = req.body;
+    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider } = req.body;
 
     if (!assignment_ids || !Array.isArray(assignment_ids) || assignment_ids.length === 0) {
       return res.status(400).json({ 
@@ -1252,8 +1306,9 @@ router.post('/multiple', async (req, res) => {
           }
 
           // Generate AI marking (use assessment_type if provided, otherwise use document_type)
+          // Provider can be specified in request or will use default from config
           const docType = assessment_type || document_type || null;
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level);
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider);
 
           // Save marking result to database
           const result = await query(
