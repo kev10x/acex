@@ -10,6 +10,8 @@ const RubricGenerator: React.FC = () => {
   const [rubricName, setRubricName] = useState('');
   const [rubricType, setRubricType] = useState<RubricType>('auto');
   const [generatedRubric, setGeneratedRubric] = useState<Rubric | null>(null);
+  const [generatedRubricType, setGeneratedRubricType] = useState<'rubric' | 'answer_key'>('rubric');
+  const [detectedDocumentType, setDetectedDocumentType] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -38,16 +40,26 @@ const RubricGenerator: React.FC = () => {
     setSuccess(null);
 
     try {
+      setDetectedDocumentType(null);
+      setGeneratedRubricType('rubric');
       const response = await rubricGeneratorAPI.generateFromPDF({
         assignment_id: selectedAssignment,
         rubric_name: rubricName || undefined,
         rubric_type: rubricType
       });
 
-      setGeneratedRubric(response.data.rubric);
-      const message = response.data.is_answer_key 
-        ? 'Answer key generated successfully! Review and save if you like it.'
-        : 'Rubric generated successfully! Review and save if you like it.';
+      setGeneratedRubric({
+        ...response.data.rubric,
+        rubric_type: response.data.rubric?.rubric_type || (response.data.final_type === 'answer_key' ? 'answer_key' : 'rubric')
+      });
+      const resolvedType = response.data.final_type === 'answer_key' || response.data.is_answer_key ? 'answer_key' : 'rubric';
+      setGeneratedRubricType(resolvedType);
+      setDetectedDocumentType(response.data.detected_type || null);
+
+      const message =
+        resolvedType === 'answer_key'
+          ? `Answer key generated successfully${rubricType === 'auto' && response.data.detected_type ? ` (auto-detected ${response.data.detected_type})` : ''}. Review and save if you like it.`
+          : `Rubric generated successfully${rubricType === 'auto' && response.data.detected_type ? ` (auto-detected ${response.data.detected_type})` : ''}. Review and save if you like it.`;
       setSuccess(message);
     } catch (err: any) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Failed to generate rubric');
@@ -66,7 +78,8 @@ const RubricGenerator: React.FC = () => {
       await rubricGeneratorAPI.saveGenerated({
         name: generatedRubric.name,
         criteria: generatedRubric.criteria,
-        total_points: generatedRubric.total_points
+        total_points: generatedRubric.total_points,
+        rubric_type: generatedRubricType
       });
 
       setSuccess('Rubric saved successfully!');

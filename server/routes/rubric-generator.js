@@ -186,7 +186,10 @@ IMPORTANT:
       });
 
       console.log('✅ Answer key generated successfully');
-      return answerKeyData;
+      return {
+        ...answerKeyData,
+        rubric_type: 'answer_key'
+      };
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError);
       console.error('AI Response:', response);
@@ -283,7 +286,10 @@ ${prompt}`,
         rubricData.name = rubricName;
       }
 
-      return rubricData;
+      return {
+        ...rubricData,
+        rubric_type: 'rubric'
+      };
     } catch (parseError) {
       console.error('JSON parsing error:', parseError);
       console.error('AI Response:', response);
@@ -332,6 +338,7 @@ router.post('/from-pdf', async (req, res) => {
       let finalType = rubric_type || 'auto';
       let detectedType = null;
       
+      let autoDetectedType = null;
       if (finalType === 'auto') {
         // Auto-detect document type
         console.log('🔍 Auto-detecting document type...');
@@ -339,27 +346,24 @@ router.post('/from-pdf', async (req, res) => {
         console.log('📝 Detected document type:', detectedType);
         
         // Auto-generate based on detection
-        if (detectedType === 'question_paper') {
-          finalType = 'answer_key';
-        } else if (detectedType === 'memo') {
-          return res.status(400).json({
-            error: 'Memo/Answer Key Detected',
-            message: 'This appears to be a marking memorandum/answer key. You can upload this as a rubric and use it to mark student question papers. No need to generate a rubric from it.',
-            detected_type: detectedType
-          });
-        } else if (detectedType === 'rubric') {
-          return res.status(400).json({
-            error: 'Rubric Detected',
-            message: 'This appears to already be a rubric. You can upload it directly as a rubric instead of generating one.',
-            detected_type: detectedType
-          });
-        } else {
-          finalType = 'rubric';
+        autoDetectedType = detectedType;
+        switch (detectedType) {
+          case 'question_paper':
+          case 'memo':
+            finalType = 'answer_key';
+            break;
+          case 'rubric':
+            finalType = 'rubric';
+            break;
+          default:
+            finalType = 'rubric';
+            break;
         }
       } else {
         // User selected type - still detect for logging but use their selection
         detectedType = await detectDocumentType(assignmentText);
         console.log('📝 Detected document type:', detectedType, '(using user selection:', finalType, ')');
+        autoDetectedType = detectedType;
       }
 
       // Generate based on final type
@@ -372,8 +376,10 @@ router.post('/from-pdf', async (req, res) => {
           success: true,
           rubric: answerKeyData,
           message: 'Answer key generated successfully. This can be used as a rubric to mark student responses.',
-          detected_type: detectedType,
-          is_answer_key: true
+          detected_type: autoDetectedType || detectedType,
+          final_type: 'answer_key',
+          is_answer_key: true,
+          rubric_type: 'answer_key'
         });
       } else {
         // Generate regular rubric
@@ -384,8 +390,10 @@ router.post('/from-pdf', async (req, res) => {
           success: true,
           rubric: rubricData,
           message: 'Rubric generated successfully from PDF',
-          detected_type: detectedType,
-          is_answer_key: false
+          detected_type: autoDetectedType || detectedType,
+          final_type: 'rubric',
+          is_answer_key: false,
+          rubric_type: 'rubric'
         });
       }
     } catch (processingError) {
@@ -403,7 +411,7 @@ router.post('/from-pdf', async (req, res) => {
 // Save generated rubric
 router.post('/save', async (req, res) => {
   try {
-    const { name, criteria, total_points } = req.body;
+    const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
 
     if (!name || !criteria || !total_points) {
       return res.status(400).json({ 
@@ -427,9 +435,11 @@ router.post('/save', async (req, res) => {
       });
     }
 
+    const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
+
     const result = await query(
-      'INSERT INTO rubrics (name, criteria, total_points) VALUES (?, ?, ?)',
-      [name, JSON.stringify(criteria), total_points]
+      'INSERT INTO rubrics (name, criteria, total_points, rubric_type) VALUES (?, ?, ?, ?)',
+      [name, JSON.stringify(criteria), total_points, normalizedType]
     );
     
     // For SQLite, we need to get the last inserted ID separately
@@ -439,6 +449,7 @@ router.post('/save', async (req, res) => {
       name,
       criteria: JSON.parse(JSON.stringify(criteria)),
       total_points: total_points,
+      rubric_type: normalizedType,
       created_at: new Date().toISOString()
     };
 

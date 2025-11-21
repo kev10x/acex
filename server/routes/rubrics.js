@@ -6,7 +6,7 @@ const router = express.Router();
 // Create a new rubric
 router.post('/', async (req, res) => {
   try {
-    const { name, criteria, total_points } = req.body;
+    const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
 
     if (!name || !criteria || !total_points) {
       return res.status(400).json({ 
@@ -39,9 +39,11 @@ router.post('/', async (req, res) => {
       });
     }
 
+    const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
+
     const result = await query(
-      'INSERT INTO rubrics (name, criteria, total_points) VALUES (?, ?, ?)',
-      [name, JSON.stringify(criteria), total_points]
+      'INSERT INTO rubrics (name, criteria, total_points, rubric_type) VALUES (?, ?, ?, ?)',
+      [name, JSON.stringify(criteria), total_points, normalizedType]
     );
     
     // For SQLite, we need to get the last inserted ID separately
@@ -51,6 +53,7 @@ router.post('/', async (req, res) => {
       name,
       criteria: JSON.parse(JSON.stringify(criteria)),
       total_points: total_points,
+      rubric_type: normalizedType,
       created_at: new Date().toISOString()
     };
 
@@ -75,6 +78,7 @@ router.get('/', async (req, res) => {
     // Parse criteria JSON for each rubric
     const rubrics = result.rows.map(rubric => ({
       ...rubric,
+      rubric_type: rubric.rubric_type || 'rubric',
       criteria: typeof rubric.criteria === 'string' ? JSON.parse(rubric.criteria) : rubric.criteria
     }));
     
@@ -102,7 +106,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Rubric not found' });
     }
 
-    const rubric = result.rows[0];
+    const rubric = { ...result.rows[0], rubric_type: result.rows[0].rubric_type || 'rubric' };
     
     // Parse criteria if it's a JSON string
     if (typeof rubric.criteria === 'string') {
@@ -123,7 +127,7 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, criteria, total_points } = req.body;
+    const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
 
     if (!name || !criteria || !total_points) {
       return res.status(400).json({ 
@@ -147,9 +151,11 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+    const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
+
     const result = await query(
-      'UPDATE rubrics SET name = ?, criteria = ?, total_points = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [name, JSON.stringify(criteria), total_points, id]
+      'UPDATE rubrics SET name = ?, criteria = ?, total_points = ?, rubric_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [name, JSON.stringify(criteria), total_points, normalizedType, id]
     );
     
     // For SQLite, we need to get the updated record separately

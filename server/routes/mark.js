@@ -282,7 +282,12 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     } else {
       rubricText += JSON.stringify(rubric.criteria || []);
     }
-    const isMemo = await detectMemo(rubricText);
+    let isMemo = false;
+    if (rubric?.rubric_type === 'answer_key') {
+      isMemo = true;
+    } else {
+      isMemo = await detectMemo(rubricText);
+    }
     
     if (isMemo) {
       console.log('📋 Rubric detected as MEMO (answer key/marking memorandum)');

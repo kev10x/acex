@@ -11,7 +11,8 @@ const RubricManager: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     criteria: [] as RubricCriterion[],
-    total_points: 0
+    total_points: 0,
+    rubric_type: 'rubric' as 'rubric' | 'answer_key'
   });
 
   useEffect(() => {
@@ -60,7 +61,8 @@ const RubricManager: React.FC = () => {
     setFormData({
       name: rubric.name,
       criteria: rubric.criteria,
-      total_points: rubric.total_points
+      total_points: rubric.total_points,
+      rubric_type: rubric.rubric_type || 'rubric'
     });
     setShowForm(true);
   };
@@ -80,7 +82,8 @@ const RubricManager: React.FC = () => {
     setFormData({
       name: '',
       criteria: [],
-      total_points: 0
+      total_points: 0,
+      rubric_type: 'rubric'
     });
     setEditingRubric(null);
     setShowForm(false);
@@ -179,6 +182,26 @@ const RubricManager: React.FC = () => {
                   className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                   required
                 />
+              </div>
+
+              <div>
+                <label htmlFor="rubricType" className="block text-sm font-medium text-gray-700">
+                  Rubric Type
+                </label>
+                <select
+                  id="rubricType"
+                  value={formData.rubric_type}
+                  onChange={(e) => setFormData(prev => ({ ...prev, rubric_type: e.target.value as 'rubric' | 'answer_key' }))}
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                >
+                  <option value="rubric">Regular Rubric</option>
+                  <option value="answer_key">Answer Key / Memo</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {formData.rubric_type === 'rubric'
+                    ? 'Use for standard marking rubrics with performance criteria.'
+                    : 'Use for memos/answer keys with model answers; will be treated as a memo during marking.'}
+                </p>
               </div>
 
               <div>
@@ -308,9 +331,20 @@ const RubricManager: React.FC = () => {
                       <h4 className="text-lg font-medium text-gray-900">
                         {rubric.name}
                       </h4>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {rubric.criteria.length} criteria • {rubric.total_points} total points
-                      </p>
+                      <div className="mt-1 flex items-center space-x-2">
+                        <p className="text-sm text-gray-500">
+                          {rubric.criteria.length} criteria • {rubric.total_points} total points
+                        </p>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            rubric.rubric_type === 'answer_key'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-blue-100 text-blue-800'
+                          }`}
+                        >
+                          {rubric.rubric_type === 'answer_key' ? 'Answer Key / Memo' : 'Rubric'}
+                        </span>
+                      </div>
                       <div className="mt-3 space-y-2">
                         {rubric.criteria.map((criterion, index) => (
                           <div key={`${rubric.id}-criterion-${index}`} className="flex justify-between items-center text-sm">

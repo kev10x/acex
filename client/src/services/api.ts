@@ -62,6 +62,7 @@ export interface Rubric {
   name: string;
   criteria: RubricCriterion[];
   total_points: number;
+  rubric_type?: 'rubric' | 'answer_key';
   created_at: string;
 }
 
@@ -221,6 +222,7 @@ export const rubricGeneratorAPI = {
     name: string;
     criteria: RubricCriterion[];
     total_points: number;
+    rubric_type?: 'rubric' | 'answer_key';
   }) => api.post('/rubric-generator/save', data),
 };
 

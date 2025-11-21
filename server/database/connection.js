@@ -80,14 +80,23 @@ const initDatabase = async () => {
     if (usingSQLite) {
       // SQLite table creation with proper syntax
       await query(`
+        CREATE TABLE IF NOT EXISTS assignments (
         CREATE TABLE IF NOT EXISTS rubrics (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           criteria TEXT NOT NULL,
           total_points INTEGER NOT NULL,
+          rubric_type TEXT DEFAULT 'rubric',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
+
+      // Ensure rubric_type column exists (for older installations)
+      try {
+        await query(`ALTER TABLE rubrics ADD COLUMN rubric_type TEXT DEFAULT 'rubric'`);
+      } catch (err) {
+        // Column may already exist
+      }
 
       await query(`
         CREATE TABLE IF NOT EXISTS assignments (
@@ -164,9 +173,19 @@ const initDatabase = async () => {
           name VARCHAR(255) NOT NULL,
           criteria JSON NOT NULL,
           total_points INT NOT NULL,
+          rubric_type VARCHAR(50) DEFAULT 'rubric',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+
+      // Ensure rubric_type column exists
+      try {
+        await query(`ALTER TABLE rubrics ADD COLUMN rubric_type VARCHAR(50) DEFAULT 'rubric'`);
+      } catch (err) {
+        if (!err.message?.includes('Duplicate column')) {
+          console.log('Note: Could not add rubric_type column (may already exist):', err.message);
+        }
+      }
 
       await query(`
         CREATE TABLE IF NOT EXISTS assignments (
@@ -292,9 +311,17 @@ const initDatabase = async () => {
           name VARCHAR(255) NOT NULL,
           criteria JSONB NOT NULL,
           total_points INTEGER NOT NULL,
+          rubric_type VARCHAR(50) DEFAULT 'rubric',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+
+      // Ensure rubric_type column exists
+      try {
+        await query(`ALTER TABLE rubrics ADD COLUMN IF NOT EXISTS rubric_type VARCHAR(50) DEFAULT 'rubric'`);
+      } catch (err) {
+        console.log('Note: Could not ensure rubric_type column:', err.message);
+      }
 
       await query(`
         CREATE TABLE IF NOT EXISTS assignments (
