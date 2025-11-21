@@ -13,8 +13,38 @@ router.get('/test', (req, res) => {
   res.json({ 
     message: 'Upload endpoint is working',
     uploadDir: uploadDir,
-    maxFileSize: process.env.MAX_FILE_SIZE || '10MB'
+    maxFileSize: process.env.MAX_FILE_SIZE || '10MB',
+    timestamp: new Date().toISOString()
   });
+});
+
+// Health check for upload service
+router.get('/health', (req, res) => {
+  try {
+    const uploadDirExists = fs.existsSync(uploadDir);
+    const uploadDirWritable = uploadDirExists && fs.accessSync ? (() => {
+      try {
+        fs.accessSync(uploadDir, fs.constants.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    })() : uploadDirExists;
+    
+    res.json({
+      status: 'ok',
+      uploadDir: uploadDir,
+      uploadDirExists: uploadDirExists,
+      uploadDirWritable: uploadDirWritable,
+      maxFileSize: process.env.MAX_FILE_SIZE || '10MB',
+      maxZipSize: process.env.MAX_ZIP_SIZE || '100MB'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message
+    });
+  }
 });
 
 // Ensure uploads directory exists

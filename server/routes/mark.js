@@ -262,7 +262,7 @@ Respond with ONLY a JSON object:
 };
 
 // Generate AI marking using OpenAI or Anthropic
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null) => {
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict') => {
   try {
     // Auto-detect document type if not provided
     if (!documentType) {
@@ -582,6 +582,59 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     
     const evaluationGuidelines = getEvaluationGuidelines(documentType, level, isMemo);
 
+    // Get strictness guidelines based on strictness level
+    const getStrictnessGuidelines = (strictness) => {
+      const strictnessMap = {
+        'very_strict': `VERY STRICT MARKING REQUIREMENTS:
+- Apply extremely rigorous academic standards - be highly critical and demanding
+- Award points ONLY when criteria are completely and fully met with excellence
+- Be very critical in your evaluation - identify ALL weaknesses, gaps, and areas that fall short
+- Do not award full marks unless the work demonstrates exceptional excellence that fully satisfies ALL aspects of the criterion
+- For partial marks, be extremely precise - award marks only for what is clearly present and well-demonstrated
+- If work is incomplete, unclear, or lacks ANY required elements, award significantly lower marks
+- Hold students to the highest standards - expect exceptional thoroughness, accuracy, and depth
+- Never give benefit of the doubt - if something is missing, unclear, or incorrect, reflect this harshly in the scoring
+- Be extremely rigorous in assessing whether the work meets the performance level descriptions in the rubric
+- Penalize minor errors and omissions more severely
+- Expect near-perfect work for top marks`,
+
+        'strict': `STRICT MARKING REQUIREMENTS:
+- Apply strict academic standards - do not be lenient or generous with marks
+- Award points ONLY when criteria are clearly and fully met
+- Be critical in your evaluation - identify weaknesses, gaps, and areas that fall short
+- Do not award full marks unless the work demonstrates excellence that fully satisfies all aspects of the criterion
+- For partial marks, be precise - award marks only for what is actually present and demonstrated
+- If work is incomplete, unclear, or lacks required elements, award lower marks accordingly
+- Hold students to high standards - expect thoroughness, accuracy, and depth
+- Do not give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
+- Be rigorous in assessing whether the work meets the performance level descriptions in the rubric`,
+
+        'moderate': `MODERATE MARKING REQUIREMENTS:
+- Apply fair but firm academic standards
+- Award points when criteria are substantially met, allowing for minor gaps
+- Be balanced in your evaluation - identify both strengths and areas for improvement
+- Award full marks when the work demonstrates strong performance that meets the key aspects of the criterion
+- For partial marks, be reasonable - award marks for demonstrated understanding even if not perfect
+- If work is incomplete or unclear, award partial marks based on what is present
+- Hold students to reasonable standards - expect good effort and understanding
+- Give some benefit of the doubt for minor issues or unclear areas
+- Be fair in assessing whether the work meets the performance level descriptions in the rubric`,
+
+        'lenient': `LENIENT MARKING REQUIREMENTS:
+- Apply supportive academic standards - focus on learning and improvement
+- Award points when criteria are generally met, even with some gaps
+- Be encouraging in your evaluation - emphasize strengths while noting areas for improvement
+- Award full marks when the work demonstrates good understanding of the key concepts
+- For partial marks, be generous - award marks for effort and demonstrated understanding
+- If work is incomplete, award marks for what is present and shows understanding
+- Hold students to achievable standards - recognize effort and progress
+- Give benefit of the doubt for unclear areas or minor issues
+- Be supportive in assessing whether the work meets the performance level descriptions in the rubric`
+      };
+      
+      return strictnessMap[strictness] || strictnessMap['strict'];
+    };
+
     const rubricLabel = isMemo ? 'MARKING MEMORANDUM (MEMO):' : 'EVALUATION RUBRIC:';
 
     const prompt = `${intro}
@@ -596,16 +649,7 @@ TOTAL: ${totalPoints} points
 
 ${evaluationGuidelines}
 
-STRICT MARKING REQUIREMENTS:
-- Apply strict academic standards - do not be lenient or generous with marks
-- Award points ONLY when criteria are clearly and fully met
-- Be critical in your evaluation - identify weaknesses, gaps, and areas that fall short
-- Do not award full marks unless the work demonstrates excellence that fully satisfies all aspects of the criterion
-- For partial marks, be precise - award marks only for what is actually present and demonstrated
-- If work is incomplete, unclear, or lacks required elements, award lower marks accordingly
-- Hold students to high standards - expect thoroughness, accuracy, and depth
-- Do not give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
-- Be rigorous in assessing whether the work meets the performance level descriptions in the rubric
+${getStrictnessGuidelines(strictnessLevel)}
 
 IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how confident you are in the marking. Consider:
 - Clarity of the student's work
@@ -875,7 +919,7 @@ function buildIssuesWithAnchors(markingResult, anchorsMap) {
 // Mark a single assignment
 router.post('/single', async (req, res) => {
   try {
-    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider } = req.body;
+    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict' } = req.body;
 
     if (!assignment_id || !rubric_id) {
       return res.status(400).json({ 
@@ -943,18 +987,36 @@ router.post('/single', async (req, res) => {
       // Generate AI marking (use assessment_type if provided, otherwise auto-detect document type)
       // Provider can be specified in request or will use default from config
       const docType = assessment_type || document_type || null;
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider);
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level);
 
-      // Save marking result to database
+      // Get current version number for this assignment
+      const versionResult = await query(
+        'SELECT COALESCE(MAX(version), 0) as max_version FROM marking_results WHERE assignment_id = ?',
+        [assignment_id]
+      );
+      const maxVersion = versionResult.rows?.[0]?.max_version || versionResult?.[0]?.max_version || 0;
+      const newVersion = maxVersion + 1;
+
+      // Mark all previous versions as not current
+      await query(
+        'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ?',
+        [assignment_id]
+      );
+
+      // Save marking result to database with version info
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
           student_name || null,
           JSON.stringify(markingResult.scores),
           markingResult.overall_feedback,
-          markingResult.total_score
+          markingResult.total_score,
+          newVersion,
+          1, // is_current
+          strictness_level,
+          provider || null
         ]
       );
       
@@ -969,6 +1031,10 @@ router.post('/single', async (req, res) => {
         feedback: markingResult.overall_feedback,
         total_score: markingResult.total_score,
         marked_at: new Date().toISOString(),
+        version: newVersion,
+        is_current: true,
+        strictness_level: strictness_level,
+        provider: provider || null,
         overall_confidence: markingResult.overall_confidence,
         confidence_level: markingResult.confidence_level,
         needs_review: markingResult.needs_review,
@@ -1223,7 +1289,7 @@ router.get('/rubric/:id', async (req, res) => {
 // Mark multiple assignments
 router.post('/multiple', async (req, res) => {
   try {
-    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider } = req.body;
+    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict' } = req.body;
 
     if (!assignment_ids || !Array.isArray(assignment_ids) || assignment_ids.length === 0) {
       return res.status(400).json({ 
@@ -1262,6 +1328,7 @@ router.post('/multiple', async (req, res) => {
     
     const results = [];
     const errors = [];
+    const skipped = []; // Track assignments that were already successfully marked
 
     // Process each assignment
     for (let i = 0; i < assignment_ids.length; i++) {
@@ -1308,18 +1375,36 @@ router.post('/multiple', async (req, res) => {
           // Generate AI marking (use assessment_type if provided, otherwise use document_type)
           // Provider can be specified in request or will use default from config
           const docType = assessment_type || document_type || null;
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider);
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level);
 
-          // Save marking result to database
+          // Get current version number for this assignment
+          const versionResult = await query(
+            'SELECT COALESCE(MAX(version), 0) as max_version FROM marking_results WHERE assignment_id = ?',
+            [assignment_id]
+          );
+          const maxVersion = versionResult.rows?.[0]?.max_version || versionResult?.[0]?.max_version || 0;
+          const newVersion = maxVersion + 1;
+
+          // Mark all previous versions as not current
+          await query(
+            'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ?',
+            [assignment_id]
+          );
+
+          // Save marking result to database with version info
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
               student_name,
               JSON.stringify(markingResult.scores),
               markingResult.overall_feedback,
-              markingResult.total_score
+              markingResult.total_score,
+              newVersion,
+              1, // is_current
+              strictness_level,
+              provider || null
             ]
           );
           
@@ -1334,6 +1419,10 @@ router.post('/multiple', async (req, res) => {
             feedback: markingResult.overall_feedback,
             total_score: markingResult.total_score,
             marked_at: new Date().toISOString(),
+            version: newVersion,
+            is_current: true,
+            strictness_level: strictness_level,
+            provider: provider || null,
             overall_confidence: markingResult.overall_confidence,
             confidence_level: markingResult.confidence_level,
             needs_review: markingResult.needs_review,
@@ -1421,29 +1510,182 @@ router.post('/multiple', async (req, res) => {
             ['error', assignment_id]
           );
           
-          errors.push({ 
-            assignment_id, 
-            error: processingError.message 
-          });
+          const errorDetails = {
+            assignment_id,
+            error: processingError.message,
+            error_type: processingError.name || 'UnknownError',
+            stack: process.env.NODE_ENV === 'development' ? processingError.stack : undefined
+          };
+          
+          errors.push(errorDetails);
+          console.error(`Error marking assignment ${assignment_id}:`, processingError);
         }
       } catch (error) {
-        errors.push({ 
-          assignment_id, 
-          error: error.message 
-        });
+        // Update assignment status to error
+        await query(
+          'UPDATE assignments SET status = ? WHERE id = ?',
+          ['error', assignment_id]
+        );
+        
+        const errorDetails = {
+          assignment_id,
+          error: error.message,
+          error_type: error.name || 'UnknownError',
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        };
+        
+        errors.push(errorDetails);
+        console.error(`Error processing assignment ${assignment_id}:`, error);
       }
     }
 
+    // Determine overall success status
+    const hasPartialSuccess = results.length > 0 && errors.length > 0;
+    const allFailed = results.length === 0 && errors.length > 0;
+    const allSucceeded = results.length > 0 && errors.length === 0;
+
     res.json({
-      success: true,
+      success: allSucceeded || hasPartialSuccess,
       results,
       errors,
-      message: `Processed ${assignment_ids.length} assignments. ${results.length} successful, ${errors.length} failed.`
+      summary: {
+        total: assignment_ids.length,
+        successful: results.length,
+        failed: errors.length,
+        success_rate: ((results.length / assignment_ids.length) * 100).toFixed(1) + '%'
+      },
+      message: allSucceeded 
+        ? `Successfully marked all ${results.length} assignments`
+        : hasPartialSuccess
+        ? `Partially successful: ${results.length} succeeded, ${errors.length} failed`
+        : `All assignments failed. ${errors.length} errors occurred.`,
+      failed_assignment_ids: errors.map(e => e.assignment_id) // For easy retry
     });
   } catch (error) {
     console.error('Multiple marking error:', error);
     res.status(500).json({ 
       error: 'Failed to mark assignments',
+      details: error.message
+    });
+  }
+});
+
+// Get marking history for an assignment
+router.get('/history/:assignment_id', async (req, res) => {
+  try {
+    const { assignment_id } = req.params;
+
+    const result = await query(
+      'SELECT * FROM marking_results WHERE assignment_id = ? ORDER BY version DESC',
+      [assignment_id]
+    );
+
+    const history = result.rows.map(row => ({
+      ...row,
+      scores: typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores,
+      is_current: row.is_current === 1 || row.is_current === true
+    }));
+
+    res.json({
+      success: true,
+      history: history
+    });
+  } catch (error) {
+    console.error('Get marking history error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get marking history',
+      details: error.message
+    });
+  }
+});
+
+// Restore a previous marking version (make it current)
+router.post('/history/:result_id/restore', async (req, res) => {
+  try {
+    const { result_id } = req.params;
+
+    // Get the result to find its assignment_id
+    const resultQuery = await query(
+      'SELECT assignment_id FROM marking_results WHERE id = ?',
+      [result_id]
+    );
+
+    if (!resultQuery.rows || resultQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Marking result not found' });
+    }
+
+    const assignment_id = resultQuery.rows[0].assignment_id;
+
+    // Mark all versions as not current
+    await query(
+      'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ?',
+      [assignment_id]
+    );
+
+    // Mark the selected version as current
+    await query(
+      'UPDATE marking_results SET is_current = 1 WHERE id = ?',
+      [result_id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Marking version restored successfully'
+    });
+  } catch (error) {
+    console.error('Restore marking version error:', error);
+    res.status(500).json({ 
+      error: 'Failed to restore marking version',
+      details: error.message
+    });
+  }
+});
+
+// Compare two marking versions
+router.get('/history/compare/:result_id1/:result_id2', async (req, res) => {
+  try {
+    const { result_id1, result_id2 } = req.params;
+
+    const [result1, result2] = await Promise.all([
+      query('SELECT * FROM marking_results WHERE id = ?', [result_id1]),
+      query('SELECT * FROM marking_results WHERE id = ?', [result_id2])
+    ]);
+
+    if (!result1.rows || result1.rows.length === 0 || !result2.rows || result2.rows.length === 0) {
+      return res.status(404).json({ error: 'One or both marking results not found' });
+    }
+
+    const version1 = {
+      ...result1.rows[0],
+      scores: typeof result1.rows[0].scores === 'string' ? JSON.parse(result1.rows[0].scores) : result1.rows[0].scores
+    };
+
+    const version2 = {
+      ...result2.rows[0],
+      scores: typeof result2.rows[0].scores === 'string' ? JSON.parse(result2.rows[0].scores) : result2.rows[0].scores
+    };
+
+    res.json({
+      success: true,
+      version1,
+      version2,
+      differences: {
+        total_score_diff: version1.total_score - version2.total_score,
+        score_differences: version1.scores.map((s1, idx) => {
+          const s2 = version2.scores[idx];
+          return {
+            criterion_name: s1.criterion_name,
+            version1_points: s1.points_awarded,
+            version2_points: s2?.points_awarded || 0,
+            difference: (s1.points_awarded || 0) - (s2?.points_awarded || 0)
+          };
+        })
+      }
+    });
+  } catch (error) {
+    console.error('Compare marking versions error:', error);
+    res.status(500).json({ 
+      error: 'Failed to compare marking versions',
       details: error.message
     });
   }

@@ -53,7 +53,23 @@ const FileUpload: React.FC = () => {
     } catch (err: any) {
       console.error('Upload error:', err);
       console.error('Error response:', err.response?.data);
-      setError(err.response?.data?.error || err.message || 'Failed to upload files');
+      console.error('Error details:', {
+        message: err.message,
+        code: err.code,
+        response: err.response?.status,
+        responseData: err.response?.data
+      });
+      
+      // Provide more helpful error messages
+      if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
+        setError('Network error: Cannot connect to server. Please ensure the server is running on port 3001.');
+      } else if (err.response?.status === 413) {
+        setError('File too large. Maximum file size is 10MB for PDFs, 100MB for ZIP files.');
+      } else if (err.response?.status === 400) {
+        setError(err.response?.data?.error || 'Invalid file. Only PDF files are allowed.');
+      } else {
+        setError(err.response?.data?.error || err.message || 'Failed to upload files. Please check your connection and try again.');
+      }
     } finally {
       setLoading(false);
     }

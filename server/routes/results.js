@@ -491,5 +491,204 @@ router.get('/download/csv', async (req, res) => {
   }
 });
 
+// Analytics endpoints
+router.get('/analytics/overview', async (req, res) => {
+  try {
+    // Get total results count
+    const totalResult = await query('SELECT COUNT(*) as count FROM marking_results WHERE is_current = 1');
+    const total = totalResult.rows?.[0]?.count || totalResult?.[0]?.count || 0;
+
+    // Get average score
+    const avgResult = await query(`
+      SELECT AVG(total_score) as avg_score, 
+             MIN(total_score) as min_score, 
+             MAX(total_score) as max_score
+      FROM marking_results 
+      WHERE is_current = 1
+    `);
+    const stats = avgResult.rows?.[0] || avgResult?.[0] || {};
+
+    // Get score distribution
+    const distributionResult = await query(`
+      SELECT 
+        CASE 
+          WHEN total_score >= 90 THEN 'A (90-100)'
+          WHEN total_score >= 80 THEN 'B (80-89)'
+          WHEN total_score >= 70 THEN 'C (70-79)'
+          WHEN total_score >= 60 THEN 'D (60-69)'
+          ELSE 'F (<60)'
+        END as grade_band,
+        COUNT(*) as count
+      FROM marking_results
+      WHERE is_current = 1
+      GROUP BY grade_band
+      ORDER BY MIN(total_score) DESC
+    `);
+    const scoreDistribution = distributionResult.rows || distributionResult || [];
+
+    // Get trends over time (last 30 days)
+    // Use database-agnostic date calculation
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
+    
+    const trendsResult = await query(`
+      SELECT 
+        DATE(marked_at) as date,
+        COUNT(*) as count,
+        AVG(total_score) as avg_score
+      FROM marking_results
+      WHERE is_current = 1 AND marked_at >= ?
+      GROUP BY DATE(marked_at)
+      ORDER BY date DESC
+    `, [dateStr]);
+
+    // Get rubric usage stats
+    const rubricStatsResult = await query(`
+      SELECT 
+        r.name as rubric_name,
+        COUNT(*) as usage_count,
+        AVG(mr.total_score) as avg_score,
+        r.total_points as max_points
+      FROM marking_results mr
+      JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.is_current = 1
+      GROUP BY r.id, r.name, r.total_points
+      ORDER BY usage_count DESC
+    `);
+
+    const trends = trendsResult.rows || trendsResult || [];
+    const rubricStats = rubricStatsResult.rows || rubricStatsResult || [];
+
+    res.json({
+      success: true,
+      overview: {
+        total_markings: total,
+        average_score: parseFloat(stats.avg_score || 0).toFixed(2),
+        min_score: parseFloat(stats.min_score || 0).toFixed(2),
+        max_score: parseFloat(stats.max_score || 0).toFixed(2),
+        score_distribution: scoreDistribution,
+        trends: trends,
+        rubric_stats: rubricStats
+      }
+    });
+  } catch (error) {
+    console.error('Analytics overview error:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics overview' });
+  }
+});
+
+// Get criterion-level analytics
+router.get('/analytics/criteria/:rubric_id', async (req, res) => {
+  try {
+    const { rubric_id } = req.params;
+
+    const result = await query(`
+      SELECT 
+        mr.scores,
+        mr.total_score
+      FROM marking_results mr
+      WHERE mr.rubric_id = ? AND mr.is_current = 1
+    `, [rubric_id]);
+
+    if (!result.rows || result.rows.length === 0) {
+      return res.json({
+        success: true,
+        criteria_analytics: []
+      });
+    }
+
+    // Parse scores and aggregate by criterion
+    const criterionStats = {};
+    
+    result.rows.forEach(row => {
+      const scores = typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores;
+      if (Array.isArray(scores)) {
+        scores.forEach(score => {
+          if (!criterionStats[score.criterion_name]) {
+            criterionStats[score.criterion_name] = {
+              criterion_name: score.criterion_name,
+              max_points: score.max_points,
+              total_marks: 0,
+              count: 0,
+              avg_score: 0,
+              min_score: score.max_points,
+              max_score: 0
+            };
+          }
+          
+          const points = score.points_awarded || 0;
+          criterionStats[score.criterion_name].total_marks += points;
+          criterionStats[score.criterion_name].count += 1;
+          criterionStats[score.criterion_name].min_score = Math.min(criterionStats[score.criterion_name].min_score, points);
+          criterionStats[score.criterion_name].max_score = Math.max(criterionStats[score.criterion_name].max_score, points);
+        });
+      }
+    });
+
+    // Calculate averages
+    const criteriaAnalytics = Object.values(criterionStats).map(stat => ({
+      ...stat,
+      avg_score: (stat.total_marks / stat.count).toFixed(2),
+      avg_percentage: ((stat.total_marks / stat.count) / stat.max_points * 100).toFixed(2) + '%'
+    }));
+
+    res.json({
+      success: true,
+      criteria_analytics: criteriaAnalytics
+    });
+  } catch (error) {
+    console.error('Criteria analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch criteria analytics' });
+  }
+});
+
+// Get common issues/feedback patterns
+router.get('/analytics/common-issues', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT 
+        mr.scores,
+        mr.feedback
+      FROM marking_results mr
+      WHERE mr.is_current = 1
+      LIMIT 100
+    `);
+
+    // Extract common keywords from feedback
+    const issueKeywords = ['missing', 'incomplete', 'unclear', 'weak', 'lacks', 'needs improvement', 'incorrect', 'error'];
+    const issueCounts = {};
+
+    result.rows.forEach(row => {
+      const scores = typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores;
+      const feedback = (row.feedback || '').toLowerCase();
+      
+      if (Array.isArray(scores)) {
+        scores.forEach(score => {
+          const criterionFeedback = (score.feedback || '').toLowerCase();
+          issueKeywords.forEach(keyword => {
+            if (criterionFeedback.includes(keyword) || feedback.includes(keyword)) {
+              issueCounts[keyword] = (issueCounts[keyword] || 0) + 1;
+            }
+          });
+        });
+      }
+    });
+
+    const commonIssues = Object.entries(issueCounts)
+      .map(([keyword, count]) => ({ keyword, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    res.json({
+      success: true,
+      common_issues: commonIssues
+    });
+  } catch (error) {
+    console.error('Common issues analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch common issues' });
+  }
+});
+
 module.exports = router;
 

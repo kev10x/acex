@@ -12,6 +12,7 @@ const MarkingInterface: React.FC = () => {
   const [assessmentType, setAssessmentType] = useState<'assignment' | 'test' | 'treatise' | 'thesis'>('assignment');
   const [level, setLevel] = useState<'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate'>('high_school');
   const [provider, setProvider] = useState<'openai' | 'anthropic'>('anthropic');
+  const [strictnessLevel, setStrictnessLevel] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -23,6 +24,7 @@ const MarkingInterface: React.FC = () => {
     level: string;
     provider: string;
     output_type: string;
+    strictness_level: string;
   } | null>(null);
 
   useEffect(() => {
@@ -81,7 +83,8 @@ const MarkingInterface: React.FC = () => {
         assessment_type: assessmentType,
         level: level,
         provider: provider,
-        output_type: outputType
+        output_type: outputType,
+        strictness_level: strictnessLevel
       });
 
       const response = await markingAPI.markMultiple({
@@ -91,7 +94,8 @@ const MarkingInterface: React.FC = () => {
         output_type: outputType,
         assessment_type: assessmentType,
         level: level,
-        provider: provider
+        provider: provider,
+        strictness_level: strictnessLevel
       });
 
       setSuccess(`Successfully marked ${response.data.results.length} assignments`);
@@ -162,7 +166,8 @@ const MarkingInterface: React.FC = () => {
         output_type: lastMarkingParams.output_type as 'annotate' | 'report',
         assessment_type: lastMarkingParams.assessment_type as 'assignment' | 'test' | 'treatise' | 'thesis',
         level: lastMarkingParams.level as 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate',
-        provider: lastMarkingParams.provider as 'openai' | 'anthropic'
+        provider: lastMarkingParams.provider as 'openai' | 'anthropic',
+        strictness_level: lastMarkingParams.strictness_level as 'very_strict' | 'strict' | 'moderate' | 'lenient'
       });
 
       setSuccess(`Successfully retried marking for ${response.data.result.filename || 'assignment'}`);
@@ -217,7 +222,7 @@ const MarkingInterface: React.FC = () => {
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Assessment Settings</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Assessment Type */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -275,6 +280,29 @@ const MarkingInterface: React.FC = () => {
                 {provider === 'anthropic' 
                   ? 'Best for large documents and academic analysis'
                   : 'Fast and reliable for most assignments'}
+              </p>
+            </div>
+
+            {/* Strictness Level */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Marking Strictness
+              </label>
+              <select
+                value={strictnessLevel}
+                onChange={(e) => setStrictnessLevel(e.target.value as 'very_strict' | 'strict' | 'moderate' | 'lenient')}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="very_strict">Very Strict</option>
+                <option value="strict">Strict</option>
+                <option value="moderate">Moderate</option>
+                <option value="lenient">Lenient</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {strictnessLevel === 'very_strict' && 'Extremely rigorous - expect near-perfect work'}
+                {strictnessLevel === 'strict' && 'High standards - award marks only when criteria are fully met'}
+                {strictnessLevel === 'moderate' && 'Fair but firm - allow minor gaps'}
+                {strictnessLevel === 'lenient' && 'Supportive - focus on learning and improvement'}
               </p>
             </div>
           </div>

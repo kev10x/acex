@@ -27,6 +27,16 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('API Error:', error.response?.data || error.message);
+    
+    // Provide more detailed error logging
+    if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+      console.error('Network Error Details:', {
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        message: 'Cannot connect to server. Is the server running?'
+      });
+    }
+    
     return Promise.reject(error);
   }
 );
@@ -140,6 +150,7 @@ export const markingAPI = {
     assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
     provider?: 'openai' | 'anthropic';
+    strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
   }) => api.post('/mark/single', data),
 
   markMultiple: (data: {
@@ -150,6 +161,7 @@ export const markingAPI = {
     assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
     provider?: 'openai' | 'anthropic';
+    strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
   }) => api.post('/mark/multiple', data),
 
   markManual: (data: {
@@ -178,6 +190,12 @@ export const resultsAPI = {
   downloadAll: () => api.get('/results/download/all', { responseType: 'blob' }),
   downloadCSV: () => api.get('/results/download/csv', { responseType: 'blob' }),
   getAnnotatedPDF: (resultId: number) => api.get(`/results/annotated-pdf/${resultId}`, { responseType: 'blob' }),
+  getAnalyticsOverview: () => api.get('/results/analytics/overview'),
+  getCriteriaAnalytics: (rubricId: number) => api.get(`/results/analytics/criteria/${rubricId}`),
+  getCommonIssues: () => api.get('/results/analytics/common-issues'),
+  getMarkingHistory: (assignmentId: number) => api.get(`/mark/history/${assignmentId}`),
+  restoreMarkingVersion: (resultId: number) => api.post(`/mark/history/${resultId}/restore`),
+  compareMarkingVersions: (resultId1: number, resultId2: number) => api.get(`/mark/history/compare/${resultId1}/${resultId2}`),
 };
 
 // Reports API

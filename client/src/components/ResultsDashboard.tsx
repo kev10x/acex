@@ -17,6 +17,8 @@ const ResultsDashboard: React.FC = () => {
   } | null>(null);
   const [selectedResult, setSelectedResult] = useState<MarkingResult | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   
   // Filtering and grouping state
   const [selectedRubric, setSelectedRubric] = useState<string>('all');
@@ -32,14 +34,18 @@ const ResultsDashboard: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resultsRes, statsRes, rubricsRes] = await Promise.all([
+      const [resultsRes, statsRes, rubricsRes, analyticsRes] = await Promise.all([
         resultsAPI.getResults(),
         resultsAPI.getStats(),
-        rubricsAPI.getRubrics()
+        rubricsAPI.getRubrics(),
+        resultsAPI.getAnalyticsOverview().catch(() => null) // Analytics is optional
       ]);
       setAllResults(resultsRes.data.results);
       setStats(statsRes.data.stats);
       setRubrics(rubricsRes.data.rubrics);
+      if (analyticsRes?.data?.overview) {
+        setAnalytics(analyticsRes.data.overview);
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch data');
     } finally {
@@ -348,6 +354,13 @@ const ResultsDashboard: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setShowAnalytics(!showAnalytics)}
+            className="inline-flex items-center px-4 py-2 border border-primary-300 text-sm font-medium rounded-md shadow-sm text-primary-700 bg-white hover:bg-primary-50"
+          >
+            <BarChart3 className="w-4 h-4 mr-2" />
+            {showAnalytics ? 'Hide' : 'Show'} Analytics
+          </button>
           <div className="flex space-x-2">
             <button
               onClick={handleDownloadAll}
@@ -392,6 +405,101 @@ const ResultsDashboard: React.FC = () => {
               <p className="mt-1 text-sm text-red-700">{error}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Analytics Section */}
+      {showAnalytics && analytics && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Analytics Overview</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <div className="text-sm text-blue-600 font-medium">Total Markings</div>
+              <div className="text-2xl font-bold text-blue-900 mt-1">{analytics.total_markings || 0}</div>
+            </div>
+            <div className="bg-green-50 p-4 rounded-lg">
+              <div className="text-sm text-green-600 font-medium">Average Score</div>
+              <div className="text-2xl font-bold text-green-900 mt-1">{analytics.average_score || '0.00'}</div>
+            </div>
+            <div className="bg-yellow-50 p-4 rounded-lg">
+              <div className="text-sm text-yellow-600 font-medium">Min Score</div>
+              <div className="text-2xl font-bold text-yellow-900 mt-1">{analytics.min_score || '0.00'}</div>
+            </div>
+            <div className="bg-purple-50 p-4 rounded-lg">
+              <div className="text-sm text-purple-600 font-medium">Max Score</div>
+              <div className="text-2xl font-bold text-purple-900 mt-1">{analytics.max_score || '0.00'}</div>
+            </div>
+          </div>
+
+          {/* Score Distribution */}
+          {analytics.score_distribution && analytics.score_distribution.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-md font-semibold text-gray-800 mb-3">Score Distribution</h4>
+              <div className="space-y-2">
+                {analytics.score_distribution.map((item: any, idx: number) => (
+                  <div key={idx} className="flex items-center">
+                    <div className="w-32 text-sm text-gray-600">{item.grade_band}</div>
+                    <div className="flex-1 bg-gray-200 rounded-full h-6 mr-4">
+                      <div 
+                        className="bg-primary-600 h-6 rounded-full flex items-center justify-end pr-2"
+                        style={{ width: `${(item.count / analytics.total_markings) * 100}%` }}
+                      >
+                        <span className="text-xs text-white font-medium">{item.count}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rubric Usage Stats */}
+          {analytics.rubric_stats && analytics.rubric_stats.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-md font-semibold text-gray-800 mb-3">Rubric Usage Statistics</h4>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rubric</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage Count</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Score</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Max Points</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {analytics.rubric_stats.map((stat: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="px-4 py-3 text-sm text-gray-900">{stat.rubric_name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{stat.usage_count}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{parseFloat(stat.avg_score || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{stat.max_points}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Trends */}
+          {analytics.trends && analytics.trends.length > 0 && (
+            <div>
+              <h4 className="text-md font-semibold text-gray-800 mb-3">Trends (Last 30 Days)</h4>
+              <div className="space-y-2">
+                {analytics.trends.slice(0, 7).map((trend: any, idx: number) => (
+                  <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <span className="text-sm text-gray-600">{new Date(trend.date).toLocaleDateString()}</span>
+                    <div className="flex items-center space-x-4">
+                      <span className="text-sm text-gray-600">{trend.count} markings</span>
+                      <span className="text-sm font-medium text-gray-900">Avg: {parseFloat(trend.avg_score || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
