@@ -299,6 +299,78 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const config = aiConfig.getConfig(documentType, provider);
     const selectedProvider = config.provider;
     
+    // Fetch previous marking examples for consistency
+    let previousMarkingExamples = null;
+    let calibrationExamples = null;
+    
+    if (assignmentId) {
+      try {
+        // Fetch previous marking results for this assignment
+        const previousResults = await query(
+          'SELECT scores, total_score FROM marking_results WHERE assignment_id = ? AND is_current = 1 ORDER BY marked_at DESC LIMIT 1',
+          [assignmentId]
+        );
+        
+        // Handle different database result formats
+        let previousResult;
+        if (Array.isArray(previousResults)) {
+          previousResult = previousResults[0];
+        } else if (previousResults.rows && Array.isArray(previousResults.rows)) {
+          previousResult = previousResults.rows[0];
+        }
+        
+        if (previousResult) {
+          // Parse scores (could be JSON string or already parsed)
+          let scores = previousResult.scores;
+          if (typeof scores === 'string') {
+            scores = JSON.parse(scores);
+          }
+          
+          previousMarkingExamples = {
+            total_score: previousResult.total_score,
+            scores: scores
+          };
+          console.log('📚 Found previous marking for this assignment:', previousMarkingExamples);
+        }
+      } catch (error) {
+        console.warn('Could not fetch previous marking examples:', error.message);
+      }
+      
+      try {
+        // Fetch similar assignments marked with the same rubric for calibration
+        const similarResults = await query(
+          'SELECT scores, total_score FROM marking_results WHERE rubric_id = ? AND assignment_id != ? AND is_current = 1 ORDER BY marked_at DESC LIMIT 3',
+          [rubric.id, assignmentId]
+        );
+        
+        // Handle different database result formats
+        let similarResultsArray;
+        if (Array.isArray(similarResults)) {
+          similarResultsArray = similarResults;
+        } else if (similarResults.rows && Array.isArray(similarResults.rows)) {
+          similarResultsArray = similarResults.rows;
+        } else {
+          similarResultsArray = [];
+        }
+        
+        if (similarResultsArray && similarResultsArray.length > 0) {
+          calibrationExamples = similarResultsArray.map(result => {
+            let scores = result.scores;
+            if (typeof scores === 'string') {
+              scores = JSON.parse(scores);
+            }
+            return {
+              total_score: result.total_score,
+              scores: scores
+            };
+          });
+          console.log('📊 Found calibration examples:', calibrationExamples.length);
+        }
+      } catch (error) {
+        console.warn('Could not fetch calibration examples:', error.message);
+      }
+    }
+    
     console.log('🤖 Starting AI marking process...');
     console.log('Provider:', selectedProvider);
     console.log('Document type:', documentType);
