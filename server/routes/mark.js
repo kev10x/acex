@@ -326,11 +326,16 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
             scores = JSON.parse(scores);
           }
           
-          previousMarkingExamples = {
-            total_score: previousResult.total_score,
-            scores: scores
-          };
-          console.log('📚 Found previous marking for this assignment:', previousMarkingExamples);
+          // Validate that scores is a non-null array before including
+          if (scores && Array.isArray(scores) && scores.length > 0) {
+            previousMarkingExamples = {
+              total_score: previousResult.total_score,
+              scores: scores
+            };
+            console.log('📚 Found previous marking for this assignment:', previousMarkingExamples);
+          } else {
+            console.warn('Previous marking result has invalid or null scores, skipping');
+          }
         }
       } catch (error) {
         console.warn('Could not fetch previous marking examples:', error.message);
@@ -354,17 +359,25 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
         }
         
         if (similarResultsArray && similarResultsArray.length > 0) {
-          calibrationExamples = similarResultsArray.map(result => {
-            let scores = result.scores;
-            if (typeof scores === 'string') {
-              scores = JSON.parse(scores);
-            }
-            return {
-              total_score: result.total_score,
-              scores: scores
-            };
-          });
-          console.log('📊 Found calibration examples:', calibrationExamples.length);
+          calibrationExamples = similarResultsArray
+            .map(result => {
+              let scores = result.scores;
+              if (typeof scores === 'string') {
+                scores = JSON.parse(scores);
+              }
+              return {
+                total_score: result.total_score,
+                scores: scores
+              };
+            })
+            .filter(ex => ex.scores && Array.isArray(ex.scores) && ex.scores.length > 0); // Filter out null/invalid scores
+          
+          if (calibrationExamples.length > 0) {
+            console.log('📊 Found calibration examples:', calibrationExamples.length);
+          } else {
+            console.warn('No valid calibration examples found (all had null or invalid scores)');
+            calibrationExamples = null;
+          }
         }
       } catch (error) {
         console.warn('Could not fetch calibration examples:', error.message);
@@ -514,27 +527,27 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const getEvaluationGuidelines = (assessmentType, level, isMemo) => {
       const levelGuidance = {
         primary_school: {
-          tone: 'Use encouraging, age-appropriate language',
+          tone: 'Use direct, clear, age-appropriate language. Be honest about mistakes without being harsh',
           expectations: 'Focus on basic understanding and effort',
-          feedback: 'Provide simple, clear feedback that helps students learn',
+          feedback: 'Provide simple, direct feedback that clearly identifies what is correct and what is wrong',
           terminology: 'Use simple terms and avoid complex academic jargon'
         },
         high_school: {
-          tone: 'Use clear, supportive language appropriate for secondary students',
+          tone: 'Use clear, direct language appropriate for secondary students. Be honest and straightforward when answers are incorrect',
           expectations: 'Focus on understanding, application, and development of skills',
-          feedback: 'Provide constructive feedback that helps students improve',
+          feedback: 'Provide direct, honest feedback that clearly identifies errors and helps students understand what is wrong',
           terminology: 'Use educational terminology appropriate for high school level'
         },
         undergraduate: {
-          tone: 'Use academic language appropriate for university-level work',
+          tone: 'Use direct, academic language appropriate for university-level work. Be honest and critical when work is incorrect or substandard',
           expectations: 'Focus on critical thinking, analysis, and academic rigor',
-          feedback: 'Provide analytical feedback demonstrating academic standards',
+          feedback: 'Provide direct, analytical feedback that honestly identifies weaknesses and errors',
           terminology: 'Use appropriate university-level academic terminology'
         },
         postgraduate: {
-          tone: 'Use scholarly, rigorous academic language',
+          tone: 'Use direct, scholarly, rigorous academic language. Be honest and critical when work does not meet high standards',
           expectations: 'Focus on scholarly contribution, theoretical depth, and research quality',
-          feedback: 'Provide in-depth, scholarly feedback appropriate for advanced work',
+          feedback: 'Provide direct, in-depth, scholarly feedback that honestly identifies shortcomings and errors',
           terminology: 'Use advanced academic and research terminology'
         }
       };
@@ -735,7 +748,19 @@ CONSISTENCY REQUIREMENTS:
 - Reference rubric criteria in the SAME way each time
 - Use consistent terminology and evaluation language
 ${previousMarkingExamples ? `- IMPORTANT: This assignment was previously marked. Maintain consistency with previous marking while being fair and accurate. Previous total score: ${previousMarkingExamples.total_score}` : ''}
-${calibrationExamples ? `- Use these similar assignments as reference for consistent scoring patterns:\n${calibrationExamples.map((ex, i) => `  Example ${i + 1}: Total score ${ex.total_score}, Criteria scores: ${ex.scores.map(s => `${s.criterion_name}: ${s.points_awarded}/${s.max_points}`).join(', ')}`).join('\n')}` : ''}
+${calibrationExamples && calibrationExamples.length > 0 ? `- Use these similar assignments as reference for consistent scoring patterns:\n${calibrationExamples.filter(ex => ex.scores && Array.isArray(ex.scores)).map((ex, i) => `  Example ${i + 1}: Total score ${ex.total_score}, Criteria scores: ${ex.scores.map(s => `${s.criterion_name}: ${s.points_awarded}/${s.max_points}`).join(', ')}`).join('\n')}` : ''}
+
+FEEDBACK TONE REQUIREMENTS:
+- Be DIRECT and HONEST in your feedback - do not soften criticism or sugarcoat errors
+- When answers are WRONG or INCORRECT, state this clearly and directly - do not use euphemisms or vague language
+- Avoid overly friendly or encouraging language when pointing out mistakes - be professional and straightforward
+- Use direct statements like "This is incorrect" or "This answer is wrong" rather than "This could be improved" when something is factually wrong
+- For incorrect answers, clearly explain WHY it is wrong and what the correct answer should be
+- Do not use phrases like "nice try" or "good effort" when the answer is fundamentally incorrect
+- Be honest about the severity of errors - if something is completely wrong, say so directly
+- Focus on accuracy and correctness over being supportive when evaluating wrong answers
+- Maintain a professional, academic tone that prioritizes honesty and clarity over friendliness
+- When work is poor or incorrect, provide direct, specific criticism without unnecessary softening
 
 IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how confident you are in the marking. Consider:
 - Clarity of the student's work
@@ -754,11 +779,11 @@ JSON format (return ONLY this, no other text):
       "criterion_name": "name",
       "points_awarded": number,
       "max_points": number,
-      "feedback": "detailed specific feedback with examples, reasoning, and actionable improvement suggestions",
+      "feedback": "direct, honest, and specific feedback. When answers are wrong, state this clearly and explain why. Be straightforward and professional, avoiding overly friendly language when pointing out errors",
       "confidence": number (0-100, where 100 = very confident, 0 = very uncertain)
     }
   ],
-  "overall_feedback": "comprehensive summary highlighting key strengths, main areas for improvement, specific next steps, concrete recommendations for enhancement, and overall assessment",
+  "overall_feedback": "direct and honest comprehensive summary. Clearly state what is wrong or incorrect. Highlight key strengths honestly, identify main areas for improvement with direct criticism, and provide specific next steps. Be straightforward and professional in your assessment",
   "total_score": number,
   "overall_confidence": number (0-100, representing your overall confidence in the entire assessment)
 }`;
