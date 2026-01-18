@@ -24,6 +24,7 @@ const ResultsDashboard: React.FC = () => {
   const [selectedRubric, setSelectedRubric] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [hourInterval, setHourInterval] = useState<string>('');
   const [groupBy, setGroupBy] = useState<GroupByOption>('none');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
@@ -79,15 +80,23 @@ const ResultsDashboard: React.FC = () => {
       filtered = filtered.filter(result => result.rubric_name === selectedRubric);
     }
 
-    // Filter by date range
-    if (dateFrom) {
-      const fromDate = new Date(dateFrom);
-      filtered = filtered.filter(result => new Date(result.marked_at) >= fromDate);
-    }
-    if (dateTo) {
-      const toDate = new Date(dateTo);
-      toDate.setHours(23, 59, 59, 999); // End of day
-      filtered = filtered.filter(result => new Date(result.marked_at) <= toDate);
+    // Filter by hour interval (takes precedence over date range)
+    if (hourInterval) {
+      const hours = parseInt(hourInterval, 10);
+      const cutoffTime = new Date();
+      cutoffTime.setHours(cutoffTime.getHours() - hours);
+      filtered = filtered.filter(result => new Date(result.marked_at) >= cutoffTime);
+    } else {
+      // Filter by date range (only if hour interval is not set)
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        filtered = filtered.filter(result => new Date(result.marked_at) >= fromDate);
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999); // End of day
+        filtered = filtered.filter(result => new Date(result.marked_at) <= toDate);
+      }
     }
 
     // Group results
@@ -120,7 +129,7 @@ const ResultsDashboard: React.FC = () => {
     }
 
     return { grouped: false, data: filtered };
-  }, [allResults, selectedRubric, dateFrom, dateTo, groupBy]);
+  }, [allResults, selectedRubric, dateFrom, dateTo, hourInterval, groupBy]);
 
   // Initialize expanded groups when groupBy changes
   useEffect(() => {
@@ -160,6 +169,7 @@ const ResultsDashboard: React.FC = () => {
     setSelectedRubric('all');
     setDateFrom('');
     setDateTo('');
+    setHourInterval('');
   };
 
   const handleDeleteResult = async (id: number) => {
@@ -617,8 +627,12 @@ const ResultsDashboard: React.FC = () => {
                 type="date"
                 id="dateFrom"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setHourInterval(''); // Clear hour interval when date is selected
+                }}
+                disabled={!!hourInterval}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -630,9 +644,42 @@ const ResultsDashboard: React.FC = () => {
                 type="date"
                 id="dateTo"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setHourInterval(''); // Clear hour interval when date is selected
+                }}
+                disabled={!!hourInterval}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
+            </div>
+
+            <div className="min-w-[150px]">
+              <label htmlFor="hourInterval" className="block text-sm font-medium text-gray-700 mb-1">
+                Time Interval
+              </label>
+              <select
+                id="hourInterval"
+                value={hourInterval}
+                onChange={(e) => {
+                  setHourInterval(e.target.value);
+                  if (e.target.value) {
+                    setDateFrom(''); // Clear date filters when hour interval is selected
+                    setDateTo('');
+                  }
+                }}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              >
+                <option value="">Custom Date Range</option>
+                <option value="1">Last 1 Hour</option>
+                <option value="3">Last 3 Hours</option>
+                <option value="6">Last 6 Hours</option>
+                <option value="12">Last 12 Hours</option>
+                <option value="24">Last 24 Hours</option>
+                <option value="48">Last 48 Hours</option>
+                <option value="72">Last 72 Hours</option>
+                <option value="168">Last 7 Days</option>
+                <option value="720">Last 30 Days</option>
+              </select>
             </div>
 
             <div className="min-w-[150px]">
@@ -651,7 +698,7 @@ const ResultsDashboard: React.FC = () => {
               </select>
             </div>
 
-            {(selectedRubric !== 'all' || dateFrom || dateTo) && (
+            {(selectedRubric !== 'all' || dateFrom || dateTo || hourInterval) && (
               <button
                 onClick={clearFilters}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
@@ -736,6 +783,11 @@ const ResultsDashboard: React.FC = () => {
                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 flex-shrink-0" title="Needs Human Review">
                                   <AlertTriangle className="w-3 h-3 mr-1" />
                                   Review
+                                </span>
+                              )}
+                              {result.language_errors && result.language_errors.length > 0 && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 flex-shrink-0" title={`${result.language_errors.length} language error(s) detected`}>
+                                  {result.language_errors.length} error{result.language_errors.length !== 1 ? 's' : ''}
                                 </span>
                               )}
                             </div>
@@ -900,12 +952,15 @@ const ResultsDashboard: React.FC = () => {
       {/* Result Detail Modal */}
       {selectedResult && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div className="relative top-10 mx-auto p-6 border w-11/12 md:w-4/5 lg:w-3/4 xl:w-2/3 shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
             <div className="mt-3">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Marking Details
-                </h3>
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">
+                    Marking Details
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">Comprehensive feedback and detailed analysis</p>
+                </div>
                 <button
                   onClick={() => setSelectedResult(null)}
                   className="text-gray-400 hover:text-gray-600"
@@ -1005,12 +1060,164 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 )}
 
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700">Feedback</h4>
-                  <p className="text-sm text-gray-900 whitespace-pre-wrap">
-                    {selectedResult.feedback}
-                  </p>
+                {/* Comprehensive Feedback Section - Primary Focus */}
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border-l-4 border-blue-500">
+                  <div className="flex items-center mb-4">
+                    <FileText className="w-6 h-6 text-blue-600 mr-2" />
+                    <h4 className="text-lg font-semibold text-gray-900">Comprehensive Feedback</h4>
+                  </div>
+                  <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
+                    <p className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
+                      {selectedResult.feedback || (selectedResult as any).overall_feedback || 'No feedback available'}
+                    </p>
+                  </div>
                 </div>
+
+                {/* Per-Criterion Detailed Feedback */}
+                {selectedResult.scores && selectedResult.scores.length > 0 && (
+                  <div className="mt-6">
+                    <div className="flex items-center mb-4">
+                      <FileCheck className="w-5 h-5 text-gray-600 mr-2" />
+                      <h4 className="text-lg font-semibold text-gray-900">Detailed Criterion Feedback</h4>
+                    </div>
+                    <div className="space-y-4">
+                      {selectedResult.scores.map((score, index) => (
+                        <div 
+                          key={`feedback-${selectedResult.id}-${index}`}
+                          className="bg-white rounded-lg p-5 shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <h5 className="text-base font-semibold text-gray-900 mb-1">
+                                {score.criterion_name}
+                              </h5>
+                              <div className="flex items-center space-x-3 text-sm">
+                                <span className="text-gray-600">
+                                  Score: <span className="font-semibold text-gray-900">{score.points_awarded} / {score.max_points}</span>
+                                </span>
+                                {score.confidence !== undefined && (
+                                  <span className="text-gray-500">
+                                    Confidence: {score.confidence}%
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {score.feedback && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                                {score.feedback}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedResult.corrections && selectedResult.corrections.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Corrections & Suggestions Report</h4>
+                    <div className="space-y-3">
+                      {selectedResult.corrections.map((correction, index) => (
+                        <div 
+                          key={`correction-${selectedResult.id}-${index}`}
+                          className={`p-3 rounded-lg border-l-4 ${
+                            correction.type === 'correction' 
+                              ? 'bg-red-50 border-red-400' 
+                              : 'bg-blue-50 border-blue-400'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                              correction.type === 'correction'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {correction.type === 'correction' ? 'Correction' : 'Suggestion'}
+                            </span>
+                            <span className="text-xs text-gray-500 font-medium">
+                              {correction.criterion_name}
+                            </span>
+                          </div>
+                          <div className="mt-2">
+                            <p className="text-xs font-semibold text-gray-700 mb-1">
+                              Location: <span className="font-normal">{correction.location}</span>
+                            </p>
+                            <p className="text-sm text-gray-800 mb-2">
+                              <span className="font-semibold">Issue:</span> {correction.issue}
+                            </p>
+                            <p className="text-sm text-gray-800 mb-2">
+                              <span className="font-semibold">
+                                {correction.type === 'correction' ? 'Correction:' : 'Suggestion:'}
+                              </span> {correction.correction}
+                            </p>
+                            <p className="text-xs text-gray-600 italic">
+                              {correction.reason}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedResult.language_errors && selectedResult.language_errors.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">
+                      Language Errors ({selectedResult.language_errors.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {selectedResult.language_errors.map((error: any, index: number) => (
+                        <div 
+                          key={`language-error-${selectedResult.id}-${index}`}
+                          className={`p-3 rounded-lg border-l-4 ${
+                            error.error_type === 'grammar' 
+                              ? 'bg-yellow-50 border-yellow-400' 
+                              : error.error_type === 'spelling'
+                              ? 'bg-orange-50 border-orange-400'
+                              : error.error_type === 'reference'
+                              ? 'bg-purple-50 border-purple-400'
+                              : error.error_type === 'punctuation'
+                              ? 'bg-pink-50 border-pink-400'
+                              : 'bg-indigo-50 border-indigo-400'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                              error.error_type === 'grammar'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : error.error_type === 'spelling'
+                                ? 'bg-orange-100 text-orange-800'
+                                : error.error_type === 'reference'
+                                ? 'bg-purple-100 text-purple-800'
+                                : error.error_type === 'punctuation'
+                                ? 'bg-pink-100 text-pink-800'
+                                : 'bg-indigo-100 text-indigo-800'
+                            }`}>
+                              {error.error_type.charAt(0).toUpperCase() + error.error_type.slice(1)}
+                            </span>
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Location: <span className="font-normal">{error.location}</span>
+                            </p>
+                            <p className="text-sm text-red-700">
+                              <span className="font-semibold">Error:</span> "{error.error_text}"
+                            </p>
+                            <p className="text-sm text-green-700">
+                              <span className="font-semibold">Correction:</span> "{error.correction}"
+                            </p>
+                            <p className="text-xs text-gray-600 italic">
+                              {error.explanation}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <h4 className="text-sm font-medium text-gray-700">Marked At</h4>

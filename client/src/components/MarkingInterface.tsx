@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
-import { uploadAPI, rubricsAPI, markingAPI, Assignment, Rubric } from '../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw, Folder, X } from 'lucide-react';
+import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch } from '../services/api';
 
 const MarkingInterface: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedRubric, setSelectedRubric] = useState<number | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<number | null>(null);
   const [selectedAssignments, setSelectedAssignments] = useState<number[]>([]);
   const [studentNames, setStudentNames] = useState<{ [key: number]: string }>({});
   const [outputType, setOutputType] = useState<'annotate' | 'report'>('annotate');
@@ -16,6 +18,7 @@ const MarkingInterface: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [isMarkedAssignmentsExpanded, setIsMarkedAssignmentsExpanded] = useState(true);
   const [retryingAssignment, setRetryingAssignment] = useState<number | null>(null);
   const [lastMarkingParams, setLastMarkingParams] = useState<{
@@ -33,15 +36,49 @@ const MarkingInterface: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const [assignmentsRes, rubricsRes] = await Promise.all([
+      const [assignmentsRes, rubricsRes, batchesRes] = await Promise.all([
         uploadAPI.getAssignments(),
-        rubricsAPI.getRubrics()
+        rubricsAPI.getRubrics(),
+        batchesAPI.getBatches()
       ]);
       setAssignments(assignmentsRes.data.assignments);
       setRubrics(rubricsRes.data.rubrics);
+      setBatches(batchesRes.data.batches);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch data');
     }
+  };
+
+  const handleBatchSelect = (batchId: number | null) => {
+    setSelectedBatch(batchId);
+    
+    // Get available assignments (unmarked)
+    const available = assignments.filter(a => a.status === 'uploaded');
+    
+    if (batchId === null) {
+      // Clear all selections when "None" is selected
+      setSelectedAssignments([]);
+      setStudentNames({});
+      return;
+    }
+    
+    // Get all assignments in the selected batch that are available for marking
+    const batchAssignments = available.filter(a => a.batch_id === batchId);
+    const batchAssignmentIds = batchAssignments.map(a => a.id);
+    
+    // Select all assignments in the batch
+    setSelectedAssignments(batchAssignmentIds);
+    
+    // Clear student names for assignments not in the batch
+    setStudentNames(prev => {
+      const newNames: { [key: number]: string } = {};
+      batchAssignmentIds.forEach(id => {
+        if (prev[id]) {
+          newNames[id] = prev[id];
+        }
+      });
+      return newNames;
+    });
   };
 
   const handleAssignmentSelect = (assignmentId: number, checked: boolean) => {
@@ -54,6 +91,16 @@ const MarkingInterface: React.FC = () => {
         delete newNames[assignmentId];
         return newNames;
       });
+      // Clear batch selection if assignment is manually deselected
+      if (selectedBatch) {
+        const available = assignments.filter(a => a.status === 'uploaded');
+        const batchAssignments = available.filter(a => a.batch_id === selectedBatch);
+        const remainingSelected = selectedAssignments.filter(id => id !== assignmentId);
+        const allBatchSelected = batchAssignments.every(a => remainingSelected.includes(a.id));
+        if (!allBatchSelected) {
+          setSelectedBatch(null);
+        }
+      }
     }
   };
 
@@ -64,12 +111,76 @@ const MarkingInterface: React.FC = () => {
     }));
   };
 
+  const handleRemarkBatch = async (batchId: number) => {
+    if (!selectedRubric) {
+      setError('Please select a rubric first');
+      return;
+    }
+
+    // Get all assignments in the batch (both marked and unmarked)
+    const batchAssignments = assignments.filter(a => a.batch_id === batchId);
+    
+    if (batchAssignments.length === 0) {
+      setError('No assignments found in this batch');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const batchAssignmentIds = batchAssignments.map(a => a.id);
+      const studentNamesArray = batchAssignmentIds.map(id => studentNames[id] || null);
+      
+      // Store marking parameters for retry functionality
+      setLastMarkingParams({
+        rubric_id: selectedRubric,
+        assessment_type: assessmentType,
+        level: level,
+        provider: provider,
+        output_type: outputType,
+        strictness_level: strictnessLevel
+      });
+
+      const response = await markingAPI.markMultiple({
+        assignment_ids: batchAssignmentIds,
+        rubric_id: selectedRubric,
+        student_names: studentNamesArray,
+        output_type: outputType,
+        assessment_type: assessmentType,
+        level: level,
+        provider: provider,
+        strictness_level: strictnessLevel
+      });
+
+      setSuccess(`Successfully remarked ${response.data.results.length} assignment(s) in batch`);
+      
+      if (response.data.errors.length > 0) {
+        setError(`Some assignments failed: ${response.data.errors.map((e: any) => e.error).join(', ')}`);
+      }
+      
+      // Refresh assignments to show updated status
+      await fetchData();
+      
+      // Clear selections
+      setSelectedAssignments([]);
+      setSelectedBatch(null);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to remark batch');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleMarkAssignments = async () => {
     if (!selectedRubric || selectedAssignments.length === 0) {
       setError('Please select a rubric and at least one assignment');
       return;
     }
 
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController();
     setLoading(true);
     setError(null);
     setSuccess(null);
@@ -96,7 +207,12 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         strictness_level: strictnessLevel
-      });
+      }, abortControllerRef.current.signal);
+
+      // Check if request was aborted
+      if (abortControllerRef.current.signal.aborted) {
+        return;
+      }
 
       setSuccess(`Successfully marked ${response.data.results.length} assignments`);
       
@@ -112,9 +228,31 @@ const MarkingInterface: React.FC = () => {
       setStudentNames({});
       setSelectedRubric(null);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to mark assignments');
+      // Handle cancellation (both frontend abort and backend cancellation)
+      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || err.response?.status === 499) {
+        setError('Marking cancelled');
+        setSuccess(null);
+        // If backend returned partial results, show them
+        if (err.response?.data?.results && err.response.data.results.length > 0) {
+          setSuccess(`Partially completed: ${err.response.data.results.length} assignment(s) marked before cancellation`);
+        }
+        // Refresh to see current status
+        await fetchData();
+      } else {
+        setError(err.response?.data?.error || 'Failed to mark assignments');
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelMarking = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setLoading(false);
+      setError('Marking cancelled');
+      setSuccess(null);
     }
   };
 
@@ -387,6 +525,89 @@ const MarkingInterface: React.FC = () => {
         </div>
       </div>
 
+      {/* Batch Selection */}
+      {batches.length > 0 && (
+        <div className="bg-white shadow rounded-lg">
+          <div className="px-4 py-5 sm:p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Select Batch (Optional)
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Select a batch to automatically select all assignments in that batch, or select individual assignments below. You can also remark entire batches.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => handleBatchSelect(null)}
+                className={`inline-flex items-center px-4 py-2 border rounded-md text-sm font-medium transition-colors ${
+                  selectedBatch === null
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                None
+              </button>
+              {batches.map((batch) => {
+                const batchUnmarkedAssignments = availableAssignments.filter(a => a.batch_id === batch.id);
+                const batchMarkedAssignments = markedAssignments.filter(a => a.batch_id === batch.id);
+                const batchAllAssignments = assignments.filter(a => a.batch_id === batch.id);
+                const hasUnmarked = batchUnmarkedAssignments.length > 0;
+                const hasMarked = batchMarkedAssignments.length > 0;
+                const hasAny = batchAllAssignments.length > 0;
+                
+                return (
+                  <div key={batch.id} className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleBatchSelect(batch.id)}
+                      disabled={!hasUnmarked}
+                      className={`inline-flex items-center px-4 py-2 border rounded-md text-sm font-medium transition-colors ${
+                        selectedBatch === batch.id
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : !hasUnmarked
+                          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                      title={!hasUnmarked ? (hasMarked ? 'All assignments already marked. Use "Remark Batch" to re-mark them.' : 'No assignments in this batch') : `${batchUnmarkedAssignments.length} unmarked assignment(s) available`}
+                    >
+                      <Folder className="h-4 w-4 mr-2" />
+                      {batch.name}
+                      {hasUnmarked && (
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-white bg-opacity-30 rounded">
+                          {batchUnmarkedAssignments.length}
+                        </span>
+                      )}
+                      {!hasUnmarked && hasMarked && (
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-gray-200 text-gray-600 rounded">
+                          {batchAllAssignments.length} marked
+                        </span>
+                      )}
+                    </button>
+                    {hasAny && selectedRubric && (
+                      <button
+                        onClick={() => handleRemarkBatch(batch.id)}
+                        disabled={loading}
+                        className="inline-flex items-center px-3 py-2 border border-orange-300 rounded-md text-sm font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={`Remark all ${batchAllAssignments.length} assignment(s) in this batch (including already marked ones)`}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                        Remark ({batchAllAssignments.length})
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {selectedBatch && (
+              <div className="mt-4 p-3 bg-primary-50 border border-primary-200 rounded-md">
+                <p className="text-sm text-primary-800">
+                  <strong>Selected:</strong> {batches.find(b => b.id === selectedBatch)?.name} 
+                  {' '}({availableAssignments.filter(a => a.batch_id === selectedBatch).length} unmarked assignment(s) selected)
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Assignment Selection */}
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
@@ -398,35 +619,46 @@ const MarkingInterface: React.FC = () => {
             <p className="text-gray-500">No unmarked assignments available.</p>
           ) : (
             <div className="space-y-4">
-              {availableAssignments.map((assignment, index) => (
-                <div key={assignment.id || `available-assignment-${index}`} className="flex items-center space-x-4 p-3 border border-gray-200 rounded-lg">
-                  <input
-                    type="checkbox"
-                    checked={selectedAssignments.includes(assignment.id)}
-                    onChange={(e) => handleAssignmentSelect(assignment.id, e.target.checked)}
-                    className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900">
-                      {assignment.filename}
+              {availableAssignments.map((assignment, index) => {
+                const batch = assignment.batch_id ? batches.find(b => b.id === assignment.batch_id) : null;
+                return (
+                  <div key={assignment.id || `available-assignment-${index}`} className="flex items-center space-x-4 p-3 border border-gray-200 rounded-lg">
+                    <input
+                      type="checkbox"
+                      checked={selectedAssignments.includes(assignment.id)}
+                      onChange={(e) => handleAssignmentSelect(assignment.id, e.target.checked)}
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <div className="text-sm font-medium text-gray-900">
+                          {assignment.filename}
+                        </div>
+                        {batch && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                            <Folder className="h-3 w-3 mr-1" />
+                            {batch.name}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Uploaded {new Date(assignment.uploaded_at).toLocaleDateString()}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      Uploaded {new Date(assignment.uploaded_at).toLocaleDateString()}
-                    </div>
+                    {selectedAssignments.includes(assignment.id) && (
+                      <div className="w-64">
+                        <input
+                          type="text"
+                          placeholder="Student name (optional)"
+                          value={studentNames[assignment.id] || ''}
+                          onChange={(e) => handleStudentNameChange(assignment.id, e.target.value)}
+                          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 text-sm"
+                        />
+                      </div>
+                    )}
                   </div>
-                  {selectedAssignments.includes(assignment.id) && (
-                    <div className="w-64">
-                      <input
-                        type="text"
-                        placeholder="Student name (optional)"
-                        value={studentNames[assignment.id] || ''}
-                        onChange={(e) => handleStudentNameChange(assignment.id, e.target.value)}
-                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 text-sm"
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -507,7 +739,16 @@ const MarkingInterface: React.FC = () => {
       )}
 
       {/* Mark Button */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
+        {loading && (
+          <button
+            onClick={handleCancelMarking}
+            className="inline-flex items-center px-6 py-3 border border-red-300 text-base font-medium rounded-md shadow-sm text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+          >
+            <X className="w-5 h-5 mr-2" />
+            Cancel
+          </button>
+        )}
         <button
           onClick={handleMarkAssignments}
           disabled={loading || !selectedRubric || selectedAssignments.length === 0}

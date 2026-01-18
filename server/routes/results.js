@@ -22,9 +22,17 @@ router.get('/', async (req, res) => {
       ORDER BY mr.marked_at DESC
     `);
     
+    // Parse JSON fields (scores, corrections, and language_errors)
+    const parsedResults = result.rows.map(row => ({
+      ...row,
+      scores: typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores,
+      corrections: row.corrections ? (typeof row.corrections === 'string' ? JSON.parse(row.corrections) : row.corrections) : [],
+      language_errors: row.language_errors ? (typeof row.language_errors === 'string' ? JSON.parse(row.language_errors) : row.language_errors) : []
+    }));
+    
     res.json({
       success: true,
-      results: result.rows
+      results: parsedResults
     });
   } catch (error) {
     console.error('Get results error:', error);

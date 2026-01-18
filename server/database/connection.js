@@ -99,13 +99,25 @@ const initDatabase = async () => {
       }
 
       await query(`
+        CREATE TABLE IF NOT EXISTS batches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await query(`
         CREATE TABLE IF NOT EXISTS assignments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           filename TEXT NOT NULL,
           file_path TEXT NOT NULL,
           file_size INTEGER,
           uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          status TEXT DEFAULT 'uploaded'
+          status TEXT DEFAULT 'uploaded',
+          batch_id INTEGER,
+          extracted_text TEXT,
+          FOREIGN KEY (batch_id) REFERENCES batches (id) ON DELETE SET NULL
         )
       `);
 
@@ -123,6 +135,7 @@ const initDatabase = async () => {
           is_current INTEGER DEFAULT 1,
           strictness_level TEXT,
           provider TEXT,
+          corrections TEXT,
           FOREIGN KEY (assignment_id) REFERENCES assignments (id) ON DELETE CASCADE,
           FOREIGN KEY (rubric_id) REFERENCES rubrics (id) ON DELETE CASCADE
         )
@@ -150,6 +163,26 @@ const initDatabase = async () => {
         }
         try {
           await query(`ALTER TABLE marking_results ADD COLUMN provider TEXT`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE marking_results ADD COLUMN corrections TEXT`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE marking_results ADD COLUMN language_errors TEXT`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE assignments ADD COLUMN batch_id INTEGER`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE assignments ADD COLUMN extracted_text TEXT`);
         } catch (err) {
           // Column may already exist
         }
@@ -188,13 +221,25 @@ const initDatabase = async () => {
       }
 
       await query(`
+        CREATE TABLE IF NOT EXISTS batches (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await query(`
         CREATE TABLE IF NOT EXISTS assignments (
           id INT AUTO_INCREMENT PRIMARY KEY,
           filename VARCHAR(255) NOT NULL,
           file_path VARCHAR(500) NOT NULL,
           file_size INT,
           uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          status VARCHAR(50) DEFAULT 'uploaded'
+          status VARCHAR(50) DEFAULT 'uploaded',
+          batch_id INT,
+          extracted_text LONGTEXT,
+          FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL
         )
       `);
 
@@ -212,6 +257,7 @@ const initDatabase = async () => {
           is_current TINYINT(1) DEFAULT 1,
           strictness_level VARCHAR(50),
           provider VARCHAR(50),
+          corrections JSON,
           FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
           FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
         )
@@ -280,8 +326,68 @@ const initDatabase = async () => {
           console.log('Adding provider column to marking_results table...');
           await query(`ALTER TABLE marking_results ADD COLUMN provider VARCHAR(50)`);
         }
+        
+        // Check if corrections column exists
+        const correctionsCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'marking_results' 
+          AND column_name = 'corrections'
+        `);
+        const hasCorrections = (correctionsCheck.rows?.[0]?.count || correctionsCheck?.[0]?.count || 0) > 0;
+        
+        if (!hasCorrections) {
+          console.log('Adding corrections column to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN corrections JSON`);
+        }
+        
+        // Check if language_errors column exists
+        const languageErrorsCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'marking_results' 
+          AND column_name = 'language_errors'
+        `);
+        const hasLanguageErrors = (languageErrorsCheck.rows?.[0]?.count || languageErrorsCheck?.[0]?.count || 0) > 0;
+        
+        if (!hasLanguageErrors) {
+          console.log('Adding language_errors column to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN language_errors JSON`);
+        }
+        
+        // Check if batch_id column exists in assignments
+        const batchIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'assignments' 
+          AND column_name = 'batch_id'
+        `);
+        const hasBatchId = (batchIdCheck.rows?.[0]?.count || batchIdCheck?.[0]?.count || 0) > 0;
+        
+        if (!hasBatchId) {
+          console.log('Adding batch_id column to assignments table...');
+          await query(`ALTER TABLE assignments ADD COLUMN batch_id INT`);
+        }
+        
+        // Check if extracted_text column exists
+        const extractedTextCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'assignments' 
+          AND column_name = 'extracted_text'
+        `);
+        const hasExtractedText = (extractedTextCheck.rows?.[0]?.count || extractedTextCheck?.[0]?.count || 0) > 0;
+        
+        if (!hasExtractedText) {
+          console.log('Adding extracted_text column to assignments table...');
+          await query(`ALTER TABLE assignments ADD COLUMN extracted_text LONGTEXT`);
+        }
       } catch (err) {
-        console.error('Error migrating marking_results table:', err.message);
+        console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
       }
       
@@ -324,13 +430,24 @@ const initDatabase = async () => {
       }
 
       await query(`
+        CREATE TABLE IF NOT EXISTS batches (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await query(`
         CREATE TABLE IF NOT EXISTS assignments (
           id SERIAL PRIMARY KEY,
           filename VARCHAR(255) NOT NULL,
           file_path VARCHAR(500) NOT NULL,
           file_size INTEGER,
           uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          status VARCHAR(50) DEFAULT 'uploaded'
+          status VARCHAR(50) DEFAULT 'uploaded',
+          batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
+          extracted_text TEXT
         )
       `);
 
@@ -347,7 +464,8 @@ const initDatabase = async () => {
           version INTEGER DEFAULT 1,
           is_current BOOLEAN DEFAULT TRUE,
           strictness_level VARCHAR(50),
-          provider VARCHAR(50)
+          provider VARCHAR(50),
+          corrections JSONB
         )
       `);
       
@@ -393,6 +511,48 @@ const initDatabase = async () => {
         `);
         if ((providerCheck.rows?.[0]?.count || providerCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN provider VARCHAR(50)`);
+        }
+        
+        const correctionsCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'marking_results' 
+          AND column_name = 'corrections'
+        `);
+        if ((correctionsCheck.rows?.[0]?.count || correctionsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN corrections JSONB`);
+        }
+        
+        const languageErrorsCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'marking_results' 
+          AND column_name = 'language_errors'
+        `);
+        if ((languageErrorsCheck.rows?.[0]?.count || languageErrorsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN language_errors JSONB`);
+        }
+        
+        // Check if batch_id column exists in assignments
+        const batchIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'assignments' 
+          AND column_name = 'batch_id'
+        `);
+        if ((batchIdCheck.rows?.[0]?.count || batchIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL`);
+        }
+        
+        // Check if extracted_text column exists
+        const extractedTextCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'assignments' 
+          AND column_name = 'extracted_text'
+        `);
+        if ((extractedTextCheck.rows?.[0]?.count || extractedTextCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN extracted_text TEXT`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

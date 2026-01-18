@@ -49,6 +49,16 @@ export interface Assignment {
   file_size: number;
   uploaded_at: string;
   status: 'uploaded' | 'processing' | 'completed' | 'error';
+  batch_id?: number | null;
+  extracted_text?: string | null; // PDF text extracted and stored in database
+}
+
+export interface Batch {
+  id: number;
+  name: string;
+  description?: string | null;
+  created_at: string;
+  assignment_count?: number;
 }
 
 export interface RubricCriterion {
@@ -74,6 +84,23 @@ export interface MarkingScore {
   confidence?: number; // 0-100 confidence level for this criterion
 }
 
+export interface Correction {
+  type: 'correction' | 'suggestion';
+  criterion_name: string;
+  location: string;
+  issue: string;
+  correction: string;
+  reason: string;
+}
+
+export interface LanguageError {
+  location: string;
+  error_text: string;
+  error_type: 'grammar' | 'spelling' | 'reference' | 'punctuation' | 'style';
+  correction: string;
+  explanation: string;
+}
+
 export interface MarkingResult {
   id: number;
   assignment_id: number;
@@ -91,6 +118,8 @@ export interface MarkingResult {
   needs_review?: boolean; // Flag indicating if human review is recommended
   min_criterion_confidence?: number; // Minimum confidence across all criteria
   has_low_criterion_confidence?: boolean; // Flag if any criterion has low confidence
+  corrections?: Correction[]; // Array of corrections and suggestions with location information
+  language_errors?: LanguageError[]; // Array of grammar, spelling, and reference errors
 }
 
 // Upload API
@@ -164,7 +193,7 @@ export const markingAPI = {
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
-  }) => api.post('/mark/multiple', data),
+  }, signal?: AbortSignal) => api.post('/mark/multiple', data, { signal }),
 
   markManual: (data: {
     assignment_id: number;
@@ -224,6 +253,58 @@ export const rubricGeneratorAPI = {
     total_points: number;
     rubric_type?: 'rubric' | 'answer_key';
   }) => api.post('/rubric-generator/save', data),
+};
+
+// Batches API
+export const batchesAPI = {
+  getBatches: () => api.get('/batches'),
+  getBatch: (id: number) => api.get(`/batches/${id}`),
+  createBatch: (data: { name: string; description?: string }) => api.post('/batches', data),
+  updateBatch: (id: number, data: { name: string; description?: string }) => api.put(`/batches/${id}`, data),
+  deleteBatch: (id: number) => api.delete(`/batches/${id}`),
+  assignToBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/assign`, { assignment_ids }),
+  unassignFromBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/unassign`, { assignment_ids }),
+};
+
+// Assessments API
+export interface AssessmentQuestion {
+  number: number;
+  type: 'essay' | 'multiple_choice' | 'short_answer' | 'problem';
+  question: string;
+  points: number;
+  hints?: string[];
+  related_criteria?: string[]; // Rubric criteria this question assesses
+}
+
+export interface SuggestedRubricCriterion {
+  name: string;
+  max_points: number;
+  description: string;
+}
+
+export interface GeneratedAssessment {
+  title: string;
+  topic: string;
+  difficulty_level: string;
+  assessment_type: string;
+  instructions: string;
+  questions: AssessmentQuestion[];
+  total_points: number;
+  estimated_time: string;
+  suggested_rubric_criteria?: SuggestedRubricCriterion[];
+  rubric_alignment?: string; // Explanation of how assessment aligns with rubric
+}
+
+export const assessmentsAPI = {
+  generate: (data: {
+    rubric_id: number; // Required: rubric to base assessment on
+    difficulty_level?: 'beginner' | 'moderate' | 'advanced';
+    question_count?: number;
+    assessment_type?: 'assignment' | 'exam' | 'quiz' | 'essay';
+    use_existing_patterns?: boolean;
+    topic?: string | null; // Optional: specific topic/subject area
+  }) => api.post('/assessments/generate', data),
+  getStats: () => api.get('/assessments/stats'),
 };
 
 export default api;

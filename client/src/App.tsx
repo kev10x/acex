@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck } from 'lucide-react';
+import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import RubricManager from './components/RubricManager';
 import MarkingInterface from './components/MarkingInterface';
@@ -7,8 +7,11 @@ import ManualMarkingInterface from './components/ManualMarkingInterface';
 import ResultsDashboard from './components/ResultsDashboard';
 import RubricGenerator from './components/RubricGenerator';
 import MCQInterface from './components/MCQInterface';
+import BatchManager from './components/BatchManager';
+import TrainingDataManager from './components/TrainingDataManager';
+import AssessmentGenerator from './components/AssessmentGenerator';
 
-type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq';
+type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments';
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabType>('upload');
@@ -17,9 +20,12 @@ function App() {
     { id: 'upload', label: 'Upload PDFs', icon: Upload },
     { id: 'rubrics', label: 'Manage Rubrics', icon: FileText },
     { id: 'generator', label: 'AI Rubric Generator', icon: Wand2 },
+    { id: 'assessments', label: 'Generate Assessments', icon: Sparkles },
     { id: 'marking', label: 'AI Marking', icon: BarChart3 },
     { id: 'manual-marking', label: 'Manual Marking', icon: Edit3 },
     { id: 'mcq', label: 'MCQ Forms', icon: ClipboardCheck },
+    { id: 'batches', label: 'Batches', icon: Folder },
+    { id: 'training', label: 'Model Training', icon: Brain },
     { id: 'results', label: 'View Results', icon: Settings },
   ];
 
@@ -67,9 +73,12 @@ function App() {
         {activeTab === 'upload' && <FileUpload />}
         {activeTab === 'rubrics' && <RubricManager />}
         {activeTab === 'generator' && <RubricGenerator />}
+        {activeTab === 'assessments' && <AssessmentGenerator />}
         {activeTab === 'marking' && <MarkingInterface />}
         {activeTab === 'manual-marking' && <ManualMarkingInterface />}
         {activeTab === 'mcq' && <MCQInterface />}
+        {activeTab === 'batches' && <BatchManager />}
+        {activeTab === 'training' && <TrainingDataManager />}
         {activeTab === 'results' && <ResultsDashboard />}
       </main>
     </div>

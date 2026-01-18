@@ -12,12 +12,13 @@ router.get('/pdf/:resultId', async (req, res) => {
   try {
     const { resultId } = req.params;
 
-    // Get marking result with related data
+    // Get marking result with related data (including batch_id)
     const resultQuery = `
       SELECT 
         mr.*,
         a.filename,
         a.file_path,
+        a.batch_id,
         r.name as rubric_name,
         r.total_points,
         r.criteria
@@ -29,23 +30,27 @@ router.get('/pdf/:resultId', async (req, res) => {
 
     const result = await query(resultQuery, [resultId]);
 
-    if (result.rows.length === 0) {
+    // Handle different database result formats
+    const rows = Array.isArray(result) ? result : (result.rows || []);
+    
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Marking result not found' });
     }
 
-    const markingResult = result.rows[0];
+    const markingResult = rows[0];
     
     // Parse criteria if it's a JSON string
     if (typeof markingResult.criteria === 'string') {
       markingResult.criteria = JSON.parse(markingResult.criteria);
     }
 
-    // Generate PDF report
+    // Generate PDF report (pass batch_id for folder organization)
     const report = await pdfGenerator.generateAssignmentReport(
       markingResult,
       {
         filename: markingResult.filename,
-        file_path: markingResult.file_path
+        file_path: markingResult.file_path,
+        batch_id: markingResult.batch_id
       },
       {
         name: markingResult.rubric_name,
@@ -91,13 +96,14 @@ router.post('/pdf/batch', async (req, res) => {
       return res.status(400).json({ error: 'resultIds array is required' });
     }
 
-    // Get marking results with related data
+    // Get marking results with related data (including batch_id)
     const placeholders = resultIds.map(() => '?').join(',');
     const resultQuery = `
       SELECT 
         mr.*,
         a.filename,
         a.file_path,
+        a.batch_id,
         r.name as rubric_name,
         r.total_points,
         r.criteria
@@ -110,11 +116,14 @@ router.post('/pdf/batch', async (req, res) => {
 
     const result = await query(resultQuery, resultIds);
 
-    if (result.rows.length === 0) {
+    // Handle different database result formats
+    const rows = Array.isArray(result) ? result : (result.rows || []);
+    
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'No marking results found' });
     }
 
-    const markingResults = result.rows.map(row => {
+    const markingResults = rows.map(row => {
       if (typeof row.criteria === 'string') {
         row.criteria = JSON.parse(row.criteria);
       }
@@ -125,7 +134,8 @@ router.post('/pdf/batch', async (req, res) => {
     const assignments = markingResults.map(row => ({
       id: row.assignment_id,
       filename: row.filename,
-      file_path: row.file_path
+      file_path: row.file_path,
+      batch_id: row.batch_id
     }));
 
     const rubrics = markingResults.map(row => ({
@@ -170,31 +180,74 @@ router.post('/pdf/batch', async (req, res) => {
   }
 });
 
-// Get available reports (for admin purposes)
+// Get available reports (for admin purposes) - organized by batch
 router.get('/list', async (req, res) => {
   try {
     const reportsDir = path.join(__dirname, '../../reports');
     
     if (!fs.existsSync(reportsDir)) {
-      return res.json({ reports: [] });
+      return res.json({ reports: [], batches: {} });
     }
 
-    const files = fs.readdirSync(reportsDir);
-    const reports = files
-      .filter(file => file.endsWith('.pdf'))
-      .map(file => {
-        const filePath = path.join(reportsDir, file);
-        const stats = fs.statSync(filePath);
-        return {
-          fileName: file,
-          size: stats.size,
-          created: stats.birthtime,
-          modified: stats.mtime
-        };
-      })
-      .sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    const reports = [];
+    const batches = {};
+    
+    // Recursively scan reports directory and subdirectories
+    const scanDirectory = (dir, relativePath = '') => {
+      if (!fs.existsSync(dir)) {
+        return;
+      }
+      
+      const items = fs.readdirSync(dir);
+      
+      items.forEach(item => {
+        const itemPath = path.join(dir, item);
+        const stats = fs.statSync(itemPath);
+        
+        if (stats.isDirectory()) {
+          // Recursively scan subdirectories
+          const subRelativePath = relativePath ? `${relativePath}/${item}` : item;
+          scanDirectory(itemPath, subRelativePath);
+        } else if (item.endsWith('.pdf')) {
+          // Add PDF file to reports list
+          const fullRelativePath = relativePath ? `${relativePath}/${item}` : item;
+          reports.push({
+            fileName: item,
+            path: fullRelativePath,
+            fullPath: itemPath,
+            size: stats.size,
+            created: stats.birthtime,
+            modified: stats.mtime,
+            batch: relativePath || 'root'
+          });
+          
+          // Group by batch
+          const batchKey = relativePath || 'root';
+          if (!batches[batchKey]) {
+            batches[batchKey] = [];
+          }
+          batches[batchKey].push({
+            fileName: item,
+            path: fullRelativePath,
+            size: stats.size,
+            created: stats.birthtime,
+            modified: stats.mtime
+          });
+        }
+      });
+    };
+    
+    scanDirectory(reportsDir);
+    
+    // Sort reports by modified date
+    reports.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    
+    // Sort reports within each batch
+    Object.keys(batches).forEach(batchKey => {
+      batches[batchKey].sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    });
 
-    res.json({ reports });
+    res.json({ reports, batches });
   } catch (error) {
     console.error('List reports error:', error);
     res.status(500).json({ 

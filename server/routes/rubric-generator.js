@@ -1,15 +1,253 @@
 const express = require('express');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
-const OpenAI = require('openai');
 const { query } = require('../database/connection');
+const aiService = require('../services/aiService');
+const aiConfig = require('../config/ai-config');
 
 const router = express.Router();
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+/**
+ * Sanitize JSON string by fixing common issues with control characters
+ * This attempts to fix unescaped newlines, tabs, and other control characters
+ */
+function sanitizeJSONString(jsonString) {
+  try {
+    // First, try to extract just the JSON object
+    let cleaned = jsonString.trim();
+    
+    // Remove markdown code blocks if present
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```\s*$/, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```\s*$/, '');
+    }
+    
+    // Extract JSON object if there's extra text
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleaned = jsonMatch[0];
+    }
+    
+    // Fix unescaped control characters in string values
+    // We need to be careful to only escape within string values, not the JSON structure
+    let fixed = cleaned;
+    let inString = false;
+    let escapeNext = false;
+    let result = '';
+    
+    for (let i = 0; i < fixed.length; i++) {
+      const char = fixed[i];
+      
+      if (escapeNext) {
+        result += char;
+        escapeNext = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        result += char;
+        escapeNext = true;
+        continue;
+      }
+      
+      if (char === '"') {
+        inString = !inString;
+        result += char;
+        continue;
+      }
+      
+      if (inString) {
+        // Inside a string value - escape control characters
+        if (char === '\n') {
+          result += '\\n';
+        } else if (char === '\r') {
+          result += '\\r';
+        } else if (char === '\t') {
+          result += '\\t';
+        } else if (char === '\f') {
+          result += '\\f';
+        } else if (char === '\b') {
+          result += '\\b';
+        } else if (char.charCodeAt(0) < 32) {
+          // Other control characters - escape as unicode
+          result += `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`;
+        } else {
+          result += char;
+        }
+      } else {
+        // Outside string - keep as is
+        result += char;
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    // If sanitization fails, return original
+    return jsonString;
+  }
+}
+
+/**
+ * Fix common JSON syntax issues
+ */
+function fixJSONSyntax(jsonString) {
+  let fixed = jsonString;
+  
+  // Remove trailing commas before closing braces/brackets
+  fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
+  
+  // Fix unescaped quotes in string values (but be careful not to break valid JSON)
+  // This is a heuristic: look for quotes that aren't escaped and aren't string delimiters
+  let result = '';
+  let inString = false;
+  let escapeNext = false;
+  let quoteCount = 0;
+  
+  for (let i = 0; i < fixed.length; i++) {
+    const char = fixed[i];
+    const prevChar = i > 0 ? fixed[i - 1] : '';
+    
+    if (escapeNext) {
+      result += char;
+      escapeNext = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      result += char;
+      escapeNext = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      // Check if this is a string delimiter or an unescaped quote inside a string
+      if (inString && prevChar !== '\\') {
+        // This might be an unescaped quote - check context
+        // If followed by : or , or } or ], it's likely a string delimiter
+        const nextChars = fixed.substring(i + 1, i + 3).trim();
+        if (nextChars.startsWith(':') || nextChars.startsWith(',') || 
+            nextChars.startsWith('}') || nextChars.startsWith(']') ||
+            nextChars === '') {
+          // It's a string delimiter
+          inString = false;
+          result += char;
+        } else {
+          // It's likely an unescaped quote - escape it
+          result += '\\"';
+          continue;
+        }
+      } else {
+        // Toggle string state
+        inString = !inString;
+        result += char;
+      }
+      quoteCount++;
+    } else {
+      result += char;
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Parse JSON with multiple fallback strategies
+ */
+function parseJSONWithFallback(jsonString) {
+  let cleaned = sanitizeJSONString(jsonString);
+  
+  // Strategy 1: Try direct parse
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    console.log('⚠️  Initial JSON parse failed, trying fixes...');
+    
+    // Strategy 2: Fix common syntax issues
+    try {
+      let fixed = fixJSONSyntax(cleaned);
+      return JSON.parse(fixed);
+    } catch (error2) {
+      console.log('⚠️  Fixed JSON parse failed, trying aggressive extraction...');
+      
+      // Strategy 3: Try to extract and rebuild JSON structure
+      try {
+        // Find the main JSON object boundaries
+        const firstBrace = cleaned.indexOf('{');
+        const lastBrace = cleaned.lastIndexOf('}');
+        
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          let coreJSON = cleaned.substring(firstBrace, lastBrace + 1);
+          
+          // Try to fix it again
+          coreJSON = fixJSONSyntax(coreJSON);
+          coreJSON = sanitizeJSONString(coreJSON);
+          
+          return JSON.parse(coreJSON);
+        }
+      } catch (error3) {
+        // Strategy 4: Try to manually extract key fields if structure is too broken
+        try {
+          // Extract name
+          const nameMatch = cleaned.match(/"name"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/);
+          const name = nameMatch ? nameMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') : 'Generated Rubric';
+          
+          // Extract total_points
+          const pointsMatch = cleaned.match(/"total_points"\s*:\s*(\d+)/);
+          const totalPoints = pointsMatch ? parseInt(pointsMatch[1], 10) : 100;
+          
+          // Extract criteria array (simplified)
+          const criteriaMatch = cleaned.match(/"criteria"\s*:\s*\[([\s\S]*?)\]/);
+          if (criteriaMatch) {
+            // Try to parse individual criteria
+            const criteriaText = criteriaMatch[1];
+            const criteria = [];
+            
+            // Find individual criterion objects
+            const criterionRegex = /\{[^}]*"name"\s*:\s*"([^"]+)"[^}]*"max_points"\s*:\s*(\d+)[^}]*"description"\s*:\s*"([^"]*(?:\\.[^"]*)*)"[^}]*\}/g;
+            let match;
+            while ((match = criterionRegex.exec(criteriaText)) !== null) {
+              criteria.push({
+                name: match[1],
+                max_points: parseInt(match[2], 10),
+                description: match[3].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+              });
+            }
+            
+            if (criteria.length > 0) {
+              console.log('⚠️  Using fallback parsing - extracted', criteria.length, 'criteria');
+              return {
+                name,
+                total_points: totalPoints,
+                criteria
+              };
+            }
+          }
+        } catch (error4) {
+          // All strategies failed
+        }
+        
+        // Log the problematic section
+        const errorPos = parseInt(error.message.match(/position (\d+)/)?.[1] || '0', 10);
+        const start = Math.max(0, errorPos - 100);
+        const end = Math.min(cleaned.length, errorPos + 100);
+        const problematicSection = cleaned.substring(start, end);
+        
+        console.error('❌ JSON parsing failed at position', errorPos);
+        console.error('Problematic section:', problematicSection);
+        console.error('Full response length:', cleaned.length);
+        
+        throw new Error(
+          `JSON parsing failed after multiple attempts. ` +
+          `Error at position ${errorPos}: ${error.message}. ` +
+          `Problematic section: ${problematicSection.substring(0, 200)}`
+        );
+      }
+    }
+  }
+  
+  throw new Error('All JSON parsing strategies failed');
+}
 
 // Detect document type (question paper, treatise, assignment, etc.)
 const detectDocumentType = async (documentText) => {
@@ -35,23 +273,28 @@ Respond with ONLY a JSON object:
   "confidence": "high" or "medium" or "low"
 }`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: detectionPrompt }],
+    const config = aiConfig.getConfig('assignment', 'openai');
+    const completion = await aiService.createCompletionWithRetry({
+      provider: 'openai',
+      model: 'gpt-4o-mini', // Use mini for detection
+      messages: [
+        { 
+          role: "system", 
+          content: "You are a document classifier. Always respond with valid JSON format only, no additional text." 
+        },
+        { 
+          role: "user", 
+          content: detectionPrompt 
+        }
+      ],
       temperature: 0.1,
-      max_tokens: 150,
+      maxTokens: 150,
       user: "anonymous"
     });
 
-    const response = completion.choices[0].message.content.trim();
-    let cleanResponse = response;
-    if (cleanResponse.startsWith('```json')) {
-      cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanResponse.startsWith('```')) {
-      cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-
-    const result = JSON.parse(cleanResponse);
+    let response = completion.content.trim();
+    
+    const result = parseJSONWithFallback(response);
     console.log('🔍 Document type detection result:', result);
     return result.document_type || 'treatise';
   } catch (error) {
@@ -120,12 +363,14 @@ IMPORTANT:
 - For essay questions, list all key points that must be covered
 - Total points should be reasonable (typically 50-100 points for a full exam)`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const config = aiConfig.getConfig('assignment', 'openai');
+    const completion = await aiService.createCompletionWithRetry({
+      provider: 'openai',
+      model: config.model,
       messages: [
         {
           role: "system",
-          content: "You are an expert educator creating comprehensive answer keys and marking memorandums. Always respond with valid JSON format."
+          content: "You are an expert educator creating comprehensive answer keys and marking memorandums. Always respond with valid JSON format only, no additional text before or after the JSON."
         },
         {
           role: "user",
@@ -133,22 +378,14 @@ IMPORTANT:
         }
       ],
       temperature: 0.2,
-      max_tokens: 4000,
+      maxTokens: 4000,
       user: "anonymous"
     });
 
-    const response = completion.choices[0].message.content.trim();
-    
-    // Clean up response - remove markdown code blocks if present
-    let cleanResponse = response;
-    if (cleanResponse.startsWith('```json')) {
-      cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanResponse.startsWith('```')) {
-      cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
+    let response = completion.content.trim();
     
     try {
-      const answerKeyData = JSON.parse(cleanResponse);
+      const answerKeyData = parseJSONWithFallback(response);
       
       // Validate the response structure
       if (!answerKeyData.name || !answerKeyData.criteria || !Array.isArray(answerKeyData.criteria)) {
@@ -191,9 +428,14 @@ IMPORTANT:
         rubric_type: 'answer_key'
       };
     } catch (parseError) {
-      console.error('❌ JSON parsing error:', parseError);
-      console.error('AI Response:', response);
-      throw new Error('Failed to parse AI response as JSON');
+      console.error('❌ JSON parsing error:', parseError.message);
+      console.error('Raw AI Response (first 500 chars):', response.substring(0, 500));
+      
+      // Try to provide more helpful error message
+      if (parseError.message.includes('Unexpected token') || parseError.message.includes('control character')) {
+        throw new Error(`Failed to parse AI response as JSON. The response may contain invalid JSON, control characters, or extra text. First 200 chars: ${response.substring(0, 200)}`);
+      }
+      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
     }
   } catch (error) {
     console.error('❌ OpenAI API error:', error);
@@ -250,20 +492,29 @@ Make sure the rubric is:
 - Appropriate for the academic level of the content
 `;
 
-    const completion = await openai.completions.create({
-      model: "gpt-3.5-turbo-instruct",
-      prompt: `You are an expert educator who creates fair, comprehensive, and detailed marking rubrics. Always respond with valid JSON format.
-
-${prompt}`,
+    const config = aiConfig.getConfig('assignment', 'openai');
+    const completion = await aiService.createCompletionWithRetry({
+      provider: 'openai',
+      model: config.model,
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert educator who creates fair, comprehensive, and detailed marking rubrics. Always respond with valid JSON format only, no additional text before or after the JSON."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
       temperature: 0.3,
-      max_tokens: 2000,
-      user: "anonymous" // Enhanced privacy: don't send user identifiers
+      maxTokens: 2000,
+      user: "anonymous"
     });
 
-    const response = completion.choices[0].text;
+    let response = completion.content.trim();
     
     try {
-      const rubricData = JSON.parse(response);
+      const rubricData = parseJSONWithFallback(response);
       
       // Validate the response structure
       if (!rubricData.name || !rubricData.criteria || !Array.isArray(rubricData.criteria)) {
@@ -291,9 +542,14 @@ ${prompt}`,
         rubric_type: 'rubric'
       };
     } catch (parseError) {
-      console.error('JSON parsing error:', parseError);
-      console.error('AI Response:', response);
-      throw new Error('Failed to parse AI response as JSON');
+      console.error('❌ JSON parsing error:', parseError.message);
+      console.error('Raw AI Response (first 500 chars):', response.substring(0, 500));
+      
+      // Try to provide more helpful error message
+      if (parseError.message.includes('Unexpected token') || parseError.message.includes('control character')) {
+        throw new Error(`Failed to parse AI response as JSON. The response may contain invalid JSON, control characters, or extra text. First 200 chars: ${response.substring(0, 200)}`);
+      }
+      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
     }
   } catch (error) {
     console.error('OpenAI API error:', error);

@@ -14,12 +14,33 @@ class PDFReportGenerator {
     }
   }
 
+  ensureBatchDirectory(batchId) {
+    if (!batchId) {
+      // If no batch, use a default "unassigned" folder
+      const unassignedDir = path.join(this.reportsDir, 'unassigned');
+      if (!fs.existsSync(unassignedDir)) {
+        fs.mkdirSync(unassignedDir, { recursive: true });
+      }
+      return unassignedDir;
+    }
+    
+    const batchDir = path.join(this.reportsDir, `batch-${batchId}`);
+    if (!fs.existsSync(batchDir)) {
+      fs.mkdirSync(batchDir, { recursive: true });
+    }
+    return batchDir;
+  }
+
   generateAssignmentReport(markingResult, assignment, rubric) {
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({ margin: 50 });
         const fileName = `assignment_report_${markingResult.id}_${Date.now()}.pdf`;
-        const filePath = path.join(this.reportsDir, fileName);
+        
+        // Organize reports by batch folder
+        const batchId = assignment.batch_id || null;
+        const batchDir = this.ensureBatchDirectory(batchId);
+        const filePath = path.join(batchDir, fileName);
         
         // Pipe the PDF to a file
         const stream = fs.createWriteStream(filePath);
@@ -39,6 +60,9 @@ class PDFReportGenerator {
         
         // Overall Feedback
         this.addOverallFeedback(doc, markingResult);
+        
+        // Language Errors
+        this.addLanguageErrors(doc, markingResult);
 
         // Finalize the PDF
         doc.end();
@@ -176,14 +200,100 @@ class PDFReportGenerator {
     }
   }
 
+  addLanguageErrors(doc, markingResult) {
+    // Parse language_errors if it's a string
+    let languageErrors = markingResult.language_errors;
+    if (typeof languageErrors === 'string') {
+      try {
+        languageErrors = JSON.parse(languageErrors);
+      } catch (e) {
+        languageErrors = [];
+      }
+    }
+    
+    if (languageErrors && Array.isArray(languageErrors) && languageErrors.length > 0) {
+      doc.fontSize(14)
+         .font('Helvetica-Bold')
+         .text(`Language Errors (${languageErrors.length})`, { underline: true });
+      
+      doc.moveDown(0.5);
+      
+      languageErrors.forEach((error, index) => {
+        // Error type label with different colors
+        const typeColors = {
+          grammar: '#F59E0B',      // orange
+          spelling: '#EF4444',      // red
+          reference: '#8B5CF6',     // purple
+          punctuation: '#EC4899',   // pink
+          style: '#6366F1'          // indigo
+        };
+        
+        const color = typeColors[error.error_type] || '#6B7280';
+        
+        doc.fontSize(11)
+           .font('Helvetica-Bold')
+           .fillColor(color)
+           .text(`${index + 1}. ${error.error_type.toUpperCase()}`, { indent: 20 });
+        
+        doc.fontSize(10)
+           .font('Helvetica')
+           .fillColor('#000000')
+           .text(`Location: ${error.location}`, { indent: 30 });
+        
+        doc.fontSize(10)
+           .font('Helvetica')
+           .fillColor('#DC2626') // red for error
+           .text(`Error: "${error.error_text}"`, { indent: 30 });
+        
+        doc.fontSize(10)
+           .font('Helvetica')
+           .fillColor('#16A34A') // green for correction
+           .text(`Correction: "${error.correction}"`, { indent: 30 });
+        
+        doc.fontSize(9)
+           .font('Helvetica-Oblique')
+           .fillColor('#6B7280') // gray for explanation
+           .text(`${error.explanation}`, { indent: 30 });
+        
+        // Reset color
+        doc.fillColor('#000000');
+        doc.moveDown(0.5);
+      });
+      
+      doc.moveDown(1);
+    }
+  }
+
 
   // Generate a batch report for multiple assignments
   generateBatchReport(markingResults, assignments, rubrics) {
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({ margin: 50 });
+        
+        // Determine batch folder - use the batch_id from the first assignment if all are in the same batch
+        const batchIds = assignments.map(a => a.batch_id).filter(id => id !== null);
+        const uniqueBatchIds = [...new Set(batchIds)];
+        
+        // If all assignments are in the same batch, use that batch folder
+        // Otherwise, use a combined batch folder or unassigned
+        let batchDir;
+        if (uniqueBatchIds.length === 1) {
+          batchDir = this.ensureBatchDirectory(uniqueBatchIds[0]);
+        } else if (uniqueBatchIds.length > 1) {
+          // Multiple batches - use a combined folder
+          const combinedDir = path.join(this.reportsDir, 'combined-batches');
+          if (!fs.existsSync(combinedDir)) {
+            fs.mkdirSync(combinedDir, { recursive: true });
+          }
+          batchDir = combinedDir;
+        } else {
+          // No batches - use unassigned folder
+          batchDir = this.ensureBatchDirectory(null);
+        }
+        
         const fileName = `batch_report_${Date.now()}.pdf`;
-        const filePath = path.join(this.reportsDir, fileName);
+        const filePath = path.join(batchDir, fileName);
         
         const stream = fs.createWriteStream(filePath);
         doc.pipe(stream);
@@ -271,21 +381,48 @@ class PDFReportGenerator {
     doc.moveDown(0.5);
   }
 
-  // Clean up old reports (optional)
+  // Clean up old reports (optional) - handles batch folders
   cleanupOldReports(maxAge = 7 * 24 * 60 * 60 * 1000) { // 7 days
     try {
-      const files = fs.readdirSync(this.reportsDir);
       const now = Date.now();
       
-      files.forEach(file => {
-        const filePath = path.join(this.reportsDir, file);
-        const stats = fs.statSync(filePath);
-        
-        if (now - stats.mtime.getTime() > maxAge) {
-          fs.unlinkSync(filePath);
-          console.log(`Cleaned up old report: ${file}`);
+      // Recursively clean up files in reports directory and subdirectories
+      const cleanupDirectory = (dir) => {
+        if (!fs.existsSync(dir)) {
+          return;
         }
-      });
+        
+        const items = fs.readdirSync(dir);
+        
+        items.forEach(item => {
+          const itemPath = path.join(dir, item);
+          const stats = fs.statSync(itemPath);
+          
+          if (stats.isDirectory()) {
+            // Recursively clean subdirectories
+            cleanupDirectory(itemPath);
+            
+            // Remove empty directories
+            try {
+              const remainingItems = fs.readdirSync(itemPath);
+              if (remainingItems.length === 0) {
+                fs.rmdirSync(itemPath);
+                console.log(`Removed empty directory: ${itemPath}`);
+              }
+            } catch (err) {
+              // Directory might not be empty or might have been removed
+            }
+          } else if (item.endsWith('.pdf')) {
+            // Clean up old PDF files
+            if (now - stats.mtime.getTime() > maxAge) {
+              fs.unlinkSync(itemPath);
+              console.log(`Cleaned up old report: ${itemPath}`);
+            }
+          }
+        });
+      };
+      
+      cleanupDirectory(this.reportsDir);
     } catch (error) {
       console.error('Error cleaning up old reports:', error);
     }

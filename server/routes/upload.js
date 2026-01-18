@@ -5,6 +5,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const yauzl = require('yauzl');
 const { query } = require('../database/connection');
+const { extractTextFromPDF } = require('../services/pdfOCR');
 
 const router = express.Router();
 
@@ -138,9 +139,24 @@ router.post('/single', upload.single('pdf'), async (req, res) => {
 
     console.log('Saving assignment to database:', assignment);
 
+    // Extract text from PDF and store it
+    let extractedText = null;
+    try {
+      console.log('Extracting text from PDF...');
+      extractedText = await extractTextFromPDF(req.file.path);
+      if (extractedText && extractedText.trim().length > 0) {
+        console.log(`✅ Extracted ${extractedText.length} characters of text`);
+      } else {
+        console.log('⚠️  No text extracted from PDF');
+      }
+    } catch (error) {
+      console.warn('⚠️  Error extracting text from PDF (continuing anyway):', error.message);
+      // Continue even if extraction fails - text can be extracted later
+    }
+
     const result = await query(
-      'INSERT INTO assignments (filename, file_path, file_size, status) VALUES (?, ?, ?, ?)',
-      [assignment.filename, assignment.file_path, assignment.file_size, assignment.status]
+      'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text) VALUES (?, ?, ?, ?, ?)',
+      [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText]
     );
     
     // For SQLite, we need to get the last inserted ID separately
@@ -197,9 +213,21 @@ router.post('/multiple', upload.array('pdfs', 10), async (req, res) => {
         status: 'uploaded'
       };
 
+      // Extract text from PDF and store it
+      let extractedText = null;
+      try {
+        extractedText = await extractTextFromPDF(file.path);
+        if (!extractedText || extractedText.trim().length === 0) {
+          extractedText = null;
+        }
+      } catch (error) {
+        console.warn(`⚠️  Error extracting text from ${file.originalname}:`, error.message);
+        // Continue even if extraction fails
+      }
+
       const result = await query(
-        'INSERT INTO assignments (filename, file_path, file_size, status) VALUES (?, ?, ?, ?)',
-        [assignment.filename, assignment.file_path, assignment.file_size, assignment.status]
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text) VALUES (?, ?, ?, ?, ?)',
+        [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText]
       );
 
       // For SQLite, we need to get the last inserted ID separately
@@ -240,9 +268,21 @@ router.post('/zip', uploadZip.single('zip'), async (req, res) => {
 
     // Helper to insert assignment row
     const insertAssignment = async (filename, filePath, fileSize) => {
+      // Extract text from PDF and store it
+      let extractedText = null;
+      try {
+        extractedText = await extractTextFromPDF(filePath);
+        if (!extractedText || extractedText.trim().length === 0) {
+          extractedText = null;
+        }
+      } catch (error) {
+        console.warn(`⚠️  Error extracting text from ${filename}:`, error.message);
+        // Continue even if extraction fails
+      }
+      
       const result = await query(
-        'INSERT INTO assignments (filename, file_path, file_size, status) VALUES (?, ?, ?, ?)',
-        [filename, filePath, fileSize, 'uploaded']
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text) VALUES (?, ?, ?, ?, ?)',
+        [filename, filePath, fileSize, 'uploaded', extractedText]
       );
       const insertedId = result.lastID || result.rows?.[0]?.id;
       extractedAssignments.push({
@@ -335,9 +375,12 @@ router.get('/', async (req, res) => {
       'SELECT * FROM assignments ORDER BY uploaded_at DESC'
     );
     
+    // Handle different database result formats
+    const assignments = Array.isArray(result) ? result : (result.rows || []);
+    
     res.json({
       success: true,
-      assignments: result.rows
+      assignments
     });
   } catch (error) {
     console.error('Get assignments error:', error);

@@ -48,9 +48,13 @@ app.use('/api/upload', require('./routes/upload'));
 app.use('/api/rubrics', require('./routes/rubrics'));
 app.use('/api/mark', require('./routes/mark'));
 app.use('/api/results', require('./routes/results'));
+app.use('/api/batches', require('./routes/batches'));
 app.use('/api/rubric-generator', require('./routes/rubric-generator'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/mcq', require('./routes/mcq'));
+app.use('/api/training', require('./routes/training'));
+app.use('/api/local-models', require('./routes/local-models'));
+app.use('/api/assessments', require('./routes/assessments'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

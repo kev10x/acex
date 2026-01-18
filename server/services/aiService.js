@@ -27,6 +27,21 @@ class AIService {
     } else {
       console.warn('⚠️  ANTHROPIC_API_KEY not found. Anthropic provider will not be available.');
     }
+    
+    // Request throttling: Track last request time per provider
+    // Add minimum delay between requests to avoid rate limits
+    this.lastRequestTime = {
+      openai: 0,
+      anthropic: 0
+    };
+    
+    // Minimum delay between requests (in milliseconds)
+    // OpenAI: ~60 requests/minute for GPT-4o = ~1 request/second
+    // Anthropic: ~50 requests/minute = ~1.2 requests/second
+    this.minRequestInterval = {
+      openai: 1200,    // 1.2 seconds between requests (50 req/min)
+      anthropic: 1500  // 1.5 seconds between requests (40 req/min)
+    };
   }
 
   /**
@@ -141,38 +156,93 @@ class AIService {
   }
 
   /**
+   * Throttle requests to avoid rate limits
+   * Ensures minimum time between requests per provider
+   */
+  async _throttleRequest(provider) {
+    const providerKey = provider === 'openai' ? 'openai' : 'anthropic';
+    const minInterval = this.minRequestInterval[providerKey] || 1000;
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime[providerKey];
+    
+    if (timeSinceLastRequest < minInterval) {
+      const waitTime = minInterval - timeSinceLastRequest;
+      console.log(`⏳ Throttling request: waiting ${(waitTime/1000).toFixed(1)}s to avoid rate limits...`);
+      await new Promise(r => setTimeout(r, waitTime));
+    }
+    
+    this.lastRequestTime[providerKey] = Date.now();
+  }
+
+  /**
    * Retry wrapper with exponential backoff for rate limits and overload errors
+   * Improved rate limit handling with Retry-After header support
    */
   async createCompletionWithRetry(params, maxRetries = 5) {
+    const selectedProvider = params.provider || aiConfig.defaultProvider;
+    
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
+        // Throttle requests to avoid hitting rate limits
+        await this._throttleRequest(selectedProvider);
+        
         return await this.createCompletion(params);
       } catch (err) {
         // Check if it's a rate limit error (429)
         const isRateLimit = err?.status === 429 || 
                            err?.statusCode === 429 ||
-                           err?.message?.includes('rate_limit') ||
-                           err?.message?.includes('rate limit');
+                           err?.code === 'rate_limit_exceeded' ||
+                           err?.error?.code === 'rate_limit_exceeded' ||
+                           err?.message?.toLowerCase().includes('rate_limit') ||
+                           err?.message?.toLowerCase().includes('rate limit') ||
+                           err?.message?.toLowerCase().includes('too many requests');
         
         // Check if it's an overload error (529)
         const isOverload = err?.status === 529 ||
                           err?.statusCode === 529 ||
                           err?.error?.type === 'overloaded_error' ||
-                          err?.message?.includes('overloaded') ||
-                          err?.message?.includes('Overloaded');
+                          err?.message?.toLowerCase().includes('overloaded');
 
         if ((isRateLimit || isOverload) && attempt < maxRetries) {
-          // Use longer delays for overload errors
-          const baseDelay = isOverload ? 5000 : 1000; // 5s for overload, 1s for rate limit
-          const delayMs = baseDelay * Math.pow(2, attempt); // Exponential backoff
-          const maxDelay = isOverload ? 60000 : 30000; // Max 60s for overload, 30s for rate limit
-          const finalDelay = Math.min(delayMs, maxDelay);
+          // Check for Retry-After header (in seconds)
+          let retryAfter = null;
+          if (err?.response?.headers?.['retry-after']) {
+            retryAfter = parseInt(err.response.headers['retry-after'], 10) * 1000; // Convert to ms
+          } else if (err?.headers?.['retry-after']) {
+            retryAfter = parseInt(err.headers['retry-after'], 10) * 1000;
+          }
           
-          const errorType = isOverload ? 'overloaded' : 'rate limited';
-          console.warn(`⚠️  API ${errorType} (attempt ${attempt + 1}/${maxRetries}). Retrying in ${(finalDelay/1000).toFixed(1)}s...`);
-          await new Promise(r => setTimeout(r, finalDelay));
+          // Calculate delay
+          let delayMs;
+          if (retryAfter && retryAfter > 0) {
+            // Use Retry-After header if available (add small buffer)
+            delayMs = retryAfter + 1000; // Add 1 second buffer
+            console.warn(`⚠️  API rate limited. Server requested ${(retryAfter/1000).toFixed(1)}s wait. Waiting ${(delayMs/1000).toFixed(1)}s...`);
+          } else {
+            // Use exponential backoff with longer delays for rate limits
+            const baseDelay = isOverload ? 10000 : 5000; // 10s for overload, 5s for rate limit (increased)
+            delayMs = baseDelay * Math.pow(2, attempt); // Exponential backoff
+            const maxDelay = isOverload ? 120000 : 60000; // Max 120s for overload, 60s for rate limit
+            delayMs = Math.min(delayMs, maxDelay);
+            
+            const errorType = isOverload ? 'overloaded' : 'rate limited';
+            console.warn(`⚠️  API ${errorType} (attempt ${attempt + 1}/${maxRetries}). Retrying in ${(delayMs/1000).toFixed(1)}s...`);
+          }
+          
+          await new Promise(r => setTimeout(r, delayMs));
           continue;
         }
+        
+        // If we've exhausted retries for rate limit, throw a more helpful error
+        if ((isRateLimit || isOverload) && attempt >= maxRetries) {
+          const errorType = isOverload ? 'overloaded' : 'rate limited';
+          throw new Error(
+            `API ${errorType} after ${maxRetries} retries. ` +
+            `Please wait a few minutes before trying again. ` +
+            `If this persists, consider reducing the number of concurrent marking requests.`
+          );
+        }
+        
         throw err;
       }
     }
