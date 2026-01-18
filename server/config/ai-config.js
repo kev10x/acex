@@ -1,5 +1,9 @@
 // AI Configuration for MarkMate
 // This file contains settings for OpenAI and Anthropic API calls and document processing
+//
+// NOTE: MarkMate includes explicit instructions to counteract AI positive bias
+// (the tendency of GenAI models to be overly positive/encouraging in assessments).
+// See AI_POSITIVE_BIAS_MITIGATION.md for details on how realistic assessment is enforced.
 
 module.exports = {
   // Default AI provider: 'openai' or 'anthropic'
@@ -29,25 +33,26 @@ module.exports = {
     },
     
     // Token limits for different document types
+    // Increased significantly to allow for extensive, detailed feedback
     maxTokens: {
-      treatise: 12000,     // Detailed feedback for treatises (increased for large documents)
-      assignment: 4000,    // Standard feedback for assignments
-      report: 6000,        // Comprehensive feedback for reports
-      question_paper: 8000, // Detailed marking for question papers
-      memo: 6000,          // Feedback when using memo as rubric
-      default: 3000        // Basic feedback
+      treatise: 16000,     // Extensive detailed feedback for treatises (increased for comprehensive feedback)
+      assignment: 8000,    // Comprehensive feedback for assignments (doubled for detailed feedback)
+      report: 10000,       // Extensive feedback for reports (increased for detailed feedback)
+      question_paper: 12000, // Detailed marking with extensive feedback for question papers
+      memo: 8000,          // Comprehensive feedback when using memo as rubric
+      default: 6000        // Detailed feedback (doubled from basic)
     },
     
     // Temperature settings for different evaluation types
-    // Lower temperatures = more consistent, deterministic outputs
-    // For consistency, we use very low temperatures
+    // Moderate temperatures allow variation while maintaining accuracy
+    // Increased from very low (0.05-0.1) to moderate (0.3-0.4) to allow unique evaluation per submission
     temperature: {
-      treatise: 0.1,       // Very low for consistent academic evaluation
-      assignment: 0.1,      // Low for consistency across iterations
-      report: 0.1,         // Low for consistent report marking
-      question_paper: 0.05, // Very low for objective marking consistency
-      memo: 0.05,          // Very low for memo-based marking consistency
-      default: 0.1         // Low default for consistency
+      treatise: 0.4,       // Moderate for varied but accurate academic evaluation
+      assignment: 0.3,      // Moderate for natural variation in marking
+      report: 0.3,         // Moderate for varied report marking
+      question_paper: 0.25, // Slightly lower for objective marking but still allows variation
+      memo: 0.25,          // Slightly lower for memo-based marking but still allows variation
+      default: 0.3         // Moderate default for natural variation
     }
   },
 
@@ -65,24 +70,26 @@ module.exports = {
     },
     
     // Max tokens for completion (Claude uses max_tokens instead of maxTokens)
+    // Increased significantly to allow for extensive, detailed feedback
     maxTokens: {
-      treatise: 16000,     // Claude can handle longer outputs for detailed feedback
-      assignment: 4000,    // Standard feedback for assignments
-      report: 8000,        // Comprehensive feedback for reports
-      question_paper: 10000, // Detailed marking for question papers
-      memo: 8000,          // Feedback when using memo as rubric
-      default: 4000        // Basic feedback
+      treatise: 16000,     // Extensive detailed feedback for treatises (increased for comprehensive feedback)
+      assignment: 8000,    // Comprehensive feedback for assignments (doubled for detailed feedback)
+      report: 10000,       // Extensive feedback for reports (increased for detailed feedback)
+      question_paper: 12000, // Detailed marking with extensive feedback for question papers
+      memo: 8000,          // Comprehensive feedback when using memo as rubric
+      default: 6000        // Detailed feedback (doubled from basic)
     },
     
     // Temperature settings (same as OpenAI for consistency)
-    // Lower temperatures = more consistent, deterministic outputs
+    // Moderate temperatures allow variation while maintaining accuracy
+    // Increased from very low (0.05-0.1) to moderate (0.3-0.4) to allow unique evaluation per submission
     temperature: {
-      treatise: 0.1,       // Very low for consistent academic evaluation
-      assignment: 0.1,      // Low for consistency across iterations
-      report: 0.1,         // Low for consistent report marking
-      question_paper: 0.05, // Very low for objective marking consistency
-      memo: 0.05,          // Very low for memo-based marking consistency
-      default: 0.1         // Low default for consistency
+      treatise: 0.4,       // Moderate for varied but accurate academic evaluation
+      assignment: 0.3,      // Moderate for natural variation in marking
+      report: 0.3,         // Moderate for varied report marking
+      question_paper: 0.25, // Slightly lower for objective marking but still allows variation
+      memo: 0.25,          // Slightly lower for memo-based marking but still allows variation
+      default: 0.3         // Moderate default for natural variation
     }
   },
 

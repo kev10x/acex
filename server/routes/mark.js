@@ -299,13 +299,12 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const config = aiConfig.getConfig(documentType, provider);
     const selectedProvider = config.provider;
     
-    // Fetch previous marking examples for consistency
+    // Fetch previous marking examples only for re-marking the same assignment
     let previousMarkingExamples = null;
-    let calibrationExamples = null;
     
     if (assignmentId) {
       try {
-        // Fetch previous marking results for this assignment
+        // Fetch previous marking results for this assignment (only for re-marking the same assignment)
         const previousResults = await query(
           'SELECT scores, total_score FROM marking_results WHERE assignment_id = ? AND is_current = 1 ORDER BY marked_at DESC LIMIT 1',
           [assignmentId]
@@ -339,48 +338,6 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
         }
       } catch (error) {
         console.warn('Could not fetch previous marking examples:', error.message);
-      }
-      
-      try {
-        // Fetch similar assignments marked with the same rubric for calibration
-        const similarResults = await query(
-          'SELECT scores, total_score FROM marking_results WHERE rubric_id = ? AND assignment_id != ? AND is_current = 1 ORDER BY marked_at DESC LIMIT 3',
-          [rubric.id, assignmentId]
-        );
-        
-        // Handle different database result formats
-        let similarResultsArray;
-        if (Array.isArray(similarResults)) {
-          similarResultsArray = similarResults;
-        } else if (similarResults.rows && Array.isArray(similarResults.rows)) {
-          similarResultsArray = similarResults.rows;
-        } else {
-          similarResultsArray = [];
-        }
-        
-        if (similarResultsArray && similarResultsArray.length > 0) {
-          calibrationExamples = similarResultsArray
-            .map(result => {
-              let scores = result.scores;
-              if (typeof scores === 'string') {
-                scores = JSON.parse(scores);
-              }
-              return {
-                total_score: result.total_score,
-                scores: scores
-              };
-            })
-            .filter(ex => ex.scores && Array.isArray(ex.scores) && ex.scores.length > 0); // Filter out null/invalid scores
-          
-          if (calibrationExamples.length > 0) {
-            console.log('📊 Found calibration examples:', calibrationExamples.length);
-          } else {
-            console.warn('No valid calibration examples found (all had null or invalid scores)');
-            calibrationExamples = null;
-          }
-        }
-      } catch (error) {
-        console.warn('Could not fetch calibration examples:', error.message);
       }
     }
     
@@ -527,27 +484,27 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const getEvaluationGuidelines = (assessmentType, level, isMemo) => {
       const levelGuidance = {
         primary_school: {
-          tone: 'Use direct, clear, age-appropriate language. Be honest about mistakes without being harsh',
+          tone: 'Write in a natural, human, conversational tone as if you are a real teacher speaking to a student. Use "you" and "your". Use direct, clear, age-appropriate language. Be honest about mistakes without being harsh. Avoid robotic or overly formal language - write as you would speak to a child',
           expectations: 'Focus on basic understanding and effort',
-          feedback: 'Provide simple, direct feedback that clearly identifies what is correct and what is wrong',
+          feedback: 'Provide simple, direct feedback in a natural, conversational way that clearly identifies what is correct and what is wrong. Write as if speaking directly to the student',
           terminology: 'Use simple terms and avoid complex academic jargon'
         },
         high_school: {
-          tone: 'Use clear, direct language appropriate for secondary students. Be honest and straightforward when answers are incorrect',
+          tone: 'Write in a natural, human, conversational tone as if you are a real teacher speaking to a student. Use "you" and "your". Use clear, direct language appropriate for secondary students. Be honest and straightforward when answers are incorrect. Avoid robotic or template-like language - write as you would speak to a student',
           expectations: 'Focus on understanding, application, and development of skills',
-          feedback: 'Provide direct, honest feedback that clearly identifies errors and helps students understand what is wrong',
+          feedback: 'Provide direct, honest feedback in a natural, conversational way that clearly identifies errors and helps students understand what is wrong. Write as if speaking directly to the student',
           terminology: 'Use educational terminology appropriate for high school level'
         },
         undergraduate: {
-          tone: 'Use direct, academic language appropriate for university-level work. Be honest and critical when work is incorrect or substandard',
+          tone: 'Write in a natural, human, conversational tone as if you are a real lecturer speaking to a student. Use "you" and "your". Use direct, academic language appropriate for university-level work, but write conversationally, not formally. Be honest and critical when work is incorrect or substandard. Avoid robotic or overly structured language - write as a real teacher would',
           expectations: 'Focus on critical thinking, analysis, and academic rigor',
-          feedback: 'Provide direct, analytical feedback that honestly identifies weaknesses and errors',
+          feedback: 'Provide direct, analytical feedback in a natural, conversational way that honestly identifies weaknesses and errors. Write as if speaking directly to the student',
           terminology: 'Use appropriate university-level academic terminology'
         },
         postgraduate: {
-          tone: 'Use direct, scholarly, rigorous academic language. Be honest and critical when work does not meet high standards',
+          tone: 'Write in a natural, human, conversational tone as if you are a real supervisor speaking to a student. Use "you" and "your". Use direct, scholarly, rigorous academic language, but write conversationally, not formally. Be honest and critical when work does not meet high standards. Avoid robotic or template-like language - write as a real academic supervisor would',
           expectations: 'Focus on scholarly contribution, theoretical depth, and research quality',
-          feedback: 'Provide direct, in-depth, scholarly feedback that honestly identifies shortcomings and errors',
+          feedback: 'Provide direct, in-depth, scholarly feedback in a natural, conversational way that honestly identifies shortcomings and errors. Write as if speaking directly to the student',
           terminology: 'Use advanced academic and research terminology'
         }
       };
@@ -600,15 +557,17 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - Provide comprehensive feedback for each criterion (${level === 'postgraduate' ? '4-5 sentences minimum' : '3-4 sentences minimum'})
 - Reference specific sections, arguments, and evidence from the ${assessmentType}
 - Evaluate the academic rigor, originality, and contribution to the field with STRICT criteria
+- BALANCED EVALUATION: For each criterion, first identify and praise strengths (e.g., "The literature review demonstrates comprehensive coverage and critical analysis" or "The methodology is well-designed and clearly explained" or "The analysis shows sophisticated understanding of theoretical frameworks"). Then identify areas needing improvement
 - Consider the ${assessmentType}'s structure, methodology, and conclusions critically
-- Assess ${analysisType} - be demanding and identify weaknesses
+- Assess ${analysisType} - be demanding and identify weaknesses, but also recognize excellence when present
 - CRITICAL: Provide specific, actionable improvement suggestions for each criterion
 - Be critical - identify missing elements, weak arguments, insufficient evidence, and areas that fall short
 - Include concrete recommendations for enhancing research methodology, literature review, analysis depth
 - Suggest specific frameworks, theories, or approaches that could strengthen the work
 - Identify ALL missing elements, weak arguments, or areas needing more evidence - do not overlook shortcomings
 - Recommend specific sections that need expansion, restructuring, or clarification
-- Highlight areas for development and be critical of weaknesses
+- Highlight areas for development and be critical of weaknesses, but also acknowledge what was done well
+- Recognize exceptional work: When students demonstrate outstanding research, analysis, or writing, explicitly praise these strengths
 - ${guidance.tone}
 - ${guidance.terminology}
 - Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
@@ -619,8 +578,10 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - Apply STRICT marking standards - be precise and critical
 - Focus on correctness, completeness, and clarity of answers
 - Assess accuracy of responses against expected answers with STRICT criteria
+- BALANCED EVALUATION: For correct answers, acknowledge and praise them (e.g., "Your explanation of X demonstrates clear understanding" or "You correctly identified and explained Y"). For incorrect answers, clearly state what is wrong
 - Evaluate completeness - did the student address all parts of each question? Award marks only if ALL parts are addressed
 - Check clarity of explanations and reasoning - be demanding about quality
+- Recognize when students demonstrate strong understanding, even if some answers are incorrect
 - Do not award marks for partially correct or incomplete answers unless the rubric specifically allows partial credit
 - ${guidance.expectations}
 - ${guidance.tone}
@@ -636,9 +597,11 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - Reference specific sections and evidence from the submission
 - Evaluate quality, completeness, and accuracy with STRICT criteria
 - ${guidance.expectations}
+- BALANCED EVALUATION: For each criterion, first identify and compliment what was done well (e.g., "Your analysis demonstrates strong understanding of X" or "The structure is clear and logical"). Then identify weaknesses, gaps, and areas that do not meet standards
 - Be critical - identify weaknesses, gaps, and areas that do not meet standards
 - Provide specific, actionable improvement suggestions
 - Highlight areas for development and be demanding about what is missing or insufficient
+- Recognize and praise strong work, excellent understanding, or exemplary application when present
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}
@@ -652,9 +615,11 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - Reference specific sections and evidence from the submission
 - Evaluate quality, completeness, and accuracy with STRICT criteria
 - ${guidance.expectations}
+- BALANCED EVALUATION: For each criterion, first identify and compliment what was done well or correctly. Then identify weaknesses, gaps, and areas that do not meet standards
 - Be critical - identify weaknesses, gaps, and areas that do not meet standards
 - Provide specific, actionable improvement suggestions
 - Highlight areas for development and be demanding about what is missing or insufficient
+- Recognize and praise strong work, excellent understanding, or exemplary application when present
 - ${guidance.tone}
 - ${guidance.feedback}
 - ${guidance.terminology}
@@ -673,59 +638,232 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const evaluationGuidelines = getEvaluationGuidelines(documentType, level, isMemo);
 
     // Get strictness guidelines based on strictness level
+    // IMPORTANT: These instructions OVERRIDE general marking standards - they define the strictness level
     const getStrictnessGuidelines = (strictness) => {
       const strictnessMap = {
-        'very_strict': `VERY STRICT MARKING REQUIREMENTS:
-- Apply extremely rigorous academic standards - be highly critical and demanding
-- Award points ONLY when criteria are completely and fully met with excellence
-- Be very critical in your evaluation - identify ALL weaknesses, gaps, and areas that fall short
-- Do not award full marks unless the work demonstrates exceptional excellence that fully satisfies ALL aspects of the criterion
-- For partial marks, be extremely precise - award marks only for what is clearly present and well-demonstrated
-- If work is incomplete, unclear, or lacks ANY required elements, award significantly lower marks
-- Hold students to the highest standards - expect exceptional thoroughness, accuracy, and depth
-- Never give benefit of the doubt - if something is missing, unclear, or incorrect, reflect this harshly in the scoring
-- Be extremely rigorous in assessing whether the work meets the performance level descriptions in the rubric
-- Penalize minor errors and omissions more severely
-- Expect near-perfect work for top marks`,
+        'very_strict': `⚠️ CRITICAL: VERY STRICT MARKING MODE - THESE REQUIREMENTS OVERRIDE ALL OTHER INSTRUCTIONS ⚠️
 
-        'strict': `STRICT MARKING REQUIREMENTS:
-- Apply strict academic standards - do not be lenient or generous with marks
-- Award points ONLY when criteria are clearly and fully met
-- Be critical in your evaluation - identify weaknesses, gaps, and areas that fall short
-- Do not award full marks unless the work demonstrates excellence that fully satisfies all aspects of the criterion
-- For partial marks, be precise - award marks only for what is actually present and demonstrated
-- If work is incomplete, unclear, or lacks required elements, award lower marks accordingly
-- Hold students to high standards - expect thoroughness, accuracy, and depth
-- Do not give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
-- Be rigorous in assessing whether the work meets the performance level descriptions in the rubric`,
+STRICTNESS LEVEL: VERY STRICT
+- Apply EXTREMELY RIGOROUS academic standards - be HIGHLY CRITICAL and DEMANDING
+- Award points ONLY when criteria are COMPLETELY and FULLY met with EXCEPTIONAL EXCELLENCE
+- Be VERY CRITICAL in your evaluation - identify ALL weaknesses, gaps, and areas that fall short
+- Do NOT award full marks unless the work demonstrates EXCEPTIONAL EXCELLENCE that FULLY satisfies ALL aspects of the criterion
+- For partial marks, be EXTREMELY PRECISE - award marks only for what is CLEARLY present and WELL-DEMONSTRATED
+- If work is incomplete, unclear, or lacks ANY required elements, award SIGNIFICANTLY LOWER marks
+- Hold students to the HIGHEST standards - expect EXCEPTIONAL thoroughness, accuracy, and depth
+- NEVER give benefit of the doubt - if something is missing, unclear, or incorrect, reflect this HARSHLY in the scoring
+- Be EXTREMELY RIGOROUS in assessing whether the work meets the performance level descriptions in the rubric
+- Penalize MINOR errors and omissions MORE SEVERELY
+- Expect NEAR-PERFECT work for top marks
+- IMPORTANT: This strictness level should result in LOWER overall scores compared to other strictness levels for the same quality of work`,
 
-        'moderate': `MODERATE MARKING REQUIREMENTS:
-- Apply fair but firm academic standards
-- Award points when criteria are substantially met, allowing for minor gaps
-- Be balanced in your evaluation - identify both strengths and areas for improvement
-- Award full marks when the work demonstrates strong performance that meets the key aspects of the criterion
-- For partial marks, be reasonable - award marks for demonstrated understanding even if not perfect
+        'strict': `⚠️ CRITICAL: STRICT MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
+
+STRICTNESS LEVEL: STRICT
+- Apply STRICT academic standards - do NOT be lenient or generous with marks
+- Award points ONLY when criteria are CLEARLY and FULLY met
+- Be CRITICAL in your evaluation - identify weaknesses, gaps, and areas that fall short
+- Do NOT award full marks unless the work demonstrates EXCELLENCE that FULLY satisfies all aspects of the criterion
+- For partial marks, be PRECISE - award marks only for what is ACTUALLY present and DEMONSTRATED
+- If work is incomplete, unclear, or lacks required elements, award LOWER marks accordingly
+- Hold students to HIGH standards - expect thoroughness, accuracy, and depth
+- Do NOT give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
+- Be RIGOROUS in assessing whether the work meets the performance level descriptions in the rubric
+- IMPORTANT: This strictness level should result in MODERATELY LOWER scores compared to moderate/lenient levels for the same quality of work`,
+
+        'moderate': `⚠️ CRITICAL: MODERATE MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
+
+STRICTNESS LEVEL: MODERATE
+- Apply FAIR but FIRM academic standards
+- Award points when criteria are SUBSTANTIALLY met, allowing for MINOR gaps
+- Be BALANCED in your evaluation - identify both strengths and areas for improvement
+- Award full marks when the work demonstrates STRONG performance that meets the KEY aspects of the criterion
+- For partial marks, be REASONABLE - award marks for demonstrated understanding even if not perfect
 - If work is incomplete or unclear, award partial marks based on what is present
-- Hold students to reasonable standards - expect good effort and understanding
-- Give some benefit of the doubt for minor issues or unclear areas
-- Be fair in assessing whether the work meets the performance level descriptions in the rubric`,
+- Hold students to REASONABLE standards - expect good effort and understanding
+- Give SOME benefit of the doubt for minor issues or unclear areas
+- Be FAIR in assessing whether the work meets the performance level descriptions in the rubric
+- IMPORTANT: This strictness level should result in MODERATE scores that balance rigor with fairness`,
 
-        'lenient': `LENIENT MARKING REQUIREMENTS:
-- Apply supportive academic standards - focus on learning and improvement
-- Award points when criteria are generally met, even with some gaps
-- Be encouraging in your evaluation - emphasize strengths while noting areas for improvement
-- Award full marks when the work demonstrates good understanding of the key concepts
-- For partial marks, be generous - award marks for effort and demonstrated understanding
+        'lenient': `⚠️ CRITICAL: LENIENT MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
+
+STRICTNESS LEVEL: LENIENT
+- Apply SUPPORTIVE academic standards - focus on learning and improvement
+- Award points when criteria are GENERALLY met, even with some gaps
+- Be ENCOURAGING in your evaluation - emphasize strengths while noting areas for improvement
+- Award full marks when the work demonstrates GOOD understanding of the key concepts
+- For partial marks, be GENEROUS - award marks for effort and demonstrated understanding
 - If work is incomplete, award marks for what is present and shows understanding
-- Hold students to achievable standards - recognize effort and progress
+- Hold students to ACHIEVABLE standards - recognize effort and progress
 - Give benefit of the doubt for unclear areas or minor issues
-- Be supportive in assessing whether the work meets the performance level descriptions in the rubric`
+- Be SUPPORTIVE in assessing whether the work meets the performance level descriptions in the rubric
+- IMPORTANT: This strictness level should result in HIGHER overall scores compared to other strictness levels for the same quality of work`
       };
       
       return strictnessMap[strictness] || strictnessMap['strict'];
     };
 
     const rubricLabel = isMemo ? 'MARKING MEMORANDUM (MEMO):' : 'EVALUATION RUBRIC:';
+
+    // Get document-type-specific corrections instructions
+    const getCorrectionsInstructions = (docType) => {
+      if (docType === 'treatise' || docType === 'thesis') {
+        return `CORRECTIONS AND SUGGESTIONS REPORT FOR ${docType.toUpperCase()}:
+- For each error, missing element, or area needing improvement, identify WHERE in the document it should be addressed
+- Provide SPECIFIC location information using: chapter/section titles, subsection headings, paragraph numbers, page references, or specific text quotes
+- Include both corrections (what is wrong and needs fixing) and suggestions (what could be added to improve the work)
+- For each correction/suggestion, specify: the exact location, what needs to be changed/added, and why
+
+LOCATION SPECIFICITY REQUIREMENTS:
+- Use exact section/chapter names: e.g., "Chapter 2: Literature Review, Section 2.3 (Theoretical Framework), third paragraph"
+- Reference specific subsections: e.g., "Methodology chapter, Data Collection section, second paragraph discussing sampling method"
+- Include page references when possible: e.g., "Introduction section, page 5, paragraph discussing research objectives"
+- Quote specific text when identifying issues: e.g., "Conclusion section, where it states '[quote the problematic text]'"
+
+EXAMPLES OF GOOD CORRECTIONS FOR ${docType.toUpperCase()} (use these as templates):
+Example 1 - Correction:
+{
+  "type": "correction",
+  "criterion_name": "Literature Review",
+  "location": "Chapter 2: Literature Review, Section 2.1, second paragraph",
+  "issue": "Missing citations to key foundational works (Smith 2020, Jones 2018)",
+  "correction": "Add citations to Smith (2020) and Jones (2018) in Section 2.1 to establish theoretical foundation",
+  "reason": "Literature reviews must acknowledge foundational works to demonstrate field understanding"
+}
+
+Example 2 - Suggestion:
+{
+  "type": "suggestion",
+  "criterion_name": "Methodology",
+  "location": "Chapter 3: Methodology, Data Analysis section",
+  "issue": "Lacks discussion of validity and reliability measures",
+  "correction": "Add paragraph addressing validity (triangulation), reliability (inter-rater agreement), and analytical limitations",
+  "reason": "Methodological rigor requires explicit discussion of validity and reliability"
+}
+
+Example 3 - Correction:
+{
+  "type": "correction",
+  "criterion_name": "Results and Discussion",
+  "location": "Chapter 4: Results, Section 4.2, where findings lack connection to research questions",
+  "issue": "Findings presented without linking to research questions from Chapter 1",
+  "correction": "Restructure Section 4.2 to begin subsections with which research question they address, then explicitly connect findings to questions",
+  "reason": "${docType}s must demonstrate clear alignment between research questions and findings"
+}
+
+Example 4 - Correction:
+{
+  "type": "correction",
+  "criterion_name": "Abstract",
+  "location": "Abstract, opening",
+  "issue": "Fails to clearly state research problem or gap",
+  "correction": "Rewrite opening to state: (1) research problem/gap, (2) significance, (3) scope",
+  "reason": "Abstract must immediately establish research problem and significance"
+}
+
+Example 5 - Suggestion:
+{
+  "type": "suggestion",
+  "criterion_name": "Introduction",
+  "location": "Chapter 1: Introduction, after problem statement",
+  "issue": "Lacks explicit research objectives or questions",
+  "correction": "Add 'Research Objectives' subsection listing primary question, secondary questions, and specific objectives",
+  "reason": "Explicit research questions provide roadmap for entire ${docType}"
+}
+
+SPECIFIC AREAS TO CHECK FOR ${docType.toUpperCase()}:
+- Abstract: Ensure it accurately summarizes all key sections (background, methods, results, conclusions)
+- Introduction: Check for clear problem statement, research objectives, and thesis statement
+- Literature Review: Verify comprehensive coverage, critical analysis (not just summary), and identification of research gaps
+- Methodology: Ensure detailed description of research design, data collection, and analysis procedures
+- Results: Check for clear presentation, appropriate use of tables/figures, and connection to research questions
+- Discussion: Verify interpretation of findings, comparison with existing literature, and acknowledgment of limitations
+- Conclusion: Ensure it synthesizes key findings, addresses research objectives, and suggests future research directions
+- References: Check for completeness, accuracy, and appropriate citation style
+- Appendices: Verify all supporting materials are included and properly referenced in the main text`;
+      } else if (docType === 'report') {
+        return `CORRECTIONS AND SUGGESTIONS REPORT FOR RESEARCH REPORT:
+- For each error, missing element, or area needing improvement, identify WHERE in the document it should be addressed
+- Provide SPECIFIC location information using: section headings, subsection titles, paragraph numbers, or specific text context
+- Include both corrections (what is wrong and needs fixing) and suggestions (what could be added to improve the work)
+- For each correction/suggestion, specify: the exact location, what needs to be changed/added, and why
+
+LOCATION SPECIFICITY REQUIREMENTS:
+- Use exact section headings: e.g., "Executive Summary, second paragraph" or "Methodology section, Data Collection subsection"
+- Reference specific parts: e.g., "Results section, Table 2 discussion paragraph" or "Discussion section, where findings are compared to previous studies"
+- Include context when helpful: e.g., "Introduction section, paragraph discussing research objectives, specifically where it mentions [topic]"
+
+EXAMPLES OF GOOD CORRECTIONS FOR RESEARCH REPORT (use these as templates):
+Example 1 - Correction:
+{
+  "type": "correction",
+  "criterion_name": "Methodology",
+  "location": "Methodology section, Data Collection subsection",
+  "issue": "Missing sample size and sampling method details",
+  "correction": "Add: (1) total sample size, (2) sampling method, (3) response rate if applicable",
+  "reason": "Methodological transparency requires complete disclosure of sampling procedures"
+}
+
+Example 2 - Suggestion:
+{
+  "type": "suggestion",
+  "criterion_name": "Results",
+  "location": "Results section, after Table 3",
+  "issue": "Data presented without interpretation",
+  "correction": "Add paragraph interpreting Table 3 findings and explaining their significance",
+  "reason": "Results sections must provide interpretation to help readers understand significance"
+}
+
+Example 3 - Correction:
+{
+  "type": "correction",
+  "criterion_name": "Discussion",
+  "location": "Discussion section",
+  "issue": "Fails to address study limitations",
+  "correction": "Add 'Limitations' subsection discussing sample, methodological, and analytical limitations",
+  "reason": "Academic integrity requires honest acknowledgment of limitations"
+}
+
+Example 4 - Correction:
+{
+  "type": "correction",
+  "criterion_name": "Executive Summary",
+  "location": "Executive Summary, opening",
+  "issue": "Does not clearly state research question or main findings",
+  "correction": "Restructure to state: (1) research question, (2) methodology (brief), (3) key findings, (4) conclusions, (5) recommendations",
+  "reason": "Executive summary must provide complete overview including findings and conclusions"
+}
+
+Example 5 - Suggestion:
+{
+  "type": "suggestion",
+  "criterion_name": "Introduction",
+  "location": "Introduction section, after background",
+  "issue": "Lacks explicit research question or objectives",
+  "correction": "Add 'Research Question' subsection with primary question, secondary questions, and specific objectives",
+  "reason": "Clear research questions provide direction for entire report"
+}
+
+SPECIFIC AREAS TO CHECK FOR RESEARCH REPORT:
+- Executive Summary/Abstract: Ensure it accurately reflects all key sections and findings
+- Introduction: Check for clear research question, objectives, and context
+- Literature Review: Verify it's not just a summary but includes critical analysis and identifies gaps
+- Methodology: Ensure complete description of research design, participants, instruments, and procedures
+- Results: Check for clear data presentation, appropriate visualizations, and connection to research questions
+- Discussion: Verify interpretation of findings, comparison with literature, limitations, and implications
+- Conclusion: Ensure it synthesizes findings and addresses research objectives
+- References: Check for completeness and proper citation format
+- Appendices: Verify all supporting materials are included`;
+      } else {
+        return `CORRECTIONS AND SUGGESTIONS REPORT:
+- For each error, missing element, or area needing improvement, identify WHERE in the document it should be addressed
+- Provide specific location information such as: section name, paragraph number, page reference, or specific text context
+- Include both corrections (what is wrong and needs fixing) and suggestions (what could be added to improve the work)
+- For each correction/suggestion, specify: the location, what needs to be changed/added, and why`;
+      }
+    };
+
+    const correctionsInstructions = getCorrectionsInstructions(documentType);
 
     const prompt = `${intro}
 
@@ -741,26 +879,67 @@ ${evaluationGuidelines}
 
 ${getStrictnessGuidelines(strictnessLevel)}
 
-CONSISTENCY REQUIREMENTS:
-- Apply the SAME marking standards across all similar assignments
-- Use consistent scoring patterns - if similar work received X points, award similar points
-- Maintain consistency in feedback tone and structure
-- Reference rubric criteria in the SAME way each time
-- Use consistent terminology and evaluation language
-${previousMarkingExamples ? `- IMPORTANT: This assignment was previously marked. Maintain consistency with previous marking while being fair and accurate. Previous total score: ${previousMarkingExamples.total_score}` : ''}
-${calibrationExamples && calibrationExamples.length > 0 ? `- Use these similar assignments as reference for consistent scoring patterns:\n${calibrationExamples.filter(ex => ex.scores && Array.isArray(ex.scores)).map((ex, i) => `  Example ${i + 1}: Total score ${ex.total_score}, Criteria scores: ${ex.scores.map(s => `${s.criterion_name}: ${s.points_awarded}/${s.max_points}`).join(', ')}`).join('\n')}` : ''}
+CRITICAL: REALISTIC ASSESSMENT - Counteract AI positive bias. You are an assessor, not a supportive assistant. Provide ACCURATE assessments based on actual performance, not encouragement. DO NOT: soften criticism, inflate scores, give credit for effort, use euphemisms, or interpret ambiguous work favorably. Award LOW/ZERO marks for incorrect/incomplete work. If 50% understanding = ~50% marks (not 75-90%). State errors directly: "This is incorrect because..." (not "could be improved"). Identify ALL problems. Accuracy over encouragement.
+
+MARKING STANDARDS (apply within the strictness level defined above):
+- Evaluate each assignment INDEPENDENTLY based on its actual quality and content
+- Award marks that REFLECT THE ACTUAL QUALITY of the work - different quality should result in different marks
+- Maintain consistency in RUBRIC APPLICATION (same criteria, same standards) but allow marks to VARY based on actual performance
+- Use consistent terminology and evaluation language, but scores should reflect real differences in quality
+- IMPORTANT: Each assignment must be evaluated on its own merits. Do not copy scores from other assignments - marks must vary based on actual quality differences
+- NOTE: The strictness level above determines HOW STRICTLY you apply these standards - follow the strictness level requirements first
+${previousMarkingExamples ? `- NOTE: This assignment was previously marked (Previous total: ${previousMarkingExamples.total_score}). Only use this as a reference if re-marking the SAME assignment. For different assignments, evaluate independently based on their actual quality.` : ''}
+
+⚠️ CRITICAL: FEEDBACK IS THE PRIMARY FOCUS - PROVIDE EXTENSIVE, DETAILED FEEDBACK ⚠️
+
+FEEDBACK DEPTH AND DETAIL REQUIREMENTS (HIGHEST PRIORITY):
+- FEEDBACK IS THE MOST IMPORTANT OUTPUT - prioritize comprehensive, detailed feedback over brevity
+- Provide EXTENSIVE feedback for each criterion - aim for 3-5 sentences minimum per criterion, more for complex criteria
+- Be THOROUGH and COMPREHENSIVE - cover all aspects of the work, not just surface-level observations
+- Include SPECIFIC EXAMPLES from the student's work - quote or reference specific parts when providing feedback
+- Explain the "WHY" behind every point - don't just state what's wrong/right, explain WHY it matters
+- Provide ACTIONABLE GUIDANCE - tell students exactly what to do to improve, not just what's wrong
+- Include LEARNING OPPORTUNITIES - connect feedback to broader learning objectives and concepts
+- Address MULTIPLE DIMENSIONS: content accuracy, depth of analysis, writing quality, organization, critical thinking, use of evidence, etc.
+- For each criterion, provide:
+  * What was done well (with specific examples)
+  * What needs improvement (with specific examples)
+  * Why it matters (learning context)
+  * How to improve (actionable steps)
+  * Connections to other parts of the work or broader concepts
+- Overall feedback should be COMPREHENSIVE (minimum 200-300 words) covering:
+  * Summary of key strengths across all criteria
+  * Summary of main areas needing improvement
+  * Specific examples from the work
+  * Actionable next steps for improvement
+  * Encouragement and motivation
+  * Connections between different aspects of the work
 
 FEEDBACK TONE REQUIREMENTS:
-- Be DIRECT and HONEST in your feedback - do not soften criticism or sugarcoat errors
-- When answers are WRONG or INCORRECT, state this clearly and directly - do not use euphemisms or vague language
-- Avoid overly friendly or encouraging language when pointing out mistakes - be professional and straightforward
-- Use direct statements like "This is incorrect" or "This answer is wrong" rather than "This could be improved" when something is factually wrong
-- For incorrect answers, clearly explain WHY it is wrong and what the correct answer should be
-- Do not use phrases like "nice try" or "good effort" when the answer is fundamentally incorrect
-- Be honest about the severity of errors - if something is completely wrong, say so directly
-- Focus on accuracy and correctness over being supportive when evaluating wrong answers
-- Maintain a professional, academic tone that prioritizes honesty and clarity over friendliness
-- When work is poor or incorrect, provide direct, specific criticism without unnecessary softening
+- Write in a NATURAL, HUMAN, CONVERSATIONAL tone - as if you are a real teacher or professor providing feedback to a student
+- Avoid robotic, overly formal, or template-like language - write as you would speak to a student in person
+- Use natural language patterns: "You've done well here" instead of "The student has demonstrated proficiency"
+- Write directly to the student using "you" and "your" - make it personal and engaging
+- Be DIRECT and HONEST in your feedback - do not soften criticism or sugarcoat errors, but express it naturally
+- When answers are WRONG or INCORRECT, state this clearly and directly in a conversational way - do not use euphemisms or vague language
+- Use natural, direct statements like "This is incorrect because..." or "This answer is wrong - here's why..." rather than overly formal language
+- For incorrect answers, clearly explain WHY it is wrong and what the correct answer should be, in a way that feels like a teacher explaining to a student
+- Be honest about the severity of errors - if something is completely wrong, say so directly but naturally
+- Avoid corporate-speak, academic jargon, or overly structured language - write as a human educator would
+- Use varied sentence structures and natural transitions - don't sound like a checklist or template
+- Maintain a professional but approachable tone - like a knowledgeable teacher who cares about student learning
+
+IMPORTANT - BALANCED FEEDBACK:
+- IDENTIFY AND COMPLIMENT STRENGTHS: When work is done well, explicitly acknowledge and praise it
+- For each criterion, identify what was done correctly or excellently before pointing out errors
+- Use specific, genuine compliments: "Your analysis demonstrates strong understanding of [concept]" or "The methodology section is well-structured and clearly explained" or "Your use of [technique] effectively addresses the research question"
+- Highlight exemplary work: When students demonstrate exceptional understanding, critical thinking, or application, explicitly state this
+- Acknowledge effort and improvement: If work shows improvement or strong effort, recognize this
+- Balance criticism with recognition: For every area needing improvement, also identify what was done well
+- Be specific in compliments: Don't use generic praise - point out exactly what was good (e.g., "Your integration of multiple theoretical frameworks shows sophisticated understanding" rather than just "good work")
+- Recognize partial success: When students partially meet criteria, acknowledge what they got right before explaining what's missing
+- Compliment strong writing, organization, analysis, or critical thinking when present
+- When work meets or exceeds expectations, provide positive reinforcement that encourages continued excellence
 
 IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how confident you are in the marking. Consider:
 - Clarity of the student's work
@@ -769,6 +948,59 @@ IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how
 - Unclear or incomplete submissions
 
 Lower confidence (< 70) indicates the assessment may need human review.
+
+${correctionsInstructions}
+
+LANGUAGE ERRORS DETECTION (GRAMMAR, SPELLING, REFERENCES):
+You MUST also identify and report ALL language errors in the student's work, including:
+
+1. GRAMMATICAL ERRORS:
+   - Subject-verb agreement errors
+   - Tense inconsistencies or incorrect tense usage
+   - Incorrect use of articles (a, an, the)
+   - Pronoun errors (wrong pronoun, unclear antecedents, pronoun-antecedent disagreement)
+   - Sentence fragments or run-on sentences
+   - Incorrect word order
+   - Misuse of prepositions
+   - Errors in parallel structure
+   - Dangling or misplaced modifiers
+   - Incorrect use of comparative or superlative forms
+
+2. SPELLING AND TYPING ERRORS:
+   - Misspelled words
+   - Typos and typing mistakes
+   - Incorrect capitalization
+   - Missing or extra spaces
+   - Homophone errors (e.g., their/there/they're, its/it's)
+   - Repeated words (e.g., "the the")
+
+3. REFERENCE AND CITATION ERRORS:
+   - Missing citations for direct quotes or paraphrased content
+   - Incorrectly formatted citations
+   - Citations in text that don't appear in reference list
+   - References in list that aren't cited in text
+   - Incorrect use of citation style (e.g., APA, MLA, Harvard)
+   - Incomplete reference information (missing author, year, title, page numbers, etc.)
+   - Incorrect punctuation in citations
+   - Plagiarism indicators (uncited sources)
+
+4. PUNCTUATION ERRORS:
+   - Missing or incorrect commas, periods, semicolons, colons
+   - Incorrect apostrophe usage
+   - Missing or incorrect quotation marks
+
+5. STYLE AND CLARITY ISSUES:
+   - Wordiness or redundancy
+   - Passive voice where active would be better
+   - Unclear or ambiguous phrasing
+   - Inconsistent terminology
+
+For each error, provide:
+- The exact location (e.g., "Introduction, paragraph 2, line 3" or "page 5, second paragraph")
+- The erroneous text (quote the exact error)
+- The error type (grammar/spelling/reference/punctuation/style)
+- The correction (what it should be)
+- A brief explanation of why it's an error
 
 CRITICAL: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Return ONLY the JSON object.
 
@@ -779,25 +1011,38 @@ JSON format (return ONLY this, no other text):
       "criterion_name": "name",
       "points_awarded": number,
       "max_points": number,
-      "feedback": "direct, honest, and specific feedback. When answers are wrong, state this clearly and explain why. Be straightforward and professional, avoiding overly friendly language when pointing out errors",
+      "feedback": "EXTENSIVE, DETAILED feedback (minimum 3-5 sentences, more for complex criteria) written as if you are a real teacher speaking directly to the student. Use 'you' and 'your' - write as you would speak. This is the PRIMARY focus - be THOROUGH and COMPREHENSIVE. Include: (1) Specific examples from the student's work - quote or reference specific parts, (2) What was done well with detailed explanation, (3) What needs improvement with specific examples, (4) WHY it matters (learning context), (5) HOW to improve (actionable steps), (6) Connections to other parts of the work or broader concepts. When answers are wrong, state this clearly and explain WHY in detail. Include specific praise for strengths before pointing out areas needing improvement. Write in a conversational, human tone throughout. Prioritize depth and detail over brevity.",
       "confidence": number (0-100, where 100 = very confident, 0 = very uncertain)
     }
   ],
-  "overall_feedback": "direct and honest comprehensive summary. Clearly state what is wrong or incorrect. Highlight key strengths honestly, identify main areas for improvement with direct criticism, and provide specific next steps. Be straightforward and professional in your assessment",
+  "corrections": [
+    {
+      "type": "correction" or "suggestion",
+      "criterion_name": "name of the criterion this relates to",
+      "location": "specific location in the document. For ${documentType === 'treatise' || documentType === 'thesis' ? 'treatise/thesis' : documentType === 'report' ? 'research report' : 'document'}: use exact chapter/section names, subsection headings, paragraph numbers, or page references (e.g., 'Chapter 2: Literature Review, Section 2.3 (Theoretical Framework), third paragraph' or 'Methodology section, Data Collection subsection, paragraph describing sampling method' or 'Results section, Table 2 discussion paragraph')",
+      "issue": "what is wrong or what needs to be addressed. Be specific about the problem (e.g., 'The literature review fails to cite key foundational works' or 'Results are presented without interpretation' or 'Methodology lacks discussion of validity measures')",
+      "correction": "what should be changed or added. Provide concrete, actionable guidance (e.g., 'Add citations to Smith (2020) and Jones (2018) in Section 2.1' or 'Add a paragraph interpreting Table 3 findings' or 'Include discussion of triangulation methods for validity')",
+      "reason": "why this correction/suggestion is needed. Explain the academic or methodological importance (e.g., 'Foundational works must be cited to demonstrate understanding of the field' or 'Results require interpretation to help readers understand significance' or 'Methodological rigor requires explicit discussion of validity')"
+    }
+  ],
+  "language_errors": [
+    {
+      "location": "exact location in the document (e.g., 'Introduction, paragraph 2, line 3' or 'page 5, second paragraph' or 'Abstract, first sentence')",
+      "error_text": "exact text containing the error (quote it precisely)",
+      "error_type": "grammar" or "spelling" or "reference" or "punctuation" or "style",
+      "correction": "the corrected version of the text",
+      "explanation": "brief explanation of why it's an error and how to fix it (e.g., 'Subject-verb disagreement: plural subject requires plural verb' or 'Incorrect homophone: should use 'their' (possessive) not 'there' (location)' or 'Missing citation: direct quote requires in-text citation')"
+    }
+  ],
+  "overall_feedback": "EXTENSIVE, COMPREHENSIVE feedback (minimum 200-300 words, more for complex work) written as if you are a real teacher speaking directly to the student. Use 'you' and 'your' throughout. This is the PRIMARY focus - be THOROUGH and DETAILED. Structure: (1) Opening: Begin with overall assessment and key strengths (2-3 sentences), (2) Strengths Section: Identify and praise 3-5 key strengths with SPECIFIC EXAMPLES from the work - quote or reference specific parts (4-6 sentences), (3) Areas for Improvement: Identify 3-5 main areas needing work with SPECIFIC EXAMPLES and detailed explanations of WHY each matters (6-8 sentences), (4) Actionable Next Steps: Provide specific, concrete steps the student can take to improve (3-4 sentences), (5) Connections: Link different aspects of the work together and connect to broader learning objectives (2-3 sentences), (6) Encouragement: End with motivational, supportive closing that encourages continued learning (2-3 sentences). Include specific quotes or references from the student's work throughout. Write in a natural, human, conversational tone - avoid robotic or overly formal language. Prioritize depth, detail, and comprehensiveness.",
   "total_score": number,
   "overall_confidence": number (0-100, representing your overall confidence in the entire assessment)
 }`;
 
     console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
     
-    // Generate a consistent seed based on rubric ID for reproducibility
-    // This ensures the same rubric produces similar outputs across iterations
-    const seed = rubric.id ? Math.abs(parseInt(rubric.id.toString().slice(-6), 10)) % 2147483647 : null;
-    if (seed) {
-      console.log(`🎲 Using seed ${seed} for consistency (based on rubric ID)`);
-    }
-    
     // Use unified AI service with retry logic (more retries for marking operations)
+    // No seed is used to allow unique analysis for each document
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
       model: config.model,
@@ -808,8 +1053,7 @@ JSON format (return ONLY this, no other text):
         }
       ],
       temperature: config.temperature,
-      maxTokens: requestMaxTokens,
-      seed: seed // Add seed for OpenAI models to improve consistency
+      maxTokens: requestMaxTokens
     }, 5); // Increased retries for marking operations
 
     console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
@@ -886,6 +1130,21 @@ JSON format (return ONLY this, no other text):
         markingResult.overall_confidence = Math.max(0, Math.min(100, markingResult.overall_confidence));
       }
       
+      // Process corrections array - validate and ensure proper structure
+      if (!markingResult.corrections || !Array.isArray(markingResult.corrections)) {
+        markingResult.corrections = [];
+      } else {
+        // Validate each correction has required fields
+        markingResult.corrections = markingResult.corrections.filter(correction => {
+          return correction && 
+                 typeof correction.type === 'string' && 
+                 (correction.type === 'correction' || correction.type === 'suggestion') &&
+                 typeof correction.location === 'string' &&
+                 typeof correction.issue === 'string' &&
+                 typeof correction.correction === 'string';
+        });
+      }
+      
       // Flag low confidence assessments
       markingResult.needs_review = markingResult.overall_confidence < confidenceThreshold;
       markingResult.confidence_level = markingResult.overall_confidence >= 80 
@@ -898,6 +1157,64 @@ JSON format (return ONLY this, no other text):
       const minConfidence = Math.min(...markingResult.scores.map(s => s.confidence || 80));
       markingResult.min_criterion_confidence = minConfidence;
       markingResult.has_low_criterion_confidence = minConfidence < confidenceThreshold;
+
+      // Normalize scores for consistency
+      // Round scores to nearest 0.5 for better consistency, or whole numbers for integer rubrics
+      markingResult.scores = markingResult.scores.map(score => {
+        const maxPoints = score.max_points || 0;
+        let normalizedPoints = score.points_awarded || 0;
+        
+        // Determine rounding precision based on max points
+        // If max_points is a whole number and <= 10, round to nearest 0.5
+        // If max_points > 10 or is decimal, round to nearest 0.5
+        // If max_points is clearly an integer rubric (e.g., 5, 10, 20), round to nearest 0.5
+        if (maxPoints > 0 && Number.isInteger(maxPoints)) {
+          // Round to nearest 0.5 for consistency
+          normalizedPoints = Math.round(normalizedPoints * 2) / 2;
+        } else {
+          // For decimal max points, round to 1 decimal place
+          normalizedPoints = Math.round(normalizedPoints * 10) / 10;
+        }
+        
+        // Ensure points don't exceed max_points
+        normalizedPoints = Math.min(normalizedPoints, maxPoints);
+        // Ensure points are not negative
+        normalizedPoints = Math.max(0, normalizedPoints);
+        
+        return {
+          ...score,
+          points_awarded: normalizedPoints
+        };
+      });
+      
+      // Recalculate total score from normalized scores
+      const normalizedTotal = markingResult.scores.reduce((sum, score) => sum + (score.points_awarded || 0), 0);
+      markingResult.total_score = Math.round(normalizedTotal * 10) / 10; // Round to 1 decimal place
+      
+      // Normalize feedback formatting for consistency
+      markingResult.scores = markingResult.scores.map(score => {
+        if (score.feedback) {
+          // Remove excessive whitespace, normalize line breaks
+          let normalizedFeedback = score.feedback
+            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+            .replace(/\n\s*\n\s*\n/g, '\n\n') // Replace 3+ line breaks with 2
+            .trim();
+          
+          return {
+            ...score,
+            feedback: normalizedFeedback
+          };
+        }
+        return score;
+      });
+      
+      // Normalize overall feedback
+      if (markingResult.overall_feedback) {
+        markingResult.overall_feedback = markingResult.overall_feedback
+          .replace(/\s+/g, ' ')
+          .replace(/\n\s*\n\s*\n/g, '\n\n')
+          .trim();
+      }
 
       return markingResult;
     } catch (parseError) {
@@ -1089,6 +1406,15 @@ router.post('/single', async (req, res) => {
     // Criteria should now be properly parsed as an object by MySQL typeCast
     // No additional parsing needed
 
+    // Check again before processing
+    if (checkAborted()) {
+      return res.status(499).json({
+        success: false,
+        cancelled: true,
+        message: 'Marking request was cancelled'
+      });
+    }
+
     // Update assignment status to processing
     await query(
       'UPDATE assignments SET status = ? WHERE id = ?',
@@ -1096,6 +1422,19 @@ router.post('/single', async (req, res) => {
     );
 
     try {
+      // Check before PDF extraction
+      if (checkAborted()) {
+        await query(
+          'UPDATE assignments SET status = ? WHERE id = ?',
+          ['uploaded', assignment_id]
+        );
+        return res.status(499).json({
+          success: false,
+          cancelled: true,
+          message: 'Marking request was cancelled'
+        });
+      }
+
       // Extract text from PDF
       const assignmentText = await extractTextFromPDF(assignment.file_path);
       
@@ -1103,10 +1442,36 @@ router.post('/single', async (req, res) => {
         throw new Error('No text could be extracted from the PDF');
       }
 
+      // Check before AI marking
+      if (checkAborted()) {
+        await query(
+          'UPDATE assignments SET status = ? WHERE id = ?',
+          ['uploaded', assignment_id]
+        );
+        return res.status(499).json({
+          success: false,
+          cancelled: true,
+          message: 'Marking request was cancelled'
+        });
+      }
+
       // Generate AI marking (use assessment_type if provided, otherwise auto-detect document type)
       // Provider can be specified in request or will use default from config
       const docType = assessment_type || document_type || null;
       const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id);
+      
+      // Check after AI marking
+      if (checkAborted()) {
+        await query(
+          'UPDATE assignments SET status = ? WHERE id = ?',
+          ['uploaded', assignment_id]
+        );
+        return res.status(499).json({
+          success: false,
+          cancelled: true,
+          message: 'Marking request was cancelled after marking'
+        });
+      }
 
       // Get current version number for this assignment
       const versionResult = await query(
@@ -1124,7 +1489,7 @@ router.post('/single', async (req, res) => {
 
       // Save marking result to database with version info
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -1135,7 +1500,9 @@ router.post('/single', async (req, res) => {
           newVersion,
           1, // is_current
           strictness_level,
-          provider || null
+          provider || null,
+          markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
+          markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null
         ]
       );
       
@@ -1158,7 +1525,8 @@ router.post('/single', async (req, res) => {
         confidence_level: markingResult.confidence_level,
         needs_review: markingResult.needs_review,
         min_criterion_confidence: markingResult.min_criterion_confidence,
-        has_low_criterion_confidence: markingResult.has_low_criterion_confidence
+        has_low_criterion_confidence: markingResult.has_low_criterion_confidence,
+        corrections: markingResult.corrections || []
       };
 
       // Generate output based on output_type
@@ -1449,8 +1817,52 @@ router.post('/multiple', async (req, res) => {
     const errors = [];
     const skipped = []; // Track assignments that were already successfully marked
 
+    // Helper function to check if request was aborted
+    const checkAborted = () => {
+      if (req.aborted || req.socket.destroyed) {
+        return true;
+      }
+      return false;
+    };
+
     // Process each assignment
     for (let i = 0; i < assignment_ids.length; i++) {
+      // Check if request was cancelled before processing next assignment
+      if (checkAborted()) {
+        console.log('⚠️  Marking request was cancelled by client');
+        // Reset any assignments that were set to processing but not completed
+        for (let j = i; j < assignment_ids.length; j++) {
+          const remainingId = assignment_ids[j];
+          try {
+            const statusCheck = await query(
+              'SELECT status FROM assignments WHERE id = ?',
+              [remainingId]
+            );
+            const status = Array.isArray(statusCheck) 
+              ? statusCheck[0]?.status 
+              : (statusCheck.rows?.[0]?.status || statusCheck?.[0]?.status);
+            if (status === 'processing') {
+              await query(
+                'UPDATE assignments SET status = ? WHERE id = ?',
+                ['uploaded', remainingId]
+              );
+            }
+          } catch (cleanupErr) {
+            console.error(`Error cleaning up assignment ${remainingId}:`, cleanupErr);
+          }
+        }
+        return res.status(499).json({
+          success: false,
+          cancelled: true,
+          message: 'Marking request was cancelled',
+          results: results,
+          errors: errors,
+          skipped: skipped,
+          processed: i,
+          total: assignment_ids.length
+        });
+      }
+
       const assignment_id = assignment_ids[i];
       const student_name = student_names && student_names[i] ? student_names[i] : null;
 
@@ -1477,6 +1889,13 @@ router.post('/multiple', async (req, res) => {
           continue;
         }
 
+        // Check again before starting processing
+        if (checkAborted()) {
+          console.log(`⚠️  Request cancelled before processing assignment ${assignment_id}`);
+          errors.push({ assignment_id, error: 'Request was cancelled' });
+          continue;
+        }
+
         // Update assignment status to processing
         await query(
           'UPDATE assignments SET status = ? WHERE id = ?',
@@ -1484,6 +1903,16 @@ router.post('/multiple', async (req, res) => {
         );
 
         try {
+          // Check before PDF extraction
+          if (checkAborted()) {
+            await query(
+              'UPDATE assignments SET status = ? WHERE id = ?',
+              ['uploaded', assignment_id]
+            );
+            errors.push({ assignment_id, error: 'Request was cancelled' });
+            continue;
+          }
+
           // Extract text from PDF
           const assignmentText = await extractTextFromPDF(assignment.file_path);
           
@@ -1491,10 +1920,30 @@ router.post('/multiple', async (req, res) => {
             throw new Error('No text could be extracted from the PDF');
           }
 
+          // Check before AI marking (this is the longest operation)
+          if (checkAborted()) {
+            await query(
+              'UPDATE assignments SET status = ? WHERE id = ?',
+              ['uploaded', assignment_id]
+            );
+            errors.push({ assignment_id, error: 'Request was cancelled' });
+            continue;
+          }
+
           // Generate AI marking (use assessment_type if provided, otherwise use document_type)
           // Provider can be specified in request or will use default from config
           const docType = assessment_type || document_type || null;
           const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id);
+          
+          // Check after AI marking (in case it took a long time)
+          if (checkAborted()) {
+            await query(
+              'UPDATE assignments SET status = ? WHERE id = ?',
+              ['uploaded', assignment_id]
+            );
+            errors.push({ assignment_id, error: 'Request was cancelled after marking' });
+            continue;
+          }
 
           // Get current version number for this assignment
           const versionResult = await query(
@@ -1512,7 +1961,7 @@ router.post('/multiple', async (req, res) => {
 
           // Save marking result to database with version info
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -1523,7 +1972,9 @@ router.post('/multiple', async (req, res) => {
               newVersion,
               1, // is_current
               strictness_level,
-              provider || null
+              provider || null,
+              markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
+              markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null
             ]
           );
           
@@ -1546,7 +1997,8 @@ router.post('/multiple', async (req, res) => {
             confidence_level: markingResult.confidence_level,
             needs_review: markingResult.needs_review,
             min_criterion_confidence: markingResult.min_criterion_confidence,
-            has_low_criterion_confidence: markingResult.has_low_criterion_confidence
+            has_low_criterion_confidence: markingResult.has_low_criterion_confidence,
+            corrections: markingResult.corrections || []
           };
 
           // Generate output based on output_type
@@ -1702,6 +2154,7 @@ router.get('/history/:assignment_id', async (req, res) => {
     const history = result.rows.map(row => ({
       ...row,
       scores: typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores,
+      corrections: row.corrections ? (typeof row.corrections === 'string' ? JSON.parse(row.corrections) : row.corrections) : [],
       is_current: row.is_current === 1 || row.is_current === true
     }));
 
