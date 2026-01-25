@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles } from 'lucide-react';
+import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import RubricManager from './components/RubricManager';
 import MarkingInterface from './components/MarkingInterface';
@@ -10,11 +10,16 @@ import MCQInterface from './components/MCQInterface';
 import BatchManager from './components/BatchManager';
 import TrainingDataManager from './components/TrainingDataManager';
 import AssessmentGenerator from './components/AssessmentGenerator';
+import LoginForm from './components/LoginForm';
+import RegisterForm from './components/RegisterForm';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments';
 
-function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('upload');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const { user, loading, logout } = useAuth();
 
   const tabs = [
     { id: 'upload', label: 'Upload PDFs', icon: Upload },
@@ -29,6 +34,27 @@ function App() {
     { id: 'results', label: 'View Results', icon: Settings },
   ];
 
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login/register if not authenticated
+  if (!user) {
+    return authMode === 'login' ? (
+      <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
+    ) : (
+      <RegisterForm onSwitchToLogin={() => setAuthMode('login')} />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -38,6 +64,19 @@ function App() {
             <div className="flex items-center">
               <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
               <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 text-sm text-gray-700">
+                <User className="h-4 w-4" />
+                <span>{user.name || user.email}</span>
+              </div>
+              <button
+                onClick={logout}
+                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Logout</span>
+              </button>
             </div>
           </div>
         </div>
@@ -82,6 +121,14 @@ function App() {
         {activeTab === 'results' && <ResultsDashboard />}
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

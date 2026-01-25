@@ -1,10 +1,11 @@
 const express = require('express');
 const { query } = require('../database/connection');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
 // Create a new rubric
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
 
@@ -42,8 +43,8 @@ router.post('/', async (req, res) => {
     const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
 
     const result = await query(
-      'INSERT INTO rubrics (name, criteria, total_points, rubric_type) VALUES (?, ?, ?, ?)',
-      [name, JSON.stringify(criteria), total_points, normalizedType]
+      'INSERT INTO rubrics (name, criteria, total_points, rubric_type, user_id) VALUES (?, ?, ?, ?, ?)',
+      [name, JSON.stringify(criteria), total_points, normalizedType, req.user.id]
     );
     
     // For SQLite, we need to get the last inserted ID separately
@@ -69,10 +70,11 @@ router.post('/', async (req, res) => {
 });
 
 // Get all rubrics
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT * FROM rubrics ORDER BY created_at DESC'
+      'SELECT * FROM rubrics WHERE user_id = ? ORDER BY created_at DESC',
+      [req.user.id]
     );
     
     // Parse criteria JSON for each rubric
@@ -93,13 +95,13 @@ router.get('/', async (req, res) => {
 });
 
 // Get a specific rubric
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
     const result = await query(
-      'SELECT * FROM rubrics WHERE id = ?',
-      [id]
+      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
 
     if (result.rows.length === 0) {
@@ -124,7 +126,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update a rubric
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
@@ -154,15 +156,15 @@ router.put('/:id', async (req, res) => {
     const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
 
     const result = await query(
-      'UPDATE rubrics SET name = ?, criteria = ?, total_points = ?, rubric_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [name, JSON.stringify(criteria), total_points, normalizedType, id]
+      'UPDATE rubrics SET name = ?, criteria = ?, total_points = ?, rubric_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      [name, JSON.stringify(criteria), total_points, normalizedType, id, req.user.id]
     );
     
     // For SQLite, we need to get the updated record separately
     if (result.changes > 0) {
       const updatedResult = await query(
-        'SELECT * FROM rubrics WHERE id = ?',
-        [id]
+        'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+        [id, req.user.id]
       );
       
       if (updatedResult.rows.length > 0) {
@@ -186,13 +188,13 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete a rubric
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
     const result = await query(
-      'DELETE FROM rubrics WHERE id = ?',
-      [id]
+      'DELETE FROM rubrics WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
 
     if (result.rows.length === 0) {

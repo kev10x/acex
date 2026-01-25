@@ -1,19 +1,21 @@
 const express = require('express');
 const { query } = require('../database/connection');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
 // Get all batches
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await query(`
       SELECT b.*, 
              COUNT(a.id) as assignment_count
       FROM batches b
-      LEFT JOIN assignments a ON a.batch_id = b.id
+      LEFT JOIN assignments a ON a.batch_id = b.id AND a.user_id = ?
+      WHERE b.user_id = ?
       GROUP BY b.id
       ORDER BY b.created_at DESC
-    `);
+    `, [req.user.id, req.user.id]);
     
     const batches = Array.isArray(result) ? result : (result.rows || []);
     
@@ -34,14 +36,14 @@ router.get('/', async (req, res) => {
 });
 
 // Get a single batch with assignments
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
     // Get batch details
     const batchResult = await query(
-      'SELECT * FROM batches WHERE id = ?',
-      [id]
+      'SELECT * FROM batches WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
     
     const batch = Array.isArray(batchResult) 
@@ -54,8 +56,8 @@ router.get('/:id', async (req, res) => {
     
     // Get assignments in this batch
     const assignmentsResult = await query(
-      'SELECT * FROM assignments WHERE batch_id = ? ORDER BY uploaded_at DESC',
-      [id]
+      'SELECT * FROM assignments WHERE batch_id = ? AND user_id = ? ORDER BY uploaded_at DESC',
+      [id, req.user.id]
     );
     
     const assignments = Array.isArray(assignmentsResult)
@@ -76,7 +78,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create a new batch
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const { name, description } = req.body;
     
@@ -85,8 +87,8 @@ router.post('/', async (req, res) => {
     }
     
     const result = await query(
-      'INSERT INTO batches (name, description) VALUES (?, ?)',
-      [name.trim(), description?.trim() || null]
+      'INSERT INTO batches (name, description, user_id) VALUES (?, ?, ?)',
+      [name.trim(), description?.trim() || null, req.user.id]
     );
     
     const insertedId = result.lastID || result.insertId || result.rows?.[0]?.id;
@@ -107,7 +109,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a batch
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
@@ -117,8 +119,8 @@ router.put('/:id', async (req, res) => {
     }
     
     await query(
-      'UPDATE batches SET name = ?, description = ? WHERE id = ?',
-      [name.trim(), description?.trim() || null, id]
+      'UPDATE batches SET name = ?, description = ? WHERE id = ? AND user_id = ?',
+      [name.trim(), description?.trim() || null, id, req.user.id]
     );
     
     res.json({
@@ -132,14 +134,14 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete a batch (assignments will have batch_id set to NULL)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
     // Check if batch exists
     const batchResult = await query(
-      'SELECT * FROM batches WHERE id = ?',
-      [id]
+      'SELECT * FROM batches WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
     
     const batch = Array.isArray(batchResult)
@@ -151,7 +153,7 @@ router.delete('/:id', async (req, res) => {
     }
     
     // Delete the batch (assignments will have batch_id set to NULL due to ON DELETE SET NULL)
-    await query('DELETE FROM batches WHERE id = ?', [id]);
+    await query('DELETE FROM batches WHERE id = ? AND user_id = ?', [id, req.user.id]);
     
     res.json({
       success: true,
@@ -164,7 +166,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Assign assignments to a batch
-router.post('/:id/assign', async (req, res) => {
+router.post('/:id/assign', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { assignment_ids } = req.body;
@@ -175,8 +177,8 @@ router.post('/:id/assign', async (req, res) => {
     
     // Check if batch exists
     const batchResult = await query(
-      'SELECT * FROM batches WHERE id = ?',
-      [id]
+      'SELECT * FROM batches WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
     
     const batch = Array.isArray(batchResult)
@@ -187,11 +189,11 @@ router.post('/:id/assign', async (req, res) => {
       return res.status(404).json({ error: 'Batch not found' });
     }
     
-    // Update assignments to belong to this batch
+    // Update assignments to belong to this batch (only user's assignments)
     const placeholders = assignment_ids.map(() => '?').join(',');
     await query(
-      `UPDATE assignments SET batch_id = ? WHERE id IN (${placeholders})`,
-      [id, ...assignment_ids]
+      `UPDATE assignments SET batch_id = ? WHERE id IN (${placeholders}) AND user_id = ?`,
+      [id, ...assignment_ids, req.user.id]
     );
     
     res.json({
@@ -205,7 +207,7 @@ router.post('/:id/assign', async (req, res) => {
 });
 
 // Remove assignments from a batch
-router.post('/:id/unassign', async (req, res) => {
+router.post('/:id/unassign', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { assignment_ids } = req.body;
@@ -214,11 +216,11 @@ router.post('/:id/unassign', async (req, res) => {
       return res.status(400).json({ error: 'assignment_ids array is required' });
     }
     
-    // Set batch_id to NULL for these assignments
+    // Set batch_id to NULL for these assignments (only user's assignments)
     const placeholders = assignment_ids.map(() => '?').join(',');
     await query(
-      `UPDATE assignments SET batch_id = NULL WHERE id IN (${placeholders}) AND batch_id = ?`,
-      [...assignment_ids, id]
+      `UPDATE assignments SET batch_id = NULL WHERE id IN (${placeholders}) AND batch_id = ? AND user_id = ?`,
+      [...assignment_ids, id, req.user.id]
     );
     
     res.json({

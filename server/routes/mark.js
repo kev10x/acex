@@ -6,6 +6,7 @@ const aiConfig = require('../config/ai-config');
 const aiService = require('../services/aiService');
 const { annotatePdfWithIssues, buildIssuesFromMarking } = require('../services/pdfAnnotator');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
@@ -44,7 +45,7 @@ router.post('/debug', async (req, res) => {
     
     // Get rubric details
     const rubricResult = await query(
-      'SELECT * FROM rubrics WHERE id = ?',
+              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
       [rubric_id]
     );
     
@@ -1353,7 +1354,7 @@ function buildIssuesWithAnchors(markingResult, anchorsMap) {
 }
 
 // Mark a single assignment
-router.post('/single', async (req, res) => {
+router.post('/single', requireAuth, async (req, res) => {
   try {
     const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict' } = req.body;
 
@@ -1385,7 +1386,7 @@ router.post('/single', async (req, res) => {
 
     // Get rubric details
     const rubricResult = await query(
-      'SELECT * FROM rubrics WHERE id = ?',
+              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
       [rubric_id]
     );
 
@@ -1483,13 +1484,13 @@ router.post('/single', async (req, res) => {
 
       // Mark all previous versions as not current
       await query(
-        'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ?',
-        [assignment_id]
+        'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ? AND user_id = ?',
+        [assignment_id, req.user.id]
       );
 
       // Save marking result to database with version info
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -1502,7 +1503,8 @@ router.post('/single', async (req, res) => {
           strictness_level,
           provider || null,
           markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
-          markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null
+          markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null,
+          req.user.id
         ]
       );
       
@@ -1650,7 +1652,7 @@ router.post('/manual', async (req, res) => {
 
     // Get rubric details
     const rubricResult = await query(
-      'SELECT * FROM rubrics WHERE id = ?',
+              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
       [rubric_id]
     );
 
@@ -1686,14 +1688,15 @@ router.post('/manual', async (req, res) => {
     try {
       // Save marking result to database
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
           student_name || null,
           JSON.stringify(scores),
           overall_feedback || 'Manual marking completed',
-          total_score
+          total_score,
+          req.user.id
         ]
       );
       
@@ -1745,7 +1748,7 @@ router.get('/rubric/:id', async (req, res) => {
     const { id } = req.params;
 
     const rubricResult = await query(
-      'SELECT * FROM rubrics WHERE id = ?',
+              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
       [id]
     );
 
@@ -1774,7 +1777,7 @@ router.get('/rubric/:id', async (req, res) => {
 });
 
 // Mark multiple assignments
-router.post('/multiple', async (req, res) => {
+router.post('/multiple', requireAuth, async (req, res) => {
   try {
     const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict' } = req.body;
 
@@ -1792,7 +1795,7 @@ router.post('/multiple', async (req, res) => {
 
     // Get rubric details
     const rubricResult = await query(
-      'SELECT * FROM rubrics WHERE id = ?',
+              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
       [rubric_id]
     );
 
@@ -1867,10 +1870,10 @@ router.post('/multiple', async (req, res) => {
       const student_name = student_names && student_names[i] ? student_names[i] : null;
 
       try {
-        // Get assignment details
+        // Get assignment details (only user's assignments)
         const assignmentResult = await query(
-          'SELECT * FROM assignments WHERE id = ?',
-          [assignment_id]
+          'SELECT * FROM assignments WHERE id = ? AND user_id = ?',
+          [assignment_id, req.user.id]
         );
 
         // Handle different database result formats
@@ -1947,21 +1950,21 @@ router.post('/multiple', async (req, res) => {
 
           // Get current version number for this assignment
           const versionResult = await query(
-            'SELECT COALESCE(MAX(version), 0) as max_version FROM marking_results WHERE assignment_id = ?',
-            [assignment_id]
+            'SELECT COALESCE(MAX(version), 0) as max_version FROM marking_results WHERE assignment_id = ? AND user_id = ?',
+            [assignment_id, req.user.id]
           );
           const maxVersion = versionResult.rows?.[0]?.max_version || versionResult?.[0]?.max_version || 0;
           const newVersion = maxVersion + 1;
 
           // Mark all previous versions as not current
           await query(
-            'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ?',
-            [assignment_id]
+            'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ? AND user_id = ?',
+            [assignment_id, req.user.id]
           );
 
           // Save marking result to database with version info
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -1974,7 +1977,8 @@ router.post('/multiple', async (req, res) => {
               strictness_level,
               provider || null,
               markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
-              markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null
+              markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null,
+              req.user.id
             ]
           );
           

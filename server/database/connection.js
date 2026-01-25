@@ -78,16 +78,31 @@ const initDatabase = async () => {
     console.log('Initializing database, isSQLite:', usingSQLite, 'isMySQL:', usingMySQL);
     
     if (usingSQLite) {
+      // Create users table first
+      await query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          name TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_login DATETIME,
+          is_active INTEGER DEFAULT 1
+        )
+      `);
+
       // SQLite table creation with proper syntax
       await query(`
-        CREATE TABLE IF NOT EXISTS assignments (
         CREATE TABLE IF NOT EXISTS rubrics (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           criteria TEXT NOT NULL,
           total_points INTEGER NOT NULL,
           rubric_type TEXT DEFAULT 'rubric',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          user_id INTEGER,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
         )
       `);
 
@@ -103,7 +118,9 @@ const initDatabase = async () => {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           description TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          user_id INTEGER,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
         )
       `);
 
@@ -117,7 +134,9 @@ const initDatabase = async () => {
           status TEXT DEFAULT 'uploaded',
           batch_id INTEGER,
           extracted_text TEXT,
-          FOREIGN KEY (batch_id) REFERENCES batches (id) ON DELETE SET NULL
+          user_id INTEGER,
+          FOREIGN KEY (batch_id) REFERENCES batches (id) ON DELETE SET NULL,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
         )
       `);
 
@@ -136,8 +155,10 @@ const initDatabase = async () => {
           strictness_level TEXT,
           provider TEXT,
           corrections TEXT,
+          user_id INTEGER,
           FOREIGN KEY (assignment_id) REFERENCES assignments (id) ON DELETE CASCADE,
-          FOREIGN KEY (rubric_id) REFERENCES rubrics (id) ON DELETE CASCADE
+          FOREIGN KEY (rubric_id) REFERENCES rubrics (id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
         )
       `);
       
@@ -186,6 +207,27 @@ const initDatabase = async () => {
         } catch (err) {
           // Column may already exist
         }
+        // Add user_id columns if they don't exist
+        try {
+          await query(`ALTER TABLE rubrics ADD COLUMN user_id INTEGER`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE batches ADD COLUMN user_id INTEGER`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE assignments ADD COLUMN user_id INTEGER`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE marking_results ADD COLUMN user_id INTEGER`);
+        } catch (err) {
+          // Column may already exist
+        }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist)');
       }
@@ -199,6 +241,20 @@ const initDatabase = async () => {
         console.log('Note: Some indexes may already exist');
       }
     } else if (usingMySQL) {
+      // Create users table first
+      await query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          name VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          last_login TIMESTAMP,
+          is_active TINYINT(1) DEFAULT 1
+        )
+      `);
+
       // MySQL table creation
       await query(`
         CREATE TABLE IF NOT EXISTS rubrics (
@@ -207,7 +263,9 @@ const initDatabase = async () => {
           criteria JSON NOT NULL,
           total_points INT NOT NULL,
           rubric_type VARCHAR(50) DEFAULT 'rubric',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          user_id INT,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
 
@@ -225,7 +283,9 @@ const initDatabase = async () => {
           id INT AUTO_INCREMENT PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
           description TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          user_id INT,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
 
@@ -239,7 +299,9 @@ const initDatabase = async () => {
           status VARCHAR(50) DEFAULT 'uploaded',
           batch_id INT,
           extracted_text LONGTEXT,
-          FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL
+          user_id INT,
+          FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
 
@@ -258,8 +320,10 @@ const initDatabase = async () => {
           strictness_level VARCHAR(50),
           provider VARCHAR(50),
           corrections JSON,
+          user_id INT,
           FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
-          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
       
@@ -386,6 +450,51 @@ const initDatabase = async () => {
           console.log('Adding extracted_text column to assignments table...');
           await query(`ALTER TABLE assignments ADD COLUMN extracted_text LONGTEXT`);
         }
+        
+        // Add user_id columns if they don't exist
+        const rubricUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'rubrics' 
+          AND column_name = 'user_id'
+        `);
+        if ((rubricUserIdCheck.rows?.[0]?.count || rubricUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE rubrics ADD COLUMN user_id INT`);
+        }
+        
+        const batchesUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'batches' 
+          AND column_name = 'user_id'
+        `);
+        if ((batchesUserIdCheck.rows?.[0]?.count || batchesUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE batches ADD COLUMN user_id INT`);
+        }
+        
+        const assignmentsUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'assignments' 
+          AND column_name = 'user_id'
+        `);
+        if ((assignmentsUserIdCheck.rows?.[0]?.count || assignmentsUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN user_id INT`);
+        }
+        
+        const markingResultsUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'marking_results' 
+          AND column_name = 'user_id'
+        `);
+        if ((markingResultsUserIdCheck.rows?.[0]?.count || markingResultsUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN user_id INT`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -410,6 +519,20 @@ const initDatabase = async () => {
         }
       }
     } else {
+      // Create users table first
+      await query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          name VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_login TIMESTAMP,
+          is_active BOOLEAN DEFAULT TRUE
+        )
+      `);
+
       // PostgreSQL table creation
       await query(`
         CREATE TABLE IF NOT EXISTS rubrics (
@@ -418,7 +541,8 @@ const initDatabase = async () => {
           criteria JSONB NOT NULL,
           total_points INTEGER NOT NULL,
           rubric_type VARCHAR(50) DEFAULT 'rubric',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
         )
       `);
 
@@ -434,7 +558,8 @@ const initDatabase = async () => {
           id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
           description TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
         )
       `);
 
@@ -447,7 +572,8 @@ const initDatabase = async () => {
           uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           status VARCHAR(50) DEFAULT 'uploaded',
           batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
-          extracted_text TEXT
+          extracted_text TEXT,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
         )
       `);
 
@@ -465,7 +591,8 @@ const initDatabase = async () => {
           is_current BOOLEAN DEFAULT TRUE,
           strictness_level VARCHAR(50),
           provider VARCHAR(50),
-          corrections JSONB
+          corrections JSONB,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
         )
       `);
       
@@ -553,6 +680,47 @@ const initDatabase = async () => {
         `);
         if ((extractedTextCheck.rows?.[0]?.count || extractedTextCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE assignments ADD COLUMN extracted_text TEXT`);
+        }
+        
+        // Add user_id columns if they don't exist
+        const rubricUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'rubrics' 
+          AND column_name = 'user_id'
+        `);
+        if ((rubricUserIdCheck.rows?.[0]?.count || rubricUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE rubrics ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+        }
+        
+        const batchesUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'batches' 
+          AND column_name = 'user_id'
+        `);
+        if ((batchesUserIdCheck.rows?.[0]?.count || batchesUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE batches ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+        }
+        
+        const assignmentsUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'assignments' 
+          AND column_name = 'user_id'
+        `);
+        if ((assignmentsUserIdCheck.rows?.[0]?.count || assignmentsUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+        }
+        
+        const markingResultsUserIdCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'marking_results' 
+          AND column_name = 'user_id'
+        `);
+        if ((markingResultsUserIdCheck.rows?.[0]?.count || markingResultsUserIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

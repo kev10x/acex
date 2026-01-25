@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const yauzl = require('yauzl');
 const { query } = require('../database/connection');
 const { extractTextFromPDF } = require('../services/pdfOCR');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -104,7 +105,7 @@ const uploadZip = multer({
 });
 
 // Upload single PDF
-router.post('/single', upload.single('pdf'), async (req, res) => {
+router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
   try {
     console.log('Upload request received:', {
       hasFile: !!req.file,
@@ -155,8 +156,8 @@ router.post('/single', upload.single('pdf'), async (req, res) => {
     }
 
     const result = await query(
-      'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text) VALUES (?, ?, ?, ?, ?)',
-      [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText]
+      'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id]
     );
     
     // For SQLite, we need to get the last inserted ID separately
@@ -197,7 +198,7 @@ router.post('/single', upload.single('pdf'), async (req, res) => {
 });
 
 // Upload multiple PDFs
-router.post('/multiple', upload.array('pdfs', 10), async (req, res) => {
+router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No PDF files uploaded' });
@@ -226,8 +227,8 @@ router.post('/multiple', upload.array('pdfs', 10), async (req, res) => {
       }
 
       const result = await query(
-        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text) VALUES (?, ?, ?, ?, ?)',
-        [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText]
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id]
       );
 
       // For SQLite, we need to get the last inserted ID separately
@@ -257,7 +258,7 @@ router.post('/multiple', upload.array('pdfs', 10), async (req, res) => {
 });
 
 // Upload ZIP of PDFs
-router.post('/zip', uploadZip.single('zip'), async (req, res) => {
+router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No ZIP file uploaded' });
@@ -281,8 +282,8 @@ router.post('/zip', uploadZip.single('zip'), async (req, res) => {
       }
       
       const result = await query(
-        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text) VALUES (?, ?, ?, ?, ?)',
-        [filename, filePath, fileSize, 'uploaded', extractedText]
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [filename, filePath, fileSize, 'uploaded', extractedText, req.user.id]
       );
       const insertedId = result.lastID || result.rows?.[0]?.id;
       extractedAssignments.push({
@@ -369,10 +370,11 @@ router.post('/zip', uploadZip.single('zip'), async (req, res) => {
 });
 
 // Get all uploaded assignments
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT * FROM assignments ORDER BY uploaded_at DESC'
+      'SELECT * FROM assignments WHERE user_id = ? ORDER BY uploaded_at DESC',
+      [req.user.id]
     );
     
     // Handle different database result formats
@@ -389,14 +391,14 @@ router.get('/', async (req, res) => {
 });
 
 // Delete assignment
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
     // Get file path before deleting
     const assignmentResult = await query(
-      'SELECT file_path FROM assignments WHERE id = ?',
-      [id]
+      'SELECT file_path FROM assignments WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
 
     if (assignmentResult.rows.length === 0) {
@@ -404,7 +406,7 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Delete from database
-    await query('DELETE FROM assignments WHERE id = ?', [id]);
+    await query('DELETE FROM assignments WHERE id = ? AND user_id = ?', [id, req.user.id]);
 
     // Delete file from filesystem
     const filePath = assignmentResult.rows[0].file_path;

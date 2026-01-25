@@ -9,10 +9,15 @@ const api = axios.create({
   },
 });
 
-// Request interceptor for logging
+// Request interceptor for logging and adding auth token
 api.interceptors.request.use(
   (config) => {
     console.log(`Making ${config.method?.toUpperCase()} request to ${config.url}`);
+    // Add auth token if available
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
@@ -27,6 +32,13 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('API Error:', error.response?.data || error.message);
+    
+    // Handle 401 unauthorized - clear auth and redirect to login
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      // Don't redirect here - let components handle it
+    }
     
     // Provide more detailed error logging
     if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
@@ -305,6 +317,53 @@ export const assessmentsAPI = {
     topic?: string | null; // Optional: specific topic/subject area
   }) => api.post('/assessments/generate', data),
   getStats: () => api.get('/assessments/stats'),
+};
+
+// Authentication API
+export const authAPI = {
+  register: async (email: string, password: string, name?: string) => {
+    const response = await api.post('/auth/register', { email, password, name });
+    return {
+      user: response.data.user,
+      token: response.data.token
+    };
+  },
+  
+  login: async (email: string, password: string) => {
+    const response = await api.post('/auth/login', { email, password });
+    return {
+      user: response.data.user,
+      token: response.data.token
+    };
+  },
+  
+  logout: async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      // Ignore errors on logout
+    }
+  },
+  
+  getCurrentUser: async (token: string) => {
+    const response = await api.get('/auth/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data.user;
+  },
+  
+  updateProfile: async (token: string, name?: string, email?: string) => {
+    const response = await api.put('/auth/profile', { name, email }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data.user;
+  },
+  
+  changePassword: async (token: string, currentPassword: string, newPassword: string) => {
+    await api.put('/auth/change-password', { currentPassword, newPassword }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  }
 };
 
 export default api;

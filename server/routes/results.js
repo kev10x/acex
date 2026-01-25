@@ -2,11 +2,12 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { query } = require('../database/connection');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
 // Get all marking results
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await query(`
       SELECT 
@@ -19,8 +20,9 @@ router.get('/', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.user_id = ?
       ORDER BY mr.marked_at DESC
-    `);
+    `, [req.user.id]);
     
     // Parse JSON fields (scores, corrections, and language_errors)
     const parsedResults = result.rows.map(row => ({
