@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarkMate – AI-Powered Assignment Marking</title>
+    <meta
+      name="description"
+      content="MarkMate is an AI-powered marking assistant that helps educators mark PDF assignments, exams, and treatises faster and more consistently."
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <header class="mm-header">
+      <div class="mm-container mm-header-inner">
+        <div class="mm-logo">
+          <span class="mm-logo-mark">M</span>
+          <span class="mm-logo-text">MarkMate</span>
+        </div>
+        <nav class="mm-nav">
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#who-its-for">Who it's for</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="mm-header-cta">
+          <a href="/tools" class="mm-btn mm-btn-outline">Open app</a>
+          <a href="/tools" class="mm-btn mm-btn-primary">Get started</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- Hero -->
+      <section class="mm-section mm-hero">
+        <div class="mm-container mm-hero-grid">
+          <div class="mm-hero-copy">
+            <h1>AI-powered marking for real-world assignments.</h1>
+            <p class="mm-hero-subtitle">
+              MarkMate reads your PDFs – assignments, tests, treatises and more – and generates
+              structured, rubric-aligned feedback in minutes instead of hours.
+            </p>
+            <div class="mm-hero-actions">
+              <a href="/tools" class="mm-btn mm-btn-primary mm-hero-main-btn">
+                Launch MarkMate
+              </a>
+              <button class="mm-text-link" onclick="document.getElementById('how-it-works').scrollIntoView({ behavior: 'smooth' })">
+                See how it works →
+              </button>
+            </div>
+            <div class="mm-hero-stats">
+              <div>
+                <div class="mm-stat-value">10x</div>
+                <div class="mm-stat-label">Faster marking</div>
+              </div>
+              <div>
+                <div class="mm-stat-value">Consistent</div>
+                <div class="mm-stat-label">Rubric-based feedback</div>
+              </div>
+              <div>
+                <div class="mm-stat-value">Multi‑doc</div>
+                <div class="mm-stat-label">Batch processing support</div>
+              </div>
+            </div>
+          </div>
+          <div class="mm-hero-panel" aria-hidden="true">
+            <div class="mm-hero-card">
+              <div class="mm-hero-card-header">
+                <span class="mm-pill">Live preview</span>
+                <span class="mm-hero-card-title">Marking a PDF assignment</span>
+              </div>
+              <div class="mm-hero-card-body">
+                <div class="mm-hero-file">
+                  <div class="mm-file-icon">PDF</div>
+                  <div>
+                    <div class="mm-file-name">Assignment_3_Essay.pdf</div>
+                    <div class="mm-file-meta">2 184 words · 7 pages</div>
+                  </div>
+                  <div class="mm-file-status mm-file-status-running">Marking…</div>
+                </div>
+                <div class="mm-hero-progress">
+                  <div class="mm-hero-progress-bar"></div>
+                </div>
+                <ul class="mm-hero-list">
+                  <li>✓ Criteria loaded from rubric “Essay – Critical Thinking (40 pts)”</li>
+                  <li>✓ Language and structure issues highlighted directly on the PDF</li>
+                  <li>✓ Detailed summary report with per‑criterion scores</li>
+                </ul>
+              </div>
+              <div class="mm-hero-card-footer">
+                <span>Output options:</span>
+                <span class="mm-badge">Annotated PDF</span>
+                <span class="mm-badge">Assessment report</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section id="features" class="mm-section mm-section-alt">
+        <div class="mm-container">
+          <div class="mm-section-header">
+            <h2>Built for educators who work with PDFs every day.</h2>
+            <p>
+              MarkMate is a focused tool for marking real assignments – not a generic chatbot. It
+              understands rubrics, scores consistently, and fits into your existing workflow.
+            </p>
+          </div>
+          <div class="mm-grid-3">
+            <article class="mm-feature-card">
+              <h3>Upload once, mark in batches</h3>
+              <p>
+                Upload individual PDFs or ZIP archives of a whole class. Organize submissions into
+                batches and keep track of their status from upload to final report.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Rubric‑driven scoring</h3>
+              <p>
+                Use existing rubrics or generate new ones with the AI rubric generator. MarkMate
+                aligns feedback and scores directly with each rubric criterion.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Rich feedback, not just a grade</h3>
+              <p>
+                Students get structured comments, strengths and weaknesses per criterion, and
+                optional language feedback on clarity, grammar, and referencing.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>PDF annotation & reports</h3>
+              <p>
+                Choose between annotated PDFs with comments in context, or standalone assessment
+                reports summarizing scores and feedback for each submission.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Support for exams & MCQs</h3>
+              <p>
+                Handle essays, long‑form assignments, treatises and even MCQ answer sheets. Re‑run
+                marking with different strictness levels when you need to adjust.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Training & transparency</h3>
+              <p>
+                Export anonymised marking data to refine your own models or audit AI decisions.
+                MarkMate is designed to help, not replace, human markers.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section id="how-it-works" class="mm-section">
+        <div class="mm-container">
+          <div class="mm-section-header">
+            <h2>How MarkMate fits into your workflow.</h2>
+            <p>From PDF upload to final report, in four simple steps.</p>
+          </div>
+          <ol class="mm-steps">
+            <li>
+              <h3>1. Upload your PDFs</h3>
+              <p>
+                Drag‑and‑drop assignments, tests, treatises or ZIP archives. MarkMate extracts text
+                automatically, even from scanned PDFs via OCR.
+              </p>
+            </li>
+            <li>
+              <h3>2. Choose or generate a rubric</h3>
+              <p>
+                Select an existing rubric, or use the built‑in generator to create criteria and
+                point allocations from sample answers or syllabus documents.
+              </p>
+            </li>
+            <li>
+              <h3>3. Let the AI mark</h3>
+              <p>
+                Pick your AI provider (OpenAI or Anthropic), strictness level, and output type
+                (annotated PDF or separate report). MarkMate runs criteria‑by‑criteria marking.
+              </p>
+            </li>
+            <li>
+              <h3>4. Review, adjust, and export</h3>
+              <p>
+                Use the results dashboard to review marks, re‑run specific submissions, export CSV
+                summaries, or download annotated PDFs and reports for sharing.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Who it's for -->
+      <section id="who-its-for" class="mm-section mm-section-alt">
+        <div class="mm-container mm-two-col">
+          <div>
+            <h2>Designed for busy educators and programme coordinators.</h2>
+            <p>
+              Whether you are marking a stack of undergraduate essays, postgraduate treatises, or
+              continuous assessment tasks, MarkMate helps you save time while keeping your academic
+              standards.
+            </p>
+            <ul class="mm-list">
+              <li>Lecturers and tutors marking large cohorts</li>
+              <li>Programme coordinators needing consistency across markers</li>
+              <li>Assessment units managing exams and written scripts</li>
+              <li>Educators exploring AI to augment, not replace, human judgement</li>
+            </ul>
+          </div>
+          <div class="mm-highlight-box">
+            <h3>Why not just use a chatbot?</h3>
+            <p>
+              Generic chat tools are not built for high‑stakes assessment. MarkMate:
+            </p>
+            <ul class="mm-list mm-list-compact">
+              <li>Stores your data in your own database</li>
+              <li>Uses explicit rubrics and scoring rules</li>
+              <li>Tracks versions of marking results</li>
+              <li>Can be tuned per course and institution</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section id="faq" class="mm-section">
+        <div class="mm-container">
+          <div class="mm-section-header">
+            <h2>Frequently asked questions.</h2>
+          </div>
+          <div class="mm-faq-grid">
+            <article class="mm-faq-item">
+              <h3>Is MarkMate a hosted service or self‑hosted?</h3>
+              <p>
+                MarkMate is designed to be self‑hosted. You run it on your own server (for example,
+                using Virtualmin as documented), connect it to your own database, and control how
+                data is stored and accessed.
+              </p>
+            </article>
+            <article class="mm-faq-item">
+              <h3>Which AI models does MarkMate use?</h3>
+              <p>
+                Out of the box, MarkMate supports OpenAI and Anthropic (Claude) via their official
+                APIs. You configure API keys in the environment and can switch provider per marking
+                run.
+              </p>
+            </article>
+            <article class="mm-faq-item">
+              <h3>Can I still mark manually?</h3>
+              <p>
+                Yes. There is a dedicated manual marking interface where you can capture scores and
+                feedback by hand, or adjust AI‑generated marks before finalising them.
+              </p>
+            </article>
+            <article class="mm-faq-item">
+              <h3>How do I access the app?</h3>
+              <p>
+                Once deployed, the MarkMate app runs at <code>/tools</code> on your domain. For
+                example: <code>https://markmate.io/tools</code>. Use the “Launch MarkMate” button
+                above to go straight there.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Call to action -->
+      <section class="mm-section mm-cta">
+        <div class="mm-container mm-cta-inner">
+          <div>
+            <h2>Ready to see MarkMate in action?</h2>
+            <p>
+              Log in to your instance and upload a real assignment. You can be looking at AI‑assisted
+              feedback in under 10 minutes.
+            </p>
+          </div>
+          <div class="mm-cta-actions">
+            <a href="/tools" class="mm-btn mm-btn-primary">Launch MarkMate</a>
+            <a href="mailto:support@markmate.io" class="mm-btn mm-btn-outline">Talk to us</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="mm-footer">
+      <div class="mm-container mm-footer-inner">
+        <div class="mm-logo">
+          <span class="mm-logo-mark">M</span>
+          <span class="mm-logo-text">MarkMate</span>
+        </div>
+        <div class="mm-footer-links">
+          <span>Self‑hosted AI marking for PDFs.</span>
+          <span>© <span id="mm-year"></span> MarkMate. All rights reserved.</span>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      // Update footer year
+      document.getElementById('mm-year').textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>
+
