@@ -17,14 +17,17 @@ async function fixUserLogin() {
   try {
     console.log('Fixing user login...\n');
     
-    // Check if DATABASE_URL is set, if not, try to use SQLite
+    // Check if DATABASE_URL is set
     if (!process.env.DATABASE_URL) {
-      const sqlitePath = path.join(__dirname, 'database.sqlite');
-      if (fs.existsSync(sqlitePath)) {
-        process.env.DATABASE_URL = `sqlite:${sqlitePath}`;
-        console.log(`Using SQLite database: ${sqlitePath}`);
-      }
+      console.error('❌ Error: DATABASE_URL environment variable is not set!');
+      console.log('\nPlease set DATABASE_URL in your .env file:');
+      console.log('  For MySQL: DATABASE_URL=mysql://user:password@localhost:3306/database');
+      console.log('  For PostgreSQL: DATABASE_URL=postgresql://user:password@localhost:5432/database');
+      console.log('  For SQLite: DATABASE_URL=sqlite:./database.sqlite');
+      process.exit(1);
     }
+    
+    console.log(`Using database: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@')}`);
     
     // Initialize database
     await initDatabase();

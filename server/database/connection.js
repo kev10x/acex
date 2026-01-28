@@ -49,14 +49,14 @@ const query = async (text, params) => {
   const start = Date.now();
   try {
     let res;
-    if (isSQLite) {
-      // Convert PostgreSQL placeholders ($1, $2, etc.) to SQLite placeholders (?, ?, etc.)
-      let sqliteText = text;
+    if (isSQLite || isMySQL) {
+      // Convert PostgreSQL placeholders ($1, $2, etc.) to SQLite/MySQL placeholders (?, ?, etc.)
+      let convertedText = text;
       if (params && params.length > 0) {
         // Replace $1, $2, $3, etc. with ?, ?, ?, etc.
-        sqliteText = text.replace(/\$(\d+)/g, '?');
+        convertedText = text.replace(/\$(\d+)/g, '?');
       }
-      res = await db.query(sqliteText, params);
+      res = await db.query(convertedText, params);
     } else {
       res = await db.query(text, params);
     }

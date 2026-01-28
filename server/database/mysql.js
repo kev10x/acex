@@ -38,17 +38,33 @@ const getConnection = async () => {
 const query = async (sql, params = []) => {
   try {
     const conn = await getConnection();
-    console.log('MySQL query:', { sql, params });
     
-    const [rows] = await conn.execute(sql, params);
+    // Convert PostgreSQL placeholders ($1, $2, etc.) to MySQL placeholders (?, ?, etc.)
+    let mysqlSql = sql;
+    if (params && params.length > 0) {
+      mysqlSql = sql.replace(/\$(\d+)/g, '?');
+    }
     
-    console.log('MySQL query result:', { rows, rowCount: rows.length });
+    console.log('MySQL query:', { sql: mysqlSql, params });
     
-    return {
+    const [rows] = await conn.execute(mysqlSql, params);
+    
+    // Handle result format
+    const result = {
       rows: Array.isArray(rows) ? rows : [rows],
-      rowCount: rows.length,
-      lastID: rows.insertId
+      rowCount: Array.isArray(rows) ? rows.length : (rows ? 1 : 0),
+      insertId: rows.insertId,
+      changes: rows.affectedRows || 0
     };
+    
+    // For compatibility, also add lastID
+    if (rows.insertId) {
+      result.lastID = rows.insertId;
+    }
+    
+    console.log('MySQL query result:', { rowCount: result.rowCount, insertId: result.insertId });
+    
+    return result;
   } catch (error) {
     console.error('MySQL query error:', error);
     throw error;
