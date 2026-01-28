@@ -7,27 +7,32 @@
 #   Or edit: /etc/apache2/sites-available/your-domain.conf
 #
 # Replace /path/to/MarkMate with your actual deployment path
-# Replace example.com with your actual domain
+# Replace markmate.io with your actual domain
+#
+# This configuration serves MarkMate at markmate.io/tools
 
 <VirtualHost *:80>
-    ServerName example.com
-    ServerAlias www.example.com
+    ServerName markmate.io
+    ServerAlias www.markmate.io
     
     # Redirect HTTP to HTTPS
-    Redirect permanent / https://example.com/
+    Redirect permanent / https://markmate.io/
 </VirtualHost>
 
 <VirtualHost *:443>
-    ServerName example.com
-    ServerAlias www.example.com
+    ServerName markmate.io
+    ServerAlias www.markmate.io
     
     # SSL Configuration (Virtualmin usually handles this)
     SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/example.com.crt
-    SSLCertificateKeyFile /etc/ssl/private/example.com.key
+    SSLCertificateFile /etc/ssl/certs/markmate.io.crt
+    SSLCertificateKeyFile /etc/ssl/private/markmate.io.key
     
-    # Document Root - Serve React build
-    DocumentRoot /path/to/MarkMate/client/build
+    # Document Root - Your main site root
+    DocumentRoot /path/to/your/main/site
+    
+    # Serve MarkMate React app at /tools
+    Alias /tools /path/to/MarkMate/client/build
     
     <Directory "/path/to/MarkMate/client/build">
         Options -Indexes +FollowSymLinks
@@ -36,21 +41,21 @@
         
         # React Router support - redirect all requests to index.html
         RewriteEngine On
-        RewriteBase /
+        RewriteBase /tools/
         RewriteRule ^index\.html$ - [L]
         RewriteCond %{REQUEST_FILENAME} !-f
         RewriteCond %{REQUEST_FILENAME} !-d
-        RewriteRule . /index.html [L]
+        RewriteRule . /tools/index.html [L]
     </Directory>
     
-    # Proxy API requests to Node.js backend
+    # Proxy API requests to Node.js backend at /tools/api
     ProxyPreserveHost On
-    ProxyPass /api http://localhost:3001/api
-    ProxyPassReverse /api http://localhost:3001/api
+    ProxyPass /tools/api http://localhost:3001/api
+    ProxyPassReverse /tools/api http://localhost:3001/api
     
     # WebSocket support (if needed in future)
-    # ProxyPass /socket.io http://localhost:3001/socket.io
-    # ProxyPassReverse /socket.io http://localhost:3001/socket.io
+    # ProxyPass /tools/socket.io http://localhost:3001/socket.io
+    # ProxyPassReverse /tools/socket.io http://localhost:3001/socket.io
     
     # Error and access logs
     ErrorLog ${APACHE_LOG_DIR}/markmate-error.log

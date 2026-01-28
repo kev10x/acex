@@ -190,8 +190,8 @@ JWT_EXPIRES_IN=24h
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 
-# Client URL
-CLIENT_URL=https://$DOMAIN
+# Client URL (with /tools path)
+CLIENT_URL=https://$DOMAIN/tools
 EOF
     echo -e "${YELLOW}⚠ Please edit .env file with your API keys and configuration${NC}"
   fi
@@ -269,32 +269,32 @@ echo -e "${YELLOW}⚠ Manual configuration required for Virtualmin${NC}"
 echo ""
 echo "Please configure your Virtualmin domain with the following:"
 echo ""
-echo "1. Document Root: $DEPLOY_DIR/client/build"
-echo "2. Proxy Configuration (for API):"
-echo ""
-echo "   Add to Apache VirtualHost configuration:"
+echo "1. MarkMate will be served at: https://your-domain.com/tools"
+echo "2. Add to Apache VirtualHost configuration:"
 echo "   (In Virtualmin: Server Configuration > Apache Configuration)"
 echo ""
-cat << 'APACHE_CONFIG'
-   # Proxy API requests to Node.js backend
-   ProxyPreserveHost On
-   ProxyPass /api http://localhost:3001/api
-   ProxyPassReverse /api http://localhost:3001/api
+cat << APACHE_CONFIG
+   # Serve MarkMate React app at /tools
+   Alias /tools $DEPLOY_DIR/client/build
    
-   # Serve React app for all other requests
-   <Directory "/path/to/MarkMate/client/build">
+   <Directory "$DEPLOY_DIR/client/build">
      Options -Indexes +FollowSymLinks
      AllowOverride All
      Require all granted
      
      # React Router support
      RewriteEngine On
-     RewriteBase /
+     RewriteBase /tools/
      RewriteRule ^index\.html$ - [L]
      RewriteCond %{REQUEST_FILENAME} !-f
      RewriteCond %{REQUEST_FILENAME} !-d
-     RewriteRule . /index.html [L]
+     RewriteRule . /tools/index.html [L]
    </Directory>
+   
+   # Proxy API requests to Node.js backend at /tools/api
+   ProxyPreserveHost On
+   ProxyPass /tools/api http://localhost:3001/api
+   ProxyPassReverse /tools/api http://localhost:3001/api
 APACHE_CONFIG
 
 echo ""
@@ -307,7 +307,7 @@ echo "1. Configure Virtualmin Apache settings as shown above"
 echo "2. Ensure port 3001 is accessible (or change PORT in .env)"
 echo "3. Set up SSL certificate in Virtualmin (Let's Encrypt)"
 echo "4. Update .env file with your API keys"
-echo "5. Test the application at https://$DOMAIN"
+echo "5. Test the application at https://$DOMAIN/tools"
 echo ""
 if [ "$USE_PM2" = true ]; then
   echo "PM2 Commands:"
