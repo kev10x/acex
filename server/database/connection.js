@@ -507,22 +507,41 @@ const initDatabase = async () => {
       }
       
       // Add indexes for better query performance (MySQL doesn't support IF NOT EXISTS)
-      // Try to create indexes, ignore errors if they already exist
+      // Check if indexes exist before creating them
       try {
-        await query(`CREATE INDEX idx_marking_results_assignment ON marking_results(assignment_id)`);
-      } catch (err) {
-        // Index may already exist, which is fine
-        if (!err.message?.includes('Duplicate key name')) {
-          console.log('Note: Could not create index idx_marking_results_assignment:', err.message);
+        const assignmentIndexCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.STATISTICS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'marking_results' 
+          AND index_name = 'idx_marking_results_assignment'
+        `);
+        const hasAssignmentIndex = (assignmentIndexCheck.rows?.[0]?.count || assignmentIndexCheck?.[0]?.count || 0) > 0;
+        
+        if (!hasAssignmentIndex) {
+          console.log('Creating index idx_marking_results_assignment...');
+          await query(`CREATE INDEX idx_marking_results_assignment ON marking_results(assignment_id)`);
         }
+      } catch (err) {
+        console.log('Note: Could not create index idx_marking_results_assignment:', err.message);
       }
+      
       try {
-        await query(`CREATE INDEX idx_marking_results_current ON marking_results(assignment_id, is_current)`);
-      } catch (err) {
-        // Index may already exist, which is fine
-        if (!err.message?.includes('Duplicate key name') && !err.message?.includes("doesn't exist")) {
-          console.log('Note: Could not create index idx_marking_results_current:', err.message);
+        const currentIndexCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.STATISTICS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'marking_results' 
+          AND index_name = 'idx_marking_results_current'
+        `);
+        const hasCurrentIndex = (currentIndexCheck.rows?.[0]?.count || currentIndexCheck?.[0]?.count || 0) > 0;
+        
+        if (!hasCurrentIndex) {
+          console.log('Creating index idx_marking_results_current...');
+          await query(`CREATE INDEX idx_marking_results_current ON marking_results(assignment_id, is_current)`);
         }
+      } catch (err) {
+        console.log('Note: Could not create index idx_marking_results_current:', err.message);
       }
     } else {
       // Create users table first
