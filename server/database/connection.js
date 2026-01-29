@@ -269,13 +269,19 @@ const initDatabase = async () => {
         )
       `);
 
-      // Ensure rubric_type column exists
-      try {
+      // Ensure rubric_type column exists (for older installations)
+      const rubricTypeCheck = await query(`
+        SELECT COUNT(*) as count 
+        FROM information_schema.COLUMNS 
+        WHERE table_schema = DATABASE() 
+        AND table_name = 'rubrics' 
+        AND column_name = 'rubric_type'
+      `);
+      const hasRubricType = (rubricTypeCheck.rows?.[0]?.count || rubricTypeCheck?.[0]?.count || 0) > 0;
+      
+      if (!hasRubricType) {
+        console.log('Adding rubric_type column to rubrics table...');
         await query(`ALTER TABLE rubrics ADD COLUMN rubric_type VARCHAR(50) DEFAULT 'rubric'`);
-      } catch (err) {
-        if (!err.message?.includes('Duplicate column')) {
-          console.log('Note: Could not add rubric_type column (may already exist):', err.message);
-        }
       }
 
       await query(`
