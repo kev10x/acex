@@ -698,7 +698,7 @@ router.post('/save', async (req, res) => {
       [name, JSON.stringify(criteria), total_points, normalizedType]
     );
     
-    // For SQLite, we need to get the last inserted ID separately
+    // Get the last inserted ID
     const insertedId = result.lastID || result.rows?.[0]?.id;
     const rubricWithId = {
       id: insertedId,

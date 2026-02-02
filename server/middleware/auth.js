@@ -18,7 +18,7 @@ const authenticateToken = async (req, res, next) => {
     
     // Verify user still exists and is active
     const userResult = await query(
-      'SELECT id, email, name, is_active FROM users WHERE id = $1',
+      'SELECT id, email, name, is_active, role, is_approved FROM users WHERE id = $1',
       [decoded.userId]
     );
     
@@ -35,7 +35,9 @@ const authenticateToken = async (req, res, next) => {
     req.user = {
       id: user.id,
       email: user.email,
-      name: user.name
+      name: user.name,
+      role: user.role,
+      is_approved: user.is_approved
     };
 
     next();
@@ -63,7 +65,7 @@ const optionalAuth = async (req, res, next) => {
     if (token) {
       const decoded = jwt.verify(token, JWT_SECRET);
       const userResult = await query(
-        'SELECT id, email, name, is_active FROM users WHERE id = $1',
+        'SELECT id, email, name, is_active, role, is_approved FROM users WHERE id = $1',
         [decoded.userId]
       );
       
@@ -73,7 +75,9 @@ const optionalAuth = async (req, res, next) => {
         req.user = {
           id: user.id,
           email: user.email,
-          name: user.name
+          name: user.name,
+          role: user.role,
+          is_approved: user.is_approved
         };
       }
     }
@@ -90,9 +94,28 @@ const generateToken = (userId) => {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
+// Middleware to require admin role
+const requireAdmin = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Admin middleware error:', error);
+    return res.status(500).json({ error: 'Authorization error' });
+  }
+};
+
 module.exports = {
   authenticateToken,
   requireAuth,
+  requireAdmin,
   optionalAuth,
   generateToken,
   JWT_SECRET,

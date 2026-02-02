@@ -5,6 +5,16 @@ interface User {
   id: number;
   email: string;
   name: string | null;
+  role?: string;
+  is_approved?: boolean;
+}
+
+interface RegisterResponse {
+  user: User;
+  token: string | null;
+  requiresVerification: boolean;
+  message: string;
+  verificationUrl?: string;
 }
 
 interface AuthContextType {
@@ -12,7 +22,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name?: string) => Promise<void>;
+  register: (email: string, password: string, name?: string) => Promise<RegisterResponse>;
   logout: () => void;
   updateProfile: (name?: string, email?: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -69,10 +79,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const register = async (email: string, password: string, name?: string) => {
     const response = await authAPI.register(email, password, name);
-    setToken(response.token);
-    setUser(response.user);
-    localStorage.setItem('token', response.token);
-    localStorage.setItem('user', JSON.stringify(response.user));
+    // Registration now requires email verification, so don't auto-login
+    // Token will be null if requiresVerification is true
+    if (response.token) {
+      setToken(response.token);
+      setUser(response.user);
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
+    }
+    // Return response so component can show verification message
+    return response;
   };
 
   const logout = () => {

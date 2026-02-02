@@ -1508,7 +1508,7 @@ router.post('/single', requireAuth, async (req, res) => {
         ]
       );
       
-      // For SQLite, we need to get the last inserted ID separately
+      // Get the last inserted ID
       const insertedId = result.lastID || result.rows?.[0]?.id;
       const markingWithId = {
         id: insertedId,
@@ -1982,7 +1982,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
             ]
           );
           
-          // For SQLite, we need to get the last inserted ID separately
+          // Get the last inserted ID
           const insertedId = result.lastID || result.rows?.[0]?.id;
           const markingWithId = {
             id: insertedId,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { authAPI } from '../services/api';
+import { Mail, Lock, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface LoginFormProps {
   onSwitchToRegister: () => void;
@@ -11,19 +12,52 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [requiresVerification, setRequiresVerification] = useState(false);
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setRequiresVerification(false);
+    setResendSuccess(false);
     setLoading(true);
 
     try {
       await login(email, password);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to login. Please check your credentials.');
+      const errorData = err.response?.data;
+      if (errorData?.requiresVerification) {
+        setRequiresVerification(true);
+        setError(errorData.error || 'Please verify your email address before logging in.');
+      } else if (errorData?.requiresApproval) {
+        setError(errorData.error || 'Your account is pending admin approval.');
+      } else {
+        setError(errorData?.error || 'Failed to login. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      setError('Please enter your email address first');
+      return;
+    }
+
+    setResending(true);
+    setResendSuccess(false);
+    setError(null);
+
+    try {
+      await authAPI.resendVerification(email);
+      setResendSuccess(true);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to resend verification email');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -49,8 +83,32 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
             <div className="rounded-md bg-red-50 p-4">
               <div className="flex">
                 <AlertCircle className="h-5 w-5 text-red-400" />
-                <div className="ml-3">
+                <div className="ml-3 flex-1">
                   <p className="text-sm font-medium text-red-800">{error}</p>
+                  {requiresVerification && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={handleResendVerification}
+                        disabled={resending}
+                        className="text-sm text-red-700 hover:text-red-800 font-medium underline disabled:opacity-50"
+                      >
+                        {resending ? 'Sending...' : 'Resend verification email'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          {resendSuccess && (
+            <div className="rounded-md bg-green-50 p-4">
+              <div className="flex">
+                <CheckCircle className="h-5 w-5 text-green-400" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-green-800">
+                    Verification email sent! Please check your inbox.
+                  </p>
                 </div>
               </div>
             </div>

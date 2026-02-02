@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import RubricManager from './components/RubricManager';
 import MarkingInterface from './components/MarkingInterface';
@@ -12,14 +12,24 @@ import TrainingDataManager from './components/TrainingDataManager';
 import AssessmentGenerator from './components/AssessmentGenerator';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
+import VerifyEmail from './components/VerifyEmail';
+import AdminDashboard from './components/AdminDashboard';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments';
+type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'admin';
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('upload');
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
   const { user, loading, logout } = useAuth();
+
+  // Check if we're on the verification page
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('token') && window.location.pathname.includes('verify-email')) {
+      setAuthMode('verify');
+    }
+  }, []);
 
   const tabs = [
     { id: 'upload', label: 'Upload PDFs', icon: Upload },
@@ -32,6 +42,7 @@ function AppContent() {
     { id: 'batches', label: 'Batches', icon: Folder },
     { id: 'training', label: 'Model Training', icon: Brain },
     { id: 'results', label: 'View Results', icon: Settings },
+    ...(user?.role === 'admin' ? [{ id: 'admin', label: 'Admin', icon: Shield }] : []),
   ];
 
   // Show loading state
@@ -46,8 +57,14 @@ function AppContent() {
     );
   }
 
-  // Show login/register if not authenticated
+  // Show login/register/verify if not authenticated
   if (!user) {
+    if (authMode === 'verify') {
+      return <VerifyEmail onBackToLogin={() => {
+        setAuthMode('login');
+        window.history.replaceState({}, '', window.location.pathname);
+      }} />;
+    }
     return authMode === 'login' ? (
       <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
     ) : (

@@ -47,7 +47,7 @@ router.post('/', requireAuth, async (req, res) => {
       [name, JSON.stringify(criteria), total_points, normalizedType, req.user.id]
     );
     
-    // For SQLite, we need to get the last inserted ID separately
+    // Get the last inserted ID
     const insertedId = result.lastID || result.rows?.[0]?.id;
     const rubricWithId = {
       id: insertedId,
@@ -160,7 +160,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       [name, JSON.stringify(criteria), total_points, normalizedType, id, req.user.id]
     );
     
-    // For SQLite, we need to get the updated record separately
+    // Get the updated record
     if (result.changes > 0) {
       const updatedResult = await query(
         'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',

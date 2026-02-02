@@ -327,7 +327,9 @@ export const authAPI = {
     const response = await api.post('/auth/register', { email, password, name });
     return {
       user: response.data.user,
-      token: response.data.token
+      token: response.data.token || null,
+      requiresVerification: response.data.requiresVerification || false,
+      message: response.data.message
     };
   },
   
@@ -365,6 +367,52 @@ export const authAPI = {
     await api.put('/auth/change-password', { currentPassword, newPassword }, {
       headers: { Authorization: `Bearer ${token}` }
     });
+  },
+  
+  verifyEmail: async (token: string) => {
+    const response = await api.get(`/auth/verify-email?token=${token}`);
+    return response.data;
+  },
+  
+  resendVerification: async (email: string) => {
+    const response = await api.post('/auth/resend-verification', { email });
+    return response.data;
+  },
+  
+  // Admin endpoints
+  getPendingUsers: async (token: string) => {
+    const response = await api.get('/auth/admin/pending-users', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data.users;
+  },
+  
+  getAllUsers: async (token: string) => {
+    const response = await api.get('/auth/admin/users', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data.users;
+  },
+  
+  approveUser: async (token: string, userId: number) => {
+    const response = await api.post(`/auth/admin/users/${userId}/approve`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+  
+  rejectUser: async (token: string, userId: number, deactivate?: boolean) => {
+    const response = await api.post(`/auth/admin/users/${userId}/reject`, { deactivate }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+  
+  updateUserRole: async (token: string, userId: number, role: 'admin' | 'user') => {
+    const response = await api.put(`/auth/admin/users/${userId}/role`, { role }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
   }
 };
 

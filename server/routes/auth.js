@@ -1,8 +1,10 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const { query } = require('../database/connection');
-const { requireAuth, generateToken } = require('../middleware/auth');
+const { requireAuth, requireAdmin, generateToken } = require('../middleware/auth');
+const emailService = require('../services/emailService');
 
 const router = express.Router();
 
@@ -36,29 +38,82 @@ router.post('/register', [
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create user
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenExpires = new Date();
+    verificationTokenExpires.setHours(verificationTokenExpires.getHours() + 24); // 24 hours from now
+
+    // Create user (not verified initially, not approved, default role is 'user')
     const result = await query(
-      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
-      [email, passwordHash, name || null]
+      'INSERT INTO users (email, password_hash, name, email_verified, verification_token, verification_token_expires, role, is_approved) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [email, passwordHash, name || null, false, verificationToken, verificationTokenExpires, 'user', false]
     );
 
-    const user = result.rows?.[0] || result?.[0];
+    // Get the inserted user ID (MySQL uses insertId, PostgreSQL uses RETURNING)
+    const userId = result.insertId || result.lastID || (result.rows?.[0]?.id);
+    
+    if (!userId) {
+      throw new Error('Failed to get user ID after insertion');
+    }
+    
+    // Fetch the created user
+    const userResult = await query(
+      'SELECT id, email, name, created_at FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    const user = userResult.rows?.[0] || userResult?.[0];
+    
+    if (!user) {
+      throw new Error('Failed to retrieve created user');
+    }
 
-    // Generate token
-    const token = generateToken(user.id);
+    // Send verification email
+    let emailSent = false;
+    const baseUrl = process.env.CLIENT_URL || process.env.BASE_URL || 'http://localhost:3000';
+    const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+    
+    try {
+      const emailResult = await emailService.sendVerificationEmail(email, verificationToken, name);
+      emailSent = emailResult.success !== false;
+      
+      // If email wasn't sent (console mode), log the URL
+      if (!emailSent) {
+        console.log('⚠️  Email service not configured. Verification URL:', verificationUrl);
+      }
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      // Continue even if email fails - user can request resend later
+      console.log('⚠️  Verification URL (email not sent):', verificationUrl);
+    }
 
     res.status(201).json({
-      message: 'User registered successfully',
+      message: emailSent 
+        ? 'Registration successful! Please check your email to verify your account.'
+        : 'Registration successful! Please verify your account using the link below.',
       user: {
         id: user.id,
         email: user.email,
-        name: user.name
+        name: user.name,
+        email_verified: false
       },
-      token
+      requiresVerification: true,
+      verificationUrl: verificationUrl // Include verification URL if email wasn't sent or in dev mode
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Failed to register user' });
+    // Provide more detailed error message for debugging
+    const errorMessage = error.message || 'Failed to register user';
+    console.error('Registration error details:', {
+      message: errorMessage,
+      code: error.code,
+      sql: error.sql,
+      sqlMessage: error.sqlMessage
+    });
+    res.status(500).json({ 
+      error: 'Failed to register user',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
   }
 });
 
@@ -77,7 +132,7 @@ router.post('/login', [
 
     // Find user
     const result = await query(
-      'SELECT id, email, password_hash, name, is_active FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, name, is_active, email_verified, is_approved, role FROM users WHERE email = $1',
       [email]
     );
 
@@ -97,6 +152,23 @@ router.post('/login', [
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    // Check if email is verified
+    if (!user.email_verified) {
+      return res.status(403).json({ 
+        error: 'Please verify your email address before logging in. Check your inbox for the verification email.',
+        requiresVerification: true,
+        email: user.email
+      });
+    }
+
+    // Check if account is approved by admin
+    if (!user.is_approved) {
+      return res.status(403).json({ 
+        error: 'Your account is pending admin approval. You will be able to log in once an administrator approves your account.',
+        requiresApproval: true
+      });
+    }
+
     // Update last login
     await query(
       'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
@@ -111,7 +183,8 @@ router.post('/login', [
       user: {
         id: user.id,
         email: user.email,
-        name: user.name
+        name: user.name,
+        role: user.role
       },
       token
     });
@@ -125,7 +198,7 @@ router.post('/login', [
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, name, created_at, last_login FROM users WHERE id = $1',
+      'SELECT id, email, name, created_at, last_login, email_verified, is_approved, role FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -141,7 +214,10 @@ router.get('/me', requireAuth, async (req, res) => {
         email: user.email,
         name: user.name,
         created_at: user.created_at,
-        last_login: user.last_login
+        last_login: user.last_login,
+        email_verified: user.email_verified,
+        is_approved: user.is_approved,
+        role: user.role
       }
     });
   } catch (error) {
@@ -266,6 +342,297 @@ router.put('/change-password', requireAuth, [
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// Verify email
+router.get('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Verification token is required' });
+    }
+
+    // Find user with this token
+    const result = await query(
+      'SELECT id, email, name, verification_token_expires FROM users WHERE verification_token = $1',
+      [token]
+    );
+
+    const user = result.rows?.[0] || result?.[0];
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid verification token' });
+    }
+
+    // Check if token has expired
+    const now = new Date();
+    const expires = new Date(user.verification_token_expires);
+    if (now > expires) {
+      return res.status(400).json({ error: 'Verification token has expired. Please request a new one.' });
+    }
+
+    // Verify the email
+    await query(
+      'UPDATE users SET email_verified = $1, verification_token = NULL, verification_token_expires = NULL WHERE id = $2',
+      [true, user.id]
+    );
+
+    res.json({
+      message: 'Email verified successfully! You can now log in.',
+      verified: true
+    });
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({ error: 'Failed to verify email' });
+  }
+});
+
+// Resend verification email
+router.post('/resend-verification', [
+  body('email').isEmail().normalizeEmail()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { email } = req.body;
+
+    // Find user
+    const result = await query(
+      'SELECT id, email, name, email_verified FROM users WHERE email = $1',
+      [email]
+    );
+
+    const user = result.rows?.[0] || result?.[0];
+
+    if (!user) {
+      // Don't reveal if email exists or not for security
+      return res.json({
+        message: 'If an account with this email exists and is not verified, a verification email has been sent.'
+      });
+    }
+
+    if (user.email_verified) {
+      return res.status(400).json({ error: 'Email is already verified' });
+    }
+
+    // Generate new verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenExpires = new Date();
+    verificationTokenExpires.setHours(verificationTokenExpires.getHours() + 24);
+
+    // Update user with new token
+    await query(
+      'UPDATE users SET verification_token = $1, verification_token_expires = $2 WHERE id = $3',
+      [verificationToken, verificationTokenExpires, user.id]
+    );
+
+    // Send verification email
+    try {
+      await emailService.sendVerificationEmail(user.email, verificationToken, user.name);
+      res.json({
+        message: 'Verification email sent! Please check your inbox.'
+      });
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      res.status(500).json({ error: 'Failed to send verification email' });
+    }
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ error: 'Failed to resend verification email' });
+  }
+});
+
+// Admin routes - Get pending users
+router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT id, email, name, created_at, email_verified, is_approved, role
+      FROM users 
+      WHERE email_verified = 1 AND is_approved = 0
+      ORDER BY created_at DESC
+    `);
+
+    const users = result.rows || result;
+
+    res.json({
+      users: users.map(user => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        created_at: user.created_at,
+        email_verified: user.email_verified,
+        is_approved: user.is_approved,
+        role: user.role
+      }))
+    });
+  } catch (error) {
+    console.error('Get pending users error:', error);
+    res.status(500).json({ error: 'Failed to get pending users' });
+  }
+});
+
+// Admin routes - Get all users
+router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT id, email, name, created_at, last_login, email_verified, is_approved, role, is_active
+      FROM users 
+      ORDER BY created_at DESC
+    `);
+
+    const users = result.rows || result;
+
+    res.json({
+      users: users.map(user => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        created_at: user.created_at,
+        last_login: user.last_login,
+        email_verified: user.email_verified,
+        is_approved: user.is_approved,
+        role: user.role,
+        is_active: user.is_active
+      }))
+    });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ error: 'Failed to get users' });
+  }
+});
+
+// Admin routes - Approve user
+router.post('/admin/users/:id/approve', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      'UPDATE users SET is_approved = 1 WHERE id = $1 RETURNING id, email, name, is_approved',
+      [id]
+    );
+
+    const user = result.rows?.[0] || result?.[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      message: 'User approved successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        is_approved: user.is_approved
+      }
+    });
+  } catch (error) {
+    console.error('Approve user error:', error);
+    res.status(500).json({ error: 'Failed to approve user' });
+  }
+});
+
+// Admin routes - Reject user (set is_approved to false and optionally deactivate)
+router.post('/admin/users/:id/reject', requireAuth, requireAdmin, [
+  body('deactivate').optional().isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { deactivate } = req.body;
+
+    let updateQuery = 'UPDATE users SET is_approved = 0';
+    const values = [];
+    let paramCount = 1;
+
+    if (deactivate) {
+      updateQuery += `, is_active = 0`;
+    }
+
+    updateQuery += ` WHERE id = $${paramCount} RETURNING id, email, name, is_approved, is_active`;
+    values.push(id);
+
+    const result = await query(updateQuery, values);
+
+    const user = result.rows?.[0] || result?.[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      message: deactivate ? 'User rejected and deactivated' : 'User rejected',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        is_approved: user.is_approved,
+        is_active: user.is_active
+      }
+    });
+  } catch (error) {
+    console.error('Reject user error:', error);
+    res.status(500).json({ error: 'Failed to reject user' });
+  }
+});
+
+// Admin routes - Update user role
+router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
+  body('role').isIn(['admin', 'user']).withMessage('Role must be either admin or user')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { role } = req.body;
+
+    // Prevent removing the last admin
+    if (role === 'user') {
+      const adminCount = await query(
+        'SELECT COUNT(*) as count FROM users WHERE role = $1 AND id != $2',
+        ['admin', id]
+      );
+      const count = adminCount.rows?.[0]?.count || adminCount?.[0]?.count || 0;
+      if (count === 0) {
+        return res.status(400).json({ error: 'Cannot remove the last admin' });
+      }
+    }
+
+    const result = await query(
+      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role',
+      [role, id]
+    );
+
+    const user = result.rows?.[0] || result?.[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      message: 'User role updated successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Update user role error:', error);
+    res.status(500).json({ error: 'Failed to update user role' });
   }
 });
 

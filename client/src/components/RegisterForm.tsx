@@ -13,11 +13,15 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
   const { register } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(false);
+    setVerificationUrl(null);
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -32,7 +36,11 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
     setLoading(true);
 
     try {
-      await register(email, password, name || undefined);
+      const response = await register(email, password, name || undefined);
+      setSuccess(true);
+      if (response.verificationUrl) {
+        setVerificationUrl(response.verificationUrl);
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to register. Please try again.');
     } finally {
@@ -57,17 +65,63 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
             </button>
           </p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
+        {success ? (
+          <div className="mt-8 space-y-6">
+            <div className="rounded-md bg-green-50 p-4">
               <div className="flex">
-                <AlertCircle className="h-5 w-5 text-red-400" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-red-800">{error}</p>
+                <div className="ml-3 flex-1">
+                  <h3 className="text-sm font-medium text-green-800">Registration Successful!</h3>
+                  <p className="mt-2 text-sm text-green-700">
+                    We've sent a verification email to <strong>{email}</strong>. 
+                    Please check your inbox and click the verification link to activate your account.
+                  </p>
+                  {verificationUrl && (
+                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                      <p className="text-xs font-medium text-yellow-800 mb-2">
+                        Development Mode: Email service not configured. Use this link to verify:
+                      </p>
+                      <a
+                        href={verificationUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 break-all underline"
+                      >
+                        {verificationUrl}
+                      </a>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(verificationUrl)}
+                        className="ml-2 text-xs text-blue-600 hover:text-blue-800 underline"
+                      >
+                        (Copy)
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-4 text-sm text-green-600">
+                    Once verified, you can{' '}
+                    <button
+                      onClick={onSwitchToLogin}
+                      className="font-medium text-green-800 hover:text-green-900 underline"
+                    >
+                      sign in
+                    </button>
+                    {' '}to your account.
+                  </p>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        ) : (
+          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+            {error && (
+              <div className="rounded-md bg-red-50 p-4">
+                <div className="flex">
+                  <AlertCircle className="h-5 w-5 text-red-400" />
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-red-800">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           <div className="rounded-md shadow-sm space-y-4">
             <div>
               <label htmlFor="name" className="sr-only">
@@ -164,6 +218,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );
