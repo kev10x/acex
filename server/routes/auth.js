@@ -10,7 +10,9 @@ const router = express.Router();
 router.post('/register', [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-  body('name').optional().trim().isLength({ min: 1, max: 255 })
+  body('name').optional().trim().isLength({ min: 1, max: 255 }),
+  body('account_type').optional().isIn(['individual', 'organisation']).withMessage('Account type must be individual or organisation'),
+  body('organisation_name').optional().trim().isLength({ min: 1, max: 255 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -18,7 +20,9 @@ router.post('/register', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, name } = req.body;
+    const { email, password, name, account_type, organisation_name } = req.body;
+    const accountType = account_type === 'organisation' ? 'organisation' : 'individual';
+    const orgName = accountType === 'organisation' && organisation_name ? organisation_name : null;
 
     // Check if user already exists
     const existingUser = await query(
@@ -36,10 +40,10 @@ router.post('/register', [
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create user
+    // Create user (account_type and organisation_name columns added via migration)
     const result = await query(
-      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
-      [email, passwordHash, name || null]
+      'INSERT INTO users (email, password_hash, name, account_type, organisation_name) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, account_type, organisation_name, created_at',
+      [email, passwordHash, name || null, accountType, orgName]
     );
 
     const user = result.rows?.[0] || result?.[0];
@@ -52,7 +56,9 @@ router.post('/register', [
       user: {
         id: user.id,
         email: user.email,
-        name: user.name
+        name: user.name,
+        account_type: user.account_type || 'individual',
+        organisation_name: user.organisation_name || null
       },
       token
     });
@@ -77,7 +83,7 @@ router.post('/login', [
 
     // Find user
     const result = await query(
-      'SELECT id, email, password_hash, name, is_active FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, name, is_active, account_type, organisation_name FROM users WHERE email = $1',
       [email]
     );
 
@@ -111,7 +117,9 @@ router.post('/login', [
       user: {
         id: user.id,
         email: user.email,
-        name: user.name
+        name: user.name,
+        account_type: user.account_type || 'individual',
+        organisation_name: user.organisation_name || null
       },
       token
     });
@@ -125,7 +133,7 @@ router.post('/login', [
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, name, created_at, last_login FROM users WHERE id = $1',
+      'SELECT id, email, name, created_at, last_login, account_type, organisation_name FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -141,7 +149,9 @@ router.get('/me', requireAuth, async (req, res) => {
         email: user.email,
         name: user.name,
         created_at: user.created_at,
-        last_login: user.last_login
+        last_login: user.last_login,
+        account_type: user.account_type || 'individual',
+        organisation_name: user.organisation_name || null
       }
     });
   } catch (error) {

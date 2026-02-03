@@ -85,6 +85,8 @@ const initDatabase = async () => {
           email TEXT UNIQUE NOT NULL,
           password_hash TEXT NOT NULL,
           name TEXT,
+          account_type TEXT DEFAULT 'individual',
+          organisation_name TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           last_login DATETIME,
@@ -228,6 +230,16 @@ const initDatabase = async () => {
         } catch (err) {
           // Column may already exist
         }
+        try {
+          await query(`ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'individual'`);
+        } catch (err) {
+          // Column may already exist
+        }
+        try {
+          await query(`ALTER TABLE users ADD COLUMN organisation_name TEXT`);
+        } catch (err) {
+          // Column may already exist
+        }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist)');
       }
@@ -248,6 +260,8 @@ const initDatabase = async () => {
           email VARCHAR(255) UNIQUE NOT NULL,
           password_hash VARCHAR(255) NOT NULL,
           name VARCHAR(255),
+          account_type VARCHAR(50) DEFAULT 'individual',
+          organisation_name VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           last_login TIMESTAMP,
@@ -501,6 +515,28 @@ const initDatabase = async () => {
         if ((markingResultsUserIdCheck.rows?.[0]?.count || markingResultsUserIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN user_id INT`);
         }
+        
+        const accountTypeCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'account_type'
+        `);
+        if ((accountTypeCheck.rows?.[0]?.count || accountTypeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN account_type VARCHAR(50) DEFAULT 'individual'`);
+        }
+        
+        const orgNameCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'organisation_name'
+        `);
+        if ((orgNameCheck.rows?.[0]?.count || orgNameCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN organisation_name VARCHAR(255)`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -551,6 +587,8 @@ const initDatabase = async () => {
           email VARCHAR(255) UNIQUE NOT NULL,
           password_hash VARCHAR(255) NOT NULL,
           name VARCHAR(255),
+          account_type VARCHAR(50) DEFAULT 'individual',
+          organisation_name VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           last_login TIMESTAMP,
@@ -746,6 +784,26 @@ const initDatabase = async () => {
         `);
         if ((markingResultsUserIdCheck.rows?.[0]?.count || markingResultsUserIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+        }
+        
+        const accountTypeCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'account_type'
+        `);
+        if ((accountTypeCheck.rows?.[0]?.count || accountTypeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN account_type VARCHAR(50) DEFAULT 'individual'`);
+        }
+        
+        const orgNameCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'organisation_name'
+        `);
+        if ((orgNameCheck.rows?.[0]?.count || orgNameCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN organisation_name VARCHAR(255)`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

@@ -5,6 +5,8 @@ interface User {
   id: number;
   email: string;
   name: string | null;
+  account_type?: 'individual' | 'organisation';
+  organisation_name?: string | null;
 }
 
 interface AuthContextType {
@@ -12,7 +14,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name?: string) => Promise<void>;
+  register: (email: string, password: string, name?: string, accountType?: 'individual' | 'organisation', organisationName?: string) => Promise<void>;
   logout: () => void;
   updateProfile: (name?: string, email?: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -67,8 +69,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('user', JSON.stringify(response.user));
   };
 
-  const register = async (email: string, password: string, name?: string) => {
-    const response = await authAPI.register(email, password, name);
+  const register = async (email: string, password: string, name?: string, accountType?: 'individual' | 'organisation', organisationName?: string) => {
+    const response = await authAPI.register(email, password, name, accountType, organisationName);
     setToken(response.token);
     setUser(response.user);
     localStorage.setItem('token', response.token);

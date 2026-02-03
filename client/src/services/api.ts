@@ -323,8 +323,20 @@ export const assessmentsAPI = {
 
 // Authentication API
 export const authAPI = {
-  register: async (email: string, password: string, name?: string) => {
-    const response = await api.post('/auth/register', { email, password, name });
+  register: async (
+    email: string,
+    password: string,
+    name?: string,
+    accountType?: 'individual' | 'organisation',
+    organisationName?: string
+  ) => {
+    const response = await api.post('/auth/register', {
+      email,
+      password,
+      name,
+      account_type: accountType,
+      organisation_name: organisationName
+    });
     return {
       user: response.data.user,
       token: response.data.token
