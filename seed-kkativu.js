@@ -47,25 +47,36 @@ async function seedUser() {
       console.log(`User already exists: ${user.email} (ID: ${user.id})`);
       userId = user.id;
       
-      // Update password and ensure email is normalized
+      // Update password and ensure email is normalized, set as admin
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(password, saltRounds);
       await query(
-        'UPDATE users SET password_hash = $1, email = $2, is_active = 1 WHERE id = $3',
-        [passwordHash, email, userId]
+        'UPDATE users SET password_hash = $1, email = $2, is_active = 1, role = $3, is_approved = 1, email_verified = 1 WHERE id = $4',
+        [passwordHash, email, 'admin', userId]
       );
-      console.log('✓ Password and email updated');
+      console.log('✓ Password, email, and admin status updated');
     } else {
       // Create new user with normalized email
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(password, saltRounds);
       
       const createResult = await query(
-        'INSERT INTO users (email, password_hash, name, is_active) VALUES ($1, $2, $3, $4) RETURNING id',
-        [email, passwordHash, 'Kkativu', 1]
+        'INSERT INTO users (email, password_hash, name, is_active, role, is_approved, email_verified) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [email, passwordHash, 'Kkativu', 1, 'admin', 1, 1]
       );
       
-      userId = createResult.rows?.[0]?.id || createResult?.[0]?.id;
+      // For MySQL, get the insertId from the result
+      userId = createResult.insertId || createResult.lastID;
+      
+      // If insertId is not available, query for the user
+      if (!userId) {
+        const userCheck = await query(
+          'SELECT id FROM users WHERE email = $1',
+          [email]
+        );
+        userId = (userCheck.rows?.[0] || userCheck?.[0])?.id;
+      }
+      
       console.log(`✓ Created new user: ${email} (ID: ${userId})`);
     }
     
@@ -105,6 +116,8 @@ async function seedUser() {
     console.log(`\nLogin credentials:`);
     console.log(`  Email: ${email}`);
     console.log(`  Password: ${password}`);
+    console.log(`  Role: Admin`);
+    console.log(`  Status: Verified and Approved`);
     console.log(`\nAll existing data has been assigned to this user.`);
     
   } catch (error) {

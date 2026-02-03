@@ -3,7 +3,6 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 let pool;
-let isSQLite = false;
 let isMySQL = false;
 
 const getPool = () => {
@@ -14,13 +13,8 @@ const getPool = () => {
       throw new Error('DATABASE_URL environment variable is required');
     }
 
-    // Check if using SQLite
-    if (connectionString.startsWith('sqlite:')) {
-      isSQLite = true;
-      console.log('Using SQLite database:', connectionString);
-      const sqliteDb = require('./sqlite');
-      return sqliteDb;
-    } else if (connectionString.startsWith('mysql:')) {
+    // Check if using MySQL
+    if (connectionString.startsWith('mysql:')) {
       isMySQL = true;
       console.log('Using MySQL database:', connectionString);
       const mysqlDb = require('./mysql');
@@ -49,8 +43,8 @@ const query = async (text, params) => {
   const start = Date.now();
   try {
     let res;
-    if (isSQLite || isMySQL) {
-      // Convert PostgreSQL placeholders ($1, $2, etc.) to SQLite/MySQL placeholders (?, ?, etc.)
+    if (isMySQL) {
+      // Convert PostgreSQL placeholders ($1, $2, etc.) to MySQL placeholders (?, ?, etc.)
       let convertedText = text;
       if (params && params.length > 0) {
         // Replace $1, $2, $3, etc. with ?, ?, ?, etc.
@@ -73,186 +67,10 @@ const initDatabase = async () => {
   try {
     // Check database type before initializing
     const connectionString = process.env.DATABASE_URL;
-    const usingSQLite = connectionString && connectionString.startsWith('sqlite:');
     const usingMySQL = connectionString && connectionString.startsWith('mysql:');
-    console.log('Initializing database, isSQLite:', usingSQLite, 'isMySQL:', usingMySQL);
+    console.log('Initializing database, isMySQL:', usingMySQL);
     
-    if (usingSQLite) {
-      // Create users table first
-      await query(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          email TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          name TEXT,
-          account_type TEXT DEFAULT 'individual',
-          organisation_name TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          last_login DATETIME,
-          is_active INTEGER DEFAULT 1
-        )
-      `);
-
-      // SQLite table creation with proper syntax
-      await query(`
-        CREATE TABLE IF NOT EXISTS rubrics (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          criteria TEXT NOT NULL,
-          total_points INTEGER NOT NULL,
-          rubric_type TEXT DEFAULT 'rubric',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          user_id INTEGER,
-          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-        )
-      `);
-
-      // Ensure rubric_type column exists (for older installations)
-      try {
-        await query(`ALTER TABLE rubrics ADD COLUMN rubric_type TEXT DEFAULT 'rubric'`);
-      } catch (err) {
-        // Column may already exist
-      }
-
-      await query(`
-        CREATE TABLE IF NOT EXISTS batches (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          description TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          user_id INTEGER,
-          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-        )
-      `);
-
-      await query(`
-        CREATE TABLE IF NOT EXISTS assignments (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          filename TEXT NOT NULL,
-          file_path TEXT NOT NULL,
-          file_size INTEGER,
-          uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          status TEXT DEFAULT 'uploaded',
-          batch_id INTEGER,
-          extracted_text TEXT,
-          user_id INTEGER,
-          FOREIGN KEY (batch_id) REFERENCES batches (id) ON DELETE SET NULL,
-          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-        )
-      `);
-
-      await query(`
-        CREATE TABLE IF NOT EXISTS marking_results (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          assignment_id INTEGER,
-          rubric_id INTEGER,
-          student_name TEXT,
-          scores TEXT NOT NULL,
-          feedback TEXT,
-          total_score REAL,
-          marked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          version INTEGER DEFAULT 1,
-          is_current INTEGER DEFAULT 1,
-          strictness_level TEXT,
-          provider TEXT,
-          corrections TEXT,
-          user_id INTEGER,
-          FOREIGN KEY (assignment_id) REFERENCES assignments (id) ON DELETE CASCADE,
-          FOREIGN KEY (rubric_id) REFERENCES rubrics (id) ON DELETE CASCADE,
-          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-        )
-      `);
-      
-      // Migrate existing tables: Add new columns if they don't exist (SQLite)
-      try {
-        // SQLite doesn't support ALTER TABLE ADD COLUMN IF NOT EXISTS directly
-        // We'll try to add columns and ignore errors if they exist
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN version INTEGER DEFAULT 1`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN is_current INTEGER DEFAULT 1`);
-          await query(`UPDATE marking_results SET is_current = 1 WHERE is_current IS NULL`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN strictness_level TEXT`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN provider TEXT`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN corrections TEXT`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN language_errors TEXT`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE assignments ADD COLUMN batch_id INTEGER`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE assignments ADD COLUMN extracted_text TEXT`);
-        } catch (err) {
-          // Column may already exist
-        }
-        // Add user_id columns if they don't exist
-        try {
-          await query(`ALTER TABLE rubrics ADD COLUMN user_id INTEGER`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE batches ADD COLUMN user_id INTEGER`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE assignments ADD COLUMN user_id INTEGER`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE marking_results ADD COLUMN user_id INTEGER`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'individual'`);
-        } catch (err) {
-          // Column may already exist
-        }
-        try {
-          await query(`ALTER TABLE users ADD COLUMN organisation_name TEXT`);
-        } catch (err) {
-          // Column may already exist
-        }
-      } catch (err) {
-        console.log('Note: Migration may have failed (columns may already exist)');
-      }
-      
-      // Add indexes for better query performance (SQLite supports IF NOT EXISTS)
-      try {
-        await query(`CREATE INDEX IF NOT EXISTS idx_marking_results_assignment ON marking_results(assignment_id)`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_marking_results_current ON marking_results(assignment_id, is_current)`);
-      } catch (err) {
-        // Index might already exist, ignore
-        console.log('Note: Some indexes may already exist');
-      }
-    } else if (usingMySQL) {
+    if (usingMySQL) {
       // Create users table first
       await query(`
         CREATE TABLE IF NOT EXISTS users (
@@ -265,7 +83,12 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           last_login TIMESTAMP,
-          is_active TINYINT(1) DEFAULT 1
+          is_active TINYINT(1) DEFAULT 1,
+          email_verified TINYINT(1) DEFAULT 0,
+          verification_token VARCHAR(255),
+          verification_token_expires TIMESTAMP,
+          role VARCHAR(50) DEFAULT 'user',
+          is_approved TINYINT(1) DEFAULT 0
         )
       `);
 
@@ -537,6 +360,61 @@ const initDatabase = async () => {
         if ((orgNameCheck.rows?.[0]?.count || orgNameCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN organisation_name VARCHAR(255)`);
         }
+        
+        const emailVerifiedCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'email_verified'
+        `);
+        if ((emailVerifiedCheck.rows?.[0]?.count || emailVerifiedCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN email_verified TINYINT(1) DEFAULT 0`);
+        }
+        
+        const verificationTokenCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'verification_token'
+        `);
+        if ((verificationTokenCheck.rows?.[0]?.count || verificationTokenCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN verification_token VARCHAR(255)`);
+        }
+        
+        const verificationTokenExpiresCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'verification_token_expires'
+        `);
+        if ((verificationTokenExpiresCheck.rows?.[0]?.count || verificationTokenExpiresCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN verification_token_expires TIMESTAMP`);
+        }
+        
+        const roleCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'role'
+        `);
+        if ((roleCheck.rows?.[0]?.count || roleCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'user'`);
+        }
+        
+        const isApprovedCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'is_approved'
+        `);
+        if ((isApprovedCheck.rows?.[0]?.count || isApprovedCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN is_approved TINYINT(1) DEFAULT 0`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -592,7 +470,12 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           last_login TIMESTAMP,
-          is_active BOOLEAN DEFAULT TRUE
+          is_active BOOLEAN DEFAULT TRUE,
+          email_verified BOOLEAN DEFAULT FALSE,
+          verification_token VARCHAR(255),
+          verification_token_expires TIMESTAMP,
+          role VARCHAR(50) DEFAULT 'user',
+          is_approved BOOLEAN DEFAULT FALSE
         )
       `);
 
@@ -804,6 +687,56 @@ const initDatabase = async () => {
         `);
         if ((orgNameCheck.rows?.[0]?.count || orgNameCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN organisation_name VARCHAR(255)`);
+        }
+        
+        const emailVerifiedCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'email_verified'
+        `);
+        if ((emailVerifiedCheck.rows?.[0]?.count || emailVerifiedCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE`);
+        }
+        
+        const verificationTokenCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'verification_token'
+        `);
+        if ((verificationTokenCheck.rows?.[0]?.count || verificationTokenCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN verification_token VARCHAR(255)`);
+        }
+        
+        const verificationTokenExpiresCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'verification_token_expires'
+        `);
+        if ((verificationTokenExpiresCheck.rows?.[0]?.count || verificationTokenExpiresCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN verification_token_expires TIMESTAMP`);
+        }
+        
+        const roleCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'role'
+        `);
+        if ((roleCheck.rows?.[0]?.count || roleCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'user'`);
+        }
+        
+        const isApprovedCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'is_approved'
+        `);
+        if ((isApprovedCheck.rows?.[0]?.count || isApprovedCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT FALSE`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

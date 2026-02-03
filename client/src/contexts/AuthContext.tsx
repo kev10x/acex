@@ -7,6 +7,16 @@ interface User {
   name: string | null;
   account_type?: 'individual' | 'organisation';
   organisation_name?: string | null;
+  role?: string;
+  is_approved?: boolean;
+}
+
+export interface RegisterResponse {
+  user: User;
+  token: string | null;
+  requiresVerification: boolean;
+  message: string;
+  verificationUrl?: string;
 }
 
 interface AuthContextType {
@@ -14,7 +24,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name?: string, accountType?: 'individual' | 'organisation', organisationName?: string) => Promise<void>;
+  register: (email: string, password: string, name?: string, accountType?: 'individual' | 'organisation', organisationName?: string) => Promise<RegisterResponse>;
   logout: () => void;
   updateProfile: (name?: string, email?: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -71,10 +81,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const register = async (email: string, password: string, name?: string, accountType?: 'individual' | 'organisation', organisationName?: string) => {
     const response = await authAPI.register(email, password, name, accountType, organisationName);
-    setToken(response.token);
-    setUser(response.user);
-    localStorage.setItem('token', response.token);
-    localStorage.setItem('user', JSON.stringify(response.user));
+    if (response.token) {
+      setToken(response.token);
+      setUser(response.user);
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
+    }
+    return response;
   };
 
   const logout = () => {

@@ -17,11 +17,15 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
   const [organisationName, setOrganisationName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
   const { register } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(false);
+    setVerificationUrl(null);
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -41,13 +45,19 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
     setLoading(true);
 
     try {
-      await register(
+      const response = await register(
         email,
         password,
         name || undefined,
         accountType,
         accountType === 'organisation' ? organisationName.trim() || undefined : undefined
       );
+      if (response.requiresVerification) {
+        setSuccess(true);
+        if (response.verificationUrl) {
+          setVerificationUrl(response.verificationUrl);
+        }
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to register. Please try again.');
     } finally {
@@ -66,6 +76,45 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
             </p>
           </div>
 
+          {success ? (
+            <div className="px-8 pb-8 pt-4">
+              <div className="rounded-lg bg-green-50 border border-green-100 p-4">
+                <h3 className="text-sm font-medium text-green-800">Registration successful</h3>
+                <p className="mt-2 text-sm text-green-700">
+                  We&apos;ve sent a verification email to <strong>{email}</strong>. Please check your inbox and click the verification link to activate your account.
+                </p>
+                {verificationUrl && (
+                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-xs font-medium text-amber-800 mb-2">
+                      Development: email not configured. Use this link to verify:
+                    </p>
+                    <a
+                      href={verificationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary-600 hover:text-primary-800 break-all underline"
+                    >
+                      {verificationUrl}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(verificationUrl)}
+                      className="ml-2 text-xs text-primary-600 hover:text-primary-800 underline"
+                    >
+                      (Copy)
+                    </button>
+                  </div>
+                )}
+                <p className="mt-4 text-sm text-green-600">
+                  Once verified,{' '}
+                  <button type="button" onClick={onSwitchToLogin} className="font-medium text-green-800 hover:text-green-900 underline">
+                    sign in
+                  </button>
+                  {' '}to your account.
+                </p>
+              </div>
+            </div>
+          ) : (
           <form className="px-8 pb-8 pt-4" onSubmit={handleSubmit}>
             {error && (
               <div className="mb-6 rounded-lg bg-red-50 border border-red-100 p-4 flex items-start gap-3">
@@ -230,6 +279,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
               </button>
             </p>
           </form>
+          )}
         </div>
       </div>
     </div>

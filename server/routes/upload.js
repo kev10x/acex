@@ -160,7 +160,7 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
       [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id]
     );
     
-    // For SQLite, we need to get the last inserted ID separately
+    // Get the last inserted ID
     const insertedId = result.lastID || result.rows?.[0]?.id;
     const assignmentWithId = {
       id: insertedId,
@@ -231,7 +231,7 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
         [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id]
       );
 
-      // For SQLite, we need to get the last inserted ID separately
+      // Get the last inserted ID
       const insertedId = result.lastID || result.rows?.[0]?.id;
       const assignmentWithId = {
         id: insertedId,
