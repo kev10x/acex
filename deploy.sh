@@ -143,7 +143,7 @@ if [ -d ".git" ]; then
 else
   echo -e "${RED}Error: Not a git repository${NC}"
   echo "Please clone the repository first:"
-  echo "  git clone https://github.com/kev10x/MarkMate.git"
+  echo "  git clone https://github.com/kev10x/markmateio.git"
   exit 1
 fi
 
