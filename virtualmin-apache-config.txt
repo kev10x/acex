@@ -31,6 +31,11 @@
     # Document Root - Your main site root
     DocumentRoot /path/to/your/main/site
     
+    # Explicitly allow /tools (fixes "client denied by server configuration")
+    <Location /tools>
+        Require all granted
+    </Location>
+    
     # Serve MarkMate React app at /tools
     Alias /tools /path/to/MarkMate/client/build
     

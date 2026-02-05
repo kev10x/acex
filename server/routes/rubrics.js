@@ -42,13 +42,18 @@ router.post('/', requireAuth, async (req, res) => {
 
     const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
 
+    const userId = req.user?.id;
+    if (userId == null || userId === undefined) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const result = await query(
-      'INSERT INTO rubrics (name, criteria, total_points, rubric_type, user_id) VALUES (?, ?, ?, ?, ?)',
-      [name, JSON.stringify(criteria), total_points, normalizedType, req.user.id]
+      'INSERT INTO rubrics (name, criteria, total_points, rubric_type, user_id) VALUES ($1, $2, $3, $4, $5)',
+      [name, JSON.stringify(criteria), total_points, normalizedType, userId]
     );
     
-    // Get the last inserted ID
-    const insertedId = result.lastID || result.rows?.[0]?.id;
+    // Get the last inserted ID (MySQL: insertId/lastID, PostgreSQL: RETURNING or rows[0].id)
+    const insertedId = result.insertId ?? result.lastID ?? result.rows?.[0]?.id;
     const rubricWithId = {
       id: insertedId,
       name,
@@ -72,13 +77,19 @@ router.post('/', requireAuth, async (req, res) => {
 // Get all rubrics
 router.get('/', requireAuth, async (req, res) => {
   try {
+    const userId = req.user?.id;
+    if (userId == null || userId === undefined) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const result = await query(
-      'SELECT * FROM rubrics WHERE user_id = ? ORDER BY created_at DESC',
-      [req.user.id]
+      'SELECT * FROM rubrics WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
     );
     
+    const rows = result.rows || [];
     // Parse criteria JSON for each rubric
-    const rubrics = result.rows.map(rubric => ({
+    const rubrics = rows.map(rubric => ({
       ...rubric,
       rubric_type: rubric.rubric_type || 'rubric',
       criteria: typeof rubric.criteria === 'string' ? JSON.parse(rubric.criteria) : rubric.criteria
@@ -98,13 +109,18 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+    const userId = req.user?.id;
+    if (userId == null || userId === undefined) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const result = await query(
-      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
-      [id, req.user.id]
+      'SELECT * FROM rubrics WHERE id = $1 AND user_id = $2',
+      [id, userId]
     );
 
-    if (result.rows.length === 0) {
+    const rows = result.rows || [];
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Rubric not found' });
     }
 
@@ -129,6 +145,10 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.id;
+    if (userId == null || userId === undefined) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
 
     if (!name || !criteria || !total_points) {
@@ -176,9 +196,10 @@ router.put('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Rubric not found' });
     }
 
+    const updatedRows = result.rows || [];
     res.json({
       success: true,
-      rubric: result.rows[0],
+      rubric: updatedRows[0],
       message: 'Rubric updated successfully'
     });
   } catch (error) {
@@ -191,13 +212,18 @@ router.put('/:id', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+    const userId = req.user?.id;
+    if (userId == null || userId === undefined) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     const result = await query(
-      'DELETE FROM rubrics WHERE id = ? AND user_id = ?',
-      [id, req.user.id]
+      'DELETE FROM rubrics WHERE id = $1 AND user_id = $2',
+      [id, userId]
     );
 
-    if (result.rows.length === 0) {
+    const affected = result.changes ?? result.affectedRows ?? (result.rows || []).length;
+    if (affected === 0) {
       return res.status(404).json({ error: 'Rubric not found' });
     }
 

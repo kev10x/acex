@@ -51,11 +51,13 @@ const query = async (sql, params = []) => {
     conn = await poolInstance.getConnection();
     const [rows] = await conn.execute(mysqlSql, params);
 
+    const affectedRows = (rows && rows.affectedRows) || 0;
     const result = {
       rows: Array.isArray(rows) ? rows : [rows],
       rowCount: Array.isArray(rows) ? rows.length : (rows ? 1 : 0),
       insertId: rows && rows.insertId,
-      changes: (rows && rows.affectedRows) || 0
+      affectedRows,
+      changes: affectedRows
     };
 
     if (result.insertId) {

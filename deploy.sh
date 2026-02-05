@@ -283,6 +283,11 @@ echo "2. Add to Apache VirtualHost configuration:"
 echo "   (In Virtualmin: Server Configuration > Apache Configuration)"
 echo ""
 cat << APACHE_CONFIG
+   # Explicitly allow /tools (fixes "client denied by server configuration" on Virtualmin)
+   <Location /tools>
+     Require all granted
+   </Location>
+   
    # Serve MarkMate React app at /tools
    Alias /tools $DEPLOY_DIR/client/build
    
@@ -326,10 +331,10 @@ if [ "$USE_PM2" = true ]; then
   echo "  pm2 stop markmate   - Stop app"
 fi
 echo ""
-echo "If you get 403 Forbidden:"
-echo "  1. Ensure the Apache <Directory> block above is in your VirtualHost (Require all granted)."
-echo "  2. Run: chmod -R o+rX $DEPLOY_DIR/client/build"
-echo "  3. On Virtualmin, ensure the domain's document root or the Alias path exists and is readable."
-echo "  4. If using SELinux (CentOS/RHEL): setsebool -P httpd_read_user_content 1"
-echo "     or: chcon -R -t httpd_sys_content_t $DEPLOY_DIR/client/build"
+echo "If you get 403 / 'client denied by server configuration':"
+echo "  1. Add the <Location /tools> block above (Require all granted) inside your VirtualHost."
+echo "  2. Ensure the <Directory> path is the exact deploy path (replace \$DEPLOY_DIR if needed)."
+echo "  3. Run: chmod -R o+rX $DEPLOY_DIR/client/build"
+echo "  4. Virtualmin: if deploy is under /home, add config to Custom directives for the domain."
+echo "  5. SELinux (CentOS/RHEL): chcon -R -t httpd_sys_content_t $DEPLOY_DIR/client/build"
 echo ""
