@@ -43,10 +43,10 @@ router.post('/debug', async (req, res) => {
       return res.status(404).json({ error: 'Assignment not found' });
     }
     
-    // Get rubric details
+    // Get rubric details (scoped to current user)
     const rubricResult = await query(
-              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
-      [rubric_id]
+      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+      [rubric_id, req.user.id]
     );
     
     console.log('Rubric query result:', JSON.stringify(rubricResult, null, 2));
@@ -1384,10 +1384,10 @@ router.post('/single', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Assignment not found' });
     }
 
-    // Get rubric details
+    // Get rubric details (scoped to current user)
     const rubricResult = await query(
-              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
-      [rubric_id]
+      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+      [rubric_id, req.user.id]
     );
 
     // Handle different database result formats
@@ -1650,10 +1650,10 @@ router.post('/manual', async (req, res) => {
 
     const assignment = assignmentResult.rows[0];
 
-    // Get rubric details
+    // Get rubric details (scoped to current user)
     const rubricResult = await query(
-              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
-      [rubric_id]
+      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+      [rubric_id, req.user.id]
     );
 
     if (rubricResult.rows.length === 0) {
@@ -1748,8 +1748,8 @@ router.get('/rubric/:id', async (req, res) => {
     const { id } = req.params;
 
     const rubricResult = await query(
-              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
-      [id]
+      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
 
     if (rubricResult.rows.length === 0) {
@@ -1793,10 +1793,10 @@ router.post('/multiple', requireAuth, async (req, res) => {
       });
     }
 
-    // Get rubric details
+    // Get rubric details (scoped to current user)
     const rubricResult = await query(
-              'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
-      [rubric_id]
+      'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
+      [rubric_id, req.user.id]
     );
 
     // Handle different database result formats
