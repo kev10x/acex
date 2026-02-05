@@ -458,11 +458,11 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       
       const introMap = {
         treatise: level === 'postgraduate' 
-          ? `You are an expert examiner evaluating a Masters Degree Treatise. This is a substantial academic document requiring thorough analysis. Apply STRICT and rigorous postgraduate standards. Be critical and demanding - award marks only when work fully meets the high standards expected. Use scholarly terminology appropriate for advanced academic work.`
-          : `You are an expert educator evaluating a Treatise. Apply STRICT academic standards for ${level || 'high school'} level work. Be critical and precise in your evaluation.`,
+          ? `You are an expert examiner evaluating a Masters Degree Treatise. This is a substantial academic document requiring thorough analysis. Apply STRICT and rigorous postgraduate standards. Be critical and demanding - award marks only when work fully meets the high standards expected. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Use scholarly terminology appropriate for advanced academic work.`
+          : `You are an expert educator evaluating a Treatise. Apply STRICT academic standards for ${level || 'high school'} level work. Be critical and precise in your evaluation. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         thesis: level === 'postgraduate'
-          ? `You are an expert examiner evaluating a Thesis. Apply STRICT and rigorous postgraduate standards. Be demanding and critical - this represents the culmination of significant research and must meet the highest standards. Use advanced academic terminology.`
-          : `You are an expert examiner evaluating a Thesis at ${level || 'undergraduate'} level. Apply STRICT academic standards. Be critical and precise in your assessment.`,
+          ? `You are an expert examiner evaluating a Thesis. Apply STRICT and rigorous postgraduate standards. Be demanding and critical - this represents the culmination of significant research and must meet the highest standards. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Use advanced academic terminology.`
+          : `You are an expert examiner evaluating a Thesis at ${level || 'undergraduate'} level. Apply STRICT academic standards. Be critical and precise in your assessment. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         assignment: level === 'primary_school'
           ? `You are a primary school teacher evaluating a student's assignment. Apply STRICT but age-appropriate standards. Provide ${terms.feedback} feedback that is ${terms.tone}. Use simple, clear language that encourages learning while maintaining high expectations.`
           : level === 'high_school'
@@ -485,8 +485,8 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
           ? `You are a university lecturer evaluating an undergraduate research report. Emphasize methodology, analysis depth, synthesis, and academic rigor. Provide ${terms.feedback} feedback appropriate for university-level work.`
           : `You are a supervisor evaluating a postgraduate research report. Emphasize methodology, analytical depth, synthesis, theoretical framework, and scholarly contribution. Provide ${terms.feedback} feedback appropriate for advanced academic work.`,
         proposal: level === 'undergraduate' || level === 'postgraduate'
-          ? `You are a supervisor evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Provide ${terms.feedback} feedback appropriate for ${level} level work.`
-          : `You are evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan.`,
+          ? `You are a supervisor evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Provide ${terms.feedback} feedback appropriate for ${level} level work.`
+          : `You are evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         question_paper: `You are an examiner evaluating a Question Paper/Exam. Focus on accuracy of answers, completeness, clarity of explanations, and adherence to expected responses.`,
         memo: `You are an examiner using a MEMO (Marking Memorandum/Answer Key) to evaluate student responses. Compare student answers against the model answers and marking scheme in the memo.`
       };
@@ -569,21 +569,39 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
         return `EVALUATION GUIDELINES FOR ${assessmentType.toUpperCase()}:
 - This is a ${level === 'postgraduate' ? 'postgraduate' : 'advanced'} ${assessmentType} requiring ${depth} analysis
 - Apply STRICT standards - be critical and demanding in your evaluation
+- BE VERY DIRECT ABOUT ISSUES: State every problem, gap, and weakness clearly and explicitly. Do not soften, hedge, or use euphemisms. Name the issue directly (e.g., "The literature review fails to cite key works", "The methodology lacks validity discussion", "The argument is weak because...", "This section is missing..."). Candidates need unambiguous feedback on what is wrong.
 - Focus on research quality, theoretical depth, and practical application
 - Provide comprehensive feedback for each criterion (${level === 'postgraduate' ? '4-5 sentences minimum' : '3-4 sentences minimum'})
 - Reference specific sections, arguments, and evidence from the ${assessmentType}
 - Evaluate the academic rigor, originality, and contribution to the field with STRICT criteria
-- BALANCED EVALUATION: For each criterion, first identify and praise strengths (e.g., "The literature review demonstrates comprehensive coverage and critical analysis" or "The methodology is well-designed and clearly explained" or "The analysis shows sophisticated understanding of theoretical frameworks"). Then identify areas needing improvement
+- BALANCED EVALUATION: For each criterion, identify and praise strengths where present, then state issues directly. When something is wrong or missing, say so plainly (e.g., "The literature review does not establish a clear gap", "The methodology omits...", "The discussion fails to...").
 - Consider the ${assessmentType}'s structure, methodology, and conclusions critically
-- Assess ${analysisType} - be demanding and identify weaknesses, but also recognize excellence when present
-- CRITICAL: Provide specific, actionable improvement suggestions for each criterion
-- Be critical - identify missing elements, weak arguments, insufficient evidence, and areas that fall short
+- Assess ${analysisType} - be demanding and identify weaknesses directly; also recognize excellence when present
+- CRITICAL: Provide specific, actionable improvement suggestions for each criterion; state what is wrong before suggesting fixes
+- Be critical - identify missing elements, weak arguments, insufficient evidence, and areas that fall short; state each one directly
 - Include concrete recommendations for enhancing research methodology, literature review, analysis depth
 - Suggest specific frameworks, theories, or approaches that could strengthen the work
-- Identify ALL missing elements, weak arguments, or areas needing more evidence - do not overlook shortcomings
+- Identify ALL missing elements, weak arguments, or areas needing more evidence - do not overlook shortcomings; name them explicitly
 - Recommend specific sections that need expansion, restructuring, or clarification
-- Highlight areas for development and be critical of weaknesses, but also acknowledge what was done well
-- Recognize exceptional work: When students demonstrate outstanding research, analysis, or writing, explicitly praise these strengths
+- Highlight areas for development and be critical of weaknesses in direct language; acknowledge what was done well where applicable
+- Recognize exceptional work when present; for shortcomings, be direct and unambiguous
+- ${guidance.tone}
+- ${guidance.terminology}
+- Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
+      }
+      
+      if (assessmentType === 'proposal') {
+        return `EVALUATION GUIDELINES FOR RESEARCH PROPOSAL:
+- This is a research proposal requiring rigorous evaluation of problem, significance, feasibility, and methodology plan
+- Apply STRICT standards - be critical and demanding in your evaluation
+- BE VERY DIRECT ABOUT ISSUES: State every problem, gap, and weakness clearly and explicitly. Do not soften, hedge, or use euphemisms. Name the issue directly (e.g., "The problem statement fails to identify a clear gap", "The methodology lacks detail on...", "Significance is not justified because...", "This section is missing..."). Candidates need unambiguous feedback on what is wrong.
+- Focus on: clarity of research problem and gap, justification of significance, feasibility (resources, timeline, scope), and quality of methodology plan
+- Provide comprehensive feedback for each criterion (3-5 sentences minimum)
+- Reference specific sections and arguments from the proposal
+- BALANCED EVALUATION: For each criterion, identify and praise strengths where present, then state issues directly. When something is wrong or missing, say so plainly (e.g., "The problem statement does not establish a clear gap", "The methodology omits...", "Significance is weak because...").
+- Be critical - identify missing elements, weak justification, unclear methodology, and unrealistic or vague plans; state each one directly
+- CRITICAL: Provide specific, actionable improvement suggestions; state what is wrong before suggesting fixes
+- Identify ALL missing elements, weak arguments, or areas needing more detail - name them explicitly
 - ${guidance.tone}
 - ${guidance.terminology}
 - Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
@@ -649,6 +667,8 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       contentLabel = 'QUESTION PAPER SUBMISSION:';
     } else if (documentType === 'treatise' || documentType === 'thesis') {
       contentLabel = `${documentType.toUpperCase()} CONTENT:`;
+    } else if (documentType === 'proposal') {
+      contentLabel = 'PROPOSAL CONTENT:';
     }
     
     const evaluationGuidelines = getEvaluationGuidelines(documentType, level, isMemo);
@@ -725,10 +745,11 @@ STRICTNESS LEVEL: LENIENT
     const getCorrectionsInstructions = (docType) => {
       if (docType === 'treatise' || docType === 'thesis') {
         return `CORRECTIONS AND SUGGESTIONS REPORT FOR ${docType.toUpperCase()}:
+- BE VERY DIRECT: For each issue, state clearly what is wrong or missing. Do not soften or hedge—use direct language (e.g., "fails to", "lacks", "does not", "is missing", "is weak because"). Candidates must understand exactly what the problem is.
 - For each error, missing element, or area needing improvement, identify WHERE in the document it should be addressed
 - Provide SPECIFIC location information using: chapter/section titles, subsection headings, paragraph numbers, page references, or specific text quotes
 - Include both corrections (what is wrong and needs fixing) and suggestions (what could be added to improve the work)
-- For each correction/suggestion, specify: the exact location, what needs to be changed/added, and why
+- For each correction/suggestion, specify: the exact location, what is wrong (stated directly), what needs to be changed/added, and why
 
 LOCATION SPECIFICITY REQUIREMENTS:
 - Use exact section/chapter names: e.g., "Chapter 2: Literature Review, Section 2.3 (Theoretical Framework), third paragraph"
@@ -797,6 +818,29 @@ SPECIFIC AREAS TO CHECK FOR ${docType.toUpperCase()}:
 - Conclusion: Ensure it synthesizes key findings, addresses research objectives, and suggests future research directions
 - References: Check for completeness, accuracy, and appropriate citation style
 - Appendices: Verify all supporting materials are included and properly referenced in the main text`;
+      } else if (docType === 'proposal') {
+        return `CORRECTIONS AND SUGGESTIONS REPORT FOR RESEARCH PROPOSAL:
+- BE VERY DIRECT: For each issue, state clearly what is wrong or missing. Do not soften or hedge—use direct language (e.g., "fails to", "lacks", "does not", "is missing", "is weak because", "does not justify"). Candidates must understand exactly what the problem is.
+- For each error, missing element, or area needing improvement, identify WHERE in the proposal it should be addressed
+- Provide SPECIFIC location information using: section titles, subsection headings, paragraph numbers, or specific text quotes
+- Include both corrections (what is wrong and needs fixing) and suggestions (what could be added to improve the work)
+- For each correction/suggestion, specify: the exact location, what is wrong (stated directly), what needs to be changed/added, and why
+
+LOCATION SPECIFICITY REQUIREMENTS:
+- Use exact section names: e.g., "Problem Statement, second paragraph" or "Methodology section, Data Collection subsection"
+- Reference specific parts: e.g., "Significance section, where justification is vague" or "Timeline, Phase 2"
+
+SPECIFIC AREAS TO CHECK FOR RESEARCH PROPOSAL:
+- Title/Abstract: Ensure it clearly reflects the research problem and scope
+- Problem Statement: Check for clear identification of gap, significance of the problem, and research need
+- Research Questions/Objectives: Verify they are specific, measurable, and aligned with the problem
+- Significance: Ensure justification is explicit and convincing (theoretical/practical contribution)
+- Literature Review: Verify it supports the gap and is not just summary; identify key omissions
+- Methodology: Ensure detailed description of design, participants, instruments, procedures, and analysis plan
+- Timeline: Check for realism, clarity, and alignment with methodology
+- Resources: Verify feasibility (budget, access, equipment, expertise)
+- Ethics: Ensure ethical considerations and approval plans are addressed
+- References: Check for completeness and appropriate citation style`;
       } else if (docType === 'report') {
         return `CORRECTIONS AND SUGGESTIONS REPORT FOR RESEARCH REPORT:
 - For each error, missing element, or area needing improvement, identify WHERE in the document it should be addressed
@@ -895,7 +939,7 @@ ${evaluationGuidelines}
 
 ${getStrictnessGuidelines(strictnessLevel)}
 
-CRITICAL: REALISTIC ASSESSMENT - Counteract AI positive bias. You are an assessor, not a supportive assistant. Provide ACCURATE assessments based on actual performance, not encouragement. DO NOT: soften criticism, inflate scores, give credit for effort, use euphemisms, or interpret ambiguous work favorably. Award LOW/ZERO marks for incorrect/incomplete work. If 50% understanding = ~50% marks (not 75-90%). State errors directly: "This is incorrect because..." (not "could be improved"). Identify ALL problems. Accuracy over encouragement.
+CRITICAL: REALISTIC ASSESSMENT - Counteract AI positive bias. You are an assessor, not a supportive assistant. Provide ACCURATE assessments based on actual performance, not encouragement. DO NOT: soften criticism, inflate scores, give credit for effort, use euphemisms, or interpret ambiguous work favorably. Award LOW/ZERO marks for incorrect/incomplete work. If 50% understanding = ~50% marks (not 75-90%). State errors directly: "This is incorrect because..." (not "could be improved"). Identify ALL problems. Accuracy over encouragement.${(documentType === 'treatise' || documentType === 'thesis' || documentType === 'proposal') ? '\n\nFOR TREATISE, THESIS, OR PROPOSAL: Be very direct about every issue identified. State problems, gaps, and weaknesses in clear, explicit language (e.g., "The literature review fails to...", "The methodology lacks...", "This section is missing...", "The problem statement does not..."). Do not soften or hedge—candidates need to know exactly what is wrong.' : ''}
 
 MARKING STANDARDS (apply within the strictness level defined above):
 - Evaluate each assignment INDEPENDENTLY based on its actual quality and content
