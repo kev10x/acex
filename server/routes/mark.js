@@ -352,7 +352,22 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     console.log('Max tokens:', config.maxTokens);
     console.log('Rubric:', JSON.stringify(rubric, null, 2));
     
-    const criteria = rubric.criteria;
+    // Normalize criteria so it's always an array
+    let criteria = rubric.criteria;
+    if (typeof criteria === 'string') {
+      try {
+        criteria = JSON.parse(criteria);
+      } catch (e) {
+        console.error('Failed to parse rubric.criteria JSON string:', e);
+      }
+    }
+    if (!Array.isArray(criteria)) {
+      console.error('Rubric criteria is not an array:', criteria);
+      return res.status(500).json({
+        error: 'Rubric has an invalid criteria format. Please recreate or edit this rubric.'
+      });
+    }
+
     const totalPoints = rubric.total_points;
     console.log('Criteria count:', criteria?.length || 0);
 
