@@ -173,23 +173,28 @@ async function addRubricData() {
 }
 
 // Function to add a single custom rubric
-async function addCustomRubric(rubricData) {
+async function addCustomRubric(rubricData, options = {}) {
   let connection;
-  
+  const userId = options.userId != null ? options.userId : 1;
+  const rubricType = options.rubricType || 'rubric';
+
   try {
     connection = await mysql.createConnection(dbConfig);
-    
+
+    // Include user_id and rubric_type if table has these columns (for app compatibility)
     const insertQuery = `
-      INSERT INTO rubrics (name, criteria, total_points) 
-      VALUES (?, ?, ?)
+      INSERT INTO rubrics (name, criteria, total_points, rubric_type, user_id)
+      VALUES (?, ?, ?, ?, ?)
     `;
-    
+
     const [result] = await connection.execute(insertQuery, [
       rubricData.name,
       JSON.stringify(rubricData.criteria),
-      rubricData.totalPoints
+      rubricData.totalPoints,
+      rubricType,
+      userId
     ]);
-    
+
     console.log(`✅ Added custom rubric: "${rubricData.name}" (ID: ${result.insertId})`);
     return result.insertId;
     
@@ -367,12 +372,155 @@ if (require.main === module) {
       };
       addCustomRubric(mphilRubric);
       break;
+    case 'mit-proposal':
+      // Anele Siwela - MIT proposal review rubric (12 criteria, 1–4 points each)
+      const mitProposalRubric = {
+        name: "MIT Proposal Review",
+        criteria: [
+          {
+            name: "TITLE",
+            description: "Clarity, focus and alignment of the title with the research",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The title is unclear, way too long, not focused enough. Complete revision necessary." },
+              { level: "2", points: 2, description: "The title lacks focus and should be aligned better with the research question and objectives." },
+              { level: "3", points: 3, description: "Good working title that may require tweaking but likely to be very similar." },
+              { level: "4", points: 4, description: "Title unlikely to change. Exact, well-worded and focused." }
+            ]
+          },
+          {
+            name: "INTRODUCTION",
+            description: "Positioning of research within the bigger picture and underpinning theories, models or frameworks",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The student was unconvincing in positioning his/her research within the bigger picture, including the underpinning theories, models, or frameworks related to the study." },
+              { level: "2", points: 2, description: "The student cannot position his/her research, and could not convince me that s/he sees the bigger picture or fully understands the underpinning theories, models, or frameworks related to the study." },
+              { level: "3", points: 3, description: "The student convinced me that s/he understands the background to the problem adequately and has a reasonable grasp of the underpinning theories, models, or frameworks related to the study." },
+              { level: "4", points: 4, description: "The student is undoubtedly in command of the bigger research domain and demonstrates a thorough understanding of the underpinning theories, models, or frameworks related to the study." }
+            ]
+          },
+          {
+            name: "PROBLEM AREA DESCRIPTION",
+            description: "Clarity, depth and context of the problem area",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The problem area is vaguely or inadequately described, lacking clarity and specificity. There is little to no context provided, making it difficult to understand the importance or relevance of the problem." },
+              { level: "2", points: 2, description: "The problem area is identified, but the description lacks depth or thoroughness. Essential background is provided, but it may not fully capture the scope or significance of the problem." },
+              { level: "3", points: 3, description: "The problem area is clearly and effectively described, with a good level of detail and background. The significance and scope of the problem are adequately communicated, but there may be room for deeper analysis or more comprehensive context." },
+              { level: "4", points: 4, description: "The problem area is described with exceptional clarity and depth. The description provides a comprehensive background, clearly delineating the scope, significance, and potential impact of the problem. It engages critically with the topic and sets a strong foundation for the research." }
+            ]
+          },
+          {
+            name: "PROBLEM STATEMENT",
+            description: "Distinction between the real-world problem and the research problem",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The problem statement is vague or missing." },
+              { level: "2", points: 2, description: "The problem statement delineates the problem, but could still distil the research question better from the real-world problem." },
+              { level: "3", points: 3, description: "The problem statement is well delineated and would most likely not require significant changes." },
+              { level: "4", points: 4, description: "The problem statement is extremely sharply focused and demonstrates a very clear distinction between the real-world problem and the research problem." }
+            ]
+          },
+          {
+            name: "PRIMARY RESEARCH QUESTION/OBJECTIVES",
+            description: "Validity and framing of the primary research question or objectives",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "It is unclear what question the candidate wants to answer." },
+              { level: "2", points: 2, description: "The primary question/objectives are valid, but unclear how the primary question and the research problem tie together." },
+              { level: "3", points: 3, description: "The primary question/objectives are valid but could use some better framing. Probably just a language/phrasing issue." },
+              { level: "4", points: 4, description: "The research question/objectives are valid and are well-framed in the context of the research." }
+            ]
+          },
+          {
+            name: "SECONDARY RESEARCH QUESTIONS/OBJECTIVES",
+            description: "Alignment and completeness of sub-questions with the main research question",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "No sub-questions stated or relationship of sub-questions to main research question is unclear." },
+              { level: "2", points: 2, description: "Sub-questions are supplied, but do not tie completely coherently to the research question and the problem statement." },
+              { level: "3", points: 3, description: "Sub-questions are aligned with the problem statement and the main research question but possibly lack completeness." },
+              { level: "4", points: 4, description: "Sub-questions are aligned with the problem statement and the main research question and cover the problem completely." }
+            ]
+          },
+          {
+            name: "RESEARCH APPROACH/METHODOLOGY",
+            description: "Conceptualisation and operational detail of the research approach",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The candidate shows very little insight into methodological aspects." },
+              { level: "2", points: 2, description: "The Research Approach is conceptualised, but several details are missing. Needs significant refinement." },
+              { level: "3", points: 3, description: "Does provide a good starting point. The Research Approach provides good guidance to go ahead. Some operational details will have to be fleshed out." },
+              { level: "4", points: 4, description: "The Research Approach is developed in depth, is motivated well and requires little further work." }
+            ]
+          },
+          {
+            name: "CRITICAL ALIGNMENT",
+            description: "Alignment between title, problem statement and objectives",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The title, problem statement, and objectives are misaligned and do not reflect a cohesive research focus. Major revisions are necessary to establish a clear connection between these elements." },
+              { level: "2", points: 2, description: "There is some alignment between the title, problem statement, and objectives, but inconsistencies exist that need to be addressed. The connection between these elements is unclear or weak." },
+              { level: "3", points: 3, description: "The title, problem statement, and objectives are generally aligned, with minor adjustments needed to ensure they fully complement each other. The research focus is mostly coherent." },
+              { level: "4", points: 4, description: "The title, problem statement, and objectives are perfectly aligned, creating a clear and cohesive research focus. No further adjustments are needed." }
+            ]
+          },
+          {
+            name: "ETHICAL CONSIDERATIONS",
+            description: "Identification and discussion of ethical issues and strategies to address them",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The proposal lacks a clear identification and discussion of ethical issues. There is little to no consideration of the ethical implications of the research." },
+              { level: "2", points: 2, description: "The proposal identifies some ethical issues but provides only a basic discussion. Key ethical principles are mentioned, but the strategies for addressing these issues are vague or insufficient." },
+              { level: "3", points: 3, description: "The proposal adequately identifies and discusses ethical issues. Ethical principles are clearly stated, and there are reasonable strategies in place to address these issues." },
+              { level: "4", points: 4, description: "The proposal provides a thorough identification and discussion of all relevant ethical issues. Ethical principles are well articulated, and there are comprehensive, clear strategies in place to address these issues." }
+            ]
+          },
+          {
+            name: "SCOPE OF RESEARCH",
+            description: "Appropriateness of scope for the qualification",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The scope of the research is completely out of line for the qualification, i.e. way too much, or way too little." },
+              { level: "2", points: 2, description: "Scope must be tied down drastically, probably related to a focus issue." },
+              { level: "3", points: 3, description: "The research is defined in such a way that some scope creep can become a real problem. Beware." },
+              { level: "4", points: 4, description: "The research is scoped in such a way that it is unlikely that anything but arbitrary tweaking will be necessary." }
+            ]
+          },
+          {
+            name: "REFERENCES",
+            description: "Consistency, relevance and currency of references",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "Referencing is done inconsistently and with little care and shows a worrying level of background reading. References are outdated or not closely related to the topic at hand, showing a lack of recent and relevant sources." },
+              { level: "2", points: 2, description: "Referencing is done somewhat consistently, but is limited in coverage. References are generally relevant, though some may not be the most current, limiting the comprehensiveness of the background study." },
+              { level: "3", points: 3, description: "Referencing is done consistently and with care, and shows that a comprehensive background study has been done. References are mostly relevant, and there is a balance of recent sources." },
+              { level: "4", points: 4, description: "The reference list is nothing but impressive and shows a considerable amount of background reading. References are not only consistent and current but also highly relevant to the topic, showing a comprehensive and up-to-date background study." }
+            ]
+          },
+          {
+            name: "ANSWERING QUESTIONS",
+            description: "Candidate's ability to answer questions about the proposal and area of study",
+            maxPoints: 4,
+            levels: [
+              { level: "1", points: 1, description: "The candidate was unable to answer reasonable questions about his/her proposal and area of study." },
+              { level: "2", points: 2, description: "The candidate answered most of the questions, but the answers sometimes were a bit perfunctory in that it's a response rather than an answer." },
+              { level: "3", points: 3, description: "The candidate answered all questions with reasonable ease and did not hide behind standardized answers to just say something." },
+              { level: "4", points: 4, description: "The candidate answered any questions with confidence and comprehensively, clearly showing his/her expertise and comfort with the subject area and research process." }
+            ]
+          }
+        ],
+        totalPoints: 48
+      };
+      addCustomRubric(mitProposalRubric);
+      break;
     default:
       console.log('Usage:');
       console.log('  node add-rubric-data.js add     - Add sample rubrics');
       console.log('  node add-rubric-data.js list    - List all rubrics');
       console.log('  node add-rubric-data.js custom  - Add a custom rubric example');
       console.log('  node add-rubric-data.js mphil   - Add MPhil Information Security Governance rubric');
+      console.log('  node add-rubric-data.js mit-proposal - Add MIT Proposal Review rubric');
       break;
   }
 }
