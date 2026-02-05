@@ -211,6 +211,15 @@ else
   echo -e "\n${YELLOW}[5/8] Skipping frontend build${NC}"
 fi
 
+# Step 5b: Set permissions so web server can read client/build (avoids 403 Forbidden)
+echo -e "\n${YELLOW}[5b] Setting permissions on client/build...${NC}"
+if [ -d "client/build" ]; then
+  chmod -R o+rX client/build
+  echo -e "${GREEN}✓ client/build is readable by web server${NC}"
+else
+  echo -e "${YELLOW}⚠ client/build not found (skip build?). Run a full deploy to create it.${NC}"
+fi
+
 # Step 6: Initialize/update database
 echo -e "\n${YELLOW}[6/8] Initializing database...${NC}"
 # The database will be initialized when the server starts
@@ -316,4 +325,11 @@ if [ "$USE_PM2" = true ]; then
   echo "  pm2 restart markmate - Restart app"
   echo "  pm2 stop markmate   - Stop app"
 fi
+echo ""
+echo "If you get 403 Forbidden:"
+echo "  1. Ensure the Apache <Directory> block above is in your VirtualHost (Require all granted)."
+echo "  2. Run: chmod -R o+rX $DEPLOY_DIR/client/build"
+echo "  3. On Virtualmin, ensure the domain's document root or the Alias path exists and is readable."
+echo "  4. If using SELinux (CentOS/RHEL): setsebool -P httpd_read_user_content 1"
+echo "     or: chcon -R -t httpd_sys_content_t $DEPLOY_DIR/client/build"
 echo ""
