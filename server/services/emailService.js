@@ -9,8 +9,18 @@ class EmailService {
   }
 
   initializeTransporter() {
-    // Check if SMTP is configured
-    if (process.env.SMTP_HOST && process.env.SMTP_PORT) {
+    // Gmail: use GMAIL_USER + GMAIL_APP_PASSWORD (App Password from Google Account)
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      this.transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.GMAIL_USER,
+          pass: process.env.GMAIL_APP_PASSWORD
+        }
+      });
+      console.log('📧 Email: Gmail configured for', process.env.GMAIL_USER);
+    } else if (process.env.SMTP_HOST && process.env.SMTP_PORT) {
+      // Generic SMTP
       this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT) || 587,
@@ -21,7 +31,7 @@ class EmailService {
         }
       });
     } else if (process.env.SMTP_SERVICE && process.env.SMTP_USER && process.env.SMTP_PASS) {
-      // For services like Gmail, Outlook, etc.
+      // Other services (Outlook, etc.) or Gmail via SMTP_* vars
       this.transporter = nodemailer.createTransport({
         service: process.env.SMTP_SERVICE,
         auth: {
@@ -32,11 +42,10 @@ class EmailService {
     } else {
       // Development mode - use console logging instead
       console.warn('⚠️  Email service not configured. Emails will be logged to console.');
-      console.warn('⚠️  To enable email sending, configure SMTP settings in your .env file:');
-      console.warn('   SMTP_HOST=smtp.example.com');
-      console.warn('   SMTP_PORT=587');
-      console.warn('   SMTP_USER=your-email@example.com');
-      console.warn('   SMTP_PASS=your-password');
+      console.warn('⚠️  To use Gmail, add to .env:');
+      console.warn('   GMAIL_USER=yourname@gmail.com');
+      console.warn('   GMAIL_APP_PASSWORD=your-16-char-app-password');
+      console.warn('   (Create App Password at: https://myaccount.google.com/apppasswords)');
       this.transporter = {
         sendMail: async (options) => {
           console.log('\n=== 📧 EMAIL (not sent - SMTP not configured) ===');
@@ -60,7 +69,7 @@ class EmailService {
     const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
 
     const mailOptions = {
-      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@markmate.com',
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
       to: email,
       subject: 'Verify your MarkMate account',
       html: `
@@ -123,7 +132,7 @@ class EmailService {
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 
     const mailOptions = {
-      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@markmate.com',
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
       to: email,
       subject: 'Reset your MarkMate password',
       html: `
