@@ -1704,10 +1704,10 @@ router.post('/single', requireAuth, async (req, res) => {
         message: 'Assignment marked successfully'
       });
     } catch (processingError) {
-      // Update assignment status to error
+      // Keep assignment as uploaded so user can retry without re-uploading
       await query(
         'UPDATE assignments SET status = ? WHERE id = ?',
-        ['error', assignment_id]
+        ['uploaded', assignment_id]
       );
       
       throw processingError;
@@ -1819,10 +1819,10 @@ router.post('/manual', async (req, res) => {
         message: 'Assignment marked successfully (manual)'
       });
     } catch (processingError) {
-      // Update assignment status to error
+      // Keep assignment as uploaded so user can retry without re-uploading
       await query(
         'UPDATE assignments SET status = ? WHERE id = ?',
-        ['error', assignment_id]
+        ['uploaded', assignment_id]
       );
       
       throw processingError;
@@ -2183,10 +2183,10 @@ router.post('/multiple', requireAuth, async (req, res) => {
 
           results.push(markingWithId);
         } catch (processingError) {
-          // Update assignment status to error
+          // Keep assignment as uploaded so user can retry without re-uploading
           await query(
             'UPDATE assignments SET status = ? WHERE id = ?',
-            ['error', assignment_id]
+            ['uploaded', assignment_id]
           );
           
           const errorDetails = {
@@ -2200,10 +2200,10 @@ router.post('/multiple', requireAuth, async (req, res) => {
           console.error(`Error marking assignment ${assignment_id}:`, processingError);
         }
       } catch (error) {
-        // Update assignment status to error
+        // Keep assignment as uploaded so user can retry without re-uploading
         await query(
           'UPDATE assignments SET status = ? WHERE id = ?',
-          ['error', assignment_id]
+          ['uploaded', assignment_id]
         );
         
         const errorDetails = {

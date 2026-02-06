@@ -54,8 +54,8 @@ const MarkingInterface: React.FC = () => {
   const handleBatchSelect = (batchId: number | null) => {
     setSelectedBatch(batchId);
     
-    // Get available assignments (unmarked)
-    const available = assignments.filter(a => a.status === 'uploaded');
+    // Get available assignments (unmarked or previously failed so they can retry)
+    const available = assignments.filter(a => a.status === 'uploaded' || a.status === 'error');
     
     if (batchId === null) {
       // Clear all selections when "None" is selected
@@ -95,7 +95,7 @@ const MarkingInterface: React.FC = () => {
       });
       // Clear batch selection if assignment is manually deselected
       if (selectedBatch) {
-        const available = assignments.filter(a => a.status === 'uploaded');
+        const available = assignments.filter(a => a.status === 'uploaded' || a.status === 'error');
         const batchAssignments = available.filter(a => a.batch_id === selectedBatch);
         const remainingSelected = selectedAssignments.filter(id => id !== assignmentId);
         const allBatchSelected = batchAssignments.every(a => remainingSelected.includes(a.id));
@@ -326,8 +326,9 @@ const MarkingInterface: React.FC = () => {
     }
   };
 
-  const availableAssignments = assignments.filter(a => a.status === 'uploaded');
-  const markedAssignments = assignments.filter(a => a.status === 'completed' || a.status === 'error');
+  // Include 'error' so previously failed assignments can be retried without re-uploading
+  const availableAssignments = assignments.filter(a => a.status === 'uploaded' || a.status === 'error');
+  const markedAssignments = assignments.filter(a => a.status === 'completed');
 
   return (
     <div className="space-y-6">
@@ -640,7 +641,7 @@ const MarkingInterface: React.FC = () => {
           </h3>
           
           {availableAssignments.length === 0 ? (
-            <p className="text-gray-500">No unmarked assignments available.</p>
+            <p className="text-gray-500">No assignments available to mark. Upload PDFs or retry failed ones from above.</p>
           ) : (
             <div className="space-y-4">
               {availableAssignments.map((assignment, index) => {
@@ -662,6 +663,11 @@ const MarkingInterface: React.FC = () => {
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
                             <Folder className="h-3 w-3 mr-1" />
                             {batch.name}
+                          </span>
+                        )}
+                        {assignment.status === 'error' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" title="Marking failed previously – select and mark again to retry">
+                            Previously failed
                           </span>
                         )}
                       </div>
