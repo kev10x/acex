@@ -82,8 +82,11 @@ const extractTextFromPDF = async (filePath, options = {}) => {
         throw new Error('Vision API returned empty text');
       } catch (visionError) {
         console.error('❌ Vision API extraction failed:', visionError.message);
+        if (visionError.technicalDetails) {
+          console.error('Technical details:', visionError.technicalDetails);
+        }
         console.error('Full error details:', visionError);
-        
+
         // If Vision API fails and OCR is enabled, try OCR
         if (useOCR) {
           console.log('📸 Attempting Tesseract OCR as fallback...');
@@ -93,8 +96,13 @@ const extractTextFromPDF = async (filePath, options = {}) => {
             console.error('❌ OCR fallback also failed:', ocrError.message);
           }
         }
-        
-        // Provide helpful error message with troubleshooting
+
+        // Rethrow user-facing message if we set one (e.g. handwritten doc could not be read)
+        if (visionError.message && visionError.message.includes('could not be read')) {
+          throw visionError;
+        }
+
+        // Otherwise provide troubleshooting in logs and a short message for user
         let imageMagickStatus = 'Unknown';
         try {
           const { spawnSync } = require('child_process');
@@ -103,16 +111,12 @@ const extractTextFromPDF = async (filePath, options = {}) => {
         } catch (e) {
           imageMagickStatus = 'CHECK FAILED';
         }
-        
-        const helpfulError = new Error(
-          `Vision API extraction failed: ${visionError.message}\n\n` +
-          `Troubleshooting:\n` +
-          `1. ImageMagick status: ${imageMagickStatus}\n` +
-          `2. Verify OpenAI API key is set and valid\n` +
-          `3. Check if PDF has extractable content\n` +
-          `4. Review server logs for detailed page-by-page errors`
+        console.error(
+          `Troubleshooting: ImageMagick=${imageMagickStatus}, verify OPENAI_API_KEY, check PDF has content.`
         );
-        throw helpfulError;
+        throw new Error(
+          'This document could not be read. Handwritten or low-quality scans may not be recognised—try a clearer scan, a typed PDF, or ensure OpenAI API key is set for Vision.'
+        );
       }
     } else if (useOCR) {
       // Use Tesseract OCR
@@ -137,12 +141,23 @@ const extractTextFromPDF = async (filePath, options = {}) => {
   }
 };
 
+// Vision prompt tuned for handwritten and scanned documents
+const VISION_EXTRACT_PROMPT = `Extract ALL text from this image. The document may be handwritten, typed, or a mix.
+- Transcribe handwritten text even if it is messy or partially legible; do your best.
+- Preserve structure: sections, questions, bullet points, line breaks.
+- Include numbers, formulas, and annotations.
+- If you truly see no text at all, reply with exactly: NO_TEXT_FOUND
+Otherwise return only the extracted text, no commentary.`;
+
 /**
  * Extract text using OpenAI Vision API (GPT-4 Vision)
  * This can handle handwritten text in images
  */
 const extractTextWithVisionAPI = async (filePath) => {
   try {
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.trim() === '') {
+      throw new Error('OPENAI_API_KEY is not set. Vision API (for handwritten/scanned PDFs) requires an OpenAI API key.');
+    }
     const OpenAI = require('openai');
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
@@ -190,8 +205,9 @@ const extractTextWithVisionAPI = async (filePath) => {
       console.warn('⚠️ If conversion fails, please install ImageMagick: https://imagemagick.org/script/download.php');
     }
 
+    // Higher density (350) improves legibility for handwritten text
     const convert = fromPath(filePath, {
-      density: 300,
+      density: 350,
       saveFilename: 'ocr_temp',
       savePath: tempDir,
       format: 'png',
@@ -336,7 +352,7 @@ const extractTextWithVisionAPI = async (filePath) => {
                   content: [
                     {
                       type: 'text',
-                      text: 'Extract all text from this image. Preserve the structure and formatting as much as possible. Include all handwritten text, typed text, and any annotations. If there are multiple questions or sections, maintain that structure. Return only the extracted text without additional commentary. If the image contains no text, return "NO_TEXT_FOUND".'
+                      text: VISION_EXTRACT_PROMPT
                     },
                     {
                       type: 'image_url',
@@ -347,8 +363,8 @@ const extractTextWithVisionAPI = async (filePath) => {
                   ]
                 }
               ],
-              max_tokens: 4000
-            });
+max_tokens: 4096
+          });
 
             const pageText = response?.choices?.[0]?.message?.content;
             
@@ -409,7 +425,7 @@ const extractTextWithVisionAPI = async (filePath) => {
                 content: [
                   {
                     type: 'text',
-                    text: 'Extract all text from this image. Preserve the structure and formatting as much as possible. Include all handwritten text, typed text, and any annotations. If there are multiple questions or sections, maintain that structure. Return only the extracted text without additional commentary. If the image contains no text, return "NO_TEXT_FOUND".'
+                    text: VISION_EXTRACT_PROMPT
                   },
                   {
                     type: 'image_url',
@@ -420,7 +436,7 @@ const extractTextWithVisionAPI = async (filePath) => {
                 ]
               }
             ],
-            max_tokens: 4000
+            max_tokens: 4096
           });
         } catch (apiError) {
           console.error(`❌ Vision API error for page ${pageNum}:`, apiError.message);
@@ -465,12 +481,18 @@ const extractTextWithVisionAPI = async (filePath) => {
       }
     }
 
-    // Provide detailed error information
+    // Provide detailed error information (user-friendly message + technical details in log)
     if (allTexts.length === 0) {
-      const errorDetails = pageErrors.length > 0 
+      const errorDetails = pageErrors.length > 0
         ? `\nPage errors:\n${pageErrors.join('\n')}`
         : '\nNo specific page errors logged, but no text was extracted.';
-      throw new Error(`No text could be extracted from any pages using Vision API.${errorDetails}\n\nPossible causes:\n1. PDF conversion to image failed (check ImageMagick installation)\n2. Vision API returned no text\n3. Images are empty or corrupted\n4. API key issues or rate limits`);
+      const technicalMsg = `No text could be extracted from any pages using Vision API.${errorDetails}\n\nPossible causes:\n1. PDF conversion to image failed (check ImageMagick installation)\n2. Vision API returned no text\n3. Images are empty or corrupted\n4. API key issues or rate limits`;
+      console.error('Vision API extraction failed:', technicalMsg);
+      const userFacing = new Error(
+        'This document could not be read. Handwritten or low-quality scans may not be recognised—try a clearer scan, a typed PDF, or ensure OpenAI API key is set for Vision.'
+      );
+      userFacing.technicalDetails = technicalMsg;
+      throw userFacing;
     }
 
     const extractedText = allTexts.join('\n\n');
