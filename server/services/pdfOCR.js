@@ -522,21 +522,35 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   }
   const pdfData = await pdfParse(fs.readFileSync(filePath));
   const numPages = pdfData.numpages || 1;
-  const convert = fromPath(filePath, {
+  const convertOptions = {
     density: 350,
     saveFilename: 'mark_img_temp',
     savePath: tempDir,
     format: 'png',
     width: 2000,
     height: 2000
-  });
+  };
+  const convert = fromPath(filePath, convertOptions);
+  // Prefer ImageMagick if available (pdf2pic defaults to GraphicsMagick)
+  try {
+    convert.setGMClass(true);
+  } catch (_) {
+    // Ignore; will fall back to GraphicsMagick
+  }
   const base64Images = [];
+  let lastError = null;
   const toProcess = Math.min(numPages, maxPages);
   for (let pageNum = 1; pageNum <= toProcess; pageNum++) {
     try {
-      let result = await convert(pageNum, { responseType: 'buffer' }).catch(() => null);
+      let result = await convert(pageNum, { responseType: 'buffer' }).catch((e) => {
+        lastError = e;
+        return null;
+      });
       if (!result) {
-        result = await convert(pageNum);
+        result = await convert(pageNum).catch((e) => {
+          lastError = e;
+          return null;
+        });
       }
       let buffer = null;
       if (Buffer.isBuffer(result)) {
@@ -563,10 +577,11 @@ async function getPdfPageImages(filePath, maxPages = 15) {
         base64Images.push(buffer.toString('base64'));
       }
     } catch (err) {
+      lastError = err;
       console.warn(`getPdfPageImages: page ${pageNum} failed`, err.message);
     }
   }
-  return { base64Images, numPages };
+  return { base64Images, numPages, lastError: lastError ? (lastError.message || String(lastError)) : null };
 }
 
 module.exports = {
