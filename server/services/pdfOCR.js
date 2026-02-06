@@ -556,6 +556,7 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   if (gsDir && !pathParts.includes(gsDir)) {
     process.env.PATH = gsDir + path.delimiter + (process.env.PATH || '');
   }
+  console.log('PDF→image: PATH prefix for gs:', gsDir, '| file:', filePath);
   const convert = fromPath(filePath, {
     density: 350,
     saveFilename: 'mark_img_temp',
@@ -617,8 +618,11 @@ async function getPdfPageImages(filePath, maxPages = 15) {
       }
     } catch (err) {
       lastError = err;
-      console.warn(`getPdfPageImages: page ${pageNum} failed`, err.message);
+      console.error('PDF→image: page', pageNum, 'error:', err.message, err.stack || '');
     }
+  }
+  if (base64Images.length === 0 && lastError) {
+    console.error('PDF→image: no images produced. Last error:', lastError.message || lastError, lastError.stack || '');
   }
   return { base64Images, numPages, lastError: lastError ? (lastError.message || String(lastError)) : null };
 }

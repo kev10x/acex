@@ -1525,6 +1525,9 @@ router.post('/single', requireAuth, async (req, res) => {
       if (mark_as_image) {
         const { base64Images, lastError } = await getPdfPageImages(assignment.file_path, 15);
         if (!base64Images || base64Images.length === 0) {
+          if (lastError) {
+            console.error('Mark-as-image conversion failed. Detail:', lastError);
+          }
           const detail = lastError ? ` ${lastError}` : '';
           throw new Error(
             'Could not convert PDF to images. Install GraphicsMagick and Ghostscript (e.g. apt install graphicsmagick ghostscript).' + detail
@@ -2016,6 +2019,9 @@ router.post('/multiple', requireAuth, async (req, res) => {
           if (mark_as_image) {
             const { base64Images, lastError } = await getPdfPageImages(assignment.file_path, 15);
             if (!base64Images || base64Images.length === 0) {
+              if (lastError) {
+                console.error('Mark-as-image conversion failed. Detail:', lastError);
+              }
               const detail = lastError ? ` ${lastError}` : '';
               throw new Error(
                 'Could not convert PDF to images. Install GraphicsMagick and Ghostscript (e.g. apt install graphicsmagick ghostscript).' + detail
