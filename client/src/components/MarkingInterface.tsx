@@ -29,6 +29,7 @@ const MarkingInterface: React.FC = () => {
     provider: string;
     output_type: string;
     strictness_level: string;
+    mark_as_image?: boolean;
   } | null>(null);
 
   useEffect(() => {
