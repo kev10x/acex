@@ -1530,11 +1530,11 @@ router.post('/single', requireAuth, async (req, res) => {
           }
           const detail = lastError ? ` ${lastError}` : '';
           throw new Error(
-            'Could not convert PDF to images. Install GraphicsMagick and Ghostscript (e.g. apt install graphicsmagick ghostscript).' + detail
+            'Could not convert PDF to images. Set GRAPHICSMAGICK_PATH and GHOSTSCRIPT_PATH in .env (e.g. /usr/bin/gm and /usr/bin/gs), or use ImageMagick and allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
           );
         }
         assignmentImages = base64Images;
-      } else {
+          } else {
         assignmentText = await extractTextFromPDF(assignment.file_path);
         if (!assignmentText || assignmentText.trim().length === 0) {
           throw new Error('No text could be extracted from the PDF');
@@ -2024,7 +2024,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
               }
               const detail = lastError ? ` ${lastError}` : '';
               throw new Error(
-                'Could not convert PDF to images. Install GraphicsMagick and Ghostscript (e.g. apt install graphicsmagick ghostscript).' + detail
+                'Could not convert PDF to images. Set GRAPHICSMAGICK_PATH and GHOSTSCRIPT_PATH in .env (e.g. /usr/bin/gm and /usr/bin/gs), or use ImageMagick and allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
               );
             }
             assignmentImages = base64Images;
