@@ -1527,7 +1527,7 @@ router.post('/single', requireAuth, async (req, res) => {
         if (!base64Images || base64Images.length === 0) {
           const detail = lastError ? ` ${lastError}` : '';
           throw new Error(
-            'Could not convert PDF to images. Install ImageMagick or GraphicsMagick and Ghostscript (e.g. apt install imagemagick ghostscript).' + detail
+            'Could not convert PDF to images. Install GraphicsMagick and Ghostscript (e.g. apt install graphicsmagick ghostscript).' + detail
           );
         }
         assignmentImages = base64Images;
@@ -2018,7 +2018,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
             if (!base64Images || base64Images.length === 0) {
               const detail = lastError ? ` ${lastError}` : '';
               throw new Error(
-                'Could not convert PDF to images. Install ImageMagick or GraphicsMagick and Ghostscript (e.g. apt install imagemagick ghostscript).' + detail
+                'Could not convert PDF to images. Install GraphicsMagick and Ghostscript (e.g. apt install graphicsmagick ghostscript).' + detail
               );
             }
             assignmentImages = base64Images;

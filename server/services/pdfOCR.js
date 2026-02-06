@@ -522,21 +522,14 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   }
   const pdfData = await pdfParse(fs.readFileSync(filePath));
   const numPages = pdfData.numpages || 1;
-  const convertOptions = {
+  const convert = fromPath(filePath, {
     density: 350,
     saveFilename: 'mark_img_temp',
     savePath: tempDir,
     format: 'png',
     width: 2000,
     height: 2000
-  };
-  const convert = fromPath(filePath, convertOptions);
-  // Prefer ImageMagick if available (pdf2pic defaults to GraphicsMagick)
-  try {
-    convert.setGMClass(true);
-  } catch (_) {
-    // Ignore; will fall back to GraphicsMagick
-  }
+  });
   const base64Images = [];
   let lastError = null;
   const toProcess = Math.min(numPages, maxPages);
