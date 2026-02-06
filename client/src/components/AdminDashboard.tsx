@@ -106,7 +106,7 @@ const AdminDashboard: React.FC = () => {
   const handleReject = async (userId: number, deactivate: boolean = false) => {
     if (!token) return;
     
-    if (!confirm(`Are you sure you want to ${deactivate ? 'reject and deactivate' : 'reject'} this user?`)) {
+    if (!window.confirm(`Are you sure you want to ${deactivate ? 'reject and deactivate' : 'reject'} this user?`)) {
       return;
     }
     
@@ -124,7 +124,7 @@ const AdminDashboard: React.FC = () => {
   const handleRoleChange = async (userId: number, newRole: 'admin' | 'user') => {
     if (!token) return;
     
-    if (newRole === 'user' && !confirm('Are you sure you want to remove admin privileges from this user?')) {
+    if (newRole === 'user' && !window.confirm('Are you sure you want to remove admin privileges from this user?')) {
       return;
     }
     
