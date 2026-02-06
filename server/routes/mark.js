@@ -118,10 +118,11 @@ router.post('/debug', async (req, res) => {
 
 // AI Service is initialized in aiService.js
 
-// Extract text from PDF (with OCR/Vision API fallback for handwritten text)
+// PDF helpers (extract text or get page images for vision-based marking)
+const { extractTextFromPDF: extractWithOCR, getPdfPageImages } = require('../services/pdfOCR');
+
 const extractTextFromPDF = async (filePath) => {
   try {
-    const { extractTextFromPDF: extractWithOCR } = require('../services/pdfOCR');
     return await extractWithOCR(filePath, {
       useVisionAPI: true, // Automatically use Vision API if standard extraction fails
       useOCR: false
@@ -263,13 +264,20 @@ Respond with ONLY a JSON object:
 };
 
 // Generate AI marking using OpenAI or Anthropic
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null) => {
+// When assignmentImages (array of base64 strings) is provided, the PDF is marked from images instead of extracted text (vision-based).
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null) => {
+  const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
   try {
-    // Auto-detect document type if not provided
+    // Auto-detect document type if not provided (only when we have text; for image-based use provided or default)
     if (!documentType) {
-      console.log('🔍 Auto-detecting document type...');
-      documentType = await detectDocumentType(assignmentText);
-      console.log('📝 Detected document type:', documentType);
+      if (imageBased) {
+        documentType = documentType || 'assignment';
+        console.log('📝 Using document type (image-based):', documentType);
+      } else {
+        console.log('🔍 Auto-detecting document type...');
+        documentType = await detectDocumentType(assignmentText);
+        console.log('📝 Detected document type:', documentType);
+      }
     }
     
     // Check if rubric is actually a memo (answer key)
@@ -346,12 +354,21 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     console.log('Provider:', selectedProvider);
     console.log('Document type:', documentType);
     console.log('Is memo:', isMemo);
-    console.log('Assignment text length:', assignmentText?.length || 0);
-    console.log('Text will be truncated to:', Math.min(assignmentText?.length || 0, config.maxTextLength), 'characters');
-    console.log('Using model:', config.model);
+    console.log('Image-based (mark from PDF images):', imageBased);
+    if (!imageBased) {
+      console.log('Assignment text length:', assignmentText?.length || 0);
+      console.log('Text will be truncated to:', Math.min(assignmentText?.length || 0, config.maxTextLength), 'characters');
+    } else {
+      console.log('Assignment page images:', assignmentImages.length);
+    }
+    // Use vision-capable model when marking from images
+    const modelToUse = imageBased
+      ? (selectedProvider === 'openai' ? 'gpt-4o' : 'claude-3-haiku-20240307')
+      : config.model;
+    console.log('Using model:', modelToUse);
     console.log('Max tokens:', config.maxTokens);
     console.log('Rubric:', JSON.stringify(rubric, null, 2));
-    
+
     // Normalize criteria so it's always an array
     let criteria = rubric.criteria;
     if (typeof criteria === 'string') {
@@ -407,9 +424,11 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const maxPromptCharsByTPM = promptBudgetTokens * 4;
 
     const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByTPM);
-    const truncatedText = assignmentText.length > maxAllowedChars ? 
-      assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]' : 
-      assignmentText;
+    const truncatedText = imageBased
+      ? `The submission is provided as ${assignmentImages.length} page image(s) below (in order). Assess the work from these images—including any handwritten or typed content—and apply the rubric. Return only the JSON.`
+      : (assignmentText.length > maxAllowedChars
+          ? assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]'
+          : assignmentText);
 
     // Create detailed rubric/memo description with levels
     const detailedRubric = criteria.map((criterion, i) => {
@@ -1100,18 +1119,23 @@ JSON format (return ONLY this, no other text):
 }`;
 
     console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
-    
+
+    let messages;
+    if (imageBased) {
+      const imageParts = selectedProvider === 'openai'
+        ? assignmentImages.map(b64 => ({ type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }))
+        : assignmentImages.map(b64 => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } }));
+      messages = [{ role: 'user', content: [{ type: 'text', text: prompt }, ...imageParts] }];
+    } else {
+      messages = [{ role: 'user', content: prompt }];
+    }
+
     // Use unified AI service with retry logic (more retries for marking operations)
     // No seed is used to allow unique analysis for each document
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
-      model: config.model,
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
+      model: modelToUse,
+      messages,
       temperature: config.temperature,
       maxTokens: requestMaxTokens
     }, 5); // Increased retries for marking operations
@@ -1415,7 +1439,7 @@ function buildIssuesWithAnchors(markingResult, anchorsMap) {
 // Mark a single assignment
 router.post('/single', requireAuth, async (req, res) => {
   try {
-    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict' } = req.body;
+    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict', mark_as_image = false } = req.body;
 
     if (!assignment_id || !rubric_id) {
       return res.status(400).json({ 
@@ -1495,11 +1519,20 @@ router.post('/single', requireAuth, async (req, res) => {
         });
       }
 
-      // Extract text from PDF
-      const assignmentText = await extractTextFromPDF(assignment.file_path);
-      
-      if (!assignmentText || assignmentText.trim().length === 0) {
-        throw new Error('No text could be extracted from the PDF');
+      let assignmentText = '';
+      let assignmentImages = null;
+
+      if (mark_as_image) {
+        const { base64Images } = await getPdfPageImages(assignment.file_path, 15);
+        if (!base64Images || base64Images.length === 0) {
+          throw new Error('Could not convert PDF to images. Ensure ImageMagick is installed.');
+        }
+        assignmentImages = base64Images;
+      } else {
+        assignmentText = await extractTextFromPDF(assignment.file_path);
+        if (!assignmentText || assignmentText.trim().length === 0) {
+          throw new Error('No text could be extracted from the PDF');
+        }
       }
 
       // Check before AI marking
@@ -1516,9 +1549,8 @@ router.post('/single', requireAuth, async (req, res) => {
       }
 
       // Generate AI marking (use assessment_type if provided, otherwise auto-detect document type)
-      // Provider can be specified in request or will use default from config
       const docType = assessment_type || document_type || null;
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id);
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages);
       
       // Check after AI marking
       if (checkAborted()) {
@@ -1838,7 +1870,7 @@ router.get('/rubric/:id', async (req, res) => {
 // Mark multiple assignments
 router.post('/multiple', requireAuth, async (req, res) => {
   try {
-    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict' } = req.body;
+    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict', mark_as_image = false } = req.body;
 
     if (!assignment_ids || !Array.isArray(assignment_ids) || assignment_ids.length === 0) {
       return res.status(400).json({ 
@@ -1975,11 +2007,20 @@ router.post('/multiple', requireAuth, async (req, res) => {
             continue;
           }
 
-          // Extract text from PDF
-          const assignmentText = await extractTextFromPDF(assignment.file_path);
-          
-          if (!assignmentText || assignmentText.trim().length === 0) {
-            throw new Error('No text could be extracted from the PDF');
+          let assignmentText = '';
+          let assignmentImages = null;
+
+          if (mark_as_image) {
+            const { base64Images } = await getPdfPageImages(assignment.file_path, 15);
+            if (!base64Images || base64Images.length === 0) {
+              throw new Error('Could not convert PDF to images. Ensure ImageMagick is installed.');
+            }
+            assignmentImages = base64Images;
+          } else {
+            assignmentText = await extractTextFromPDF(assignment.file_path);
+            if (!assignmentText || assignmentText.trim().length === 0) {
+              throw new Error('No text could be extracted from the PDF');
+            }
           }
 
           // Check before AI marking (this is the longest operation)
@@ -1992,10 +2033,8 @@ router.post('/multiple', requireAuth, async (req, res) => {
             continue;
           }
 
-          // Generate AI marking (use assessment_type if provided, otherwise use document_type)
-          // Provider can be specified in request or will use default from config
           const docType = assessment_type || document_type || null;
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id);
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages);
           
           // Check after AI marking (in case it took a long time)
           if (checkAborted()) {

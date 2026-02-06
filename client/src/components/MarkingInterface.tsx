@@ -15,6 +15,7 @@ const MarkingInterface: React.FC = () => {
   const [level, setLevel] = useState<'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate'>('high_school');
   const [provider, setProvider] = useState<'openai' | 'anthropic'>('anthropic');
   const [strictnessLevel, setStrictnessLevel] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
+  const [markAsImage, setMarkAsImage] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -140,7 +141,8 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         output_type: outputType,
-        strictness_level: strictnessLevel
+        strictness_level: strictnessLevel,
+        mark_as_image: markAsImage
       });
 
       const response = await markingAPI.markMultiple({
@@ -151,7 +153,8 @@ const MarkingInterface: React.FC = () => {
         assessment_type: assessmentType,
         level: level,
         provider: provider,
-        strictness_level: strictnessLevel
+        strictness_level: strictnessLevel,
+        mark_as_image: markAsImage
       });
 
       setSuccess(`Successfully remarked ${response.data.results.length} assignment(s) in batch`);
@@ -195,7 +198,8 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         output_type: outputType,
-        strictness_level: strictnessLevel
+        strictness_level: strictnessLevel,
+        mark_as_image: markAsImage
       });
 
       const response = await markingAPI.markMultiple({
@@ -206,7 +210,8 @@ const MarkingInterface: React.FC = () => {
         assessment_type: assessmentType,
         level: level,
         provider: provider,
-        strictness_level: strictnessLevel
+        strictness_level: strictnessLevel,
+        mark_as_image: markAsImage
       }, abortControllerRef.current.signal);
 
       // Check if request was aborted
@@ -305,7 +310,8 @@ const MarkingInterface: React.FC = () => {
         assessment_type: lastMarkingParams.assessment_type as 'assignment' | 'test' | 'treatise' | 'thesis',
         level: lastMarkingParams.level as 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate',
         provider: lastMarkingParams.provider as 'openai' | 'anthropic',
-        strictness_level: lastMarkingParams.strictness_level as 'very_strict' | 'strict' | 'moderate' | 'lenient'
+        strictness_level: lastMarkingParams.strictness_level as 'very_strict' | 'strict' | 'moderate' | 'lenient',
+        mark_as_image: lastMarkingParams.mark_as_image
       });
 
       setSuccess(`Successfully retried marking for ${response.data.result.filename || 'assignment'}`);
@@ -443,6 +449,23 @@ const MarkingInterface: React.FC = () => {
                 {strictnessLevel === 'lenient' && 'Supportive - focus on learning and improvement'}
               </p>
             </div>
+
+            {/* Mark as image (for handwritten/scanned PDFs) */}
+            <div className="flex items-start">
+              <input
+                id="mark-as-image"
+                type="checkbox"
+                checked={markAsImage}
+                onChange={(e) => setMarkAsImage(e.target.checked)}
+                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+              />
+              <label htmlFor="mark-as-image" className="ml-2 block text-sm text-gray-700">
+                Mark as image (handwritten/scanned PDFs)
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 -mt-2 ml-6">
+              Send PDF pages as images to the AI instead of extracted text. Use for handwritten scripts or when text extraction fails.
+            </p>
           </div>
         </div>
       </div>

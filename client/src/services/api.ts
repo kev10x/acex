@@ -196,6 +196,7 @@ export const markingAPI = {
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
+    mark_as_image?: boolean;
   }) => api.post('/mark/single', data),
 
   markMultiple: (data: {
@@ -207,6 +208,7 @@ export const markingAPI = {
     level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
+    mark_as_image?: boolean;
   }, signal?: AbortSignal) => api.post('/mark/multiple', data, { signal }),
 
   markManual: (data: {

@@ -505,11 +505,76 @@ max_tokens: 4096
   }
 };
 
+/**
+ * Convert PDF to an array of base64 image strings (one per page).
+ * Used for "mark as image" so the AI can score from the visual document.
+ * Requires ImageMagick/GraphicsMagick (same as Vision OCR).
+ * @param {string} filePath - Path to the PDF file
+ * @param {number} maxPages - Maximum number of pages to convert (default 15 for cost/size)
+ * @returns {Promise<{ base64Images: string[], numPages: number }>}
+ */
+async function getPdfPageImages(filePath, maxPages = 15) {
+  const pdf2pic = require('pdf2pic');
+  const { fromPath } = pdf2pic;
+  const tempDir = path.join(__dirname, '../uploads/temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const pdfData = await pdfParse(fs.readFileSync(filePath));
+  const numPages = pdfData.numpages || 1;
+  const convert = fromPath(filePath, {
+    density: 350,
+    saveFilename: 'mark_img_temp',
+    savePath: tempDir,
+    format: 'png',
+    width: 2000,
+    height: 2000
+  });
+  const base64Images = [];
+  const toProcess = Math.min(numPages, maxPages);
+  for (let pageNum = 1; pageNum <= toProcess; pageNum++) {
+    try {
+      let result = await convert(pageNum, { responseType: 'buffer' }).catch(() => null);
+      if (!result) {
+        result = await convert(pageNum);
+      }
+      let buffer = null;
+      if (Buffer.isBuffer(result)) {
+        buffer = result;
+      } else if (result && typeof result === 'object') {
+        if (result.buffer && Buffer.isBuffer(result.buffer)) buffer = result.buffer;
+        else if (result.data && Buffer.isBuffer(result.data)) buffer = result.data;
+        else if (result.path || result.name || result.filePath) {
+          const p = result.path || result.name || result.filePath;
+          const fullPath = path.isAbsolute(p) ? p : path.join(tempDir, p);
+          if (fs.existsSync(fullPath)) {
+            buffer = fs.readFileSync(fullPath);
+            try { fs.unlinkSync(fullPath); } catch (_) {}
+          }
+        }
+      } else if (typeof result === 'string') {
+        const fullPath = path.isAbsolute(result) ? result : path.join(tempDir, result);
+        if (fs.existsSync(fullPath)) {
+          buffer = fs.readFileSync(fullPath);
+          try { fs.unlinkSync(fullPath); } catch (_) {}
+        }
+      }
+      if (buffer && buffer.length > 0) {
+        base64Images.push(buffer.toString('base64'));
+      }
+    } catch (err) {
+      console.warn(`getPdfPageImages: page ${pageNum} failed`, err.message);
+    }
+  }
+  return { base64Images, numPages };
+}
+
 module.exports = {
   extractTextFromPDF,
   extractTextStandard,
   extractTextOCR,
   extractTextWithVisionAPI,
+  getPdfPageImages,
   isTextExtractionSuccessful
 };
 
