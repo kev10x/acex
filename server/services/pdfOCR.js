@@ -1,6 +1,35 @@
 const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
+const { spawnSync } = require('child_process');
+
+/**
+ * Resolve path to GraphicsMagick (gm) binary. Under PM2/cron PATH may not include /usr/bin.
+ * @returns {string|null} Full path to gm binary, or null if not found
+ */
+function getGraphicsMagickPath() {
+  const candidates = [
+    process.env.GRAPHICSMAGICK_PATH,
+    '/usr/bin/gm',
+    '/usr/local/bin/gm'
+  ].filter(Boolean);
+  for (const gmPath of candidates) {
+    try {
+      const r = spawnSync(gmPath, ['version'], { encoding: 'utf8', timeout: 3000 });
+      if (r.status === 0) {
+        return gmPath;
+      }
+    } catch (_) {
+      // skip
+    }
+  }
+  // Last resort: try 'gm' in PATH (for dev / full PATH environments)
+  try {
+    const r = spawnSync('gm', ['version'], { shell: true, encoding: 'utf8', timeout: 3000 });
+    if (r.status === 0) return 'gm';
+  } catch (_) {}
+  return null;
+}
 
 /**
  * Enhanced PDF text extraction with OCR fallback for handwritten/scanned content
@@ -179,30 +208,12 @@ const extractTextWithVisionAPI = async (filePath) => {
 
     console.log(`📸 Converting ${numPages} PDF page(s) to images for OCR...`);
 
-    // Check if ImageMagick or GraphicsMagick is available
-    let magickAvailable = false;
-    try {
-      const { spawnSync } = require('child_process');
-      // Try ImageMagick first (magick command)
-      let checkResult = spawnSync('magick', ['-version'], { shell: true, timeout: 3000 });
-      if (!checkResult.error) {
-        magickAvailable = true;
-        console.log('✅ ImageMagick is available');
-      } else {
-        // Try GraphicsMagick (gm command)
-        checkResult = spawnSync('gm', ['version'], { shell: true, timeout: 3000 });
-        if (!checkResult.error) {
-          magickAvailable = true;
-          console.log('✅ GraphicsMagick is available');
-        }
-      }
-    } catch (magickError) {
-      console.warn('⚠️ Could not verify ImageMagick/GraphicsMagick installation');
-    }
-
-    if (!magickAvailable) {
-      console.warn('⚠️ ImageMagick/GraphicsMagick not found. Attempting PDF conversion anyway...');
-      console.warn('⚠️ If conversion fails, please install ImageMagick: https://imagemagick.org/script/download.php');
+    // Resolve GraphicsMagick so conversion works when PATH is minimal (e.g. PM2)
+    const gmPath = getGraphicsMagickPath();
+    if (gmPath) {
+      console.log('✅ GraphicsMagick available at', gmPath);
+    } else {
+      console.warn('⚠️ GraphicsMagick not found (tried /usr/bin/gm, /usr/local/bin/gm, PATH). Set GRAPHICSMAGICK_PATH if gm is installed.');
     }
 
     // Higher density (350) improves legibility for handwritten text
@@ -214,6 +225,13 @@ const extractTextWithVisionAPI = async (filePath) => {
       width: 2000,
       height: 2000
     });
+    if (gmPath) {
+      try {
+        convert.setGMClass(gmPath);
+      } catch (e) {
+        console.warn('Vision OCR: setGMClass failed', e.message);
+      }
+    }
 
     // Process all pages and combine text
     const allTexts = [];
@@ -530,6 +548,18 @@ async function getPdfPageImages(filePath, maxPages = 15) {
     width: 2000,
     height: 2000
   });
+  // Use explicit gm path so conversion works when PATH is minimal (e.g. PM2)
+  const gmPath = getGraphicsMagickPath();
+  if (gmPath) {
+    try {
+      convert.setGMClass(gmPath);
+      console.log('PDF→image: using GraphicsMagick at', gmPath);
+    } catch (e) {
+      console.warn('PDF→image: setGMClass failed', e.message);
+    }
+  } else {
+    console.warn('PDF→image: GraphicsMagick not found. Set GRAPHICSMAGICK_PATH to /usr/bin/gm if gm is installed.');
+  }
   const base64Images = [];
   let lastError = null;
   const toProcess = Math.min(numPages, maxPages);
