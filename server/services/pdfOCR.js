@@ -10,6 +10,7 @@ const { spawnSync } = require('child_process');
 function getGraphicsMagickPath() {
   const candidates = [
     process.env.GRAPHICSMAGICK_PATH,
+    '/bin/gm',
     '/usr/bin/gm',
     '/usr/local/bin/gm'
   ].filter(Boolean);
@@ -208,12 +209,20 @@ const extractTextWithVisionAPI = async (filePath) => {
 
     console.log(`📸 Converting ${numPages} PDF page(s) to images for OCR...`);
 
+    // So that gm can find Ghostscript (e.g. under PM2 with minimal PATH)
+    const gsPathVision = process.env.GHOSTSCRIPT_PATH || '/bin/gs';
+    const gsDirVision = path.dirname(gsPathVision);
+    const pathPartsVision = (process.env.PATH || '').split(path.delimiter);
+    if (gsDirVision && !pathPartsVision.includes(gsDirVision)) {
+      process.env.PATH = gsDirVision + path.delimiter + (process.env.PATH || '');
+    }
+
     // Resolve GraphicsMagick so conversion works when PATH is minimal (e.g. PM2)
     const gmPath = getGraphicsMagickPath();
     if (gmPath) {
       console.log('✅ GraphicsMagick available at', gmPath);
     } else {
-      console.warn('⚠️ GraphicsMagick not found (tried /usr/bin/gm, /usr/local/bin/gm, PATH). Set GRAPHICSMAGICK_PATH if gm is installed.');
+      console.warn('⚠️ GraphicsMagick not found (tried /bin/gm, /usr/bin/gm, /usr/local/bin/gm, PATH). Set GRAPHICSMAGICK_PATH if gm is installed.');
     }
 
     // Higher density (350) improves legibility for handwritten text
@@ -540,6 +549,13 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   }
   const pdfData = await pdfParse(fs.readFileSync(filePath));
   const numPages = pdfData.numpages || 1;
+  // So that gm can find Ghostscript (gs) when pdf2pic spawns it (e.g. under PM2 with minimal PATH)
+  const gsPath = process.env.GHOSTSCRIPT_PATH || '/bin/gs';
+  const gsDir = path.dirname(gsPath);
+  const pathParts = (process.env.PATH || '').split(path.delimiter);
+  if (gsDir && !pathParts.includes(gsDir)) {
+    process.env.PATH = gsDir + path.delimiter + (process.env.PATH || '');
+  }
   const convert = fromPath(filePath, {
     density: 350,
     saveFilename: 'mark_img_temp',
@@ -558,7 +574,7 @@ async function getPdfPageImages(filePath, maxPages = 15) {
       console.warn('PDF→image: setGMClass failed', e.message);
     }
   } else {
-    console.warn('PDF→image: GraphicsMagick not found. Set GRAPHICSMAGICK_PATH to /usr/bin/gm if gm is installed.');
+    console.warn('PDF→image: GraphicsMagick not found. Set GRAPHICSMAGICK_PATH to /bin/gm or /usr/bin/gm if gm is installed.');
   }
   const base64Images = [];
   let lastError = null;
