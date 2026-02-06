@@ -457,6 +457,26 @@ router.post('/resend-verification', [
   }
 });
 
+// Normalize DB rows to array (MySQL returns result.rows, pg returns result.rows)
+const getRows = (result) => {
+  if (Array.isArray(result.rows)) return result.rows;
+  if (Array.isArray(result)) return result;
+  return [];
+};
+
+// Normalize user row for JSON (MySQL can return 0/1 for booleans)
+const mapUser = (u) => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  created_at: u.created_at,
+  last_login: u.last_login,
+  email_verified: !!u.email_verified,
+  is_approved: !!u.is_approved,
+  role: u.role || 'user',
+  is_active: u.is_active !== undefined ? !!u.is_active : true
+});
+
 // Admin routes - Get pending users
 router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -467,19 +487,14 @@ router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) =
       ORDER BY created_at DESC
     `);
 
-    const users = result.rows || result;
+    const rows = getRows(result);
+    const users = rows.map(u => ({
+      ...mapUser(u),
+      last_login: undefined,
+      is_active: undefined
+    }));
 
-    res.json({
-      users: users.map(user => ({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        created_at: user.created_at,
-        email_verified: user.email_verified,
-        is_approved: user.is_approved,
-        role: user.role
-      }))
-    });
+    res.json({ users });
   } catch (error) {
     console.error('Get pending users error:', error);
     res.status(500).json({ error: 'Failed to get pending users' });
@@ -495,21 +510,10 @@ router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
       ORDER BY created_at DESC
     `);
 
-    const users = result.rows || result;
+    const rows = getRows(result);
+    const users = rows.map(mapUser);
 
-    res.json({
-      users: users.map(user => ({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        created_at: user.created_at,
-        last_login: user.last_login,
-        email_verified: user.email_verified,
-        is_approved: user.is_approved,
-        role: user.role,
-        is_active: user.is_active
-      }))
-    });
+    res.json({ users });
   } catch (error) {
     console.error('Get all users error:', error);
     res.status(500).json({ error: 'Failed to get users' });

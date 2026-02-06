@@ -397,14 +397,14 @@ export const authAPI = {
     const response = await api.get('/auth/admin/pending-users', {
       headers: { Authorization: `Bearer ${token}` }
     });
-    return response.data.users;
+    return Array.isArray(response.data?.users) ? response.data.users : [];
   },
   
   getAllUsers: async (token: string) => {
     const response = await api.get('/auth/admin/users', {
       headers: { Authorization: `Bearer ${token}` }
     });
-    return response.data.users;
+    return Array.isArray(response.data?.users) ? response.data.users : [];
   },
   
   approveUser: async (token: string, userId: number) => {

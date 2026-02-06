@@ -136,6 +136,7 @@ function AppContent() {
         {activeTab === 'batches' && <BatchManager />}
         {activeTab === 'training' && <TrainingDataManager />}
         {activeTab === 'results' && <ResultsDashboard />}
+        {activeTab === 'admin' && <AdminDashboard />}
       </main>
     </div>
   );

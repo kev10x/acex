@@ -330,6 +330,12 @@ const AdminDashboard: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white shadow rounded-lg overflow-hidden">
+          {allUsers.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-lg">
+              <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">No users found</p>
+            </div>
+          ) : (
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -413,6 +419,7 @@ const AdminDashboard: React.FC = () => {
               ))}
             </tbody>
           </table>
+          )}
         </div>
       )}
     </div>

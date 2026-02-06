@@ -65,8 +65,9 @@ class EmailService {
   }
 
   async sendVerificationEmail(email, token, name) {
+    // Set CLIENT_URL in .env to your app URL (e.g. https://markmate.io/tools) so verification links are correct
     const baseUrl = process.env.CLIENT_URL || process.env.BASE_URL || 'http://localhost:3000';
-    const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
+    const verificationUrl = `${baseUrl.replace(/\/$/, '')}/verify-email?token=${token}`;
 
     const mailOptions = {
       from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
