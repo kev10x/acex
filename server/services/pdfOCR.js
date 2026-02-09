@@ -129,6 +129,7 @@ const extractTextFromPDF = async (filePath, options = {}) => {
       try {
         const visionText = await extractTextWithVisionAPI(filePath);
         if (visionText && visionText.trim().length > 0) {
+          console.log('✅ Vision OCR succeeded. Tip: For handwritten scripts, "Mark as image" (if available) lets the marker see the script directly for best accuracy.');
           return visionText;
         }
         // If Vision API returned empty text, fall through to error

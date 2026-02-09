@@ -425,7 +425,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 
     const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByTPM);
     const truncatedText = imageBased
-      ? `The submission is provided as ${assignmentImages.length} page image(s) below (in order). Assess the work from these images—including any handwritten or typed content—and apply the rubric. Return only the JSON.`
+      ? `The submission is provided as ${assignmentImages.length} page image(s) below (in order). Assess the work from these images—including any handwritten or typed content—and apply the rubric. Handwriting may be messy or partially legible; assess the content and ideas, and be fair about legibility. Return only the JSON.`
       : (assignmentText.length > maxAllowedChars
           ? assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]'
           : assignmentText);
