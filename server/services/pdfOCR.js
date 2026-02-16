@@ -233,21 +233,13 @@ const extractTextWithVisionAPI = async (filePath) => {
 
     console.log(`📸 Converting ${numPages} PDF page(s) to images for OCR...`);
 
-    // So that gm can find Ghostscript (e.g. under PM2 with minimal PATH)
+    // ImageMagick and Ghostscript need gs on PATH (e.g. under PM2 with minimal PATH)
     const gsDirVision = getGhostscriptDir();
     if (gsDirVision) {
       const pathPartsVision = (process.env.PATH || '').split(path.delimiter);
       if (!pathPartsVision.includes(gsDirVision)) {
         process.env.PATH = gsDirVision + path.delimiter + (process.env.PATH || '');
       }
-    }
-
-    // Resolve GraphicsMagick so conversion works when PATH is minimal (e.g. PM2)
-    const gmPath = getGraphicsMagickPath();
-    if (gmPath) {
-      console.log('✅ GraphicsMagick available at', gmPath);
-    } else {
-      console.warn('⚠️ GraphicsMagick not found (tried /bin/gm, /usr/bin/gm, /usr/local/bin/gm, PATH). Set GRAPHICSMAGICK_PATH if gm is installed.');
     }
 
     // Higher density (350) improves legibility for handwritten text
@@ -259,12 +251,11 @@ const extractTextWithVisionAPI = async (filePath) => {
       width: 2000,
       height: 2000
     });
-    if (gmPath) {
-      try {
-        convert.setGMClass(gmPath);
-      } catch (e) {
-        console.warn('Vision OCR: setGMClass failed', e.message);
-      }
+    try {
+      convert.setGMClass(true); // Use ImageMagick (magick/convert)
+      console.log('✅ Vision OCR: using ImageMagick');
+    } catch (e) {
+      console.warn('Vision OCR: setGMClass(true) failed', e.message);
     }
 
     // Process all pages and combine text
@@ -560,7 +551,7 @@ max_tokens: 4096
 /**
  * Convert PDF to an array of base64 image strings (one per page).
  * Used for "mark as image" so the AI can score from the visual document.
- * Requires ImageMagick/GraphicsMagick (same as Vision OCR).
+ * Requires ImageMagick and Ghostscript (same as Vision OCR).
  * @param {string} filePath - Path to the PDF file
  * @param {number} maxPages - Maximum number of pages to convert (default 15 for cost/size)
  * @returns {Promise<{ base64Images: string[], numPages: number }>}
@@ -574,7 +565,7 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   }
   const pdfData = await pdfParse(fs.readFileSync(filePath));
   const numPages = pdfData.numpages || 1;
-  // So that gm can find Ghostscript (gs) when it runs (e.g. under PM2 with minimal PATH)
+  // ImageMagick and Ghostscript need gs on PATH (e.g. under PM2 with minimal PATH)
   const gsDir = getGhostscriptDir();
   if (gsDir) {
     const pathParts = (process.env.PATH || '').split(path.delimiter);
@@ -593,17 +584,12 @@ async function getPdfPageImages(filePath, maxPages = 15) {
     width: 2000,
     height: 2000
   });
-  // Use explicit gm path so conversion works when PATH is minimal (e.g. PM2)
-  const gmPath = getGraphicsMagickPath();
-  if (gmPath) {
-    try {
-      convert.setGMClass(gmPath);
-      console.log('PDF→image: using GraphicsMagick at', gmPath);
-    } catch (e) {
-      console.warn('PDF→image: setGMClass failed', e.message);
-    }
-  } else {
-    console.warn('PDF→image: GraphicsMagick not found. Set GRAPHICSMAGICK_PATH to /usr/bin/gm if gm is installed.');
+  // Use ImageMagick (magick/convert) for PDF→image; allow PDF in policy.xml if conversion fails
+  try {
+    convert.setGMClass(true);
+    console.log('PDF→image: using ImageMagick (magick/convert)');
+  } catch (e) {
+    console.warn('PDF→image: setGMClass(true) failed', e.message);
   }
   let base64Images = [];
   let lastError = null;
@@ -651,43 +637,7 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   }
   if (base64Images.length === 0 && lastError) {
     console.error('PDF→image: no images produced. Last error:', lastError.message || lastError, lastError.stack || '');
-  }
-  // Fallback: try ImageMagick if GraphicsMagick failed (e.g. "no decode delegate" for PDF)
-  if (base64Images.length === 0) {
-    try {
-      convert.setGMClass(true); // use ImageMagick
-      console.log('PDF→image: retrying with ImageMagick (magick/convert)');
-      base64Images = [];
-      lastError = null;
-      for (let pageNum = 1; pageNum <= toProcess; pageNum++) {
-        const result = await convert(pageNum, { responseType: 'buffer' }).catch((e) => {
-          lastError = e;
-          return null;
-        }) || await convert(pageNum).catch((e) => {
-          lastError = e;
-          return null;
-        });
-        let buffer = null;
-        if (Buffer.isBuffer(result)) buffer = result;
-        else if (result && typeof result === 'object') {
-          if (result.buffer && Buffer.isBuffer(result.buffer)) buffer = result.buffer;
-          else if (result.path || result.name || result.filePath) {
-            const p = result.path || result.name || result.filePath;
-            const fullPath = path.isAbsolute(p) ? p : path.join(tempDir, p);
-            if (fs.existsSync(fullPath)) {
-              buffer = fs.readFileSync(fullPath);
-              try { fs.unlinkSync(fullPath); } catch (_) {}
-            }
-          }
-        }
-        if (buffer && buffer.length > 0) base64Images.push(buffer.toString('base64'));
-      }
-      if (base64Images.length > 0) {
-        console.log('PDF→image: ImageMagick fallback succeeded,', base64Images.length, 'page(s)');
-      }
-    } catch (e) {
-      lastError = lastError || e;
-    }
+    console.error('PDF→image: If ImageMagick reports "not authorized" for PDF, edit policy.xml to allow PDF: see docs/PDF-TO-IMAGE-TROUBLESHOOTING.md');
   }
   return { base64Images, numPages, lastError: lastError ? (lastError.message || String(lastError)) : null };
 }

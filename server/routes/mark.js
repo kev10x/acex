@@ -1530,7 +1530,7 @@ router.post('/single', requireAuth, async (req, res) => {
           }
           const detail = lastError ? ` ${lastError}` : '';
           throw new Error(
-            'Could not convert PDF to images. Set GRAPHICSMAGICK_PATH and GHOSTSCRIPT_PATH in .env (e.g. /usr/bin/gm and /usr/bin/gs), or use ImageMagick and allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
+            'Could not convert PDF to images. Install ImageMagick and Ghostscript (e.g. apt install imagemagick ghostscript), then allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
           );
         }
         assignmentImages = base64Images;
@@ -2024,7 +2024,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
               }
               const detail = lastError ? ` ${lastError}` : '';
               throw new Error(
-                'Could not convert PDF to images. Set GRAPHICSMAGICK_PATH and GHOSTSCRIPT_PATH in .env (e.g. /usr/bin/gm and /usr/bin/gs), or use ImageMagick and allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
+                'Could not convert PDF to images. Install ImageMagick and Ghostscript (e.g. apt install imagemagick ghostscript), then allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
               );
             }
             assignmentImages = base64Images;
