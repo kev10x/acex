@@ -56,6 +56,40 @@ function getGhostscriptDir() {
 }
 
 /**
+ * Resolve directory containing ImageMagick "convert" (or full path to convert).
+ * Used so pdf2pic can find convert when PATH is minimal (e.g. PM2).
+ * @returns {{ dir: string, convertPath: string } | null} Dir for PATH and full path to convert, or null
+ */
+function getImageMagickDir() {
+  const explicit = process.env.IMAGEMAGICK_PATH;
+  if (explicit) {
+    const dir = explicit.replace(/\/$/, '');
+    const toTry = [path.join(dir, 'convert'), explicit];
+    for (const convertPath of toTry) {
+      try {
+        const r = spawnSync(convertPath, ['-version'], { encoding: 'utf8', timeout: 3000 });
+        if (r.status === 0) {
+          const dir = path.dirname(convertPath) + path.sep;
+          return { dir, convertPath };
+        }
+      } catch (_) {}
+    }
+  }
+  const candidates = ['/usr/bin/convert', '/usr/local/bin/convert', '/bin/convert'];
+  for (const convertPath of candidates) {
+    try {
+      const r = spawnSync(convertPath, ['-version'], { encoding: 'utf8', timeout: 3000 });
+      if (r.status === 0) return { dir: path.dirname(convertPath) + path.sep, convertPath };
+    } catch (_) {}
+  }
+  try {
+    const r = spawnSync('convert', ['-version'], { shell: true, encoding: 'utf8', timeout: 3000 });
+    if (r.status === 0) return { dir: '', convertPath: 'convert' };
+  } catch (_) {}
+  return null;
+}
+
+/**
  * Enhanced PDF text extraction with OCR fallback for handwritten/scanned content
  * This service attempts regular text extraction first, then falls back to OCR if needed
  */
@@ -233,13 +267,15 @@ const extractTextWithVisionAPI = async (filePath) => {
 
     console.log(`📸 Converting ${numPages} PDF page(s) to images for OCR...`);
 
-    // ImageMagick and Ghostscript need gs on PATH (e.g. under PM2 with minimal PATH)
+    // ImageMagick and Ghostscript need gs and convert on PATH (e.g. under PM2 with minimal PATH)
     const gsDirVision = getGhostscriptDir();
-    if (gsDirVision) {
-      const pathPartsVision = (process.env.PATH || '').split(path.delimiter);
-      if (!pathPartsVision.includes(gsDirVision)) {
-        process.env.PATH = gsDirVision + path.delimiter + (process.env.PATH || '');
-      }
+    const imInfoVision = getImageMagickDir();
+    const pathPartsVision = (process.env.PATH || '').split(path.delimiter);
+    if (gsDirVision && !pathPartsVision.includes(gsDirVision)) {
+      process.env.PATH = gsDirVision + path.delimiter + (process.env.PATH || '');
+    }
+    if (imInfoVision && imInfoVision.dir && !pathPartsVision.includes(imInfoVision.dir.replace(/\/$/, ''))) {
+      process.env.PATH = imInfoVision.dir.replace(/\/$/, '') + path.delimiter + (process.env.PATH || '');
     }
 
     // Higher density (350) improves legibility for handwritten text
@@ -565,16 +601,28 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   }
   const pdfData = await pdfParse(fs.readFileSync(filePath));
   const numPages = pdfData.numpages || 1;
-  // ImageMagick and Ghostscript need gs on PATH (e.g. under PM2 with minimal PATH)
+  // Prepend Ghostscript and ImageMagick dirs to PATH (PM2/Virtualmin often have minimal PATH)
   const gsDir = getGhostscriptDir();
-  if (gsDir) {
-    const pathParts = (process.env.PATH || '').split(path.delimiter);
-    if (!pathParts.includes(gsDir)) {
-      process.env.PATH = gsDir + path.delimiter + (process.env.PATH || '');
-    }
-    console.log('PDF→image: PATH includes gs dir:', gsDir, '| file:', filePath);
-  } else {
-    console.warn('PDF→image: Ghostscript (gs) not found. Set GHOSTSCRIPT_PATH to e.g. /usr/bin/gs');
+  const imInfo = getImageMagickDir();
+  const pathParts = (process.env.PATH || '').split(path.delimiter);
+  if (gsDir && !pathParts.includes(gsDir)) {
+    process.env.PATH = gsDir + path.delimiter + (process.env.PATH || '');
+    console.log('PDF→image: PATH includes gs dir:', gsDir);
+  }
+  if (imInfo && imInfo.dir && !pathParts.includes(imInfo.dir.replace(/\/$/, ''))) {
+    process.env.PATH = imInfo.dir.replace(/\/$/, '') + path.delimiter + (process.env.PATH || '');
+    console.log('PDF→image: PATH includes ImageMagick dir:', imInfo.dir.replace(/\/$/, ''));
+  }
+  // Pre-flight: fail fast with a clear message if convert or gs are missing
+  if (!gsDir) {
+    const msg = 'Ghostscript (gs) not found. Install ghostscript and set GHOSTSCRIPT_PATH (e.g. /usr/bin/gs) in .env.';
+    console.error('PDF→image:', msg);
+    return { base64Images: [], numPages, lastError: msg };
+  }
+  if (!imInfo) {
+    const msg = 'ImageMagick (convert) not found. Install imagemagick and set IMAGEMAGICK_PATH to the directory containing convert (e.g. /usr/bin) in .env.';
+    console.error('PDF→image:', msg);
+    return { base64Images: [], numPages, lastError: msg };
   }
   const convert = fromPath(filePath, {
     density: 350,
@@ -584,10 +632,10 @@ async function getPdfPageImages(filePath, maxPages = 15) {
     width: 2000,
     height: 2000
   });
-  // Use ImageMagick (magick/convert) for PDF→image; allow PDF in policy.xml if conversion fails
+  // Use ImageMagick (convert). PATH already includes gs and convert dirs from above.
   try {
     convert.setGMClass(true);
-    console.log('PDF→image: using ImageMagick (magick/convert)');
+    console.log('PDF→image: using ImageMagick (convert)', imInfo.convertPath !== 'convert' ? `at ${imInfo.convertPath}` : 'from PATH');
   } catch (e) {
     console.warn('PDF→image: setGMClass(true) failed', e.message);
   }
@@ -635,11 +683,21 @@ async function getPdfPageImages(filePath, maxPages = 15) {
       console.error('PDF→image: page', pageNum, 'error:', err.message, err.stack || '');
     }
   }
-  if (base64Images.length === 0 && lastError) {
-    console.error('PDF→image: no images produced. Last error:', lastError.message || lastError, lastError.stack || '');
+  const errStr = lastError ? (lastError.message || String(lastError)) : null;
+  if (base64Images.length === 0) {
+    if (lastError) {
+      console.error('PDF→image: no images produced. Last error:', lastError.message || lastError, lastError.stack || '');
+    } else {
+      console.error('PDF→image: no images produced and no error was captured. ImageMagick may have failed silently (check policy.xml allows PDF).');
+    }
     console.error('PDF→image: If ImageMagick reports "not authorized" for PDF, edit policy.xml to allow PDF: see docs/PDF-TO-IMAGE-TROUBLESHOOTING.md');
   }
-  return { base64Images, numPages, lastError: lastError ? (lastError.message || String(lastError)) : null };
+  // When we have no images but no captured error, still return a hint so the user sees something useful
+  const finalError = base64Images.length === 0
+    ? (errStr || 'Conversion produced no images. Check policy.xml allows PDF and PM2 logs for PDF→image messages.')
+    : null;
+  console.log('PDF→image: returning', base64Images.length, 'images, lastError:', finalError ? finalError.substring(0, 120) : 'none');
+  return { base64Images, numPages, lastError: finalError };
 }
 
 module.exports = {

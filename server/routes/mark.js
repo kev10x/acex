@@ -1528,13 +1528,13 @@ router.post('/single', requireAuth, async (req, res) => {
           if (lastError) {
             console.error('Mark-as-image conversion failed. Detail:', lastError);
           }
-          const detail = lastError ? ` ${lastError}` : '';
+          const detail = lastError ? ` ${lastError}` : ' Check PM2 logs for "PDF→image" or "Mark-as-image" for the real error.';
           throw new Error(
             'Could not convert PDF to images. Install ImageMagick and Ghostscript (e.g. apt install imagemagick ghostscript), then allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
           );
         }
         assignmentImages = base64Images;
-          } else {
+      } else {
         assignmentText = await extractTextFromPDF(assignment.file_path);
         if (!assignmentText || assignmentText.trim().length === 0) {
           throw new Error('No text could be extracted from the PDF');
@@ -2022,7 +2022,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
               if (lastError) {
                 console.error('Mark-as-image conversion failed. Detail:', lastError);
               }
-              const detail = lastError ? ` ${lastError}` : '';
+              const detail = lastError ? ` ${lastError}` : ' Check PM2 logs for "PDF→image" or "Mark-as-image" for the real error.';
               throw new Error(
                 'Could not convert PDF to images. Install ImageMagick and Ghostscript (e.g. apt install imagemagick ghostscript), then allow PDF in policy.xml. See docs/PDF-TO-IMAGE-TROUBLESHOOTING.md.' + detail
               );
