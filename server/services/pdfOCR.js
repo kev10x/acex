@@ -388,7 +388,7 @@ const extractTextWithVisionAPI = async (filePath) => {
           
           try {
             const response = await openai.chat.completions.create({
-              model: 'gpt-4o',
+              model: 'gpt-5.2',
               messages: [
                 {
                   role: 'user',
@@ -461,7 +461,7 @@ max_tokens: 4096
         let response;
         try {
           response = await openai.chat.completions.create({
-            model: 'gpt-4o',
+            model: 'gpt-5.2',
             messages: [
               {
                 role: 'user',

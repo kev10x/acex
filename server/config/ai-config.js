@@ -22,14 +22,14 @@ module.exports = {
     default: 10000         // Default limit (approximately 2,500 tokens)
   },
 
-  // OpenAI API settings
+  // OpenAI API settings (GPT-5.2 / GPT-5 mini; fallback to gpt-4o if your account lacks GPT-5)
   openai: {
     models: {
-      treatise: "gpt-4o",             // Better for large documents and complex JSON
-      assignment: "gpt-4o-mini",      // Keep mini for smaller assignments
-      question_paper: "gpt-4o",       // Need detailed marking for question papers
-      memo: "gpt-4o",                 // Need detailed analysis for memo-based marking
-      default: "gpt-4o-mini"
+      treatise: "gpt-5.2",           // Flagship for large documents and complex JSON
+      assignment: "gpt-5-mini",      // Faster, cost-efficient for smaller assignments
+      question_paper: "gpt-5.2",     // Detailed marking for question papers
+      memo: "gpt-5.2",               // Detailed analysis for memo-based marking
+      default: "gpt-5-mini"
     },
     
     // Token limits for different document types
@@ -93,11 +93,11 @@ module.exports = {
     }
   },
 
-  // Cost estimation (pricing as of 2024)
+  // Cost estimation (pricing as of 2025; GPT-5.2 is higher than GPT-4o)
   pricing: {
     openai: {
-      promptTokens: 0.005,      // $0.005 per 1K prompt tokens (GPT-4o)
-      completionTokens: 0.015   // $0.015 per 1K completion tokens (GPT-4o)
+      promptTokens: 0.00175,   // $1.75 per 1M input (GPT-5.2)
+      completionTokens: 0.014  // $14 per 1M output (GPT-5.2)
     },
     anthropic: {
       promptTokens: 0.003,      // $0.003 per 1K prompt tokens (Claude 3.5 Sonnet)

@@ -276,7 +276,7 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('assignment', 'openai');
     const completion = await aiService.createCompletionWithRetry({
       provider: 'openai',
-      model: 'gpt-4o-mini', // Use mini for detection
+      model: 'gpt-5-mini', // Use mini for detection
       messages: [
         { 
           role: "system", 

@@ -84,9 +84,8 @@ class AIService {
       user
     };
 
-    // Add seed for reproducibility (OpenAI GPT-4 and newer models support this)
-    // Seed ensures more deterministic outputs for consistency
-    if (seed !== null && (model.includes('gpt-4') || model.includes('gpt-3.5'))) {
+    // Add seed for reproducibility (OpenAI GPT-4, GPT-5 and newer models support this)
+    if (seed !== null && (model.includes('gpt-4') || model.includes('gpt-5') || model.includes('gpt-3.5'))) {
       completionParams.seed = seed;
     }
 

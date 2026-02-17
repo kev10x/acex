@@ -190,7 +190,7 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('default');
     const aiResult = await aiService.createCompletionWithRetry({
       provider: config.provider,
-      model: config.provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-haiku-20240307',
+      model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
       maxTokens: 200
@@ -240,7 +240,7 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('default');
     const aiResult = await aiService.createCompletionWithRetry({
       provider: config.provider,
-      model: config.provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-haiku-20240307',
+      model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
       maxTokens: 150
@@ -361,9 +361,9 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     } else {
       console.log('Assignment page images:', assignmentImages.length);
     }
-    // Use vision-capable model when marking from images
+    // Use vision-capable model when marking from images (GPT-5.2 supports image input)
     const modelToUse = imageBased
-      ? (selectedProvider === 'openai' ? 'gpt-4o' : 'claude-3-haiku-20240307')
+      ? (selectedProvider === 'openai' ? 'gpt-5.2' : 'claude-3-haiku-20240307')
       : config.model;
     console.log('Using model:', modelToUse);
     console.log('Max tokens:', config.maxTokens);
