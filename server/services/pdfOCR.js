@@ -639,6 +639,28 @@ async function getPdfPageImages(filePath, maxPages = 15) {
   } catch (e) {
     console.warn('PDF→image: setGMClass(true) failed', e.message);
   }
+  // Read file at fullPath when it appears and has size (retry to avoid race with convert finishing write)
+  const readFileWhenReady = (fullPath, maxAttempts = 10, ms = 80) => {
+    return new Promise((resolve) => {
+      let attempts = 0;
+      const tryRead = () => {
+        try {
+          if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            if (buf && buf.length > 0) {
+              try { fs.unlinkSync(fullPath); } catch (_) {}
+              return resolve(buf);
+            }
+          }
+        } catch (_) {}
+        attempts++;
+        if (attempts >= maxAttempts) return resolve(null);
+        setTimeout(tryRead, ms);
+      };
+      tryRead();
+    });
+  };
+
   let base64Images = [];
   let lastError = null;
   const toProcess = Math.min(numPages, maxPages);
@@ -663,17 +685,11 @@ async function getPdfPageImages(filePath, maxPages = 15) {
         else if (result.path || result.name || result.filePath) {
           const p = result.path || result.name || result.filePath;
           const fullPath = path.isAbsolute(p) ? p : path.join(tempDir, p);
-          if (fs.existsSync(fullPath)) {
-            buffer = fs.readFileSync(fullPath);
-            try { fs.unlinkSync(fullPath); } catch (_) {}
-          }
+          buffer = await readFileWhenReady(fullPath);
         }
       } else if (typeof result === 'string') {
         const fullPath = path.isAbsolute(result) ? result : path.join(tempDir, result);
-        if (fs.existsSync(fullPath)) {
-          buffer = fs.readFileSync(fullPath);
-          try { fs.unlinkSync(fullPath); } catch (_) {}
-        }
+        buffer = await readFileWhenReady(fullPath);
       }
       if (buffer && buffer.length > 0) {
         base64Images.push(buffer.toString('base64'));
