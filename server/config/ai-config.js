@@ -33,14 +33,14 @@ module.exports = {
     },
     
     // Token limits for different document types
-    // Increased significantly to allow for extensive, detailed feedback
+    // Allow enough output for full JSON (scores, feedback, corrections, language_errors)
     maxTokens: {
-      treatise: 16000,     // Extensive detailed feedback for treatises (increased for comprehensive feedback)
-      assignment: 8000,    // Comprehensive feedback for assignments (doubled for detailed feedback)
-      report: 10000,       // Extensive feedback for reports (increased for detailed feedback)
-      question_paper: 12000, // Detailed marking with extensive feedback for question papers
-      memo: 8000,          // Comprehensive feedback when using memo as rubric
-      default: 6000        // Detailed feedback (doubled from basic)
+      treatise: 16000,     // Extensive detailed feedback for treatises
+      assignment: 12000,   // Comprehensive feedback for assignments (increased to avoid truncation)
+      report: 12000,       // Extensive feedback for reports
+      question_paper: 14000, // Detailed marking with extensive feedback for question papers
+      memo: 12000,         // Comprehensive feedback when using memo as rubric
+      default: 10000       // Detailed feedback default
     },
     
     // Temperature settings for different evaluation types

@@ -419,7 +419,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     // OpenAI: ~30K TPM, Anthropic: ~100K TPM (more lenient)
     const tpmLimit = selectedProvider === 'anthropic' ? 100000 : 30000;
     // Reserve room for completion tokens and system overhead (~1000 tokens)
-    const requestMaxTokens = Math.min(config.maxTokens, selectedProvider === 'anthropic' ? 16000 : 6000);
+    const requestMaxTokens = Math.min(config.maxTokens, 16000);
     const promptBudgetTokens = Math.max(1000, tpmLimit - requestMaxTokens - 1000);
     const maxPromptCharsByTPM = promptBudgetTokens * 4;
 
@@ -1142,10 +1142,15 @@ JSON format (return ONLY this, no other text):
     }, 5); // Increased retries for marking operations
 
     console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
-    const response = result.content;
-    console.log('Response length:', response?.length || 0);
-    console.log('Response preview:', response?.substring(0, 200) + '...');
-    
+    const response = (result.content != null ? String(result.content) : '');
+    console.log('Response length:', response.length);
+    console.log('Response preview:', response.substring(0, 200) + (response.length > 200 ? '...' : ''));
+
+    if (!response || response.trim().length === 0) {
+      console.error('Empty AI response. finish_reason or content_filter may have truncated output.');
+      throw new Error('The AI returned an empty response. This can happen with content filters, rate limits, or token limits. Please try again or use a shorter submission.');
+    }
+
     // Log token usage
     if (result.usage) {
       console.log('🔢 Token Usage:');
@@ -1163,6 +1168,9 @@ JSON format (return ONLY this, no other text):
     try {
       // Clean up response - remove markdown code blocks if present
       let cleanResponse = response.trim();
+      if (!cleanResponse) {
+        throw new Error('Response was empty after trimming');
+      }
       
       // Remove markdown code blocks (handle both single-line and multi-line)
       // Match ```json ... ``` or ``` ... ```
