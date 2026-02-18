@@ -278,14 +278,15 @@ const extractTextWithVisionAPI = async (filePath) => {
       process.env.PATH = imInfoVision.dir.replace(/\/$/, '') + path.delimiter + (process.env.PATH || '');
     }
 
-    // Higher density (350) improves legibility for handwritten text
+    // Density 200 and 1400px keep legibility while speeding conversion and reducing size (was 350 / 2000)
     const convert = fromPath(filePath, {
-      density: 350,
+      density: 200,
       saveFilename: 'ocr_temp',
       savePath: tempDir,
-      format: 'png',
-      width: 2000,
-      height: 2000
+      format: 'jpeg',
+      quality: 88,
+      width: 1400,
+      height: 1400
     });
     try {
       convert.setGMClass(true); // Use ImageMagick (magick/convert)
@@ -625,12 +626,13 @@ async function getPdfPageImages(filePath, maxPages = 15) {
     return { base64Images: [], numPages, lastError: msg };
   }
   const convert = fromPath(filePath, {
-    density: 350,
+    density: 200,
     saveFilename: 'mark_img_temp',
     savePath: tempDir,
-    format: 'png',
-    width: 2000,
-    height: 2000
+    format: 'jpeg',
+    quality: 88,
+    width: 1400,
+    height: 1400
   });
   // Use ImageMagick (convert). PATH already includes gs and convert dirs from above.
   try {
