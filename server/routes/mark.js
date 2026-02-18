@@ -1027,6 +1027,7 @@ IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how
 - Unclear or incomplete submissions
 
 Lower confidence (< 70) indicates the assessment may need human review.
+${imageBased ? '\n\nFor submissions provided as images (handwritten): You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON: how confident you are that you correctly read the handwritten content across all pages. 100 = fully legible, easy to read; 50 = partially legible, some guesswork; 0 = largely unreadable. This helps flag work that may need human review for reading accuracy.' : ''}
 
 ${correctionsInstructions}
 
@@ -1115,7 +1116,7 @@ JSON format (return ONLY this, no other text):
   ],
   "overall_feedback": "EXTENSIVE, COMPREHENSIVE feedback (minimum 200-300 words, more for complex work) written as if you are a real teacher speaking directly to the student. Use 'you' and 'your' throughout. This is the PRIMARY focus - be THOROUGH and DETAILED. Structure: (1) Opening: Begin with overall assessment and key strengths (2-3 sentences), (2) Strengths Section: Identify and praise 3-5 key strengths with SPECIFIC EXAMPLES from the work - quote or reference specific parts (4-6 sentences), (3) Areas for Improvement: Identify 3-5 main areas needing work with SPECIFIC EXAMPLES and detailed explanations of WHY each matters (6-8 sentences), (4) Actionable Next Steps: Provide specific, concrete steps the student can take to improve (3-4 sentences), (5) Connections: Link different aspects of the work together and connect to broader learning objectives (2-3 sentences), (6) Encouragement: End with motivational, supportive closing that encourages continued learning (2-3 sentences). Include specific quotes or references from the student's work throughout. Write in a natural, human, conversational tone - avoid robotic or overly formal language. Prioritize depth, detail, and comprehensiveness.",
   "total_score": number,
-  "overall_confidence": number (0-100, representing your overall confidence in the entire assessment)
+  "overall_confidence": number (0-100, representing your overall confidence in the entire assessment)${imageBased ? ',\n  "handwriting_recognition_confidence": number (0-100, REQUIRED for image/handwritten submissions: how confident you are that you correctly read the handwriting; 100 = fully legible, 0 = largely unreadable)' : ''}
 }`;
 
     console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
@@ -1236,6 +1237,16 @@ JSON format (return ONLY this, no other text):
         : markingResult.overall_confidence >= 60 
         ? 'medium' 
         : 'low';
+
+      // Handwriting recognition confidence (only for image-based / handwritten submissions)
+      if (imageBased) {
+        const raw = markingResult.handwriting_recognition_confidence;
+        markingResult.handwriting_recognition_confidence = typeof raw === 'number' && !Number.isNaN(raw)
+          ? Math.max(0, Math.min(100, Math.round(raw)))
+          : null;
+      } else {
+        markingResult.handwriting_recognition_confidence = null;
+      }
       
       // Calculate minimum criterion confidence for additional flagging
       const minConfidence = Math.min(...markingResult.scores.map(s => s.confidence || 80));
@@ -1587,7 +1598,7 @@ router.post('/single', requireAuth, async (req, res) => {
 
       // Save marking result to database with version info
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -1601,6 +1612,7 @@ router.post('/single', requireAuth, async (req, res) => {
           provider || null,
           markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
           markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null,
+          markingResult.handwriting_recognition_confidence != null ? markingResult.handwriting_recognition_confidence : null,
           req.user.id
         ]
       );
@@ -1625,6 +1637,7 @@ router.post('/single', requireAuth, async (req, res) => {
         needs_review: markingResult.needs_review,
         min_criterion_confidence: markingResult.min_criterion_confidence,
         has_low_criterion_confidence: markingResult.has_low_criterion_confidence,
+        handwriting_recognition_confidence: markingResult.handwriting_recognition_confidence ?? null,
         corrections: markingResult.corrections || []
       };
 
@@ -2074,7 +2087,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
 
           // Save marking result to database with version info
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -2088,6 +2101,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
               provider || null,
               markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
               markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null,
+              markingResult.handwriting_recognition_confidence != null ? markingResult.handwriting_recognition_confidence : null,
               req.user.id
             ]
           );
@@ -2112,6 +2126,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
             needs_review: markingResult.needs_review,
             min_criterion_confidence: markingResult.min_criterion_confidence,
             has_low_criterion_confidence: markingResult.has_low_criterion_confidence,
+            handwriting_recognition_confidence: markingResult.handwriting_recognition_confidence ?? null,
             corrections: markingResult.corrections || []
           };
 

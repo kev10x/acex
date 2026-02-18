@@ -104,8 +104,8 @@ Important:
           ]
         }
       ],
-      max_tokens: 1000,
-      temperature: 0.1
+      max_completion_tokens: 1000,
+      temperature: 1
     });
 
     // Clean up temp image

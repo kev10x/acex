@@ -443,7 +443,8 @@ const extractTextWithVisionAPI = async (filePath) => {
                   ]
                 }
               ],
-              max_completion_tokens: 4096
+              max_completion_tokens: 4096,
+              temperature: 1
             });
 
             const pageText = response?.choices?.[0]?.message?.content;
@@ -516,7 +517,8 @@ const extractTextWithVisionAPI = async (filePath) => {
                 ]
               }
             ],
-            max_completion_tokens: 4096
+            max_completion_tokens: 4096,
+            temperature: 1
           });
         } catch (apiError) {
           console.error(`❌ Vision API error for page ${pageNum}:`, apiError.message);

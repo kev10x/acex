@@ -132,6 +132,7 @@ export interface MarkingResult {
   needs_review?: boolean; // Flag indicating if human review is recommended
   min_criterion_confidence?: number; // Minimum confidence across all criteria
   has_low_criterion_confidence?: boolean; // Flag if any criterion has low confidence
+  handwriting_recognition_confidence?: number | null; // 0-100 for handwritten/image submissions: how legible the handwriting was
   corrections?: Correction[]; // Array of corrections and suggestions with location information
   language_errors?: LanguageError[]; // Array of grammar, spelling, and reference errors
 }

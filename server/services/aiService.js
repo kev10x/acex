@@ -76,10 +76,13 @@ class AIService {
       throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
     }
 
+    // Some models (e.g. GPT-5.x) only support temperature = 1; omit or use 1 to avoid API error
+    const safeTemperature = /gpt-5/i.test(model) ? 1 : temperature;
+
     const completionParams = {
       model,
       messages,
-      temperature,
+      temperature: safeTemperature,
       max_completion_tokens: maxTokens,
       user
     };

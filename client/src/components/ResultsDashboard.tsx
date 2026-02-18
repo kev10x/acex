@@ -825,19 +825,26 @@ const ResultsDashboard: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {result.overall_confidence !== undefined ? (
-                            <div className="flex items-center space-x-2">
-                              <span
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getConfidenceColor(
-                                  result.overall_confidence
-                                )}`}
-                                title={`Confidence: ${result.overall_confidence}%`}
-                              >
-                                <Shield className="w-3 h-3 mr-1" />
-                                {result.overall_confidence}%
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                ({getConfidenceLabel(result.overall_confidence)})
-                              </span>
+                            <div className="flex flex-col space-y-0.5">
+                              <div className="flex items-center space-x-2">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getConfidenceColor(
+                                    result.overall_confidence
+                                  )}`}
+                                  title={`Confidence: ${result.overall_confidence}%`}
+                                >
+                                  <Shield className="w-3 h-3 mr-1" />
+                                  {result.overall_confidence}%
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  ({getConfidenceLabel(result.overall_confidence)})
+                                </span>
+                              </div>
+                              {result.handwriting_recognition_confidence != null && (
+                                <span className="text-xs text-gray-500" title="Handwriting recognition confidence">
+                                  Handwriting: {result.handwriting_recognition_confidence}%
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <span className="text-xs text-gray-400">N/A</span>
@@ -1057,6 +1064,31 @@ const ResultsDashboard: React.FC = () => {
                         Minimum criterion confidence: {selectedResult.min_criterion_confidence}%
                       </p>
                     )}
+                  </div>
+                )}
+
+                {selectedResult.handwriting_recognition_confidence != null && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Handwriting recognition</h4>
+                    <div className="flex items-center space-x-3">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-600">How legible the handwritten submission was</span>
+                          <span className={`text-sm font-medium ${getConfidenceColor(selectedResult.handwriting_recognition_confidence).split(' ')[0]}`}>
+                            {selectedResult.handwriting_recognition_confidence}% ({getConfidenceLabel(selectedResult.handwriting_recognition_confidence)})
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${
+                              selectedResult.handwriting_recognition_confidence >= 80 ? 'bg-green-500' :
+                              selectedResult.handwriting_recognition_confidence >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                            }`}
+                            style={{ width: `${selectedResult.handwriting_recognition_confidence}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 

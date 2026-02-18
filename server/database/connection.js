@@ -338,6 +338,18 @@ const initDatabase = async () => {
         if ((markingResultsUserIdCheck.rows?.[0]?.count || markingResultsUserIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN user_id INT`);
         }
+
+        const handwritingConfCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'marking_results' 
+          AND column_name = 'handwriting_recognition_confidence'
+        `);
+        if ((handwritingConfCheck.rows?.[0]?.count || handwritingConfCheck?.[0]?.count || 0) === 0) {
+          console.log('Adding handwriting_recognition_confidence column to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN handwriting_recognition_confidence INT DEFAULT NULL`);
+        }
         
         const accountTypeCheck = await query(`
           SELECT COUNT(*) as count 
@@ -667,6 +679,17 @@ const initDatabase = async () => {
         `);
         if ((markingResultsUserIdCheck.rows?.[0]?.count || markingResultsUserIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+        }
+
+        const handwritingConfCheckPg = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'marking_results' 
+          AND column_name = 'handwriting_recognition_confidence'
+        `);
+        if ((handwritingConfCheckPg.rows?.[0]?.count || handwritingConfCheckPg?.[0]?.count || 0) === 0) {
+          console.log('Adding handwriting_recognition_confidence column to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN handwriting_recognition_confidence INTEGER DEFAULT NULL`);
         }
         
         const accountTypeCheck = await query(`
