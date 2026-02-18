@@ -1185,11 +1185,27 @@ JSON format (return ONLY this, no other text):
       
       // Remove any leading/trailing whitespace
       cleanResponse = cleanResponse.trim();
-      
+
+      // Fix malformed JSON: some models output \" for value delimiters instead of "
+      // e.g. "error_text": \"The Dire...\" instead of "error_text": "The Dire..."
+      cleanResponse = cleanResponse.replace(/":\s*\\"/g, '": "');
+      cleanResponse = cleanResponse.replace(/\\"(\s*[,}\]])/g, '"$1');
+
       // Log the cleaned response for debugging (first 500 chars)
       console.log('📄 Cleaned response preview:', cleanResponse.substring(0, 500));
-      
-      const markingResult = JSON.parse(cleanResponse);
+
+      let markingResult;
+      try {
+        markingResult = JSON.parse(cleanResponse);
+      } catch (firstParseError) {
+        // If still invalid, try stripping any remaining stray backslashes before quotes (risky but last resort)
+        const repaired = cleanResponse.replace(/([^\\])\\"([^"\\]|$)/g, (_, before, after) => before + '"' + after);
+        try {
+          markingResult = JSON.parse(repaired);
+        } catch (_) {
+          throw firstParseError;
+        }
+      }
       
       // Validate the response structure
       if (!markingResult.scores || !Array.isArray(markingResult.scores)) {
