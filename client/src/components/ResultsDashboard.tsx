@@ -4,6 +4,20 @@ import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../se
 
 type GroupByOption = 'none' | 'rubric' | 'date';
 
+const USD_TO_ZAR = 18.5;
+
+function formatTokens(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatCostUsdToZar(usd: number | null | undefined): string {
+  if (usd == null || !Number.isFinite(usd)) return '—';
+  const zar = usd * USD_TO_ZAR;
+  return `R ${zar < 1 ? zar.toFixed(2) : zar.toFixed(2)}`;
+}
+
 const ResultsDashboard: React.FC = () => {
   const [allResults, setAllResults] = useState<MarkingResult[]>([]);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
@@ -757,6 +771,9 @@ const ResultsDashboard: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Confidence
                       </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Tokens / Cost
+                      </th>
                       {groupBy !== 'date' && (
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Marked At
@@ -824,31 +841,47 @@ const ResultsDashboard: React.FC = () => {
                           })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {result.overall_confidence !== undefined ? (
-                            <div className="flex flex-col space-y-0.5">
-                              <div className="flex items-center space-x-2">
-                                <span
-                                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getConfidenceColor(
-                                    result.overall_confidence
-                                  )}`}
-                                  title={`Confidence: ${result.overall_confidence}%`}
-                                >
-                                  <Shield className="w-3 h-3 mr-1" />
-                                  {result.overall_confidence}%
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  ({getConfidenceLabel(result.overall_confidence)})
-                                </span>
-                              </div>
-                              {result.handwriting_recognition_confidence != null && (
-                                <span className="text-xs text-gray-500" title="Handwriting recognition confidence">
-                                  Handwriting: {result.handwriting_recognition_confidence}%
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-400">N/A</span>
-                          )}
+                          <div className="flex flex-col space-y-0.5">
+                            {result.overall_confidence !== undefined ? (
+                              <>
+                                <div className="flex items-center space-x-2">
+                                  <span
+                                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getConfidenceColor(
+                                      result.overall_confidence
+                                    )}`}
+                                    title={`Confidence: ${result.overall_confidence}%`}
+                                  >
+                                    <Shield className="w-3 h-3 mr-1" />
+                                    {result.overall_confidence}%
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    ({getConfidenceLabel(result.overall_confidence)})
+                                  </span>
+                                </div>
+                                {result.handwriting_recognition_confidence != null && (
+                                  <span className="text-xs text-gray-500" title="Handwriting recognition confidence">
+                                    Handwriting: {result.handwriting_recognition_confidence}%
+                                  </span>
+                                )}
+                              </>
+                            ) : result.handwriting_recognition_confidence != null ? (
+                              <span className="text-xs text-gray-600" title="Handwriting recognition confidence">
+                                Handwriting: {result.handwriting_recognition_confidence}%
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">N/A</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          <div className="flex flex-col">
+                            <span className="text-xs">
+                              {formatTokens(result.total_tokens)} tokens
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {formatCostUsdToZar(result.estimated_cost_usd)}
+                            </span>
+                          </div>
                         </td>
                         {groupBy !== 'date' && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -1092,12 +1125,34 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 )}
 
+                {(selectedResult.prompt_tokens != null || selectedResult.estimated_cost_usd != null) && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Token usage & cost</h4>
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                      {selectedResult.total_tokens != null && (
+                        <span>{formatTokens(selectedResult.total_tokens)} total tokens</span>
+                      )}
+                      {selectedResult.prompt_tokens != null && (
+                        <span>{formatTokens(selectedResult.prompt_tokens)} in · {formatTokens(selectedResult.completion_tokens)} out</span>
+                      )}
+                      {selectedResult.estimated_cost_usd != null && (
+                        <span className="font-medium text-gray-900">{formatCostUsdToZar(selectedResult.estimated_cost_usd)} (≈ ${(selectedResult.estimated_cost_usd).toFixed(4)} USD)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Comprehensive Feedback Section - Primary Focus */}
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border-l-4 border-blue-500">
                   <div className="flex items-center mb-4">
                     <FileText className="w-6 h-6 text-blue-600 mr-2" />
                     <h4 className="text-lg font-semibold text-gray-900">Comprehensive Feedback</h4>
                   </div>
+                  {selectedResult.handwriting_recognition_confidence != null && (
+                    <p className="mb-3 text-sm text-gray-600">
+                      Handwritten submission — recognition confidence: <span className="font-medium">{selectedResult.handwriting_recognition_confidence}%</span>
+                    </p>
+                  )}
                   <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
                     <p className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
                       {selectedResult.feedback || (selectedResult as any).overall_feedback || 'No feedback available'}

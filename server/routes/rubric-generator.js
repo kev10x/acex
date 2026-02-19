@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const { query } = require('../database/connection');
+const { requireAuth } = require('../middleware/auth');
 const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
 
@@ -664,8 +665,8 @@ router.post('/from-pdf', async (req, res) => {
   }
 });
 
-// Save generated rubric
-router.post('/save', async (req, res) => {
+// Save generated rubric (requires auth; assigns creator as user_id)
+router.post('/save', requireAuth, async (req, res) => {
   try {
     const { name, criteria, total_points, rubric_type = 'rubric' } = req.body;
 
@@ -673,6 +674,11 @@ router.post('/save', async (req, res) => {
       return res.status(400).json({ 
         error: 'Missing required fields: name, criteria, total_points' 
       });
+    }
+
+    const userId = req.user?.id;
+    if (userId == null || userId === undefined) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     // Validate criteria structure
@@ -694,8 +700,8 @@ router.post('/save', async (req, res) => {
     const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
 
     const result = await query(
-      'INSERT INTO rubrics (name, criteria, total_points, rubric_type) VALUES (?, ?, ?, ?)',
-      [name, JSON.stringify(criteria), total_points, normalizedType]
+      'INSERT INTO rubrics (name, criteria, total_points, rubric_type, user_id) VALUES (?, ?, ?, ?, ?)',
+      [name, JSON.stringify(criteria), total_points, normalizedType, userId]
     );
     
     // Get the last inserted ID

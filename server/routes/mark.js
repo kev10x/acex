@@ -1335,6 +1335,10 @@ JSON format (return ONLY this, no other text):
           .trim();
       }
 
+      if (result && result.usage) {
+        markingResult.usage = result.usage;
+        markingResult.estimated_cost_usd = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
+      }
       return markingResult;
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError.message);
@@ -1369,7 +1373,10 @@ JSON format (return ONLY this, no other text):
             
             const markingResult = JSON.parse(extractedJson);
             console.log('✅ Successfully parsed extracted JSON!');
-            
+            if (result && result.usage) {
+              markingResult.usage = result.usage;
+              markingResult.estimated_cost_usd = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
+            }
             // Validate the extracted result
             if (markingResult.scores && Array.isArray(markingResult.scores)) {
               return markingResult;
@@ -1620,9 +1627,11 @@ router.post('/single', requireAuth, async (req, res) => {
         [assignment_id, req.user.id]
       );
 
+      const usage = markingResult.usage || {};
+      const estimatedCostUsd = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
       // Save marking result to database with version info
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -1637,6 +1646,10 @@ router.post('/single', requireAuth, async (req, res) => {
           markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
           markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null,
           markingResult.handwriting_recognition_confidence != null ? markingResult.handwriting_recognition_confidence : null,
+          usage.prompt_tokens != null ? usage.prompt_tokens : null,
+          usage.completion_tokens != null ? usage.completion_tokens : null,
+          usage.total_tokens != null ? usage.total_tokens : null,
+          estimatedCostUsd,
           req.user.id
         ]
       );
@@ -1662,7 +1675,11 @@ router.post('/single', requireAuth, async (req, res) => {
         min_criterion_confidence: markingResult.min_criterion_confidence,
         has_low_criterion_confidence: markingResult.has_low_criterion_confidence,
         handwriting_recognition_confidence: markingResult.handwriting_recognition_confidence ?? null,
-        corrections: markingResult.corrections || []
+        corrections: markingResult.corrections || [],
+        prompt_tokens: usage.prompt_tokens ?? null,
+        completion_tokens: usage.completion_tokens ?? null,
+        total_tokens: usage.total_tokens ?? null,
+        estimated_cost_usd: estimatedCostUsd
       };
 
       // Generate output based on output_type
@@ -2109,9 +2126,11 @@ router.post('/multiple', requireAuth, async (req, res) => {
             [assignment_id, req.user.id]
           );
 
+          const usageBatch = markingResult.usage || {};
+          const estimatedCostUsdBatch = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
           // Save marking result to database with version info
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -2126,6 +2145,10 @@ router.post('/multiple', requireAuth, async (req, res) => {
               markingResult.corrections && markingResult.corrections.length > 0 ? JSON.stringify(markingResult.corrections) : null,
               markingResult.language_errors && markingResult.language_errors.length > 0 ? JSON.stringify(markingResult.language_errors) : null,
               markingResult.handwriting_recognition_confidence != null ? markingResult.handwriting_recognition_confidence : null,
+              usageBatch.prompt_tokens != null ? usageBatch.prompt_tokens : null,
+              usageBatch.completion_tokens != null ? usageBatch.completion_tokens : null,
+              usageBatch.total_tokens != null ? usageBatch.total_tokens : null,
+              estimatedCostUsdBatch,
               req.user.id
             ]
           );
@@ -2151,7 +2174,11 @@ router.post('/multiple', requireAuth, async (req, res) => {
             min_criterion_confidence: markingResult.min_criterion_confidence,
             has_low_criterion_confidence: markingResult.has_low_criterion_confidence,
             handwriting_recognition_confidence: markingResult.handwriting_recognition_confidence ?? null,
-            corrections: markingResult.corrections || []
+            corrections: markingResult.corrections || [],
+            prompt_tokens: usageBatch.prompt_tokens ?? null,
+            completion_tokens: usageBatch.completion_tokens ?? null,
+            total_tokens: usageBatch.total_tokens ?? null,
+            estimated_cost_usd: estimatedCostUsdBatch
           };
 
           // Generate output based on output_type

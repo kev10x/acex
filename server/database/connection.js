@@ -350,6 +350,18 @@ const initDatabase = async () => {
           console.log('Adding handwriting_recognition_confidence column to marking_results table...');
           await query(`ALTER TABLE marking_results ADD COLUMN handwriting_recognition_confidence INT DEFAULT NULL`);
         }
+
+        const promptTokensCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'prompt_tokens'
+        `);
+        if ((promptTokensCheck.rows?.[0]?.count || promptTokensCheck?.[0]?.count || 0) === 0) {
+          console.log('Adding token usage columns to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN prompt_tokens INT DEFAULT NULL`);
+          await query(`ALTER TABLE marking_results ADD COLUMN completion_tokens INT DEFAULT NULL`);
+          await query(`ALTER TABLE marking_results ADD COLUMN total_tokens INT DEFAULT NULL`);
+          await query(`ALTER TABLE marking_results ADD COLUMN estimated_cost_usd DECIMAL(12,6) DEFAULT NULL`);
+        }
         
         const accountTypeCheck = await query(`
           SELECT COUNT(*) as count 
@@ -690,6 +702,18 @@ const initDatabase = async () => {
         if ((handwritingConfCheckPg.rows?.[0]?.count || handwritingConfCheckPg?.[0]?.count || 0) === 0) {
           console.log('Adding handwriting_recognition_confidence column to marking_results table...');
           await query(`ALTER TABLE marking_results ADD COLUMN handwriting_recognition_confidence INTEGER DEFAULT NULL`);
+        }
+
+        const promptTokensCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'prompt_tokens'
+        `);
+        if ((promptTokensCheckPg.rows?.[0]?.count || promptTokensCheckPg?.[0]?.count || 0) === 0) {
+          console.log('Adding token usage columns to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN prompt_tokens INTEGER DEFAULT NULL`);
+          await query(`ALTER TABLE marking_results ADD COLUMN completion_tokens INTEGER DEFAULT NULL`);
+          await query(`ALTER TABLE marking_results ADD COLUMN total_tokens INTEGER DEFAULT NULL`);
+          await query(`ALTER TABLE marking_results ADD COLUMN estimated_cost_usd DECIMAL(12,6) DEFAULT NULL`);
         }
         
         const accountTypeCheck = await query(`
