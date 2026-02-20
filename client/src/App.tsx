@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield } from 'lucide-react';
+import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import RubricManager from './components/RubricManager';
 import MarkingInterface from './components/MarkingInterface';
@@ -31,19 +31,27 @@ function AppContent() {
     }
   }, []);
 
-  const tabs = [
-    { id: 'upload', label: 'Upload PDFs', icon: Upload },
+  const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
+
+  const memorandumsItems: { id: TabType; label: string; icon: typeof FileText }[] = [
     { id: 'rubrics', label: 'Manage Rubrics', icon: FileText },
     { id: 'generator', label: 'AI Rubric Generator', icon: Wand2 },
     { id: 'assessments', label: 'Generate Assessments', icon: Sparkles },
+  ];
+  const markingItems: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
     { id: 'marking', label: 'AI Marking', icon: BarChart3 },
     { id: 'manual-marking', label: 'Manual Marking', icon: Edit3 },
     { id: 'mcq', label: 'MCQ Forms', icon: ClipboardCheck },
     { id: 'batches', label: 'Batches', icon: Folder },
     { id: 'training', label: 'Model Training', icon: Brain },
-    { id: 'results', label: 'View Results', icon: Settings },
-    ...(user?.role === 'admin' ? [{ id: 'admin', label: 'Admin', icon: Shield }] : []),
   ];
+
+  useEffect(() => {
+    if (!openDropdown) return;
+    const close = () => setOpenDropdown(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [openDropdown]);
 
   // Show loading state
   if (loading) {
@@ -100,26 +108,137 @@ function AppContent() {
       </header>
 
       {/* Navigation */}
-      <nav className="bg-white border-b">
+      <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`flex items-center px-1 py-4 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-primary-500 text-primary-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
+          <div className="flex items-center gap-1">
+            {/* Upload (standalone) */}
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                activeTab === 'upload'
+                  ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Upload
+            </button>
+
+            {/* Memorandums (dropdown) */}
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdown((prev) => (prev === 'memorandums' ? null : 'memorandums'));
+                }}
+                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                  openDropdown === 'memorandums' || memorandumsItems.some((i) => i.id === activeTab)
+                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                <Award className="w-4 h-4 mr-2" />
+                Memorandums
+                <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${openDropdown === 'memorandums' ? 'rotate-180' : ''}`} />
+              </button>
+              {openDropdown === 'memorandums' && (
+                <div
+                  className="absolute left-0 top-full z-50 mt-0 w-56 rounded-b-md border border-t-0 border-gray-200 bg-white py-1 shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <Icon className="w-4 h-4 mr-2" />
-                  {tab.label}
-                </button>
-              );
-            })}
+                  {memorandumsItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          setActiveTab(item.id);
+                          setOpenDropdown(null);
+                        }}
+                        className={`flex w-full items-center px-4 py-2.5 text-left text-sm ${
+                          activeTab === item.id ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 mr-3 text-gray-500" />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Marking (dropdown) */}
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdown((prev) => (prev === 'marking' ? null : 'marking'));
+                }}
+                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                  openDropdown === 'marking' || markingItems.some((i) => i.id === activeTab)
+                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                <PenLine className="w-4 h-4 mr-2" />
+                Marking
+                <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${openDropdown === 'marking' ? 'rotate-180' : ''}`} />
+              </button>
+              {openDropdown === 'marking' && (
+                <div
+                  className="absolute left-0 top-full z-50 mt-0 w-56 rounded-b-md border border-t-0 border-gray-200 bg-white py-1 shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {markingItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          setActiveTab(item.id);
+                          setOpenDropdown(null);
+                        }}
+                        className={`flex w-full items-center px-4 py-2.5 text-left text-sm ${
+                          activeTab === item.id ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 mr-3 text-gray-500" />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Results (standalone) */}
+            <button
+              onClick={() => setActiveTab('results')}
+              className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                activeTab === 'results'
+                  ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Results
+            </button>
+
+            {/* Admin (standalone, admin only) */}
+            {user?.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('admin')}
+                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                  activeTab === 'admin'
+                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                <Shield className="w-4 h-4 mr-2" />
+                Admin
+              </button>
+            )}
           </div>
         </div>
       </nav>
