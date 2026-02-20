@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authAPI } from '../services/api';
-import { CheckCircle, XCircle, User, Mail, Clock, Shield, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, User, Mail, Clock, Shield, AlertCircle, Lock, Unlock, Trash2 } from 'lucide-react';
 
 interface UserData {
   id: number;
@@ -134,6 +134,33 @@ const AdminDashboard: React.FC = () => {
       await loadUsers();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to update user role');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleLock = async (userId: number, currentlyLocked: boolean) => {
+    if (!token) return;
+    setActionLoading(userId);
+    try {
+      await authAPI.lockUser(token, userId, !currentlyLocked);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to update lock status');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (userId: number, userName: string) => {
+    if (!token) return;
+    if (!window.confirm(`Permanently delete user "${userName}"? This cannot be undone.`)) return;
+    setActionLoading(userId);
+    try {
+      await authAPI.deleteUser(token, userId);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to delete user');
     } finally {
       setActionLoading(null);
     }
@@ -302,7 +329,7 @@ const AdminDashboard: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex justify-end space-x-2">
+                        <div className="flex justify-end items-center gap-2">
                           <button
                             onClick={() => handleApprove(pendingUser.id)}
                             disabled={actionLoading === pendingUser.id}
@@ -319,6 +346,26 @@ const AdminDashboard: React.FC = () => {
                             <XCircle className="h-4 w-4 mr-1" />
                             Reject
                           </button>
+                          {pendingUser.id !== user?.id && (
+                            <>
+                              <button
+                                onClick={() => handleLock(pendingUser.id, pendingUser.is_active === false)}
+                                disabled={actionLoading === pendingUser.id}
+                                title={pendingUser.is_active === false ? 'Unlock' : 'Lock'}
+                                className="p-1.5 rounded text-gray-500 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                              >
+                                {pendingUser.is_active === false ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(pendingUser.id, pendingUser.name || pendingUser.email)}
+                                disabled={actionLoading === pendingUser.id}
+                                title="Delete"
+                                className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -394,6 +441,12 @@ const AdminDashboard: React.FC = () => {
                           Pending
                         </span>
                       )}
+                      {userData.is_active === false && (
+                        <span className="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-gray-200 text-gray-800">
+                          <Lock className="h-3 w-3 mr-1" />
+                          Locked
+                        </span>
+                      )}
                       {!userData.email_verified && (
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
                           Unverified
@@ -405,15 +458,41 @@ const AdminDashboard: React.FC = () => {
                     {new Date(userData.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {!userData.is_approved && userData.email_verified && (
-                      <button
-                        onClick={() => handleApprove(userData.id)}
-                        disabled={actionLoading === userData.id}
-                        className="text-green-600 hover:text-green-900 disabled:opacity-50"
-                      >
-                        Approve
-                      </button>
-                    )}
+                    <div className="flex justify-end items-center gap-2 flex-wrap">
+                      {!userData.is_approved && userData.email_verified && (
+                        <button
+                          onClick={() => handleApprove(userData.id)}
+                          disabled={actionLoading === userData.id}
+                          className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                      )}
+                      {userData.id !== user?.id && (
+                        <>
+                          <button
+                            onClick={() => handleLock(userData.id, userData.is_active === false)}
+                            disabled={actionLoading === userData.id}
+                            title={userData.is_active === false ? 'Unlock user' : 'Lock user'}
+                            className="p-1.5 rounded text-gray-500 hover:text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                          >
+                            {userData.is_active === false ? (
+                              <Unlock className="h-4 w-4" />
+                            ) : (
+                              <Lock className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(userData.id, userData.name || userData.email)}
+                            disabled={actionLoading === userData.id}
+                            title="Delete user"
+                            className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

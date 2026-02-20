@@ -328,41 +328,38 @@ const generateAnswerKeyFromQuestionPaper = async (questionPaperText, rubricName)
       throw new Error('Question paper text extraction failed or returned insufficient content');
     }
     
-    const prompt = `You are an expert educator creating a marking memorandum (answer key) from a question paper. 
+    const prompt = `You are an expert educator creating a marking memorandum (answer key) from a question paper. The memorandum and mark allocation must EXACTLY match the question paper.
 
 QUESTION PAPER:
 ${questionPaperText}
 
 Your task:
-1. Identify all questions in the paper (numbered questions, sub-questions, etc.)
-2. For each question, create a model answer that includes:
-   - The complete correct answer
-   - Key points that must be covered
-   - Worked examples or calculations (if applicable)
-   - Marking allocations for each part
-3. Determine appropriate point values for each question based on complexity and length
-4. Create marking levels showing how partial marks are awarded
+1. Identify ALL questions and sub-questions exactly as they appear (same numbers and labels).
+2. Extract the mark allocation EXACTLY as stated in the document (e.g. "Question 1 [10]", "1.1 (3 marks)", "Section B – 25 marks"). Do NOT invent or approximate marks; use only the numbers given in the document.
+3. For each question/part, create a criterion with:
+   - name: the exact question/part identifier from the document
+   - max_points: the exact marks for that part as stated in the document
+   - description: Model Answer and Marking Scheme (what earns full/partial/no marks), using document wording where available
+4. Set total_points to the document's stated total. If the document gives a total (e.g. "TOTAL: 75" or "100 marks"), use that. Otherwise total_points must equal the sum of all criterion max_points.
+
+CRITICAL: The sum of all criterion max_points MUST equal total_points. Use only mark allocations that appear in the document.
 
 Respond with a JSON object in this exact format:
 {
   "name": "Answer Key - [Question Paper Name]",
   "criteria": [
     {
-      "name": "Question 1: [Question title/brief description]",
-      "max_points": 15,
-      "description": "Model Answer: [Complete correct answer with all key points, worked examples if applicable, and marking allocations]\n\nMarking Scheme:\n- Full Marks ([X-Y] points): [Description of what earns full marks]\n- Partial Marks ([X-Y] points): [Description of what earns partial marks]\n- Partial Marks ([X-Y] points): [Description of lower partial marks]\n- No/Low Marks (0-[X] points): [Description of what earns no or minimal marks]"
+      "name": "Exact question/part label from document (e.g. Question 1, 1.1, Section A)",
+      "max_points": <exact marks from document>,
+      "description": "Model Answer: [Complete correct answer with key points and marking allocations from the document]\n\nMarking Scheme:\n- Full Marks: [what earns full marks]\n- Partial Marks: [what earns partial marks]\n- No/Low Marks: [what earns no or minimal marks]"
     }
   ],
-  "total_points": 100
+  "total_points": <document total or sum of criteria>
 }
 
 IMPORTANT:
-- Include keywords like "Model Answer", "Marking Scheme", "Correct Answer" in descriptions
-- Make sure each criterion description clearly contains the model answer
-- Be specific about what earns full marks vs partial marks
-- For calculation questions, show complete worked solutions
-- For essay questions, list all key points that must be covered
-- Total points should be reasonable (typically 50-100 points for a full exam)`;
+- Include "Model Answer", "Marking Scheme", "Correct Answer" in descriptions so the system detects this as a memo.
+- For calculations, show worked solutions. For essays, list key points. Use the document's own mark breakdown where given.`;
 
     const config = aiConfig.getConfig('assignment', 'openai');
     const completion = await aiService.createCompletionWithRetry({
@@ -423,6 +420,12 @@ IMPORTANT:
         return criterion;
       });
 
+      // Ensure total_points equals sum of criteria
+      const criteriaSum = answerKeyData.criteria.reduce((s, c) => s + (Number(c.max_points) || 0), 0);
+      if (criteriaSum > 0) {
+        answerKeyData.total_points = criteriaSum;
+      }
+
       console.log('✅ Answer key generated successfully');
       return {
         ...answerKeyData,
@@ -460,37 +463,31 @@ const generateRubricFromPDF = async (pdfText, rubricName) => {
     }
     
     const prompt = `
-You are an expert educator who creates comprehensive marking rubrics. Based on the following document content, create a detailed rubric that would be appropriate for grading assignments related to this topic.
+You are an expert educator who creates marking rubrics that EXACTLY match the uploaded document. Your rubric must reflect the document's structure and mark allocation precisely.
 
 DOCUMENT CONTENT:
 ${pdfText}
 
-Please create a rubric with the following structure:
-1. Identify 4-6 key assessment criteria that would be relevant for assignments based on this document
-2. For each criterion, provide:
-   - A clear, descriptive name
-   - A detailed description of what constitutes different performance levels
-   - Appropriate point values (total should be around 50-100 points)
-3. Consider different aspects like: content knowledge, analysis, critical thinking, writing quality, research, application, etc.
+Your task:
+1. Extract the document's assessment structure EXACTLY as given: same question numbers, part numbers, section names, and mark allocations as stated in the document (e.g. "Question 1 (10 marks)", "1.1 [3]", "Section A – 20 marks").
+2. For each criterion, use the EXACT name/label and marks from the document. Do not invent or round marks; use the numbers stated in the document.
+3. Set total_points to the document's stated total marks. If the document states a total (e.g. "Total: 75" or "100 marks"), use that. Otherwise total_points must equal the sum of all criterion max_points.
+4. For each criterion description, include what the document says about marking (model answers, marking schemes, level descriptors) where present; otherwise describe performance levels clearly.
+
+CRITICAL: The sum of all criterion max_points MUST equal total_points. Mark allocation must match the document exactly—do not substitute your own point values.
 
 Respond with a JSON object in this exact format:
 {
   "name": "Generated rubric name based on document",
   "criteria": [
     {
-      "name": "Criterion Name",
-      "max_points": 20,
-      "description": "Detailed description of what this criterion evaluates and what different performance levels look like"
+      "name": "Exact question/section name from document (e.g. Question 1, or 1.1)",
+      "max_points": <exact marks from document>,
+      "description": "Description of what this criterion evaluates and marking levels, using document wording where available"
     }
   ],
-  "total_points": 100
+  "total_points": <document total or sum of criteria>
 }
-
-Make sure the rubric is:
-- Specific to the document content
-- Fair and comprehensive
-- Clear for both students and graders
-- Appropriate for the academic level of the content
 `;
 
     const config = aiConfig.getConfig('assignment', 'openai');
@@ -536,6 +533,12 @@ Make sure the rubric is:
       // Use provided name if available
       if (rubricName) {
         rubricData.name = rubricName;
+      }
+
+      // Ensure total_points equals sum of criteria (AI may have rounded or miscounted)
+      const criteriaSum = rubricData.criteria.reduce((s, c) => s + (Number(c.max_points) || 0), 0);
+      if (criteriaSum > 0) {
+        rubricData.total_points = criteriaSum;
       }
 
       return {
@@ -688,13 +691,10 @@ router.post('/save', requireAuth, async (req, res) => {
       });
     }
 
-    // Calculate total points from criteria
-    const calculatedTotal = criteria.reduce((sum, criterion) => sum + criterion.max_points, 0);
-    
+    // Sum of criterion points (may differ from total_points when user overrides total to match document)
+    const calculatedTotal = criteria.reduce((sum, criterion) => sum + (Number(criterion.max_points) || 0), 0);
     if (calculatedTotal !== total_points) {
-      return res.status(400).json({ 
-        error: `Total points (${total_points}) does not match sum of criterion points (${calculatedTotal})` 
-      });
+      console.log(`Save rubric: total_points ${total_points} (user override) differs from sum of criteria ${calculatedTotal}`);
     }
 
     const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';

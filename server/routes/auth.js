@@ -599,6 +599,90 @@ router.post('/admin/users/:id/reject', requireAuth, requireAdmin, [
   }
 });
 
+// Admin routes - Lock/unlock user (toggle is_active)
+router.put('/admin/users/:id/lock', requireAuth, requireAdmin, [
+  body('locked').isBoolean().withMessage('locked must be true or false')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { locked } = req.body;
+
+    if (Number(id) === req.user.id) {
+      return res.status(400).json({ error: 'You cannot lock your own account' });
+    }
+
+    const isActive = !locked;
+
+    const result = await query(
+      'UPDATE users SET is_active = $1 WHERE id = $2 RETURNING id, email, name, is_active',
+      [isActive, id]
+    );
+
+    const user = result.rows?.[0] || result?.[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      message: locked ? 'User locked' : 'User unlocked',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        is_active: !!user.is_active
+      }
+    });
+  } catch (error) {
+    console.error('Lock user error:', error);
+    res.status(500).json({ error: 'Failed to update user lock status' });
+  }
+});
+
+// Admin routes - Delete user
+router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const targetId = Number(id);
+
+    if (targetId === req.user.id) {
+      return res.status(400).json({ error: 'You cannot delete your own account' });
+    }
+
+    const target = await query(
+      'SELECT id, role FROM users WHERE id = $1',
+      [targetId]
+    );
+    const targetUser = target.rows?.[0] || target?.[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (targetUser.role === 'admin') {
+      const adminCount = await query(
+        'SELECT COUNT(*) as count FROM users WHERE role = $1',
+        ['admin']
+      );
+      const count = Number(adminCount.rows?.[0]?.count ?? adminCount?.[0]?.count ?? 0);
+      if (count <= 1) {
+        return res.status(400).json({ error: 'Cannot delete the last admin' });
+      }
+    }
+
+    await query('DELETE FROM users WHERE id = $1', [targetId]);
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
 // Admin routes - Update user role
 router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
   body('role').isIn(['admin', 'user']).withMessage('Role must be either admin or user')

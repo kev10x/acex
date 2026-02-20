@@ -433,6 +433,20 @@ export const authAPI = {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;
+  },
+
+  lockUser: async (token: string, userId: number, locked: boolean) => {
+    const response = await api.put(`/auth/admin/users/${userId}/lock`, { locked }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  deleteUser: async (token: string, userId: number) => {
+    const response = await api.delete(`/auth/admin/users/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
   }
 };
 

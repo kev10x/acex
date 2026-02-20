@@ -12,10 +12,11 @@ function formatTokens(n: number | null | undefined): string {
   return String(n);
 }
 
-function formatCostUsdToZar(usd: number | null | undefined): string {
-  if (usd == null || !Number.isFinite(usd)) return '—';
-  const zar = usd * USD_TO_ZAR;
-  return `R ${zar < 1 ? zar.toFixed(2) : zar.toFixed(2)}`;
+function formatCostUsdToZar(usd: number | string | null | undefined): string {
+  const n = usd != null ? Number(usd) : NaN;
+  if (!Number.isFinite(n)) return '—';
+  const zar = n * USD_TO_ZAR;
+  return `R ${zar.toFixed(2)}`;
 }
 
 const ResultsDashboard: React.FC = () => {
