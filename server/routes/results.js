@@ -24,18 +24,46 @@ router.get('/', requireAuth, async (req, res) => {
       ORDER BY mr.marked_at DESC
     `, [req.user.id]);
     
-    // Parse JSON fields and ensure numeric token/cost fields (MySQL DECIMAL can come as string)
+    // Convert rows to plain objects (MySQL RowDataPacket doesn't always spread correctly) and parse JSON/numeric fields
     const parsedResults = result.rows.map(row => {
-      const estimatedCost = row.estimated_cost_usd != null ? Number(row.estimated_cost_usd) : null;
+      const plain = row && typeof row === 'object' ? JSON.parse(JSON.stringify(row)) : {};
+      let scores = plain.scores;
+      if (typeof scores === 'string') {
+        try {
+          scores = JSON.parse(scores);
+        } catch (_) {
+          scores = [];
+        }
+      }
+      if (!Array.isArray(scores)) scores = [];
+      let corrections = plain.corrections;
+      if (corrections != null && typeof corrections === 'string') {
+        try {
+          corrections = JSON.parse(corrections);
+        } catch (_) {
+          corrections = [];
+        }
+      }
+      if (!Array.isArray(corrections)) corrections = [];
+      let language_errors = plain.language_errors;
+      if (language_errors != null && typeof language_errors === 'string') {
+        try {
+          language_errors = JSON.parse(language_errors);
+        } catch (_) {
+          language_errors = [];
+        }
+      }
+      if (!Array.isArray(language_errors)) language_errors = [];
       return {
-        ...row,
-        estimated_cost_usd: estimatedCost,
-        prompt_tokens: row.prompt_tokens != null ? Number(row.prompt_tokens) : null,
-        completion_tokens: row.completion_tokens != null ? Number(row.completion_tokens) : null,
-        total_tokens: row.total_tokens != null ? Number(row.total_tokens) : null,
-        scores: typeof row.scores === 'string' ? JSON.parse(row.scores) : row.scores,
-        corrections: row.corrections ? (typeof row.corrections === 'string' ? JSON.parse(row.corrections) : row.corrections) : [],
-        language_errors: row.language_errors ? (typeof row.language_errors === 'string' ? JSON.parse(row.language_errors) : row.language_errors) : []
+        ...plain,
+        scores,
+        corrections,
+        language_errors,
+        feedback: plain.feedback != null ? String(plain.feedback) : '',
+        estimated_cost_usd: plain.estimated_cost_usd != null ? Number(plain.estimated_cost_usd) : null,
+        prompt_tokens: plain.prompt_tokens != null ? Number(plain.prompt_tokens) : null,
+        completion_tokens: plain.completion_tokens != null ? Number(plain.completion_tokens) : null,
+        total_tokens: plain.total_tokens != null ? Number(plain.total_tokens) : null
       };
     });
     

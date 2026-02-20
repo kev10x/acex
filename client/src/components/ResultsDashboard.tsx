@@ -1030,7 +1030,7 @@ const ResultsDashboard: React.FC = () => {
                 <div>
                   <h4 className="text-sm font-medium text-gray-700">Scores</h4>
                   <div className="space-y-2">
-                    {selectedResult.scores.map((score, index) => (
+                    {(Array.isArray(selectedResult.scores) ? selectedResult.scores : []).map((score, index) => (
                       <div key={`score-${selectedResult.id}-${index}`} className="flex justify-between items-center p-2 bg-gray-50 rounded">
                         <div className="flex-1">
                           <span className="text-sm text-gray-900">{score.criterion_name}</span>
@@ -1156,13 +1156,13 @@ const ResultsDashboard: React.FC = () => {
                   )}
                   <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
                     <p className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
-                      {selectedResult.feedback || (selectedResult as any).overall_feedback || 'No feedback available'}
+                      {selectedResult.feedback ?? (selectedResult as any).overall_feedback ?? 'No feedback available'}
                     </p>
                   </div>
                 </div>
 
                 {/* Per-Criterion Detailed Feedback */}
-                {selectedResult.scores && selectedResult.scores.length > 0 && (
+                {Array.isArray(selectedResult.scores) && selectedResult.scores.length > 0 && (
                   <div className="mt-6">
                     <div className="flex items-center mb-4">
                       <FileCheck className="w-5 h-5 text-gray-600 mr-2" />
@@ -1204,7 +1204,7 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 )}
 
-                {selectedResult.corrections && selectedResult.corrections.length > 0 && (
+                {Array.isArray(selectedResult.corrections) && selectedResult.corrections.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Corrections & Suggestions Report</h4>
                     <div className="space-y-3">
@@ -1251,7 +1251,7 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 )}
 
-                {selectedResult.language_errors && selectedResult.language_errors.length > 0 && (
+                {Array.isArray(selectedResult.language_errors) && selectedResult.language_errors.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-3">
                       Language Errors ({selectedResult.language_errors.length})
