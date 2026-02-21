@@ -169,6 +169,22 @@ const initDatabase = async () => {
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS feedback_videos (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          result_id INT NOT NULL,
+          user_id INT NOT NULL,
+          openai_video_id VARCHAR(255),
+          status VARCHAR(50) DEFAULT 'queued',
+          file_path VARCHAR(500),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_result (result_id),
+          FOREIGN KEY (result_id) REFERENCES marking_results(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
       
       // Migrate existing tables: Add new columns if they don't exist
       try {
@@ -439,6 +455,16 @@ const initDatabase = async () => {
         if ((isApprovedCheck.rows?.[0]?.count || isApprovedCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN is_approved TINYINT(1) DEFAULT 0`);
         }
+        const featuresCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.COLUMNS 
+          WHERE table_schema = DATABASE() 
+          AND table_name = 'users' 
+          AND column_name = 'features'
+        `);
+        if ((featuresCheck.rows?.[0]?.count || featuresCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN features JSON DEFAULT NULL`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -563,6 +589,20 @@ const initDatabase = async () => {
           provider VARCHAR(50),
           corrections JSONB,
           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS feedback_videos (
+          id SERIAL PRIMARY KEY,
+          result_id INTEGER NOT NULL REFERENCES marking_results(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          openai_video_id VARCHAR(255),
+          status VARCHAR(50) DEFAULT 'queued',
+          file_path TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(result_id)
         )
       `);
       
@@ -784,6 +824,15 @@ const initDatabase = async () => {
         `);
         if ((isApprovedCheck.rows?.[0]?.count || isApprovedCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT FALSE`);
+        }
+        const featuresCheck = await query(`
+          SELECT COUNT(*) as count 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' 
+          AND column_name = 'features'
+        `);
+        if ((featuresCheck.rows?.[0]?.count || featuresCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN features JSONB DEFAULT NULL`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authAPI } from '../services/api';
 
+export interface UserFeatures {
+  generate_assessments?: boolean;
+  download_results?: boolean;
+  feedback_video?: boolean;
+}
+
 interface User {
   id: number;
   email: string;
@@ -9,6 +15,7 @@ interface User {
   organisation_name?: string | null;
   role?: string;
   is_approved?: boolean;
+  features?: UserFeatures;
 }
 
 export interface RegisterResponse {

@@ -3,16 +3,17 @@ const path = require('path');
 const fs = require('fs');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
 const { query } = require('../database/connection');
+const { requireAuth, requireFeature } = require('../middleware/auth');
 
 const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
 
 // Generate PDF report for a single marking result
-router.get('/pdf/:resultId', async (req, res) => {
+router.get('/pdf/:resultId', requireAuth, requireFeature('download_results'), async (req, res) => {
   try {
     const { resultId } = req.params;
 
-    // Get marking result with related data (including batch_id)
+    // Get marking result with related data (including batch_id); restrict to current user
     const resultQuery = `
       SELECT 
         mr.*,
@@ -26,10 +27,10 @@ router.get('/pdf/:resultId', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.id = ?
+      WHERE mr.id = $1 AND mr.user_id = $2
     `;
 
-    const result = await query(resultQuery, [resultId]);
+    const result = await query(resultQuery, [resultId, req.user.id]);
 
     // Handle different database result formats
     const rows = Array.isArray(result) ? result : (result.rows || []);
@@ -90,7 +91,7 @@ router.get('/pdf/:resultId', async (req, res) => {
 });
 
 // Generate batch PDF report for multiple marking results
-router.post('/pdf/batch', async (req, res) => {
+router.post('/pdf/batch', requireAuth, requireFeature('download_results'), async (req, res) => {
   try {
     const { resultIds } = req.body;
 
@@ -98,8 +99,8 @@ router.post('/pdf/batch', async (req, res) => {
       return res.status(400).json({ error: 'resultIds array is required' });
     }
 
-    // Get marking results with related data (including batch_id)
-    const placeholders = resultIds.map(() => '?').join(',');
+    // Get marking results with related data (including batch_id); restrict to current user
+    const placeholders = resultIds.map((_, i) => `$${i + 1}`).join(',');
     const resultQuery = `
       SELECT 
         mr.*,
@@ -113,11 +114,11 @@ router.post('/pdf/batch', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.id IN (${placeholders})
+      WHERE mr.id IN (${placeholders}) AND mr.user_id = $${resultIds.length + 1}
       ORDER BY mr.marked_at DESC
     `;
 
-    const result = await query(resultQuery, resultIds);
+    const result = await query(resultQuery, [...resultIds, req.user.id]);
 
     // Handle different database result formats
     const rows = Array.isArray(result) ? result : (result.rows || []);

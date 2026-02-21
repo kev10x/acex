@@ -30,7 +30,7 @@ async function seedUser() {
     
     // Normalize email (same as login route does)
     const email = 'kkativu@gmail.com'.toLowerCase().trim();
-    const password = 'An1m0s1t###';
+    const password = 'An1m0s1###';
     
     console.log(`Email (normalized): ${email}`);
     

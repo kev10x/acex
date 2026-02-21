@@ -248,6 +248,9 @@ export const resultsAPI = {
   getMarkingHistory: (assignmentId: number) => api.get(`/mark/history/${assignmentId}`),
   restoreMarkingVersion: (resultId: number) => api.post(`/mark/history/${resultId}/restore`),
   compareMarkingVersions: (resultId1: number, resultId2: number) => api.get(`/mark/history/compare/${resultId1}/${resultId2}`),
+  createFeedbackVideo: (resultId: number) => api.post(`/results/${resultId}/feedback-video`),
+  getFeedbackVideoStatus: (resultId: number) => api.get(`/results/${resultId}/feedback-video/status`),
+  getFeedbackVideoContent: (resultId: number) => api.get(`/results/${resultId}/feedback-video/content`, { responseType: 'blob' }),
 };
 
 // Reports API
@@ -444,6 +447,17 @@ export const authAPI = {
 
   deleteUser: async (token: string, userId: number) => {
     const response = await api.delete(`/auth/admin/users/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  updateUserFeatures: async (
+    token: string,
+    userId: number,
+    features: { generate_assessments?: boolean; download_results?: boolean; feedback_video?: boolean }
+  ) => {
+    const response = await api.put(`/auth/admin/users/${userId}/features`, { features }, {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;

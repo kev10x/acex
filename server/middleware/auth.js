@@ -112,10 +112,49 @@ const requireAdmin = async (req, res, next) => {
   }
 };
 
+// Parse user features from DB (JSON string or object)
+function parseUserFeatures(features) {
+  if (features == null) return {};
+  if (typeof features === 'string') {
+    try {
+      return JSON.parse(features) || {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return typeof features === 'object' ? features : {};
+}
+
+// Middleware to require a specific user feature (e.g. generate_assessments, download_results). Use after requireAuth. Admins bypass.
+const requireFeature = (featureName) => {
+  return async (req, res, next) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      if (req.user.role === 'admin') {
+        return next();
+      }
+      const result = await query('SELECT features FROM users WHERE id = $1', [req.user.id]);
+      const row = result.rows?.[0] || result?.[0];
+      const features = parseUserFeatures(row?.features);
+      const allowed = features[featureName] !== false;
+      if (!allowed) {
+        return res.status(403).json({ error: 'This feature is not enabled for your account. Contact an administrator.' });
+      }
+      next();
+    } catch (error) {
+      console.error('Feature check error:', error);
+      return res.status(500).json({ error: 'Authorization error' });
+    }
+  };
+};
+
 module.exports = {
   authenticateToken,
   requireAuth,
   requireAdmin,
+  requireFeature,
   optionalAuth,
   generateToken,
   JWT_SECRET,

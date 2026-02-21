@@ -33,10 +33,11 @@ function AppContent() {
 
   const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
 
+  const allowGenerateAssessments = user?.features?.generate_assessments !== false;
   const memorandumsItems: { id: TabType; label: string; icon: typeof FileText }[] = [
     { id: 'rubrics', label: 'Manage Rubrics', icon: FileText },
     { id: 'generator', label: 'AI Rubric Generator', icon: Wand2 },
-    { id: 'assessments', label: 'Generate Assessments', icon: Sparkles },
+    ...(allowGenerateAssessments ? [{ id: 'assessments' as TabType, label: 'Generate Assessments', icon: Sparkles }] : []),
   ];
   const markingItems: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
     { id: 'marking', label: 'AI Marking', icon: BarChart3 },

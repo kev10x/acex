@@ -2,7 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { query } = require('../database/connection');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireFeature } = require('../middleware/auth');
+const feedbackVideoService = require('../services/feedbackVideoService');
 
 const router = express.Router();
 
@@ -181,6 +182,183 @@ router.post('/export/selected', async (req, res) => {
   } catch (error) {
     console.error('Export selected error:', error);
     res.status(500).json({ error: 'Failed to export selected results' });
+  }
+});
+
+// --- Feedback video (Sora) - must be before /:id ---
+const FEEDBACK_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'feedback-videos');
+
+async function getMarkingResultForUser(resultId, userId) {
+  const result = await query(
+    `SELECT mr.id, mr.feedback, mr.total_score, mr.user_id, r.name as rubric_name, r.total_points as max_points
+     FROM marking_results mr
+     JOIN rubrics r ON mr.rubric_id = r.id
+     WHERE mr.id = $1 AND mr.user_id = $2`,
+    [resultId, userId]
+  );
+  const rows = result.rows || result;
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
+router.post('/:resultId/feedback-video', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+  try {
+    const resultId = Number(req.params.resultId);
+    const markingResult = await getMarkingResultForUser(resultId, req.user.id);
+    if (!markingResult) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+    const existing = await query(
+      'SELECT id, openai_video_id, status, file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2',
+      [resultId, req.user.id]
+    );
+    const existingRows = existing.rows || existing;
+    const row = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (row && row.status === 'completed' && row.file_path) {
+      return res.json({
+        status: 'completed',
+        video_url: `/api/results/${resultId}/feedback-video/content`,
+      });
+    }
+    if (row && (row.status === 'queued' || row.status === 'in_progress')) {
+      return res.json({
+        status: row.status,
+        video_id: row.openai_video_id,
+        message: 'Video generation already in progress',
+      });
+    }
+    const prompt = feedbackVideoService.buildFeedbackVideoPrompt(
+      markingResult.feedback,
+      markingResult.rubric_name,
+      markingResult.total_score,
+      markingResult.max_points
+    );
+    const { id: openaiVideoId, status } = await feedbackVideoService.createVideoJob(prompt, {
+      model: process.env.SORA_MODEL || 'sora-2',
+      seconds: '4',
+      size: '1280x720',
+    });
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    if (isMySQL) {
+      await query(
+        `INSERT INTO feedback_videos (result_id, user_id, openai_video_id, status)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE openai_video_id = VALUES(openai_video_id), status = VALUES(status), updated_at = CURRENT_TIMESTAMP`,
+        [resultId, req.user.id, openaiVideoId, status]
+      );
+    } else {
+      await query(
+        `INSERT INTO feedback_videos (result_id, user_id, openai_video_id, status)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (result_id) DO UPDATE SET openai_video_id = $3, status = $4, updated_at = CURRENT_TIMESTAMP`,
+        [resultId, req.user.id, openaiVideoId, status]
+      );
+    }
+    res.json({ status, video_id: openaiVideoId, message: 'Video generation started' });
+  } catch (err) {
+    console.error('Feedback video create error:', err);
+    res.status(500).json({
+      error: err.message || 'Failed to start video generation',
+    });
+  }
+});
+
+router.get('/:resultId/feedback-video/status', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+  try {
+    const resultId = Number(req.params.resultId);
+    const markingResult = await getMarkingResultForUser(resultId, req.user.id);
+    if (!markingResult) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+    const result = await query(
+      'SELECT openai_video_id, status, file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2',
+      [resultId, req.user.id]
+    );
+    const rows = result.rows || result;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row || !row.openai_video_id) {
+      return res.status(404).json({ error: 'No video job found for this result' });
+    }
+    if (row.status === 'completed' && row.file_path) {
+      return res.json({
+        status: 'completed',
+        video_url: `/api/results/${resultId}/feedback-video/content`,
+      });
+    }
+    const { status, progress, error } = await feedbackVideoService.getVideoStatus(row.openai_video_id);
+    if (status === 'completed') {
+      const filePath = path.join(FEEDBACK_VIDEOS_DIR, `${resultId}.mp4`);
+      try {
+        const buffer = await feedbackVideoService.getVideoContent(row.openai_video_id);
+        if (!fs.existsSync(FEEDBACK_VIDEOS_DIR)) {
+          fs.mkdirSync(FEEDBACK_VIDEOS_DIR, { recursive: true });
+        }
+        fs.writeFileSync(filePath, buffer);
+      } catch (downloadErr) {
+        console.error('Feedback video download error:', downloadErr);
+        await query(
+          'UPDATE feedback_videos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE result_id = $2 AND user_id = $3',
+          ['failed', resultId, req.user.id]
+        );
+        return res.json({ status: 'failed', error: downloadErr.message || 'Failed to download video' });
+      }
+      const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+      if (isMySQL) {
+        await query(
+          'UPDATE feedback_videos SET status = ?, file_path = ?, updated_at = CURRENT_TIMESTAMP WHERE result_id = ? AND user_id = ?',
+          ['completed', filePath, resultId, req.user.id]
+        );
+      } else {
+        await query(
+          'UPDATE feedback_videos SET status = $1, file_path = $2, updated_at = CURRENT_TIMESTAMP WHERE result_id = $3 AND user_id = $4',
+          ['completed', filePath, resultId, req.user.id]
+        );
+      }
+      return res.json({
+        status: 'completed',
+        video_url: `/api/results/${resultId}/feedback-video/content`,
+      });
+    }
+    if (status === 'failed') {
+      await query(
+        'UPDATE feedback_videos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE result_id = $2 AND user_id = $3',
+        ['failed', resultId, req.user.id]
+      );
+      return res.json({ status: 'failed', error: error || 'Video generation failed' });
+    }
+    await query(
+      'UPDATE feedback_videos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE result_id = $2 AND user_id = $3',
+      [status, resultId, req.user.id]
+    );
+    res.json({ status, progress: progress || 0 });
+  } catch (err) {
+    console.error('Feedback video status error:', err);
+    res.status(500).json({ error: err.message || 'Failed to get video status' });
+  }
+});
+
+router.get('/:resultId/feedback-video/content', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+  try {
+    const resultId = Number(req.params.resultId);
+    const markingResult = await getMarkingResultForUser(resultId, req.user.id);
+    if (!markingResult) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+    const result = await query(
+      'SELECT file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2 AND status = $3',
+      [resultId, req.user.id, 'completed']
+    );
+    const rows = result.rows || result;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row || !row.file_path || !fs.existsSync(row.file_path)) {
+      return res.status(404).json({ error: 'Video not ready' });
+    }
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', 'inline; filename="feedback-video.mp4"');
+    const stream = fs.createReadStream(row.file_path);
+    stream.pipe(res);
+  } catch (err) {
+    console.error('Feedback video content error:', err);
+    res.status(500).json({ error: err.message || 'Failed to stream video' });
   }
 });
 
@@ -397,7 +575,7 @@ router.delete('/', async (req, res) => {
 });
 
 // Download all results as JSON
-router.get('/download/all', async (req, res) => {
+router.get('/download/all', requireAuth, requireFeature('download_results'), async (req, res) => {
   try {
     const result = await query(`
       SELECT 
@@ -409,10 +587,12 @@ router.get('/download/all', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.user_id = $1
       ORDER BY mr.marked_at DESC
-    `);
+    `, [req.user.id]);
 
-    if (result.rows.length === 0) {
+    const rows = result.rows || result;
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'No results found to download' });
     }
 
@@ -425,8 +605,8 @@ router.get('/download/all', async (req, res) => {
     res.json({
       success: true,
       exported_at: new Date().toISOString(),
-      total_results: result.rows.length,
-      results: result.rows
+      total_results: rows.length,
+      results: rows
     });
   } catch (error) {
     console.error('Download all results error:', error);
@@ -491,7 +671,7 @@ router.get('/annotated-pdf/:resultId', async (req, res) => {
 });
 
 // Download all results as detailed CSV
-router.get('/download/csv', async (req, res) => {
+router.get('/download/csv', requireAuth, requireFeature('download_results'), async (req, res) => {
   try {
     const result = await query(`
       SELECT 
@@ -507,17 +687,19 @@ router.get('/download/csv', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.user_id = $1
       ORDER BY mr.marked_at DESC
-    `);
+    `, [req.user.id]);
 
-    if (result.rows.length === 0) {
+    const rows = result.rows || result;
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'No results found to export' });
     }
 
     // Generate detailed CSV content
     let csvContent = 'ID,Student Name,Filename,Rubric,Total Score,Max Points,Percentage,Marked At,Feedback\n';
     
-    result.rows.forEach(row => {
+    rows.forEach(row => {
       const percentage = row.max_points > 0 ? ((row.total_score / row.max_points) * 100).toFixed(2) : '0.00';
       const feedback = (row.feedback || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
       

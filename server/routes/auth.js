@@ -138,7 +138,7 @@ router.post('/login', [
 
     // Find user
     const result = await query(
-      'SELECT id, email, password_hash, name, is_active, email_verified, is_approved, role, account_type, organisation_name FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, name, is_active, email_verified, is_approved, role, account_type, organisation_name, features FROM users WHERE email = $1',
       [email]
     );
 
@@ -184,6 +184,7 @@ router.post('/login', [
     // Generate token
     const token = generateToken(user.id);
 
+    const features = parseUserFeatures(user.features);
     res.json({
       message: 'Login successful',
       user: {
@@ -192,7 +193,8 @@ router.post('/login', [
         name: user.name,
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
-        role: user.role
+        role: user.role,
+        features
       },
       token
     });
@@ -202,11 +204,24 @@ router.post('/login', [
   }
 });
 
+// Parse features from DB (JSON string or object). Null/undefined => {} so missing keys mean "allowed".
+function parseUserFeatures(features) {
+  if (features == null) return {};
+  if (typeof features === 'string') {
+    try {
+      return JSON.parse(features) || {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return typeof features === 'object' ? features : {};
+}
+
 // Get current user info
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, name, created_at, last_login, account_type, organisation_name, email_verified, is_approved, role FROM users WHERE id = $1',
+      'SELECT id, email, name, created_at, last_login, account_type, organisation_name, email_verified, is_approved, role, features FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -216,6 +231,7 @@ router.get('/me', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    const features = parseUserFeatures(user.features);
     res.json({
       user: {
         id: user.id,
@@ -227,7 +243,8 @@ router.get('/me', requireAuth, async (req, res) => {
         organisation_name: user.organisation_name || null,
         email_verified: user.email_verified,
         is_approved: user.is_approved,
-        role: user.role
+        role: user.role,
+        features
       }
     });
   } catch (error) {
@@ -474,14 +491,15 @@ const mapUser = (u) => ({
   email_verified: !!u.email_verified,
   is_approved: !!u.is_approved,
   role: u.role || 'user',
-  is_active: u.is_active !== undefined ? !!u.is_active : true
+  is_active: u.is_active !== undefined ? !!u.is_active : true,
+  features: parseUserFeatures(u.features)
 });
 
 // Admin routes - Get pending users
 router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const result = await query(`
-      SELECT id, email, name, created_at, email_verified, is_approved, role
+      SELECT id, email, name, created_at, email_verified, is_approved, role, features
       FROM users 
       WHERE email_verified = 1 AND is_approved = 0
       ORDER BY created_at DESC
@@ -505,7 +523,7 @@ router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) =
 router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const result = await query(`
-      SELECT id, email, name, created_at, last_login, email_verified, is_approved, role, is_active
+      SELECT id, email, name, created_at, last_login, email_verified, is_approved, role, is_active, features
       FROM users 
       ORDER BY created_at DESC
     `);
@@ -680,6 +698,52 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
   } catch (error) {
     console.error('Delete user error:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// Admin routes - Update user features (e.g. generate_assessments, download_results, feedback_video)
+router.put('/admin/users/:id/features', requireAuth, requireAdmin, [
+  body('features').optional().isObject(),
+  body('features.generate_assessments').optional().isBoolean(),
+  body('features.download_results').optional().isBoolean(),
+  body('features.feedback_video').optional().isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    const { id } = req.params;
+    const { features } = req.body;
+    if (!features || typeof features !== 'object') {
+      return res.status(400).json({ error: 'features object required' });
+    }
+    const allowed = {
+      generate_assessments: !!features.generate_assessments,
+      download_results: !!features.download_results,
+      feedback_video: !!features.feedback_video
+    };
+    const featuresJson = JSON.stringify(allowed);
+    const result = await query(
+      'UPDATE users SET features = $1 WHERE id = $2 RETURNING id, email, name, features',
+      [featuresJson, id]
+    );
+    const user = result.rows?.[0] || result?.[0];
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({
+      message: 'User features updated',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        features: parseUserFeatures(user.features)
+      }
+    });
+  } catch (error) {
+    console.error('Update user features error:', error);
+    res.status(500).json({ error: 'Failed to update user features' });
   }
 });
 

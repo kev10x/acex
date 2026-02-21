@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authAPI } from '../services/api';
-import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video } from 'lucide-react';
+
+export interface UserFeatures {
+  generate_assessments?: boolean;
+  download_results?: boolean;
+  feedback_video?: boolean;
+}
 
 interface UserData {
   id: number;
@@ -13,6 +19,7 @@ interface UserData {
   is_approved: boolean;
   role: string;
   is_active?: boolean;
+  features?: UserFeatures;
 }
 
 const AdminDashboard: React.FC = () => {
@@ -161,6 +168,26 @@ const AdminDashboard: React.FC = () => {
       await loadUsers();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to delete user');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleFeaturesChange = async (userId: number, field: 'generate_assessments' | 'download_results' | 'feedback_video', value: boolean) => {
+    if (!token) return;
+    const userData = allUsers.find((u) => u.id === userId);
+    if (!userData) return;
+    const current = userData.features || {};
+    setActionLoading(userId);
+    try {
+      await authAPI.updateUserFeatures(token, userId, {
+        generate_assessments: field === 'generate_assessments' ? value : (current.generate_assessments !== false),
+        download_results: field === 'download_results' ? value : (current.download_results !== false),
+        feedback_video: field === 'feedback_video' ? value : (current.feedback_video !== false)
+      });
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to update features');
     } finally {
       setActionLoading(null);
     }
@@ -393,6 +420,9 @@ const AdminDashboard: React.FC = () => {
                   Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Features
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -404,7 +434,12 @@ const AdminDashboard: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {allUsers.map((userData) => (
+              {allUsers.map((userData) => {
+                const feat = userData.features || {};
+                const allowAssessments = feat.generate_assessments !== false;
+                const allowDownloads = feat.download_results !== false;
+                const allowFeedbackVideo = feat.feedback_video !== false;
+                return (
                 <tr key={userData.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -429,6 +464,43 @@ const AdminDashboard: React.FC = () => {
                       <option value="user">User</option>
                       <option value="admin">Admin</option>
                     </select>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex flex-col gap-2 text-xs">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allowAssessments}
+                          onChange={(e) => handleFeaturesChange(userData.id, 'generate_assessments', e.target.checked)}
+                          disabled={actionLoading === userData.id || userData.id === user?.id}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <Sparkles className="h-3.5 w-3 text-gray-500" />
+                        <span>Generate assessments</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allowDownloads}
+                          onChange={(e) => handleFeaturesChange(userData.id, 'download_results', e.target.checked)}
+                          disabled={actionLoading === userData.id || userData.id === user?.id}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <Download className="h-3.5 w-3 text-gray-500" />
+                        <span>Download results</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allowFeedbackVideo}
+                          onChange={(e) => handleFeaturesChange(userData.id, 'feedback_video', e.target.checked)}
+                          disabled={actionLoading === userData.id || userData.id === user?.id}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <Video className="h-3.5 w-3 text-gray-500" />
+                        <span>Video explaining feedback</span>
+                      </label>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col space-y-1">
@@ -495,7 +567,8 @@ const AdminDashboard: React.FC = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
           )}

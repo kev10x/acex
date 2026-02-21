@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../database/connection');
 const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
+const { requireAuth, requireFeature } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const router = express.Router();
  * Generate a new assessment based on existing assignment data in the database
  * This uses stored assignment text, rubrics, and marking patterns to create new assessments
  */
-router.post('/generate', async (req, res) => {
+router.post('/generate', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
   try {
     const {
       rubric_id, // Required: rubric to base assessment on

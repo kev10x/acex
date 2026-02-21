@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield } from 'lucide-react';
+import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video } from 'lucide-react';
 import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type GroupByOption = 'none' | 'rubric' | 'date';
 
@@ -20,6 +21,9 @@ function formatCostUsdToZar(usd: number | string | null | undefined): string {
 }
 
 const ResultsDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const allowDownloadResults = user?.features?.download_results !== false;
+  const allowFeedbackVideo = user?.features?.feedback_video !== false;
   const [allResults, setAllResults] = useState<MarkingResult[]>([]);
   const [, setRubrics] = useState<Rubric[]>([]);
   const [loading, setLoading] = useState(false);
@@ -34,6 +38,12 @@ const ResultsDashboard: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [feedbackVideoStatus, setFeedbackVideoStatus] = useState<'idle' | 'generating' | 'completed' | 'failed'>('idle');
+  const [feedbackVideoProgress, setFeedbackVideoProgress] = useState(0);
+  const [feedbackVideoError, setFeedbackVideoError] = useState<string | null>(null);
+  const [feedbackVideoBlobUrl, setFeedbackVideoBlobUrl] = useState<string | null>(null);
+  const feedbackVideoPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const feedbackVideoBlobUrlRef = React.useRef<string | null>(null);
   
   // Filtering and grouping state
   const [selectedRubric, setSelectedRubric] = useState<string>('all');
@@ -46,6 +56,21 @@ const ResultsDashboard: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    setFeedbackVideoStatus('idle');
+    setFeedbackVideoProgress(0);
+    setFeedbackVideoError(null);
+    if (feedbackVideoBlobUrlRef.current) {
+      URL.revokeObjectURL(feedbackVideoBlobUrlRef.current);
+      feedbackVideoBlobUrlRef.current = null;
+      setFeedbackVideoBlobUrl(null);
+    }
+    if (feedbackVideoPollRef.current) {
+      clearInterval(feedbackVideoPollRef.current);
+      feedbackVideoPollRef.current = null;
+    }
+  }, [selectedResult?.id]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -330,6 +355,70 @@ const ResultsDashboard: React.FC = () => {
     }
   };
 
+  const fetchFeedbackVideoBlob = React.useCallback(async (resultId: number) => {
+    const res = await resultsAPI.getFeedbackVideoContent(resultId);
+    const url = URL.createObjectURL(res.data as Blob);
+    if (feedbackVideoBlobUrlRef.current) {
+      URL.revokeObjectURL(feedbackVideoBlobUrlRef.current);
+    }
+    feedbackVideoBlobUrlRef.current = url;
+    setFeedbackVideoBlobUrl(url);
+    setFeedbackVideoStatus('completed');
+    setFeedbackVideoError(null);
+  }, []);
+
+  const pollFeedbackVideoStatus = React.useCallback((resultId: number) => {
+    if (feedbackVideoPollRef.current) return;
+    const poll = async () => {
+      try {
+        const res = await resultsAPI.getFeedbackVideoStatus(resultId);
+        const data = res.data as { status: string; progress?: number; video_url?: string; error?: string };
+        setFeedbackVideoProgress(data.progress ?? 0);
+        if (data.status === 'completed' && data.video_url) {
+          if (feedbackVideoPollRef.current) {
+            clearInterval(feedbackVideoPollRef.current);
+            feedbackVideoPollRef.current = null;
+          }
+          await fetchFeedbackVideoBlob(resultId);
+          return;
+        }
+        if (data.status === 'failed') {
+          if (feedbackVideoPollRef.current) {
+            clearInterval(feedbackVideoPollRef.current);
+            feedbackVideoPollRef.current = null;
+          }
+          setFeedbackVideoStatus('failed');
+          setFeedbackVideoError(data.error || 'Video generation failed');
+        }
+      } catch (_) {
+        // keep polling
+      }
+    };
+    poll();
+    feedbackVideoPollRef.current = setInterval(poll, 15000);
+  }, [fetchFeedbackVideoBlob]);
+
+  const handleStartFeedbackVideo = async () => {
+    if (!selectedResult) return;
+    setFeedbackVideoError(null);
+    setFeedbackVideoStatus('generating');
+    setFeedbackVideoProgress(0);
+    try {
+      const res = await resultsAPI.createFeedbackVideo(selectedResult.id);
+      const data = res.data as { status: string; video_url?: string };
+      if (data.status === 'completed' && data.video_url) {
+        await fetchFeedbackVideoBlob(selectedResult.id);
+        return;
+      }
+      if (data.status === 'queued' || data.status === 'in_progress') {
+        pollFeedbackVideoStatus(selectedResult.id);
+      }
+    } catch (err: any) {
+      setFeedbackVideoStatus('failed');
+      setFeedbackVideoError(err.response?.data?.error || err.message || 'Failed to start video');
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -386,29 +475,31 @@ const ResultsDashboard: React.FC = () => {
             <BarChart3 className="w-4 h-4 mr-2" />
             {showAnalytics ? 'Hide' : 'Show'} Analytics
           </button>
-          <div className="flex space-x-2">
-            <button
-              onClick={handleDownloadAll}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download All (JSON)
-            </button>
-            <button
-              onClick={handleDownloadCSV}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download CSV
-            </button>
-            <button
-              onClick={handleDownloadBatchPDF}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              Download All PDFs
-            </button>
-          </div>
+          {allowDownloadResults && (
+            <div className="flex space-x-2">
+              <button
+                onClick={handleDownloadAll}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download All (JSON)
+              </button>
+              <button
+                onClick={handleDownloadCSV}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download CSV
+              </button>
+              <button
+                onClick={handleDownloadBatchPDF}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Download All PDFs
+              </button>
+            </div>
+          )}
           <div className="flex space-x-2">
             <button
               onClick={handleDeleteAllResults}
@@ -905,13 +996,15 @@ const ResultsDashboard: React.FC = () => {
                             >
                               <FileCheck className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleDownloadPDF(result.id)}
-                              className="text-blue-600 hover:text-blue-900"
-                              title="Download PDF Report"
-                            >
-                              <FileText className="w-4 h-4" />
-                            </button>
+                            {allowDownloadResults && (
+                              <button
+                                onClick={() => handleDownloadPDF(result.id)}
+                                className="text-blue-600 hover:text-blue-900"
+                                title="Download PDF Report"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDeleteResult(result.id)}
                               className="text-red-600 hover:text-red-900"
@@ -1167,6 +1260,65 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Video explaining feedback (only when feature enabled) */}
+                {allowFeedbackVideo && (
+                  <div className="mt-6 bg-gradient-to-r from-violet-50 to-purple-50 rounded-lg p-6 border-l-4 border-violet-500">
+                    <div className="flex items-center mb-4">
+                      <Video className="w-6 h-6 text-violet-600 mr-2" />
+                      <h4 className="text-lg font-semibold text-gray-900">Video explaining this feedback</h4>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-4">
+                      Watch a short video that walks through your marks and feedback for this assignment.
+                    </p>
+                    {feedbackVideoBlobUrl ? (
+                      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                        <video
+                          src={feedbackVideoBlobUrl}
+                          controls
+                          className="w-full max-h-[400px]"
+                          playsInline
+                        >
+                          Your browser does not support the video tag.
+                        </video>
+                      </div>
+                    ) : feedbackVideoStatus === 'generating' ? (
+                      <div className="bg-white rounded-lg p-6 border border-gray-200">
+                        <div className="flex items-center justify-center gap-3 text-violet-700">
+                          <div className="animate-spin rounded-full h-8 w-8 border-2 border-violet-500 border-t-transparent" />
+                          <span>Generating video… This may take a few minutes.</span>
+                        </div>
+                        {feedbackVideoProgress > 0 && (
+                          <p className="text-sm text-gray-500 mt-2 text-center">Progress: {feedbackVideoProgress}%</p>
+                        )}
+                      </div>
+                    ) : feedbackVideoStatus === 'failed' ? (
+                      <div className="bg-white rounded-lg p-4 border border-red-200">
+                        <p className="text-sm text-red-700 mb-2">{feedbackVideoError}</p>
+                        <button
+                          type="button"
+                          onClick={handleStartFeedbackVideo}
+                          className="text-sm text-violet-600 hover:text-violet-800 font-medium"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg p-6 border border-gray-200 flex flex-col items-center justify-center min-h-[120px] text-center">
+                        <Video className="w-12 h-12 text-violet-300 mb-2" />
+                        <p className="text-gray-500 text-sm mb-3">Generate a short video explaining this feedback (powered by Sora).</p>
+                        <button
+                          type="button"
+                          onClick={handleStartFeedbackVideo}
+                          className="inline-flex items-center px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-md hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500"
+                        >
+                          <Video className="w-4 h-4 mr-2" />
+                          Generate video
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Per-Criterion Detailed Feedback */}
                 {Array.isArray(selectedResult.scores) && selectedResult.scores.length > 0 && (
                   <div className="mt-6">
@@ -1326,13 +1478,15 @@ const ResultsDashboard: React.FC = () => {
                     <FileCheck className="w-4 h-4 mr-2" />
                     View Annotated PDF
                   </button>
-                  <button
-                    onClick={() => handleDownloadPDF(selectedResult.id)}
-                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    Download Report
-                  </button>
+                  {allowDownloadResults && (
+                    <button
+                      onClick={() => handleDownloadPDF(selectedResult.id)}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Download Report
+                    </button>
+                  )}
                 </div>
               </div>
 
