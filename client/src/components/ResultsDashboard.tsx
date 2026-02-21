@@ -1136,9 +1136,15 @@ const ResultsDashboard: React.FC = () => {
                       {selectedResult.prompt_tokens != null && (
                         <span>{formatTokens(selectedResult.prompt_tokens)} in · {formatTokens(selectedResult.completion_tokens)} out</span>
                       )}
-                      {selectedResult.estimated_cost_usd != null && (
-                        <span className="font-medium text-gray-900">{formatCostUsdToZar(selectedResult.estimated_cost_usd)} (≈ ${(selectedResult.estimated_cost_usd).toFixed(4)} USD)</span>
-                      )}
+                      {selectedResult.estimated_cost_usd != null && (() => {
+                        const usd = Number(selectedResult.estimated_cost_usd);
+                        return (
+                          <span className="font-medium text-gray-900">
+                            {formatCostUsdToZar(selectedResult.estimated_cost_usd)}
+                            {Number.isFinite(usd) ? ` (≈ $${usd.toFixed(4)} USD)` : ''}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
