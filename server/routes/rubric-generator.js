@@ -581,27 +581,27 @@ const generateRubricFromPDF = async (pdfText, rubricName) => {
     }
     
     const prompt = `
-You are an expert educator who creates marking rubrics that EXACTLY match the uploaded document. Your rubric must reflect the document's structure and mark allocation precisely.
+You are an expert educator who creates marking rubrics that EXACTLY match the uploaded document. The rubric MUST give a breakdown BY QUESTION (or by section/part), not by abstract themes.
 
 DOCUMENT CONTENT:
 ${pdfText}
 
 Your task:
-1. Extract the document's assessment structure EXACTLY as given: same question numbers, part numbers, section names, and mark allocations as stated in the document (e.g. "Question 1 (10 marks)", "1.1 [3]", "Section A – 20 marks").
-2. For each criterion, use the EXACT name/label and marks from the document. Do not invent or round marks; use the numbers stated in the document.
-3. Set total_points to the document's stated total marks. If the document states a total (e.g. "Total: 75" or "100 marks"), use that. Otherwise total_points must equal the sum of all criterion max_points.
-4. For each criterion description, include what the document says about marking (model answers, marking schemes, level descriptors) where present; otherwise describe performance levels clearly.
+1. BREAKDOWN BY QUESTION: Identify every question, part, or section that has a mark allocation in the document (e.g. "Question 1 (10 marks)", "1.1 [3]", "Question 2 – 20 marks", "Section A – 15"). Create exactly ONE criterion per question/part/section. If the document has 6 questions, output exactly 6 criteria—one per question. Do NOT merge questions into fewer criteria. Do NOT replace question numbers with thematic names.
+2. Use the EXACT labels from the document for each criterion name: "Question 1", "Question 2", "1.1", "1.2", "Section A", etc. Do NOT invent criterion names like "Technical Content Accuracy", "Analysis and Application", or "Design of Defence" unless that exact phrase is a question/section heading in the document. When in doubt, use "Question 1", "Question 2", ... with the exact marks per question.
+3. For each criterion: name = question/section label from document; max_points = exact marks for that question/part; description = what that question assesses and marking levels (use document wording where present).
+4. Set total_points to the document's stated total or the sum of all criterion max_points.
 
-CRITICAL: The sum of all criterion max_points MUST equal total_points. Mark allocation must match the document exactly—do not substitute your own point values.
+CRITICAL: One grading item per question/part. Sum of criterion max_points MUST equal total_points. Give a breakdown by question, not by abstract criteria.
 
 Respond with a JSON object in this exact format:
 {
   "name": "Generated rubric name based on document",
   "criteria": [
     {
-      "name": "Exact question/section name from document (e.g. Question 1, or 1.1)",
+      "name": "Question 1",
       "max_points": <exact marks from document>,
-      "description": "Description of what this criterion evaluates and marking levels, using document wording where available"
+      "description": "What this question assesses and marking levels, using document wording where available"
     }
   ],
   "total_points": <document total or sum of criteria>
