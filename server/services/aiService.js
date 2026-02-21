@@ -94,13 +94,29 @@ class AIService {
 
     const completion = await this.openai.chat.completions.create(completionParams);
 
+    const rawContent = completion.choices[0]?.message?.content;
+    // OpenAI can return content as string or as array of parts (e.g. [{ type: 'text', text: '...' }])
+    let content = rawContent;
+    if (Array.isArray(rawContent)) {
+      content = rawContent
+        .filter(part => part && part.type === 'text' && part.text != null)
+        .map(part => part.text)
+        .join('');
+    } else if (rawContent != null && typeof rawContent !== 'string') {
+      content = String(rawContent);
+    }
+    if (!content && completion.choices[0]) {
+      const finishReason = completion.choices[0].finish_reason;
+      console.warn('OpenAI returned empty content. finish_reason:', finishReason, 'usage:', completion.usage);
+    }
+
     // Standardize the response format
     return {
-      content: completion.choices[0].message.content,
+      content: content ?? '',
       usage: {
-        prompt_tokens: completion.usage.prompt_tokens,
-        completion_tokens: completion.usage.completion_tokens,
-        total_tokens: completion.usage.total_tokens
+        prompt_tokens: completion.usage?.prompt_tokens,
+        completion_tokens: completion.usage?.completion_tokens,
+        total_tokens: completion.usage?.total_tokens
       },
       provider: 'openai'
     };

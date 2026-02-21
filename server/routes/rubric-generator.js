@@ -325,6 +325,9 @@ const extractTextFromPDF = async (filePath) => {
   }
 };
 
+// Max characters of question paper to send to the model (avoids context overflow and empty responses)
+const QUESTION_PAPER_MAX_CHARS = 28000;
+
 // Generate answer key (memo) from question paper
 const generateAnswerKeyFromQuestionPaper = async (questionPaperText, rubricName) => {
   try {
@@ -335,10 +338,18 @@ const generateAnswerKeyFromQuestionPaper = async (questionPaperText, rubricName)
       throw new Error('Question paper text extraction failed or returned insufficient content');
     }
     
+    const truncated = questionPaperText.length > QUESTION_PAPER_MAX_CHARS;
+    const textForPrompt = truncated
+      ? questionPaperText.substring(0, QUESTION_PAPER_MAX_CHARS) + '\n\n[... document truncated for length ...]'
+      : questionPaperText;
+    if (truncated) {
+      console.log('Question paper truncated to', QUESTION_PAPER_MAX_CHARS, 'chars for API');
+    }
+    
     const prompt = `You are an expert educator creating a marking memorandum (answer key) from a question paper. The memorandum provides the answers; your role is to create one grading item per question and to supplement model answers with possible acceptable alternatives for use when marking.
 
 QUESTION PAPER:
-${questionPaperText}
+${textForPrompt}
 
 Your task:
 1. Identify EVERY main question in the document (Question 1, Question 2, Question 3, ...). Create exactly ONE criterion per question. If the assignment has 10 questions, output exactly 10 criteria. Do not merge questions or skip any. Sub-questions (e.g. 1.1, 1.2) can be one criterion per sub-question if they have separate mark allocations, OR one criterion per main question that includes all sub-parts—match how the document allocates marks.
@@ -383,7 +394,7 @@ IMPORTANT:
         }
       ],
       temperature: 0.2,
-      maxTokens: 4000,
+      maxTokens: 12000,
       user: 'anonymous'
     });
 
@@ -392,6 +403,9 @@ IMPORTANT:
     if (!response || response.length < 20) {
       console.error('❌ AI returned empty or very short response. Length:', response.length);
       console.error('Raw completion keys:', completion ? Object.keys(completion) : 'no completion');
+      if (completion?.usage) {
+        console.error('Token usage:', completion.usage);
+      }
       throw new Error(
         'The AI returned an empty or invalid response. Please try again. If the document is very long, try a shorter section or a different document.'
       );
