@@ -302,11 +302,13 @@ router.put('/profile', requireAuth, [
       UPDATE users 
       SET ${updates.join(', ')} 
       WHERE id = $${paramCount}
-      RETURNING id, email, name, updated_at
     `;
 
-    const result = await query(updateQuery, values);
-
+    await query(updateQuery, values);
+    const result = await query(
+      'SELECT id, email, name, updated_at FROM users WHERE id = $1',
+      [req.user.id]
+    );
     const user = result.rows?.[0] || result?.[0];
 
     res.json({
@@ -543,11 +545,11 @@ router.post('/admin/users/:id/approve', requireAuth, requireAdmin, async (req, r
   try {
     const { id } = req.params;
 
+    await query('UPDATE users SET is_approved = 1 WHERE id = $1', [id]);
     const result = await query(
-      'UPDATE users SET is_approved = 1 WHERE id = $1 RETURNING id, email, name, is_approved',
+      'SELECT id, email, name, is_approved FROM users WHERE id = $1',
       [id]
     );
-
     const user = result.rows?.[0] || result?.[0];
 
     if (!user) {
@@ -590,11 +592,14 @@ router.post('/admin/users/:id/reject', requireAuth, requireAdmin, [
       updateQuery += `, is_active = 0`;
     }
 
-    updateQuery += ` WHERE id = $${paramCount} RETURNING id, email, name, is_approved, is_active`;
+    updateQuery += ` WHERE id = $${paramCount}`;
     values.push(id);
 
-    const result = await query(updateQuery, values);
-
+    await query(updateQuery, values);
+    const result = await query(
+      'SELECT id, email, name, is_approved, is_active FROM users WHERE id = $1',
+      [id]
+    );
     const user = result.rows?.[0] || result?.[0];
 
     if (!user) {
@@ -728,9 +733,10 @@ router.put('/admin/users/:id/features', requireAuth, requireAdmin, [
       feedback_video: !!features.feedback_video
     };
     const featuresJson = JSON.stringify(allowed);
+    await query('UPDATE users SET features = $1 WHERE id = $2', [featuresJson, id]);
     const result = await query(
-      'UPDATE users SET features = $1 WHERE id = $2 RETURNING id, email, name, features',
-      [featuresJson, id]
+      'SELECT id, email, name, features FROM users WHERE id = $1',
+      [id]
     );
     const user = result.rows?.[0] || result?.[0];
     if (!user) {
@@ -776,11 +782,11 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
       }
     }
 
+    await query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
     const result = await query(
-      'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role',
-      [role, id]
+      'SELECT id, email, name, role FROM users WHERE id = $1',
+      [id]
     );
-
     const user = result.rows?.[0] || result?.[0];
 
     if (!user) {
