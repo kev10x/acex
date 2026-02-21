@@ -944,6 +944,21 @@ SPECIFIC AREAS TO CHECK FOR RESEARCH REPORT:
 
     const correctionsInstructions = getCorrectionsInstructions(documentType);
 
+    // Feedback structure: per question for test/assignment/quiz (memo), per criterion for treatise/thesis/proposal/report
+    const feedbackStructureInstruction = isMemo
+      ? `FEEDBACK STRUCTURE (MEMO / TEST / ASSIGNMENT / QUIZ):
+- The rubric is a marking memorandum: each criterion is a QUESTION (or sub-question) in the test/assignment/quiz.
+- Provide feedback PER QUESTION: for each entry in the "scores" array, write feedback that addresses ONLY the student's answer to that specific question.
+- In each criterion's "feedback" field: state what was correct, what was missing, and what was wrong for THAT question, with reference to the model answer. Do not mix feedback for different questions.
+- The "overall_feedback" should summarize performance across all questions (e.g. which questions were strong, which need work).`
+      : (documentType === 'treatise' || documentType === 'thesis' || documentType === 'proposal' || documentType === 'report' || documentType === 'assignment')
+      ? `FEEDBACK STRUCTURE (CRITERIA-BASED):
+- The rubric has assessment CRITERIA (e.g. Introduction, Literature Review, Methodology). Each criterion is a dimension of quality, not a single question.
+- Provide feedback PER CRITERION: for each entry in the "scores" array, write feedback that addresses how the work meets THAT criterion only.
+- In each criterion's "feedback" field: address strengths and weaknesses for that dimension (e.g. "For the literature review, you..."). Do not mix feedback for different criteria.
+- The "overall_feedback" should synthesize across criteria and give an overall picture.`
+      : '';
+
     const prompt = `${intro}
 
 ${contentLabel}
@@ -970,17 +985,18 @@ MARKING STANDARDS (apply within the strictness level defined above):
 ${previousMarkingExamples ? `- NOTE: This assignment was previously marked (Previous total: ${previousMarkingExamples.total_score}). Only use this as a reference if re-marking the SAME assignment. For different assignments, evaluate independently based on their actual quality.` : ''}
 
 ⚠️ CRITICAL: FEEDBACK IS THE PRIMARY FOCUS - PROVIDE EXTENSIVE, DETAILED FEEDBACK ⚠️
+${feedbackStructureInstruction ? `\n${feedbackStructureInstruction}\n` : ''}
 
 FEEDBACK DEPTH AND DETAIL REQUIREMENTS (HIGHEST PRIORITY):
 - FEEDBACK IS THE MOST IMPORTANT OUTPUT - prioritize comprehensive, detailed feedback over brevity
-- Provide EXTENSIVE feedback for each criterion - aim for 3-5 sentences minimum per criterion, more for complex criteria
+- Provide EXTENSIVE feedback ${isMemo ? 'for each QUESTION' : 'for each CRITERION'} - aim for 3-5 sentences minimum ${isMemo ? 'per question' : 'per criterion'}, more for complex ${isMemo ? 'questions' : 'criteria'}
 - Be THOROUGH and COMPREHENSIVE - cover all aspects of the work, not just surface-level observations
 - Include SPECIFIC EXAMPLES from the student's work - quote or reference specific parts when providing feedback
 - Explain the "WHY" behind every point - don't just state what's wrong/right, explain WHY it matters
 - Provide ACTIONABLE GUIDANCE - tell students exactly what to do to improve, not just what's wrong
 - Include LEARNING OPPORTUNITIES - connect feedback to broader learning objectives and concepts
 - Address MULTIPLE DIMENSIONS: content accuracy, depth of analysis, writing quality, organization, critical thinking, use of evidence, etc.
-- For each criterion, provide:
+- For each ${isMemo ? 'question (each criterion in the rubric is one question)' : 'criterion'}, provide:
   * What was done well (with specific examples)
   * What needs improvement (with specific examples)
   * Why it matters (learning context)

@@ -686,6 +686,9 @@ router.post('/from-pdf', async (req, res) => {
 
       // Determine what to generate based on user selection or auto-detection
       let finalType = rubric_type || 'auto';
+      if (finalType === 'memorandum' || finalType === 'memo') {
+        finalType = 'extract_memo';
+      }
       let detectedType = null;
       
       let autoDetectedType = null;

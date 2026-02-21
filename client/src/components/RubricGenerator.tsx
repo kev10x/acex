@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { FileText, Wand2, Save, Loader, AlertCircle, CheckCircle, Upload } from 'lucide-react';
 import { uploadAPI, rubricGeneratorAPI, Assignment, Rubric, RubricCriterion } from '../services/api';
 
-type RubricType = 'auto' | 'rubric' | 'answer_key';
+type RubricType = 'auto' | 'rubric' | 'answer_key' | 'memorandum';
 
 const RubricGenerator: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -238,11 +238,13 @@ const RubricGenerator: React.FC = () => {
                   <option value="auto">Auto-detect (Recommended)</option>
                   <option value="rubric">Regular Rubric (from content/document)</option>
                   <option value="answer_key">Answer Key (from question paper)</option>
+                  <option value="memorandum">Memorandum (document is the memo)</option>
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
                   {rubricType === 'auto' && 'AI will detect the document type and generate appropriately'}
                   {rubricType === 'rubric' && 'Generate a marking rubric with criteria and performance levels'}
                   {rubricType === 'answer_key' && 'Generate an answer key with model answers for each question'}
+                  {rubricType === 'memorandum' && 'Document is already a marking memorandum — extract structure to use as rubric'}
                 </p>
               </div>
 

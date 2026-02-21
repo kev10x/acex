@@ -265,7 +265,7 @@ export const rubricGeneratorAPI = {
   generateFromPDF: (data: {
     assignment_id: number;
     rubric_name?: string;
-    rubric_type?: 'auto' | 'rubric' | 'answer_key';
+    rubric_type?: 'auto' | 'rubric' | 'answer_key' | 'memorandum';
   }) => api.post('/rubric-generator/from-pdf', data),
   
   saveGenerated: (data: {
