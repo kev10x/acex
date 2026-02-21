@@ -304,10 +304,10 @@ Respond with ONLY a JSON object:
     
     const result = parseJSONWithFallback(response);
     console.log('🔍 Document type detection result:', result);
-    return result.document_type || 'treatise';
+    return result.document_type || 'rubric';
   } catch (error) {
-    console.warn('Document type detection failed, defaulting to treatise:', error.message);
-    return 'treatise';
+    console.warn('Document type detection failed, defaulting to rubric:', error.message);
+    return 'rubric';
   }
 };
 
