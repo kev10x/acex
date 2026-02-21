@@ -21,7 +21,8 @@ router.get('/pdf/:resultId', async (req, res) => {
         a.batch_id,
         r.name as rubric_name,
         r.total_points,
-        r.criteria
+        r.criteria,
+        r.rubric_type
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
@@ -55,7 +56,8 @@ router.get('/pdf/:resultId', async (req, res) => {
       {
         name: markingResult.rubric_name,
         total_points: markingResult.total_points,
-        criteria: markingResult.criteria
+        criteria: markingResult.criteria,
+        rubric_type: markingResult.rubric_type || 'rubric'
       }
     );
 
@@ -106,7 +108,8 @@ router.post('/pdf/batch', async (req, res) => {
         a.batch_id,
         r.name as rubric_name,
         r.total_points,
-        r.criteria
+        r.criteria,
+        r.rubric_type
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
@@ -142,7 +145,8 @@ router.post('/pdf/batch', async (req, res) => {
       id: row.rubric_id,
       name: row.rubric_name,
       total_points: row.total_points,
-      criteria: row.criteria
+      criteria: row.criteria,
+      rubric_type: row.rubric_type || 'rubric'
     }));
 
     // Generate batch PDF report

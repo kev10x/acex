@@ -153,9 +153,11 @@ class PDFReportGenerator {
   }
 
   addDetailedScores(doc, markingResult, rubric) {
+    const isMemo = (rubric.rubric_type || '').toLowerCase() === 'answer_key';
+    const sectionTitle = isMemo ? 'Scores by question' : 'Detailed criteria scores';
     doc.fontSize(14)
        .font('Helvetica-Bold')
-       .text('Detailed Criteria Scores:', { underline: true });
+       .text(sectionTitle + ':', { underline: true });
     
     doc.moveDown(0.5);
     
@@ -164,8 +166,8 @@ class PDFReportGenerator {
       ? JSON.parse(markingResult.scores) 
       : markingResult.scores;
     
-    scores.forEach((score, index) => {
-      // Criterion name
+    (scores || []).forEach((score, index) => {
+      // Question/criterion name
       doc.fontSize(12)
          .font('Helvetica-Bold')
          .text(`${index + 1}. ${score.criterion_name}`, { indent: 20 });

@@ -328,30 +328,30 @@ const generateAnswerKeyFromQuestionPaper = async (questionPaperText, rubricName)
       throw new Error('Question paper text extraction failed or returned insufficient content');
     }
     
-    const prompt = `You are an expert educator creating a marking memorandum (answer key) from a question paper. The memorandum and mark allocation must EXACTLY match the question paper.
+    const prompt = `You are an expert educator creating a marking memorandum (answer key) from a question paper. The memorandum provides the answers; your role is to create one grading item per question and to supplement model answers with possible acceptable alternatives for use when marking.
 
 QUESTION PAPER:
 ${questionPaperText}
 
 Your task:
-1. Identify ALL questions and sub-questions exactly as they appear (same numbers and labels).
-2. Extract the mark allocation EXACTLY as stated in the document (e.g. "Question 1 [10]", "1.1 (3 marks)", "Section B – 25 marks"). Do NOT invent or approximate marks; use only the numbers given in the document.
-3. For each question/part, create a criterion with:
-   - name: the exact question/part identifier from the document
-   - max_points: the exact marks for that part as stated in the document
-   - description: Model Answer and Marking Scheme (what earns full/partial/no marks), using document wording where available
-4. Set total_points to the document's stated total. If the document gives a total (e.g. "TOTAL: 75" or "100 marks"), use that. Otherwise total_points must equal the sum of all criterion max_points.
+1. Identify EVERY main question in the document (Question 1, Question 2, Question 3, ...). Create exactly ONE criterion per question. If the assignment has 10 questions, output exactly 10 criteria. Do not merge questions or skip any. Sub-questions (e.g. 1.1, 1.2) can be one criterion per sub-question if they have separate mark allocations, OR one criterion per main question that includes all sub-parts—match how the document allocates marks.
+2. Extract the mark allocation EXACTLY as stated (e.g. "Question 1 [10]", "1.1 (3 marks)"). Use only the numbers given in the document.
+3. For each criterion:
+   - name: the exact question label (e.g. "Question 1", "Question 2")
+   - max_points: the exact marks for that question as stated
+   - description: Model Answer (the correct answer) AND supplement with "Possible acceptable answers / alternatives:" — list equivalent phrasings, synonyms, or alternative correct answers that markers can credit. Include Marking Scheme (full/partial/no marks). This helps AI and human markers recognise acceptable answers when marking.
+4. Set total_points to the document's stated total or the sum of all criterion max_points.
 
-CRITICAL: The sum of all criterion max_points MUST equal total_points. Use only mark allocations that appear in the document.
+CRITICAL: One grading item per question. 10 questions = 10 criteria. Sum of criterion max_points MUST equal total_points.
 
 Respond with a JSON object in this exact format:
 {
   "name": "Answer Key - [Question Paper Name]",
   "criteria": [
     {
-      "name": "Exact question/part label from document (e.g. Question 1, 1.1, Section A)",
+      "name": "Question 1",
       "max_points": <exact marks from document>,
-      "description": "Model Answer: [Complete correct answer with key points and marking allocations from the document]\n\nMarking Scheme:\n- Full Marks: [what earns full marks]\n- Partial Marks: [what earns partial marks]\n- No/Low Marks: [what earns no or minimal marks]"
+      "description": "Model Answer: [Complete correct answer]\n\nPossible acceptable answers / alternatives: [equivalent phrasings or key phrases that can be credited]\n\nMarking Scheme:\n- Full Marks: [what earns full marks]\n- Partial Marks: [what earns partial marks]\n- No/Low Marks: [what earns no or minimal marks]"
     }
   ],
   "total_points": <document total or sum of criteria>
@@ -359,7 +359,7 @@ Respond with a JSON object in this exact format:
 
 IMPORTANT:
 - Include "Model Answer", "Marking Scheme", "Correct Answer" in descriptions so the system detects this as a memo.
-- For calculations, show worked solutions. For essays, list key points. Use the document's own mark breakdown where given.`;
+- For calculations, show worked solutions. For essays, list key points and acceptable alternative formulations.`;
 
     const config = aiConfig.getConfig('assignment', 'openai');
     const completion = await aiService.createCompletionWithRetry({
@@ -455,29 +455,29 @@ const extractRubricFromMemo = async (memoText, rubricName) => {
       throw new Error('Memorandum text extraction failed or returned insufficient content');
     }
 
-    const prompt = `The following document IS a marking memorandum / answer key / marking guidelines (e.g. from a test or assignment). Your task is to EXTRACT its structure into a structured rubric—do NOT invent or generate new content; only extract what is in the document.
+    const prompt = `The following document IS a marking memorandum / answer key. It provides answers to questions. Your task is to EXTRACT its structure so there is exactly ONE grading item per question, and to SUPPLEMENT the memo's model answers with possible acceptable alternatives for use when marking.
 
 MEMORANDUM DOCUMENT:
 ${memoText}
 
 Your task:
-1. Identify every question, sub-question, or section that has a mark allocation in the document (e.g. "Question 1", "1.1", "Section A").
-2. For each one, EXTRACT:
-   - name: the exact question/part label as it appears in the memo
-   - max_points: the exact marks for that part as stated in the document
-   - description: the model answer, marking scheme, and marking guidelines for that part AS WRITTEN in the document. Preserve the document's wording, bullet points, and structure. Include "Model Answer", "Marking Scheme", or "Correct Answer" so the system recognises this as a memo.
-3. Set total_points to the document's stated total. If the document gives a total (e.g. "TOTAL: 75"), use that. Otherwise total_points must equal the sum of all criterion max_points.
+1. Identify EVERY question in the memorandum (Question 1, Question 2, ...). Create exactly ONE criterion per question. If the memo has 10 questions, output exactly 10 criteria. Do not merge questions or omit any. One grading item per question.
+2. For each question, EXTRACT from the document:
+   - name: the exact question label as it appears (e.g. "Question 1", "Question 2")
+   - max_points: the exact marks for that question as stated
+   - description: Extract the model answer and marking scheme from the memo. Preserve the document's wording. Then SUPPLEMENT with "Possible acceptable answers / alternatives:" — add equivalent phrasings, synonyms, or alternative correct answers that markers can credit when marking. Include "Model Answer", "Marking Scheme", or "Correct Answer" so the system recognises this as a memo.
+3. Set total_points to the document's stated total (e.g. "TOTAL: 75") or the sum of all criterion max_points.
 
-CRITICAL: EXTRACT only. Do not add or invent content. The sum of all criterion max_points MUST equal total_points. Use only mark allocations that appear in the document.
+CRITICAL: One criterion per question. 10 questions = 10 criteria. Sum of criterion max_points MUST equal total_points. Extract the memo's content first; then add brief acceptable alternatives to help marking.
 
 Respond with a JSON object in this exact format:
 {
   "name": "Memorandum - [document title or 'Extracted Memo']",
   "criteria": [
     {
-      "name": "Exact question/part label from document (e.g. Question 1, 1.1, Section A)",
+      "name": "Question 1",
       "max_points": <exact marks from document>,
-      "description": "Model Answer / Marking Scheme: [extracted text from the document for this part, preserving wording and structure]"
+      "description": "Model Answer: [extracted from memo]\n\nPossible acceptable answers / alternatives: [equivalent phrasings or key phrases to credit when marking]\n\nMarking Scheme: [extracted from memo]"
     }
   ],
   "total_points": <document total or sum of criteria>
@@ -490,7 +490,7 @@ Respond with a JSON object in this exact format:
       messages: [
         {
           role: 'system',
-          content: 'You extract structure from marking memorandums. Respond with valid JSON only, no additional text. Preserve the document\'s exact wording and mark allocations.'
+          content: 'You extract marking memorandums into a rubric with exactly one criterion per question. Preserve the memo\'s wording and marks; supplement with possible acceptable answers for marking. Respond with valid JSON only.'
         },
         { role: 'user', content: prompt }
       ],

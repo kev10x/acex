@@ -13,7 +13,7 @@ const MarkingInterface: React.FC = () => {
   const [outputType, setOutputType] = useState<'annotate' | 'report'>('annotate');
   const [assessmentType, setAssessmentType] = useState<'assignment' | 'test' | 'treatise' | 'thesis'>('assignment');
   const [level, setLevel] = useState<'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate'>('high_school');
-  const [provider, setProvider] = useState<'openai' | 'anthropic'>('anthropic');
+  const [provider] = useState<'openai' | 'anthropic'>('openai');
   const [strictnessLevel, setStrictnessLevel] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
   const [markAsImage, setMarkAsImage] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -406,26 +406,6 @@ const MarkingInterface: React.FC = () => {
               </select>
               <p className="mt-1 text-xs text-gray-500">
                 Select the educational level of the students
-              </p>
-            </div>
-
-            {/* AI Provider */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                AI Model
-              </label>
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value as 'openai' | 'anthropic')}
-                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="anthropic">Claude 3.5 Sonnet (Anthropic)</option>
-                <option value="openai">GPT-4o (OpenAI)</option>
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                {provider === 'anthropic' 
-                  ? 'Best for large documents and academic analysis'
-                  : 'Fast and reliable for most assignments'}
               </p>
             </div>
 
