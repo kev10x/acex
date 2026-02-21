@@ -636,11 +636,15 @@ router.put('/admin/users/:id/lock', requireAuth, requireAdmin, [
 
     const isActive = !locked;
 
-    const result = await query(
-      'UPDATE users SET is_active = $1 WHERE id = $2 RETURNING id, email, name, is_active',
+    await query(
+      'UPDATE users SET is_active = $1 WHERE id = $2',
       [isActive, id]
     );
 
+    const result = await query(
+      'SELECT id, email, name, is_active FROM users WHERE id = $1',
+      [id]
+    );
     const user = result.rows?.[0] || result?.[0];
 
     if (!user) {

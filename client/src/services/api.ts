@@ -248,9 +248,9 @@ export const resultsAPI = {
   getMarkingHistory: (assignmentId: number) => api.get(`/mark/history/${assignmentId}`),
   restoreMarkingVersion: (resultId: number) => api.post(`/mark/history/${resultId}/restore`),
   compareMarkingVersions: (resultId1: number, resultId2: number) => api.get(`/mark/history/compare/${resultId1}/${resultId2}`),
-  createFeedbackVideo: (resultId: number) => api.post(`/results/${resultId}/feedback-video`),
-  getFeedbackVideoStatus: (resultId: number) => api.get(`/results/${resultId}/feedback-video/status`),
-  getFeedbackVideoContent: (resultId: number) => api.get(`/results/${resultId}/feedback-video/content`, { responseType: 'blob' }),
+  createFeedbackVideo: (resultId: number) => api.post(`/results/feedback-video/${resultId}`),
+  getFeedbackVideoStatus: (resultId: number) => api.get(`/results/feedback-video/${resultId}/status`),
+  getFeedbackVideoContent: (resultId: number) => api.get(`/results/feedback-video/${resultId}/content`, { responseType: 'blob' }),
 };
 
 // Reports API

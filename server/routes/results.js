@@ -200,7 +200,7 @@ async function getMarkingResultForUser(resultId, userId) {
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
-router.post('/:resultId/feedback-video', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_video'), async (req, res) => {
   try {
     const resultId = Number(req.params.resultId);
     const markingResult = await getMarkingResultForUser(resultId, req.user.id);
@@ -216,7 +216,7 @@ router.post('/:resultId/feedback-video', requireAuth, requireFeature('feedback_v
     if (row && row.status === 'completed' && row.file_path) {
       return res.json({
         status: 'completed',
-        video_url: `/api/results/${resultId}/feedback-video/content`,
+        video_url: `/api/results/feedback-video/${resultId}/content`,
       });
     }
     if (row && (row.status === 'queued' || row.status === 'in_progress')) {
@@ -262,7 +262,7 @@ router.post('/:resultId/feedback-video', requireAuth, requireFeature('feedback_v
   }
 });
 
-router.get('/:resultId/feedback-video/status', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+router.get('/feedback-video/:resultId/status', requireAuth, requireFeature('feedback_video'), async (req, res) => {
   try {
     const resultId = Number(req.params.resultId);
     const markingResult = await getMarkingResultForUser(resultId, req.user.id);
@@ -281,7 +281,7 @@ router.get('/:resultId/feedback-video/status', requireAuth, requireFeature('feed
     if (row.status === 'completed' && row.file_path) {
       return res.json({
         status: 'completed',
-        video_url: `/api/results/${resultId}/feedback-video/content`,
+        video_url: `/api/results/feedback-video/${resultId}/content`,
       });
     }
     const { status, progress, error } = await feedbackVideoService.getVideoStatus(row.openai_video_id);
@@ -315,7 +315,7 @@ router.get('/:resultId/feedback-video/status', requireAuth, requireFeature('feed
       }
       return res.json({
         status: 'completed',
-        video_url: `/api/results/${resultId}/feedback-video/content`,
+        video_url: `/api/results/feedback-video/${resultId}/content`,
       });
     }
     if (status === 'failed') {
@@ -336,7 +336,7 @@ router.get('/:resultId/feedback-video/status', requireAuth, requireFeature('feed
   }
 });
 
-router.get('/:resultId/feedback-video/content', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+router.get('/feedback-video/:resultId/content', requireAuth, requireFeature('feedback_video'), async (req, res) => {
   try {
     const resultId = Number(req.params.resultId);
     const markingResult = await getMarkingResultForUser(resultId, req.user.id);
