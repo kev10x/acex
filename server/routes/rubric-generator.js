@@ -156,7 +156,14 @@ function fixJSONSyntax(jsonString) {
  * Parse JSON with multiple fallback strategies
  */
 function parseJSONWithFallback(jsonString) {
-  let cleaned = sanitizeJSONString(jsonString);
+  const raw = jsonString != null ? String(jsonString).trim() : '';
+  if (!raw || raw.length < 10) {
+    throw new Error(
+      `AI returned empty or too-short response (length: ${raw.length}). ` +
+      `Try again or use a shorter document.`
+    );
+  }
+  let cleaned = sanitizeJSONString(raw);
   
   // Strategy 1: Try direct parse
   try {
@@ -367,21 +374,29 @@ IMPORTANT:
       model: config.model,
       messages: [
         {
-          role: "system",
-          content: "You are an expert educator creating comprehensive answer keys and marking memorandums. Always respond with valid JSON format only, no additional text before or after the JSON."
+          role: 'system',
+          content: 'You are an expert educator creating answer keys and marking memorandums. You MUST respond with ONLY a single JSON object. Do not wrap in markdown (no ```json or ```). No explanation or text before or after. Your entire reply must be valid JSON starting with { and ending with }.'
         },
         {
-          role: "user",
+          role: 'user',
           content: prompt
         }
       ],
       temperature: 0.2,
       maxTokens: 4000,
-      user: "anonymous"
+      user: 'anonymous'
     });
 
-    let response = completion.content.trim();
-    
+    const rawContent = completion?.content;
+    const response = (rawContent != null ? String(rawContent) : '').trim();
+    if (!response || response.length < 20) {
+      console.error('❌ AI returned empty or very short response. Length:', response.length);
+      console.error('Raw completion keys:', completion ? Object.keys(completion) : 'no completion');
+      throw new Error(
+        'The AI returned an empty or invalid response. Please try again. If the document is very long, try a shorter section or a different document.'
+      );
+    }
+
     try {
       const answerKeyData = parseJSONWithFallback(response);
       
@@ -433,17 +448,25 @@ IMPORTANT:
       };
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError.message);
+      console.error('Response length:', response.length);
       console.error('Raw AI Response (first 500 chars):', response.substring(0, 500));
+      console.error('Raw AI Response (last 200 chars):', response.length > 200 ? response.slice(-200) : '');
       
-      // Try to provide more helpful error message
+      const firstChars = response.substring(0, 200);
       if (parseError.message.includes('Unexpected token') || parseError.message.includes('control character')) {
-        throw new Error(`Failed to parse AI response as JSON. The response may contain invalid JSON, control characters, or extra text. First 200 chars: ${response.substring(0, 200)}`);
+        throw new Error(`Failed to parse AI response as JSON (invalid format or extra text). First 200 chars: ${firstChars}`);
       }
-      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
+      if (parseError.message.includes('empty or too-short')) {
+        throw new Error('The AI returned an empty or too-short response. Try again or use a shorter document.');
+      }
+      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}. Try again.`);
     }
   } catch (error) {
-    console.error('❌ OpenAI API error:', error);
-    throw new Error('Failed to generate answer key with AI');
+    console.error('❌ Answer key generation error:', error);
+    if (error.message && (error.message.includes('empty') || error.message.includes('parse AI response'))) {
+      throw error;
+    }
+    throw new Error('Failed to generate answer key with AI. Please try again.');
   }
 };
 
@@ -490,7 +513,7 @@ Respond with a JSON object in this exact format:
       messages: [
         {
           role: 'system',
-          content: 'You extract marking memorandums into a rubric with exactly one criterion per question. Preserve the memo\'s wording and marks; supplement with possible acceptable answers for marking. Respond with valid JSON only.'
+          content: 'You extract marking memorandums into a rubric. Respond with ONLY a single JSON object. Do not use markdown code blocks. No text before or after. Your entire reply must be valid JSON starting with { and ending with }.'
         },
         { role: 'user', content: prompt }
       ],
@@ -499,7 +522,12 @@ Respond with a JSON object in this exact format:
       user: 'anonymous'
     });
 
-    let response = completion.content.trim();
+    const rawContent = completion?.content;
+    const response = (rawContent != null ? String(rawContent) : '').trim();
+    if (!response || response.length < 20) {
+      console.error('❌ Extract memo: AI returned empty or very short response. Length:', response.length);
+      throw new Error('The AI returned an empty or invalid response. Please try again.');
+    }
     const rubricData = parseJSONWithFallback(response);
 
     if (!rubricData.name || !rubricData.criteria || !Array.isArray(rubricData.criteria)) {
@@ -586,21 +614,26 @@ Respond with a JSON object in this exact format:
       model: config.model,
       messages: [
         {
-          role: "system",
-          content: "You are an expert educator who creates fair, comprehensive, and detailed marking rubrics. Always respond with valid JSON format only, no additional text before or after the JSON."
+          role: 'system',
+          content: 'You are an expert educator who creates marking rubrics. You MUST respond with ONLY a single JSON object. Do not use markdown (no ```json or ```). No text before or after. Your entire reply must be valid JSON starting with { and ending with }.'
         },
         {
-          role: "user",
+          role: 'user',
           content: prompt
         }
       ],
       temperature: 0.3,
       maxTokens: 2000,
-      user: "anonymous"
+      user: 'anonymous'
     });
 
-    let response = completion.content.trim();
-    
+    const rawContent = completion?.content;
+    const response = (rawContent != null ? String(rawContent) : '').trim();
+    if (!response || response.length < 20) {
+      console.error('❌ Generate rubric: AI returned empty or very short response. Length:', response.length);
+      throw new Error('The AI returned an empty or invalid response. Please try again.');
+    }
+
     try {
       const rubricData = parseJSONWithFallback(response);
       
@@ -637,17 +670,22 @@ Respond with a JSON object in this exact format:
       };
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError.message);
+      console.error('Response length:', response.length);
       console.error('Raw AI Response (first 500 chars):', response.substring(0, 500));
-      
-      // Try to provide more helpful error message
       if (parseError.message.includes('Unexpected token') || parseError.message.includes('control character')) {
-        throw new Error(`Failed to parse AI response as JSON. The response may contain invalid JSON, control characters, or extra text. First 200 chars: ${response.substring(0, 200)}`);
+        throw new Error(`Failed to parse AI response as JSON. The response may contain invalid JSON or extra text. Try again.`);
       }
-      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
+      if (parseError.message.includes('empty or too-short')) {
+        throw new Error('The AI returned an empty or too-short response. Try again or use a shorter document.');
+      }
+      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}. Try again.`);
     }
   } catch (error) {
-    console.error('OpenAI API error:', error);
-    throw new Error('Failed to generate rubric with AI');
+    console.error('❌ Generate rubric error:', error);
+    if (error.message && (error.message.includes('empty') || error.message.includes('parse AI response'))) {
+      throw error;
+    }
+    throw new Error('Failed to generate rubric with AI. Please try again.');
   }
 };
 
