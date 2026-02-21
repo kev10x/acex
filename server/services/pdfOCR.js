@@ -144,21 +144,23 @@ const extractTextFromPDF = async (filePath, options = {}) => {
   try {
     // If force OCR is enabled, skip standard extraction
     if (!forceOCR) {
-      // First, try standard text extraction
+      // First, try standard text extraction; if it throws or returns too little text, use vision as fallback
       console.log('📄 Attempting standard text extraction...');
-      let text = await extractTextStandard(filePath);
-      
-      if (isTextExtractionSuccessful(text)) {
-        console.log('✅ Standard extraction successful');
-        return text;
+      try {
+        const text = await extractTextStandard(filePath);
+        if (isTextExtractionSuccessful(text)) {
+          console.log('✅ Standard extraction successful');
+          return text;
+        }
+        console.log('⚠️ Standard extraction returned insufficient text. Text length:', text?.length || 0);
+      } catch (standardError) {
+        console.warn('⚠️ Standard text extraction failed, will try Vision API:', standardError.message);
       }
-      
-      console.log('⚠️ Standard extraction returned insufficient text. Text length:', text?.length || 0);
     }
 
-    // If standard extraction failed or returned minimal text, try Vision API
-    if (useVisionAPI && (process.env.ENABLE_VISION_API !== 'false')) {
-      console.log('📸 Standard extraction insufficient. Attempting Vision API (handwritten/scanned text support)...');
+    // If standard extraction failed (error or insufficient text), try Vision API as fallback
+    if (useVisionAPI && process.env.ENABLE_VISION_API !== 'false') {
+      console.log('📸 Using Vision AI fallback (handwritten/scanned text support)...');
       
       try {
         const visionText = await extractTextWithVisionAPI(filePath);
