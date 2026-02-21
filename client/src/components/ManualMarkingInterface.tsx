@@ -120,8 +120,7 @@ const ManualMarkingInterface: React.FC = () => {
         overall_feedback: overallFeedback || 'Manual marking completed'
       };
 
-      const response = await markingAPI.markManual(markingData);
-      const result = response.data;
+      await markingAPI.markManual(markingData);
       setSuccess(`Successfully marked assignment for ${studentName} (Score: ${totalScore}/${getTotalPossiblePoints()})`);
       
       // Reset form

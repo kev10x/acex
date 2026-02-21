@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FileText, Wand2, Save, Loader, AlertCircle, CheckCircle, Upload } from 'lucide-react';
-import { uploadAPI, rubricGeneratorAPI, Assignment, Rubric, RubricCriterion } from '../services/api';
+import { Wand2, Save, Loader, AlertCircle, CheckCircle, Upload } from 'lucide-react';
+import { uploadAPI, rubricGeneratorAPI, Assignment, Rubric } from '../services/api';
 
 type RubricType = 'auto' | 'rubric' | 'answer_key' | 'memorandum';
 
@@ -12,7 +12,6 @@ const RubricGenerator: React.FC = () => {
   const [rubricType, setRubricType] = useState<RubricType>('auto');
   const [generatedRubric, setGeneratedRubric] = useState<Rubric | null>(null);
   const [generatedRubricType, setGeneratedRubricType] = useState<'rubric' | 'answer_key'>('rubric');
-  const [detectedDocumentType, setDetectedDocumentType] = useState<string | null>(null);
   /** User override for total marks when they don't match the document (e.g. AI misread total) */
   const [totalMarksOverride, setTotalMarksOverride] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -70,7 +69,6 @@ const RubricGenerator: React.FC = () => {
     setSuccess(null);
 
     try {
-      setDetectedDocumentType(null);
       setGeneratedRubricType('rubric');
       const response = await rubricGeneratorAPI.generateFromPDF({
         assignment_id: selectedAssignment,
@@ -85,8 +83,6 @@ const RubricGenerator: React.FC = () => {
       setTotalMarksOverride(null);
       const resolvedType = response.data.final_type === 'answer_key' || response.data.is_answer_key ? 'answer_key' : 'rubric';
       setGeneratedRubricType(resolvedType);
-      setDetectedDocumentType(response.data.detected_type || null);
-
       const message =
         response.data.message ||
         (resolvedType === 'answer_key'

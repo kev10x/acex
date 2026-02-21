@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FolderPlus, Folder, Edit2, Trash2, X, Check, Plus, Users } from 'lucide-react';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users } from 'lucide-react';
 import { batchesAPI, uploadAPI, Batch, Assignment } from '../services/api';
 
 const BatchManager: React.FC = () => {
@@ -137,10 +137,6 @@ const BatchManager: React.FC = () => {
 
   const getUnassignedAssignments = () => {
     return assignments.filter(a => !a.batch_id);
-  };
-
-  const getAssignmentsInBatch = (batchId: number) => {
-    return assignments.filter(a => a.batch_id === batchId);
   };
 
   if (loading && batches.length === 0) {

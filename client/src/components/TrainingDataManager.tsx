@@ -24,7 +24,6 @@ interface TrainingFile {
 const TrainingDataManager: React.FC = () => {
   const [stats, setStats] = useState<TrainingStats | null>(null);
   const [files, setFiles] = useState<TrainingFile[]>([]);
-  const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 

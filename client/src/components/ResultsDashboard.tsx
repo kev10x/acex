@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, Filter, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield } from 'lucide-react';
+import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield } from 'lucide-react';
 import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
 
 type GroupByOption = 'none' | 'rubric' | 'date';
@@ -21,7 +21,7 @@ function formatCostUsdToZar(usd: number | string | null | undefined): string {
 
 const ResultsDashboard: React.FC = () => {
   const [allResults, setAllResults] = useState<MarkingResult[]>([]);
-  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [, setRubrics] = useState<Rubric[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<{
@@ -69,7 +69,7 @@ const ResultsDashboard: React.FC = () => {
     }
   };
 
-  const handleExportCSV = async () => {
+  const _handleExportCSV = async () => {
     try {
       const response = await resultsAPI.exportCSV();
       const blob = new Blob([response.data], { type: 'text/csv' });
@@ -166,7 +166,7 @@ const ResultsDashboard: React.FC = () => {
     } else if (groupBy === 'none') {
       setExpandedGroups(new Set());
     }
-  }, [groupBy, filteredAndGroupedResults.grouped]);
+  }, [groupBy, filteredAndGroupedResults.grouped, filteredAndGroupedResults.data]);
 
   const toggleGroup = (key: string) => {
     setExpandedGroups(prev => {

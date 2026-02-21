@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, CheckCircle, AlertCircle, Loader, FileText, ClipboardCheck, Download } from 'lucide-react';
+import { CheckCircle, AlertCircle, Loader, FileText, ClipboardCheck, Download } from 'lucide-react';
 import { uploadAPI } from '../services/api';
 
 interface MCQAnswerKey {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, BarChart3, Settings, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine } from 'lucide-react';
+import { Upload, FileText, BarChart3, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import RubricManager from './components/RubricManager';
 import MarkingInterface from './components/MarkingInterface';

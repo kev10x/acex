@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authAPI } from '../services/api';
-import { CheckCircle, XCircle, User, Mail, Clock, Shield, AlertCircle, Lock, Unlock, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2 } from 'lucide-react';
 
 interface UserData {
   id: number;
