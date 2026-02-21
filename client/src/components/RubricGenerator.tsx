@@ -88,9 +88,10 @@ const RubricGenerator: React.FC = () => {
       setDetectedDocumentType(response.data.detected_type || null);
 
       const message =
-        resolvedType === 'answer_key'
+        response.data.message ||
+        (resolvedType === 'answer_key'
           ? `Answer key generated successfully${rubricType === 'auto' && response.data.detected_type ? ` (auto-detected ${response.data.detected_type})` : ''}. Review and save if you like it.`
-          : `Rubric generated successfully${rubricType === 'auto' && response.data.detected_type ? ` (auto-detected ${response.data.detected_type})` : ''}. Review and save if you like it.`;
+          : `Rubric generated successfully${rubricType === 'auto' && response.data.detected_type ? ` (auto-detected ${response.data.detected_type})` : ''}. Review and save if you like it.`);
       setSuccess(message);
     } catch (err: any) {
       setError(err.response?.data?.error || err.response?.data?.message || 'Failed to generate rubric');

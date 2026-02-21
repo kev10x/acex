@@ -250,27 +250,27 @@ function parseJSONWithFallback(jsonString) {
   throw new Error('All JSON parsing strategies failed');
 }
 
-// Detect document type (question paper, treatise, assignment, etc.)
+// Detect document type (question paper, memorandum, treatise, assignment, etc.)
 const detectDocumentType = async (documentText) => {
   try {
     const detectionPrompt = `Analyze the following document and determine its type.
 
 Types:
-- "question_paper": An exam/test paper with questions (may include answers)
-- "memo": A marking memorandum/answer key with model answers
-- "treatise": A substantial academic research document (Masters/PhD level)
-- "assignment": A course assignment or homework
-- "thesis": A doctoral thesis
-- "report": A research report
-- "proposal": A research proposal
-- "rubric": A marking rubric or assessment criteria
+- "question_paper": A test/exam paper that CONTAINS QUESTIONS for students to answer (may have blank space or instructions). It is NOT the marking memo.
+- "memo": The document IS a marking memorandum / answer key / marking guidelines. It contains model answers, marking schemes, mark allocations, and "memorandum" or "memo" or "marking guidelines" style content. Use "memo" when the document is the memorandum itself (e.g. "Memorandum", "Marking Guidelines", "Suggested Answers").
+- "rubric": A standalone marking rubric or assessment criteria (not a full memo with model answers).
+- "treatise": A substantial academic research document (Masters/PhD level).
+- "assignment": A course assignment or homework brief.
+- "thesis": A doctoral thesis.
+- "report": A research report.
+- "proposal": A research proposal.
 
 DOCUMENT PREVIEW:
-${documentText.substring(0, 1500)}
+${documentText.substring(0, 2000)}
 
 Respond with ONLY a JSON object:
 {
-  "document_type": "question_paper" or "memo" or "treatise" or "assignment" or "thesis" or "report" or "proposal" or "rubric",
+  "document_type": "question_paper" or "memo" or "rubric" or "treatise" or "assignment" or "thesis" or "report" or "proposal",
   "confidence": "high" or "medium" or "low"
 }`;
 
@@ -447,6 +447,96 @@ IMPORTANT:
   }
 };
 
+// Extract rubric from a document that IS already a marking memorandum (direct memo from test/assignment)
+const extractRubricFromMemo = async (memoText, rubricName) => {
+  try {
+    console.log('📋 Extracting rubric from existing memorandum...');
+    if (!memoText || memoText.trim().length < 50) {
+      throw new Error('Memorandum text extraction failed or returned insufficient content');
+    }
+
+    const prompt = `The following document IS a marking memorandum / answer key / marking guidelines (e.g. from a test or assignment). Your task is to EXTRACT its structure into a structured rubric—do NOT invent or generate new content; only extract what is in the document.
+
+MEMORANDUM DOCUMENT:
+${memoText}
+
+Your task:
+1. Identify every question, sub-question, or section that has a mark allocation in the document (e.g. "Question 1", "1.1", "Section A").
+2. For each one, EXTRACT:
+   - name: the exact question/part label as it appears in the memo
+   - max_points: the exact marks for that part as stated in the document
+   - description: the model answer, marking scheme, and marking guidelines for that part AS WRITTEN in the document. Preserve the document's wording, bullet points, and structure. Include "Model Answer", "Marking Scheme", or "Correct Answer" so the system recognises this as a memo.
+3. Set total_points to the document's stated total. If the document gives a total (e.g. "TOTAL: 75"), use that. Otherwise total_points must equal the sum of all criterion max_points.
+
+CRITICAL: EXTRACT only. Do not add or invent content. The sum of all criterion max_points MUST equal total_points. Use only mark allocations that appear in the document.
+
+Respond with a JSON object in this exact format:
+{
+  "name": "Memorandum - [document title or 'Extracted Memo']",
+  "criteria": [
+    {
+      "name": "Exact question/part label from document (e.g. Question 1, 1.1, Section A)",
+      "max_points": <exact marks from document>,
+      "description": "Model Answer / Marking Scheme: [extracted text from the document for this part, preserving wording and structure]"
+    }
+  ],
+  "total_points": <document total or sum of criteria>
+}`;
+
+    const config = aiConfig.getConfig('assignment', 'openai');
+    const completion = await aiService.createCompletionWithRetry({
+      provider: 'openai',
+      model: config.model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You extract structure from marking memorandums. Respond with valid JSON only, no additional text. Preserve the document\'s exact wording and mark allocations.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.2,
+      maxTokens: 4000,
+      user: 'anonymous'
+    });
+
+    let response = completion.content.trim();
+    const rubricData = parseJSONWithFallback(response);
+
+    if (!rubricData.name || !rubricData.criteria || !Array.isArray(rubricData.criteria)) {
+      throw new Error('Invalid response structure: missing name or criteria array');
+    }
+    if (!rubricData.total_points || typeof rubricData.total_points !== 'number') {
+      throw new Error('Invalid response structure: missing or invalid total_points');
+    }
+    for (const criterion of rubricData.criteria) {
+      if (!criterion.name || !criterion.max_points || !criterion.description) {
+        throw new Error('Invalid criterion structure: missing name, max_points, or description');
+      }
+    }
+
+    if (rubricName) rubricData.name = rubricName;
+    else if (!/memo|memorandum|answer key|marking guideline/i.test(rubricData.name || '')) {
+      rubricData.name = `Memorandum - ${rubricData.name || 'Extracted'}`;
+    }
+
+    const criteriaSum = rubricData.criteria.reduce((s, c) => s + (Number(c.max_points) || 0), 0);
+    if (criteriaSum > 0) rubricData.total_points = criteriaSum;
+
+    rubricData.criteria = rubricData.criteria.map(c => {
+      if (!/model answer|correct answer|marking scheme|expected answer/i.test((c.description || ''))) {
+        c.description = `Model Answer: ${c.description || ''}`;
+      }
+      return c;
+    });
+
+    console.log('✅ Rubric extracted from memorandum successfully');
+    return { ...rubricData, rubric_type: 'answer_key' };
+  } catch (error) {
+    console.error('❌ Extract from memo error:', error);
+    throw new Error(error.message || 'Failed to extract rubric from memorandum');
+  }
+};
+
 // Generate rubric from PDF content
 const generateRubricFromPDF = async (pdfText, rubricName) => {
   try {
@@ -609,8 +699,10 @@ router.post('/from-pdf', async (req, res) => {
         autoDetectedType = detectedType;
         switch (detectedType) {
           case 'question_paper':
+            finalType = 'answer_key';  // generate memo from question paper
+            break;
           case 'memo':
-            finalType = 'answer_key';
+            finalType = 'extract_memo';  // document IS the memo: extract structure
             break;
           case 'rubric':
             finalType = 'rubric';
@@ -626,12 +718,11 @@ router.post('/from-pdf', async (req, res) => {
         autoDetectedType = detectedType;
       }
 
-      // Generate based on final type
+      // Generate or extract based on final type
       if (finalType === 'answer_key') {
-        console.log('📋 Generating answer key...');
+        console.log('📋 Generating answer key from question paper...');
         const answerKeyName = rubric_name || `Answer Key - ${assignment.filename.replace('.pdf', '')}`;
         const answerKeyData = await generateAnswerKeyFromQuestionPaper(assignmentText, answerKeyName);
-        
         return res.json({
           success: true,
           rubric: answerKeyData,
@@ -641,21 +732,33 @@ router.post('/from-pdf', async (req, res) => {
           is_answer_key: true,
           rubric_type: 'answer_key'
         });
-      } else {
-        // Generate regular rubric
-        console.log('📋 Generating regular rubric...');
-        const rubricData = await generateRubricFromPDF(assignmentText, rubric_name);
-
+      }
+      if (finalType === 'extract_memo') {
+        console.log('📋 Document is a memorandum: extracting structure...');
+        const memoName = rubric_name || assignment.filename.replace(/\.pdf$/i, '');
+        const extractedData = await extractRubricFromMemo(assignmentText, memoName);
         return res.json({
           success: true,
-          rubric: rubricData,
-          message: 'Rubric generated successfully from PDF',
-          detected_type: autoDetectedType || detectedType,
-          final_type: 'rubric',
-          is_answer_key: false,
-          rubric_type: 'rubric'
+          rubric: extractedData,
+          message: 'Memorandum detected and extracted. You can save it as a rubric to mark scripts.',
+          detected_type: 'memo',
+          final_type: 'answer_key',
+          is_answer_key: true,
+          rubric_type: 'answer_key'
         });
       }
+      // Generate regular rubric
+      console.log('📋 Generating regular rubric...');
+      const rubricData = await generateRubricFromPDF(assignmentText, rubric_name);
+      return res.json({
+        success: true,
+        rubric: rubricData,
+        message: 'Rubric generated successfully from PDF',
+        detected_type: autoDetectedType || detectedType,
+        final_type: 'rubric',
+        is_answer_key: false,
+        rubric_type: 'rubric'
+      });
     } catch (processingError) {
       throw processingError;
     }
