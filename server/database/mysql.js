@@ -45,8 +45,10 @@ const query = async (sql, params = []) => {
     // Convert PostgreSQL placeholders ($1, $2, etc.) to MySQL placeholders (?, ?, etc.)
     let mysqlSql = sql;
     if (params && params.length > 0) {
-      mysqlSql = sql.replace(/\$(\d+)/g, '?');
+      mysqlSql = mysqlSql.replace(/\$(\d+)/g, '?');
     }
+    // MariaDB/MySQL do not support RETURNING; strip it so UPDATE/DELETE work when using Postgres-style queries
+    mysqlSql = mysqlSql.replace(/\s+RETURNING\s+.*$/i, '');
 
     conn = await poolInstance.getConnection();
     const [rows] = await conn.execute(mysqlSql, params);

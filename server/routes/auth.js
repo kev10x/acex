@@ -711,51 +711,57 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
 });
 
 // Admin routes - Update user features (e.g. generate_assessments, download_results, feedback_video)
-router.put('/admin/users/:id/features', requireAuth, requireAdmin, [
+// Support both PUT and PATCH so the route is found regardless of client or proxy behavior
+const updateUserFeaturesHandler = [
+  requireAuth,
+  requireAdmin,
   body('features').optional().isObject(),
   body('features.generate_assessments').optional().isBoolean(),
   body('features.download_results').optional().isBoolean(),
-  body('features.feedback_video').optional().isBoolean()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    const { id } = req.params;
-    const { features } = req.body;
-    if (!features || typeof features !== 'object') {
-      return res.status(400).json({ error: 'features object required' });
-    }
-    const allowed = {
-      generate_assessments: !!features.generate_assessments,
-      download_results: !!features.download_results,
-      feedback_video: !!features.feedback_video
-    };
-    const featuresJson = JSON.stringify(allowed);
-    await query('UPDATE users SET features = $1 WHERE id = $2', [featuresJson, id]);
-    const result = await query(
-      'SELECT id, email, name, features FROM users WHERE id = $1',
-      [id]
-    );
-    const user = result.rows?.[0] || result?.[0];
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    res.json({
-      message: 'User features updated',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        features: parseUserFeatures(user.features)
+  body('features.feedback_video').optional().isBoolean(),
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
       }
-    });
-  } catch (error) {
-    console.error('Update user features error:', error);
-    res.status(500).json({ error: 'Failed to update user features' });
+      const { id } = req.params;
+      const { features } = req.body;
+      if (!features || typeof features !== 'object') {
+        return res.status(400).json({ error: 'features object required' });
+      }
+      const allowed = {
+        generate_assessments: !!features.generate_assessments,
+        download_results: !!features.download_results,
+        feedback_video: !!features.feedback_video
+      };
+      const featuresJson = JSON.stringify(allowed);
+      await query('UPDATE users SET features = $1 WHERE id = $2', [featuresJson, id]);
+      const result = await query(
+        'SELECT id, email, name, features FROM users WHERE id = $1',
+        [id]
+      );
+      const user = result.rows?.[0] || result?.[0];
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      res.json({
+        message: 'User features updated',
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          features: parseUserFeatures(user.features)
+        }
+      });
+    } catch (error) {
+      console.error('Update user features error:', error);
+      res.status(500).json({ error: 'Failed to update user features' });
+    }
   }
-});
+];
+router.put('/admin/users/:id/features', updateUserFeaturesHandler);
+router.patch('/admin/users/:id/features', updateUserFeaturesHandler);
 
 // Admin routes - Update user role
 router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
