@@ -296,7 +296,7 @@ Respond with ONLY a JSON object:
         }
       ],
       temperature: 0.1,
-      maxTokens: 150,
+      maxTokens: 512,
       user: "anonymous"
     });
 
