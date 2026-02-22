@@ -1,7 +1,8 @@
 import axios from 'axios';
 
-// Use /tools/api in production, or localhost for development
-const API_BASE_URL = process.env.REACT_APP_API_URL || 
+// Use /tools/api in production when app is at /tools, or localhost for development.
+// Must match server API path so feedback-video and other /results routes resolve correctly.
+const API_BASE_URL = process.env.REACT_APP_API_URL ||
   (process.env.NODE_ENV === 'production' ? '/tools/api' : 'http://localhost:3001/api');
 
 const api = axios.create({

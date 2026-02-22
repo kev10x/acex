@@ -187,6 +187,11 @@ router.post('/export/selected', async (req, res) => {
 
 // --- Feedback video (Sora) - must be before /:id ---
 const FEEDBACK_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'feedback-videos');
+// API base for returned URLs (e.g. /tools/api in production when app is at /tools). Set API_PUBLIC_BASE on the server.
+const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
+function feedbackVideoContentUrl(resultId) {
+  return `${API_BASE}/results/feedback-video/${resultId}/content`;
+}
 
 async function getMarkingResultForUser(resultId, userId) {
   const result = await query(
@@ -216,7 +221,7 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
     if (row && row.status === 'completed' && row.file_path) {
       return res.json({
         status: 'completed',
-        video_url: `/api/results/feedback-video/${resultId}/content`,
+        video_url: feedbackVideoContentUrl(resultId),
       });
     }
     if (row && (row.status === 'queued' || row.status === 'in_progress')) {
@@ -281,7 +286,7 @@ router.get('/feedback-video/:resultId/status', requireAuth, requireFeature('feed
     if (row.status === 'completed' && row.file_path) {
       return res.json({
         status: 'completed',
-        video_url: `/api/results/feedback-video/${resultId}/content`,
+        video_url: feedbackVideoContentUrl(resultId),
       });
     }
     const { status, progress, error } = await feedbackVideoService.getVideoStatus(row.openai_video_id);
@@ -315,7 +320,7 @@ router.get('/feedback-video/:resultId/status', requireAuth, requireFeature('feed
       }
       return res.json({
         status: 'completed',
-        video_url: `/api/results/feedback-video/${resultId}/content`,
+        video_url: feedbackVideoContentUrl(resultId),
       });
     }
     if (status === 'failed') {
