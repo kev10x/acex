@@ -12,19 +12,19 @@ const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
 
 // Debug endpoint to test marking functionality
-router.post('/debug', async (req, res) => {
+router.post('/debug', requireAuth, async (req, res) => {
   try {
     console.log('🔍 Debug marking endpoint called');
     const { assignment_id, rubric_id } = req.body;
-    
+
     if (!assignment_id || !rubric_id) {
       return res.status(400).json({ error: 'assignment_id and rubric_id are required' });
     }
-    
-    // Get assignment details
+
+    // Get assignment details (scoped to current user)
     const assignmentResult = await query(
-      'SELECT * FROM assignments WHERE id = ?',
-      [assignment_id]
+      'SELECT * FROM assignments WHERE id = ? AND user_id = ?',
+      [assignment_id, req.user.id]
     );
     
     console.log('Assignment query result:', JSON.stringify(assignmentResult, null, 2));
@@ -100,7 +100,7 @@ router.post('/debug', async (req, res) => {
     
     res.json({
       success: true,
-      assignment: assignment[0],
+      assignment: assignment,
       rubric: rubricData,
       extracted_text_length: assignmentText.length,
       extracted_text_preview: assignmentText.substring(0, 500),

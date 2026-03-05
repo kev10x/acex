@@ -79,22 +79,24 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // Group results by rubric and date (YYYY-MM-DD)
-router.get('/grouped', async (req, res) => {
+router.get('/grouped', requireAuth, async (req, res) => {
   try {
     const byRubric = await query(`
       SELECT r.name as rubric_name, COUNT(*) as count
       FROM marking_results mr
       JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.user_id = ?
       GROUP BY r.name
       ORDER BY count DESC
-    `);
+    `, [req.user.id]);
 
     const byDate = await query(`
       SELECT DATE(mr.marked_at) as date, COUNT(*) as count
       FROM marking_results mr
+      WHERE mr.user_id = ?
       GROUP BY DATE(mr.marked_at)
       ORDER BY DATE(mr.marked_at) DESC
-    `);
+    `, [req.user.id]);
 
     res.json({
       success: true,
@@ -110,7 +112,7 @@ router.get('/grouped', async (req, res) => {
 });
 
 // Re-run AI marking using existing result id
-router.post('/rerun/:result_id', async (req, res) => {
+router.post('/rerun/:result_id', requireAuth, async (req, res) => {
   try {
     const { result_id } = req.params;
     const { document_type } = req.body || {};
@@ -119,8 +121,8 @@ router.post('/rerun/:result_id', async (req, res) => {
       `SELECT mr.*, a.file_path, r.* as rubric_json FROM marking_results mr
        JOIN assignments a ON mr.assignment_id = a.id
        JOIN rubrics r ON mr.rubric_id = r.id
-       WHERE mr.id = ?`,
-      [result_id]
+       WHERE mr.id = ? AND mr.user_id = ?`,
+      [result_id, req.user.id]
     );
     if (!existing.rows || existing.rows.length === 0) {
       return res.status(404).json({ error: 'Result not found' });
@@ -156,7 +158,7 @@ router.post('/rerun/:result_id', async (req, res) => {
 });
 
 // Export selected result IDs as CSV
-router.post('/export/selected', async (req, res) => {
+router.post('/export/selected', requireAuth, async (req, res) => {
   try {
     const { ids } = req.body || {};
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -168,9 +170,9 @@ router.post('/export/selected', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.id IN (${placeholders})
+      WHERE mr.id IN (${placeholders}) AND mr.user_id = ?
       ORDER BY mr.marked_at DESC
-    `, ids);
+    `, [...ids, req.user.id]);
 
     let csvContent = 'ID,Student Name,Filename,Rubric,Total Score,Marked At\n';
     (result.rows || []).forEach(row => {
@@ -368,12 +370,12 @@ router.get('/feedback-video/:resultId/content', requireAuth, requireFeature('fee
 });
 
 // Get a specific marking result
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const result = await query(`
-      SELECT 
+      SELECT
         mr.*,
         a.filename,
         a.uploaded_at,
@@ -382,8 +384,8 @@ router.get('/:id', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.id = ?
-    `, [id]);
+      WHERE mr.id = ? AND mr.user_id = ?
+    `, [id, req.user.id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Result not found' });
@@ -400,12 +402,12 @@ router.get('/:id', async (req, res) => {
 });
 
 // Get results by assignment
-router.get('/assignment/:assignment_id', async (req, res) => {
+router.get('/assignment/:assignment_id', requireAuth, async (req, res) => {
   try {
     const { assignment_id } = req.params;
-    
+
     const result = await query(`
-      SELECT 
+      SELECT
         mr.*,
         a.filename,
         a.uploaded_at,
@@ -414,9 +416,9 @@ router.get('/assignment/:assignment_id', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.assignment_id = ?
+      WHERE mr.assignment_id = ? AND mr.user_id = ?
       ORDER BY mr.marked_at DESC
-    `, [assignment_id]);
+    `, [assignment_id, req.user.id]);
 
     res.json({
       success: true,
@@ -429,12 +431,12 @@ router.get('/assignment/:assignment_id', async (req, res) => {
 });
 
 // Get results by rubric
-router.get('/rubric/:rubric_id', async (req, res) => {
+router.get('/rubric/:rubric_id', requireAuth, async (req, res) => {
   try {
     const { rubric_id } = req.params;
-    
+
     const result = await query(`
-      SELECT 
+      SELECT
         mr.*,
         a.filename,
         a.uploaded_at,
@@ -443,9 +445,9 @@ router.get('/rubric/:rubric_id', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.rubric_id = ?
+      WHERE mr.rubric_id = ? AND mr.user_id = ?
       ORDER BY mr.marked_at DESC
-    `, [rubric_id]);
+    `, [rubric_id, req.user.id]);
 
     res.json({
       success: true,
@@ -458,10 +460,10 @@ router.get('/rubric/:rubric_id', async (req, res) => {
 });
 
 // Export results to CSV format
-router.get('/export/csv', async (req, res) => {
+router.get('/export/csv', requireAuth, async (req, res) => {
   try {
     const result = await query(`
-      SELECT 
+      SELECT
         mr.id,
         mr.student_name,
         a.filename,
@@ -473,8 +475,9 @@ router.get('/export/csv', async (req, res) => {
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
+      WHERE mr.user_id = ?
       ORDER BY mr.marked_at DESC
-    `);
+    `, [req.user.id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'No results found to export' });
@@ -500,30 +503,31 @@ router.get('/export/csv', async (req, res) => {
 });
 
 // Get statistics
-router.get('/stats/overview', async (req, res) => {
+router.get('/stats/overview', requireAuth, async (req, res) => {
   try {
     // Total results count
-    const totalResults = await query('SELECT COUNT(*) as count FROM marking_results');
-    
+    const totalResults = await query('SELECT COUNT(*) as count FROM marking_results WHERE user_id = ?', [req.user.id]);
+
     // Average score
-    const avgScore = await query('SELECT AVG(total_score) as average FROM marking_results');
-    
+    const avgScore = await query('SELECT AVG(total_score) as average FROM marking_results WHERE user_id = ?', [req.user.id]);
+
     // Results by status
     const statusCounts = await query(`
-      SELECT 
+      SELECT
         a.status,
         COUNT(*) as count
       FROM assignments a
       LEFT JOIN marking_results mr ON a.id = mr.assignment_id
+      WHERE a.user_id = ?
       GROUP BY a.status
-    `);
-    
+    `, [req.user.id]);
+
     // Recent results (last 7 days)
     const recentResults = await query(`
       SELECT COUNT(*) as count
       FROM marking_results
-      WHERE marked_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-    `);
+      WHERE user_id = ? AND marked_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    `, [req.user.id]);
 
     res.json({
       success: true,
@@ -541,13 +545,13 @@ router.get('/stats/overview', async (req, res) => {
 });
 
 // Delete a marking result
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const result = await query(
-      'DELETE FROM marking_results WHERE id = ?',
-      [id]
+      'DELETE FROM marking_results WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
 
     if (result.changes === 0) {
@@ -565,9 +569,9 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Delete all marking results
-router.delete('/', async (req, res) => {
+router.delete('/', requireAuth, async (req, res) => {
   try {
-    const result = await query('DELETE FROM marking_results');
+    const result = await query('DELETE FROM marking_results WHERE user_id = ?', [req.user.id]);
     
     res.json({
       success: true,
@@ -620,20 +624,20 @@ router.get('/download/all', requireAuth, requireFeature('download_results'), asy
 });
 
 // Get annotated PDF for a marking result
-router.get('/annotated-pdf/:resultId', async (req, res) => {
+router.get('/annotated-pdf/:resultId', requireAuth, async (req, res) => {
   try {
     const { resultId } = req.params;
 
     // Get marking result with assignment file path
     const result = await query(`
-      SELECT 
+      SELECT
         mr.*,
         a.filename,
         a.file_path
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      WHERE mr.id = ?
-    `, [resultId]);
+      WHERE mr.id = ? AND mr.user_id = ?
+    `, [resultId, req.user.id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Marking result not found' });
@@ -725,26 +729,26 @@ router.get('/download/csv', requireAuth, requireFeature('download_results'), asy
 });
 
 // Analytics endpoints
-router.get('/analytics/overview', async (req, res) => {
+router.get('/analytics/overview', requireAuth, async (req, res) => {
   try {
     // Get total results count
-    const totalResult = await query('SELECT COUNT(*) as count FROM marking_results WHERE is_current = 1');
+    const totalResult = await query('SELECT COUNT(*) as count FROM marking_results WHERE is_current = 1 AND user_id = ?', [req.user.id]);
     const total = totalResult.rows?.[0]?.count || totalResult?.[0]?.count || 0;
 
     // Get average score
     const avgResult = await query(`
-      SELECT AVG(total_score) as avg_score, 
-             MIN(total_score) as min_score, 
+      SELECT AVG(total_score) as avg_score,
+             MIN(total_score) as min_score,
              MAX(total_score) as max_score
-      FROM marking_results 
-      WHERE is_current = 1
-    `);
+      FROM marking_results
+      WHERE is_current = 1 AND user_id = ?
+    `, [req.user.id]);
     const stats = avgResult.rows?.[0] || avgResult?.[0] || {};
 
     // Get score distribution
     const distributionResult = await query(`
-      SELECT 
-        CASE 
+      SELECT
+        CASE
           WHEN total_score >= 90 THEN 'A (90-100)'
           WHEN total_score >= 80 THEN 'B (80-89)'
           WHEN total_score >= 70 THEN 'C (70-79)'
@@ -753,10 +757,10 @@ router.get('/analytics/overview', async (req, res) => {
         END as grade_band,
         COUNT(*) as count
       FROM marking_results
-      WHERE is_current = 1
+      WHERE is_current = 1 AND user_id = ?
       GROUP BY grade_band
       ORDER BY MIN(total_score) DESC
-    `);
+    `, [req.user.id]);
     const scoreDistribution = distributionResult.rows || distributionResult || [];
 
     // Get trends over time (last 30 days)
@@ -766,29 +770,29 @@ router.get('/analytics/overview', async (req, res) => {
     const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
     
     const trendsResult = await query(`
-      SELECT 
+      SELECT
         DATE(marked_at) as date,
         COUNT(*) as count,
         AVG(total_score) as avg_score
       FROM marking_results
-      WHERE is_current = 1 AND marked_at >= ?
+      WHERE is_current = 1 AND user_id = ? AND marked_at >= ?
       GROUP BY DATE(marked_at)
       ORDER BY date DESC
-    `, [dateStr]);
+    `, [req.user.id, dateStr]);
 
     // Get rubric usage stats
     const rubricStatsResult = await query(`
-      SELECT 
+      SELECT
         r.name as rubric_name,
         COUNT(*) as usage_count,
         AVG(mr.total_score) as avg_score,
         r.total_points as max_points
       FROM marking_results mr
       JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE mr.is_current = 1
+      WHERE mr.is_current = 1 AND mr.user_id = ?
       GROUP BY r.id, r.name, r.total_points
       ORDER BY usage_count DESC
-    `);
+    `, [req.user.id]);
 
     const trends = trendsResult.rows || trendsResult || [];
     const rubricStats = rubricStatsResult.rows || rubricStatsResult || [];
@@ -812,17 +816,17 @@ router.get('/analytics/overview', async (req, res) => {
 });
 
 // Get criterion-level analytics
-router.get('/analytics/criteria/:rubric_id', async (req, res) => {
+router.get('/analytics/criteria/:rubric_id', requireAuth, async (req, res) => {
   try {
     const { rubric_id } = req.params;
 
     const result = await query(`
-      SELECT 
+      SELECT
         mr.scores,
         mr.total_score
       FROM marking_results mr
-      WHERE mr.rubric_id = ? AND mr.is_current = 1
-    `, [rubric_id]);
+      WHERE mr.rubric_id = ? AND mr.is_current = 1 AND mr.user_id = ?
+    `, [rubric_id, req.user.id]);
 
     if (!result.rows || result.rows.length === 0) {
       return res.json({
@@ -877,16 +881,16 @@ router.get('/analytics/criteria/:rubric_id', async (req, res) => {
 });
 
 // Get common issues/feedback patterns
-router.get('/analytics/common-issues', async (req, res) => {
+router.get('/analytics/common-issues', requireAuth, async (req, res) => {
   try {
     const result = await query(`
-      SELECT 
+      SELECT
         mr.scores,
         mr.feedback
       FROM marking_results mr
-      WHERE mr.is_current = 1
+      WHERE mr.is_current = 1 AND mr.user_id = ?
       LIMIT 100
-    `);
+    `, [req.user.id]);
 
     // Extract common keywords from feedback
     const issueKeywords = ['missing', 'incomplete', 'unclear', 'weak', 'lacks', 'needs improvement', 'incorrect', 'error'];
