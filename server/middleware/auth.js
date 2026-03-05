@@ -1,8 +1,18 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../database/connection');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+
+if (JWT_SECRET === DEFAULT_JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: JWT_SECRET is not set. Set the JWT_SECRET environment variable before running in production.');
+    process.exit(1);
+  } else {
+    console.warn('WARNING: JWT_SECRET is using the insecure default. Set JWT_SECRET in your .env file.');
+  }
+}
 
 // Middleware to authenticate JWT token
 const authenticateToken = async (req, res, next) => {

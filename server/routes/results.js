@@ -558,6 +558,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Result not found' });
     }
 
+    console.log(`[AUDIT] User ${req.user.id} (${req.user.email}) deleted marking result id=${id}`);
     res.json({
       success: true,
       message: 'Result deleted successfully'
@@ -572,7 +573,8 @@ router.delete('/:id', requireAuth, async (req, res) => {
 router.delete('/', requireAuth, async (req, res) => {
   try {
     const result = await query('DELETE FROM marking_results WHERE user_id = ?', [req.user.id]);
-    
+
+    console.log(`[AUDIT] User ${req.user.id} (${req.user.email}) deleted ALL marking results (${result.changes || result.affectedRows || 0} rows)`);
     res.json({
       success: true,
       message: `All marking results deleted successfully (${result.changes || 0} results removed)`
