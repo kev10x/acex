@@ -2,14 +2,23 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 const { query } = require('../database/connection');
 const { requireAuth, requireAdmin, generateToken } = require('../middleware/auth');
 const emailService = require('../services/emailService');
 
 const router = express.Router();
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
+
 // Register new user
-router.post('/register', [
+router.post('/register', authLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('name').optional().trim().isLength({ min: 1, max: 255 }),
@@ -124,7 +133,7 @@ router.post('/register', [
 });
 
 // Login
-router.post('/login', [
+router.post('/login', authLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password').notEmpty()
 ], async (req, res) => {
@@ -419,7 +428,7 @@ router.get('/verify-email', async (req, res) => {
 });
 
 // Resend verification email
-router.post('/resend-verification', [
+router.post('/resend-verification', authLimiter, [
   body('email').isEmail().normalizeEmail()
 ], async (req, res) => {
   try {
