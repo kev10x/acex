@@ -2410,28 +2410,29 @@ router.post('/history/:result_id/restore', async (req, res) => {
 });
 
 // Compare two marking versions
-router.get('/history/compare/:result_id1/:result_id2', async (req, res) => {
+router.get('/history/compare/:result_id1/:result_id2', requireAuth, async (req, res) => {
   try {
     const { result_id1, result_id2 } = req.params;
 
     const [result1, result2] = await Promise.all([
-      query('SELECT * FROM marking_results WHERE id = ?', [result_id1]),
-      query('SELECT * FROM marking_results WHERE id = ?', [result_id2])
+      query('SELECT * FROM marking_results WHERE id = ? AND user_id = ?', [result_id1, req.user.id]),
+      query('SELECT * FROM marking_results WHERE id = ? AND user_id = ?', [result_id2, req.user.id])
     ]);
 
     if (!result1.rows || result1.rows.length === 0 || !result2.rows || result2.rows.length === 0) {
       return res.status(404).json({ error: 'One or both marking results not found' });
     }
 
-    const version1 = {
-      ...result1.rows[0],
-      scores: typeof result1.rows[0].scores === 'string' ? JSON.parse(result1.rows[0].scores) : result1.rows[0].scores
-    };
+    let scores1, scores2;
+    try {
+      scores1 = typeof result1.rows[0].scores === 'string' ? JSON.parse(result1.rows[0].scores) : result1.rows[0].scores;
+      scores2 = typeof result2.rows[0].scores === 'string' ? JSON.parse(result2.rows[0].scores) : result2.rows[0].scores;
+    } catch (parseError) {
+      return res.status(500).json({ error: 'Failed to parse scores data' });
+    }
 
-    const version2 = {
-      ...result2.rows[0],
-      scores: typeof result2.rows[0].scores === 'string' ? JSON.parse(result2.rows[0].scores) : result2.rows[0].scores
-    };
+    const version1 = { ...result1.rows[0], scores: scores1 };
+    const version2 = { ...result2.rows[0], scores: scores2 };
 
     res.json({
       success: true,

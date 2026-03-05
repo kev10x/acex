@@ -532,10 +532,10 @@ router.get('/stats/overview', requireAuth, async (req, res) => {
     res.json({
       success: true,
       stats: {
-        totalResults: parseInt(totalResults.rows[0].count),
-        averageScore: parseFloat(avgScore.rows[0].average || 0),
-        statusCounts: statusCounts.rows,
-        recentResults: parseInt(recentResults.rows[0].count)
+        totalResults: parseInt(totalResults.rows?.[0]?.count ?? 0),
+        averageScore: parseFloat(avgScore.rows?.[0]?.average ?? 0),
+        statusCounts: statusCounts.rows ?? [],
+        recentResults: parseInt(recentResults.rows?.[0]?.count ?? 0)
       }
     });
   } catch (error) {
