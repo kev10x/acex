@@ -20,11 +20,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'admin';
 
 function AppContent() {
-  if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
-    return <TakeAssessment />;
-  }
   const [activeTab, setActiveTab] = useState<TabType>('upload');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
+  const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
   const { user, loading, logout } = useAuth();
 
   // Check if we're on the verification page
@@ -35,7 +33,12 @@ function AppContent() {
     }
   }, []);
 
-  const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
+  useEffect(() => {
+    if (!openDropdown) return;
+    const close = () => setOpenDropdown(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [openDropdown]);
 
   const allowGenerateAssessments = user?.features?.generate_assessments !== false;
   const memorandumsItems: { id: TabType; label: string; icon: typeof FileText }[] = [
@@ -51,12 +54,10 @@ function AppContent() {
     { id: 'training', label: 'Model Training', icon: Brain },
   ];
 
-  useEffect(() => {
-    if (!openDropdown) return;
-    const close = () => setOpenDropdown(null);
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [openDropdown]);
+  // Take-assessment route: no auth required, render student view first
+  if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
+    return <TakeAssessment />;
+  }
 
   // Show loading state
   if (loading) {
