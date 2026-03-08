@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X } from 'lucide-react';
 import { assessmentsAPI, rubricsAPI, GeneratedAssessment } from '../services/api';
 
@@ -220,7 +221,7 @@ const AssessmentGenerator: React.FC = () => {
 
   const handleExportBlob = async (
     format: 'moodle' | 'scorm',
-    getBlob: () => Promise<{ data: Blob; headers: { 'content-type'?: string }; status: number }>,
+    getBlob: () => Promise<AxiosResponse<Blob>>,
     extension: string
   ) => {
     if (!generatedAssessment) return;
@@ -228,7 +229,7 @@ const AssessmentGenerator: React.FC = () => {
     setError(null);
     try {
       const res = await getBlob();
-      const contentType = (res.headers && res.headers['content-type']) || '';
+      const contentType = (res.headers && (res.headers as Record<string, string>)['content-type']) || '';
       if (res.status >= 400 || contentType.includes('application/json')) {
         const text = await (res.data as Blob).text();
         const json = JSON.parse(text);
