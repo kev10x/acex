@@ -123,7 +123,6 @@ router.post('/generate', requireAuth, requireFeature('generate_assessments'), as
         text_preview: row.extracted_text ? row.extracted_text.substring(0, 500) : null,
         total_score: row.total_score
       }));
-    }
 
       const rubricQuery = `
         SELECT name, criteria, total_points, rubric_type
@@ -131,13 +130,13 @@ router.post('/generate', requireAuth, requireFeature('generate_assessments'), as
         WHERE id = ?
       `;
       const rubricResult = await query(rubricQuery, [rubric_id]);
-      const rubricRows = Array.isArray(rubricResult) ? rubricResult : (rubricResult.rows || []);
+      const selectedRubricRows = Array.isArray(rubricResult) ? rubricResult : (rubricResult.rows || []);
 
-      if (rubricRows.length === 0) {
+      if (selectedRubricRows.length === 0) {
         return res.status(404).json({ error: 'Rubric not found' });
       }
 
-      selectedRubric = rubricRows[0];
+      selectedRubric = selectedRubricRows[0];
       rubricCriteria = typeof selectedRubric.criteria === 'string'
         ? JSON.parse(selectedRubric.criteria)
         : selectedRubric.criteria;
