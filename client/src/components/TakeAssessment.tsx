@@ -212,7 +212,8 @@ const TakeAssessment: React.FC = () => {
 
           {assessment.questions.map((q, idx) => {
             const qNum = (q as any).number != null ? (q as any).number : idx + 1;
-            const type = ((q as any).type || 'short_answer').replace(/-/g, '_');
+            const rawType = ((q as any).type || 'short_answer').replace(/-/g, '_');
+            const type = rawType === 'mcq' ? 'multiple_choice' : rawType;
             const value = answers[qNum] ?? '';
 
             return (
@@ -225,7 +226,7 @@ const TakeAssessment: React.FC = () => {
                 </div>
                 <p className="text-gray-700 mb-4">{(q as any).question}</p>
 
-                {type === 'multiple_choice' && (q as any).options && (
+                {(type === 'multiple_choice') && (q as any).options && Array.isArray((q as any).options) && (
                   <div className="space-y-2">
                     {((q as any).options as string[]).map((opt, i) => {
                       const letter = String.fromCharCode(65 + i);

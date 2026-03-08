@@ -344,6 +344,12 @@ export const assessmentsAPI = {
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/assessments/submit', data),
+  /** Export as Moodle XML (includes answers). Returns blob. */
+  exportMoodleXml: (assessment: GeneratedAssessment) =>
+    api.post('/assessments/export/moodle-xml', { assessment }, { responseType: 'blob' }),
+  /** Export as SCORM 1.2 ZIP (includes answer key). Returns blob. */
+  exportScorm: (assessment: GeneratedAssessment) =>
+    api.post('/assessments/export/scorm', { assessment }, { responseType: 'blob' }),
 };
 
 // Authentication API

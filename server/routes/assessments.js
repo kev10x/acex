@@ -4,6 +4,7 @@ const { query } = require('../database/connection');
 const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
 const { requireAuth, requireFeature } = require('../middleware/auth');
+const { buildMoodleXml, buildScormPackage } = require('../services/assessmentExport');
 
 const router = express.Router();
 
@@ -383,6 +384,48 @@ IMPORTANT:
 });
 
 /**
+ * Export assessment as Moodle question bank XML (includes correct answers).
+ * Body: { assessment } (full assessment object with questions, options, correct_answer, etc.)
+ */
+router.post('/export/moodle-xml', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+  try {
+    const { assessment } = req.body;
+    if (!assessment || !assessment.questions || !Array.isArray(assessment.questions)) {
+      return res.status(400).json({ error: 'assessment with questions array is required' });
+    }
+    const xml = buildMoodleXml(assessment);
+    const filename = `${(assessment.title || 'assessment').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_moodle.xml`;
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(xml);
+  } catch (error) {
+    console.error('Moodle XML export error:', error);
+    res.status(500).json({ error: 'Failed to export Moodle XML' });
+  }
+});
+
+/**
+ * Export assessment as SCORM 1.2 package ZIP (includes answer key as separate resource).
+ * Body: { assessment }
+ */
+router.post('/export/scorm', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+  try {
+    const { assessment } = req.body;
+    if (!assessment || !assessment.questions || !Array.isArray(assessment.questions)) {
+      return res.status(400).json({ error: 'assessment with questions array is required' });
+    }
+    const zipBuffer = await buildScormPackage(assessment);
+    const filename = `${(assessment.title || 'assessment').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_scorm.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(zipBuffer);
+  } catch (error) {
+    console.error('SCORM export error:', error);
+    res.status(500).json({ error: 'Failed to export SCORM package' });
+  }
+});
+
+/**
  * Get statistics about available assignment data for assessment generation
  */
 router.get('/stats', async (req, res) => {
@@ -488,7 +531,7 @@ router.get('/take/:code', async (req, res) => {
     }
     const assessment = typeof row.assessment_json === 'string' ? JSON.parse(row.assessment_json) : row.assessment_json;
     const stripAnswerKey = (q) => {
-      const { correct_answer, correct_pairings, options, ...rest } = q;
+      const { correct_answer, correct_pairings, ...rest } = q;
       return rest;
     };
     const safeAssessment = {

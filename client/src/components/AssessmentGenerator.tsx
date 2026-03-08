@@ -47,6 +47,7 @@ const AssessmentGenerator: React.FC = () => {
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [publishedCode, setPublishedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<'text' | 'moodle' | 'scorm' | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
 
@@ -215,6 +216,47 @@ const AssessmentGenerator: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportBlob = async (
+    format: 'moodle' | 'scorm',
+    getBlob: () => Promise<{ data: Blob; headers: { 'content-type'?: string }; status: number }>,
+    extension: string
+  ) => {
+    if (!generatedAssessment) return;
+    setExportingFormat(format);
+    setError(null);
+    try {
+      const res = await getBlob();
+      const contentType = (res.headers && res.headers['content-type']) || '';
+      if (res.status >= 400 || contentType.includes('application/json')) {
+        const text = await (res.data as Blob).text();
+        const json = JSON.parse(text);
+        throw new Error(json.error || 'Export failed');
+      }
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${generatedAssessment.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${extension}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      let errMsg = e.message || `Failed to export ${format}`;
+      if (e.response?.data instanceof Blob) {
+        try {
+          const text = await e.response.data.text();
+          const json = JSON.parse(text);
+          if (json.error) errMsg = json.error;
+        } catch (_) { /* ignore */ }
+      } else if (e.response?.data?.error) {
+        errMsg = e.response.data.error;
+      }
+      setError(errMsg);
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   return (
@@ -543,12 +585,38 @@ const AssessmentGenerator: React.FC = () => {
               <h2 className="text-2xl font-bold text-gray-800">{generatedAssessment.title}</h2>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-gray-600 mr-1">Export (includes answers):</span>
               <button
                 onClick={handleDownload}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                disabled={!!exportingFormat}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50"
               >
                 <Download className="w-4 h-4" />
-                Download
+                Text
+              </button>
+              <button
+                onClick={() => handleExportBlob(
+                  'moodle',
+                  () => assessmentsAPI.exportMoodleXml(generatedAssessment),
+                  'xml'
+                )}
+                disabled={!!exportingFormat}
+                className="flex items-center gap-2 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+              >
+                {exportingFormat === 'moodle' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Moodle XML
+              </button>
+              <button
+                onClick={() => handleExportBlob(
+                  'scorm',
+                  () => assessmentsAPI.exportScorm(generatedAssessment),
+                  'zip'
+                )}
+                disabled={!!exportingFormat}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {exportingFormat === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                SCORM
               </button>
               {savedRubricId && (
                 <button
