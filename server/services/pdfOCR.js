@@ -459,6 +459,15 @@ const extractTextWithVisionAPI = async (filePath) => {
               pageErrors.push(`Page ${pageNum}: No text found in image`);
             }
           } catch (apiError) {
+            const status = apiError.status ?? apiError.statusCode;
+            const msg = (apiError.message || '').toLowerCase();
+            const isQuotaOrRateLimit = status === 429 || msg.includes('quota') || msg.includes('billing') || msg.includes('exceeded');
+            if (isQuotaOrRateLimit) {
+              throw new Error(
+                'OpenAI API quota exceeded or rate limited. Please check your plan and billing at https://platform.openai.com/account/billing. ' +
+                'Vision (handwritten/scanned PDFs) uses your OpenAI usage; add credits or wait before retrying.'
+              );
+            }
             console.error(`❌ Vision API error for page ${pageNum}:`, apiError.message);
             pageErrors.push(`Page ${pageNum}: Vision API error - ${apiError.message}`);
           }
@@ -523,6 +532,18 @@ const extractTextWithVisionAPI = async (filePath) => {
             temperature: 1
           });
         } catch (apiError) {
+          const status = apiError.status ?? apiError.statusCode;
+          const msg = (apiError.message || '').toLowerCase();
+          const isQuotaOrRateLimit = status === 429 || msg.includes('quota') || msg.includes('billing') || msg.includes('exceeded');
+          if (isQuotaOrRateLimit) {
+            if (fs.existsSync(fullImagePath)) {
+              try { fs.unlinkSync(fullImagePath); } catch (_) {}
+            }
+            throw new Error(
+              'OpenAI API quota exceeded or rate limited. Please check your plan and billing at https://platform.openai.com/account/billing. ' +
+              'Vision (handwritten/scanned PDFs) uses your OpenAI usage; add credits or wait before retrying.'
+            );
+          }
           console.error(`❌ Vision API error for page ${pageNum}:`, apiError.message);
           pageErrors.push(`Page ${pageNum}: Vision API error - ${apiError.message}`);
           // Clean up image before continuing
@@ -572,8 +593,11 @@ const extractTextWithVisionAPI = async (filePath) => {
         : '\nNo specific page errors logged, but no text was extracted.';
       const technicalMsg = `No text could be extracted from any pages using Vision API.${errorDetails}\n\nPossible causes:\n1. PDF conversion to image failed (check ImageMagick installation)\n2. Vision API returned no text\n3. Images are empty or corrupted\n4. API key issues or rate limits`;
       console.error('Vision API extraction failed:', technicalMsg);
+      const isQuotaError = pageErrors.some((e) => /429|quota|billing|exceeded/i.test(e));
       const userFacing = new Error(
-        'This document could not be read. Handwritten or low-quality scans may not be recognised—try a clearer scan, a typed PDF, or ensure OpenAI API key is set for Vision.'
+        isQuotaError
+          ? 'OpenAI API quota exceeded. Check your plan and billing at https://platform.openai.com/account/billing and add credits if needed. Vision (handwritten/scanned PDFs) uses your OpenAI usage.'
+          : 'This document could not be read. Handwritten or low-quality scans may not be recognised—try a clearer scan, a typed PDF, or ensure OpenAI API key is set for Vision.'
       );
       userFacing.technicalDetails = technicalMsg;
       throw userFacing;

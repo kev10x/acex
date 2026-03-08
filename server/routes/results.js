@@ -207,6 +207,9 @@ async function getMarkingResultForUser(resultId, userId) {
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
+const numClips = Math.min(Math.max(parseInt(process.env.SORA_VIDEO_CLIPS || '1', 10) || 1, 1), 5);
+const secondsPerClip = process.env.SORA_VIDEO_SECONDS_PER_CLIP || '4';
+
 router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_video'), async (req, res) => {
   try {
     const resultId = Number(req.params.resultId);
@@ -215,7 +218,7 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
       return res.status(404).json({ error: 'Result not found' });
     }
     const existing = await query(
-      'SELECT id, openai_video_id, status, file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2',
+      'SELECT id, openai_video_id, openai_video_ids, status, file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2',
       [resultId, req.user.id]
     );
     const existingRows = existing.rows || existing;
@@ -233,6 +236,51 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
         message: 'Video generation already in progress',
       });
     }
+    const model = process.env.SORA_MODEL || 'sora-2';
+    const size = '1280x720';
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    if (numClips > 1) {
+      const prompts = feedbackVideoService.buildFeedbackVideoPromptSegments(
+        markingResult.feedback,
+        markingResult.rubric_name,
+        markingResult.total_score,
+        markingResult.max_points,
+        numClips
+      );
+      const jobs = await Promise.all(
+        prompts.map((p) =>
+          feedbackVideoService.createVideoJob(p, {
+            model,
+            seconds: secondsPerClip,
+            size,
+          })
+        )
+      );
+      const videoIds = jobs.map((j) => j.id);
+      const firstId = videoIds[0];
+      const idsJson = JSON.stringify(videoIds);
+      if (isMySQL) {
+        await query(
+          `INSERT INTO feedback_videos (result_id, user_id, openai_video_id, openai_video_ids, status)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE openai_video_id = VALUES(openai_video_id), openai_video_ids = VALUES(openai_video_ids), status = VALUES(status), updated_at = CURRENT_TIMESTAMP`,
+          [resultId, req.user.id, firstId, idsJson, 'queued']
+        );
+      } else {
+        await query(
+          `INSERT INTO feedback_videos (result_id, user_id, openai_video_id, openai_video_ids, status)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (result_id) DO UPDATE SET openai_video_id = $3, openai_video_ids = $4, status = $5, updated_at = CURRENT_TIMESTAMP`,
+          [resultId, req.user.id, firstId, idsJson, 'queued']
+        );
+      }
+      return res.json({
+        status: 'queued',
+        video_id: firstId,
+        clips: numClips,
+        message: `Video generation started (${numClips} clips to be stitched)`,
+      });
+    }
     const prompt = feedbackVideoService.buildFeedbackVideoPrompt(
       markingResult.feedback,
       markingResult.rubric_name,
@@ -240,11 +288,10 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
       markingResult.max_points
     );
     const { id: openaiVideoId, status } = await feedbackVideoService.createVideoJob(prompt, {
-      model: process.env.SORA_MODEL || 'sora-2',
-      seconds: '4',
-      size: '1280x720',
+      model,
+      seconds: process.env.SORA_VIDEO_SECONDS || '8',
+      size,
     });
-    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     if (isMySQL) {
       await query(
         `INSERT INTO feedback_videos (result_id, user_id, openai_video_id, status)
@@ -277,7 +324,7 @@ router.get('/feedback-video/:resultId/status', requireAuth, requireFeature('feed
       return res.status(404).json({ error: 'Result not found' });
     }
     const result = await query(
-      'SELECT openai_video_id, status, file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2',
+      'SELECT openai_video_id, openai_video_ids, status, file_path FROM feedback_videos WHERE result_id = $1 AND user_id = $2',
       [resultId, req.user.id]
     );
     const rows = result.rows || result;
@@ -286,6 +333,97 @@ router.get('/feedback-video/:resultId/status', requireAuth, requireFeature('feed
       return res.status(404).json({ error: 'No video job found for this result' });
     }
     if (row.status === 'completed' && row.file_path) {
+      return res.json({
+        status: 'completed',
+        video_url: feedbackVideoContentUrl(resultId),
+      });
+    }
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    let videoIds = [];
+    try {
+      if (row.openai_video_ids) {
+        videoIds = typeof row.openai_video_ids === 'string' ? JSON.parse(row.openai_video_ids) : row.openai_video_ids;
+      }
+    } catch (_) {}
+    if (Array.isArray(videoIds) && videoIds.length > 0) {
+      const statuses = await Promise.all(videoIds.map((id) => feedbackVideoService.getVideoStatus(id)));
+      const failed = statuses.find((s) => s.status === 'failed');
+      if (failed) {
+        if (isMySQL) {
+          await query(
+            'UPDATE feedback_videos SET status = ?, openai_video_ids = ?, updated_at = CURRENT_TIMESTAMP WHERE result_id = ? AND user_id = ?',
+            ['failed', null, resultId, req.user.id]
+          );
+        } else {
+          await query(
+            'UPDATE feedback_videos SET status = $1, openai_video_ids = $2, updated_at = CURRENT_TIMESTAMP WHERE result_id = $3 AND user_id = $4',
+            ['failed', null, resultId, req.user.id]
+          );
+        }
+        return res.json({ status: 'failed', error: failed.error || 'One or more clips failed' });
+      }
+      const allDone = statuses.every((s) => s.status === 'completed');
+      if (!allDone) {
+        const progress = Math.round(
+          (statuses.filter((s) => s.status === 'completed').length / statuses.length) * 100
+        );
+        return res.json({ status: 'in_progress', progress });
+      }
+      const filePath = path.join(FEEDBACK_VIDEOS_DIR, `${resultId}.mp4`);
+      const tempDir = path.join(FEEDBACK_VIDEOS_DIR, 'temp', String(resultId));
+      const tempPaths = [];
+      try {
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        if (!fs.existsSync(FEEDBACK_VIDEOS_DIR)) {
+          fs.mkdirSync(FEEDBACK_VIDEOS_DIR, { recursive: true });
+        }
+        for (let i = 0; i < videoIds.length; i++) {
+          const buf = await feedbackVideoService.getVideoContent(videoIds[i]);
+          const p = path.join(tempDir, `clip-${i}.mp4`);
+          fs.writeFileSync(p, buf);
+          tempPaths.push(p);
+        }
+        await feedbackVideoService.stitchVideos(tempPaths, filePath);
+      } catch (stitchErr) {
+        console.error('Feedback video stitch error:', stitchErr);
+        if (isMySQL) {
+          await query(
+            'UPDATE feedback_videos SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE result_id = ? AND user_id = ?',
+            ['failed', resultId, req.user.id]
+          );
+        } else {
+          await query(
+            'UPDATE feedback_videos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE result_id = $2 AND user_id = $3',
+            ['failed', resultId, req.user.id]
+          );
+        }
+        return res.json({
+          status: 'failed',
+          error: stitchErr.message || 'Failed to download or stitch clips. Is ffmpeg installed?',
+        });
+      } finally {
+        for (const p of tempPaths) {
+          try {
+            if (fs.existsSync(p)) fs.unlinkSync(p);
+          } catch (_) {}
+        }
+        try {
+          if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+        } catch (_) {}
+      }
+      if (isMySQL) {
+        await query(
+          'UPDATE feedback_videos SET status = ?, file_path = ?, openai_video_ids = ?, updated_at = CURRENT_TIMESTAMP WHERE result_id = ? AND user_id = ?',
+          ['completed', filePath, null, resultId, req.user.id]
+        );
+      } else {
+        await query(
+          'UPDATE feedback_videos SET status = $1, file_path = $2, openai_video_ids = $3, updated_at = CURRENT_TIMESTAMP WHERE result_id = $4 AND user_id = $5',
+          ['completed', filePath, null, resultId, req.user.id]
+        );
+      }
       return res.json({
         status: 'completed',
         video_url: feedbackVideoContentUrl(resultId),
@@ -308,7 +446,6 @@ router.get('/feedback-video/:resultId/status', requireAuth, requireFeature('feed
         );
         return res.json({ status: 'failed', error: downloadErr.message || 'Failed to download video' });
       }
-      const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
       if (isMySQL) {
         await query(
           'UPDATE feedback_videos SET status = ?, file_path = ?, updated_at = CURRENT_TIMESTAMP WHERE result_id = ? AND user_id = ?',

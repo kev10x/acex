@@ -10,6 +10,7 @@ import MCQInterface from './components/MCQInterface';
 import BatchManager from './components/BatchManager';
 import TrainingDataManager from './components/TrainingDataManager';
 import AssessmentGenerator from './components/AssessmentGenerator';
+import TakeAssessment from './components/TakeAssessment';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
@@ -19,6 +20,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'admin';
 
 function AppContent() {
+  if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
+    return <TakeAssessment />;
+  }
   const [activeTab, setActiveTab] = useState<TabType>('upload');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
   const { user, loading, logout } = useAuth();

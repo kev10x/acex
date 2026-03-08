@@ -185,6 +185,19 @@ const initDatabase = async () => {
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS published_assessments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          code VARCHAR(32) NOT NULL UNIQUE,
+          assessment_json LONGTEXT NOT NULL,
+          rubric_id INT NOT NULL,
+          user_id INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
       
       // Migrate existing tables: Add new columns if they don't exist
       try {
@@ -465,6 +478,13 @@ const initDatabase = async () => {
         if ((featuresCheck.rows?.[0]?.count || featuresCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN features JSON DEFAULT NULL`);
         }
+        const videoIdsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'feedback_videos' AND column_name = 'openai_video_ids'
+        `);
+        if ((videoIdsCheck.rows?.[0]?.count || videoIdsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE feedback_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -603,6 +623,17 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(result_id)
+        )
+      `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS published_assessments (
+          id SERIAL PRIMARY KEY,
+          code VARCHAR(32) NOT NULL UNIQUE,
+          assessment_json TEXT NOT NULL,
+          rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
       
@@ -833,6 +864,13 @@ const initDatabase = async () => {
         `);
         if ((featuresCheck.rows?.[0]?.count || featuresCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN features JSONB DEFAULT NULL`);
+        }
+        const videoIdsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'feedback_videos' AND column_name = 'openai_video_ids'
+        `);
+        if ((videoIdsCheck.rows?.[0]?.count || videoIdsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE feedback_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

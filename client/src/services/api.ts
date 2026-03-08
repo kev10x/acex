@@ -292,13 +292,19 @@ export const batchesAPI = {
 };
 
 // Assessments API
+export type AssessmentQuestionType = 'essay' | 'multiple_choice' | 'short_answer' | 'problem' | 'mix_and_match';
 export interface AssessmentQuestion {
   number: number;
-  type: 'essay' | 'multiple_choice' | 'short_answer' | 'problem';
+  type: AssessmentQuestionType;
   question: string;
   points: number;
+  options?: string[]; // MCQ: choice texts
+  correct_answer?: string; // MCQ: e.g. "A" or "1"
+  left_column?: string[]; // mix_and_match
+  right_column?: string[];
+  correct_pairings?: { left_index: number; right_index: number }[] | string[];
   hints?: string[];
-  related_criteria?: string[]; // Rubric criteria this question assesses
+  related_criteria?: string[];
 }
 
 export interface SuggestedRubricCriterion {
@@ -322,14 +328,22 @@ export interface GeneratedAssessment {
 
 export const assessmentsAPI = {
   generate: (data: {
-    rubric_id: number; // Required: rubric to base assessment on
+    rubric_id?: number; // optional when custom_topics is provided
+    custom_topics?: string; // topic list (one per line or comma-separated)
+    level?: string | null; // e.g. Grade 10, Undergraduate
     difficulty_level?: 'beginner' | 'moderate' | 'advanced';
     question_count?: number;
     assessment_type?: 'assignment' | 'exam' | 'quiz' | 'essay';
     use_existing_patterns?: boolean;
-    topic?: string | null; // Optional: specific topic/subject area
+    topic?: string | null;
+    question_types?: ('mcq' | 'essay' | 'short_answer' | 'mix_and_match' | 'mix')[];
   }) => api.post('/assessments/generate', data),
   getStats: () => api.get('/assessments/stats'),
+  publish: (data: { assessment: GeneratedAssessment; rubric_id: number }) =>
+    api.post('/assessments/publish', data),
+  getByCode: (code: string) => api.get(`/assessments/take/${code}`),
+  submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
+    api.post('/assessments/submit', data),
 };
 
 // Authentication API

@@ -390,12 +390,13 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 
     // Convert complex rubric format to simple format for AI
     const simpleCriteria = criteria.map(criterion => {
-      // Handle both old format (maxPoints) and new format (levels with points)
+      // Handle maxPoints, max_points (snake_case), and levels with points
       let maxPoints;
-      if (criterion.maxPoints) {
-        maxPoints = criterion.maxPoints;
+      if (criterion.maxPoints != null && criterion.maxPoints !== '') {
+        maxPoints = Number(criterion.maxPoints);
+      } else if (criterion.max_points != null && criterion.max_points !== '') {
+        maxPoints = Number(criterion.max_points);
       } else if (criterion.levels && criterion.levels.length > 0) {
-        // Find the highest points from levels
         maxPoints = Math.max(...criterion.levels.map(level => level.points));
       } else {
         maxPoints = 0;
@@ -432,7 +433,8 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 
     // Create detailed rubric/memo description with levels
     const detailedRubric = criteria.map((criterion, i) => {
-      let rubricText = `${i+1}. ${criterion.name} (${criterion.maxPoints} points)\n   ${criterion.description}\n`;
+      const pts = criterion.maxPoints ?? criterion.max_points ?? 0;
+      let rubricText = `${i+1}. ${criterion.name} (${pts} points)\n   ${criterion.description || ''}\n`;
       
       if (criterion.levels && criterion.levels.length > 0) {
         rubricText += "   Performance Levels:\n";
@@ -2461,4 +2463,5 @@ router.get('/history/compare/:result_id1/:result_id2', requireAuth, async (req, 
 });
 
 module.exports = router;
+module.exports.generateMarking = generateMarking;
 

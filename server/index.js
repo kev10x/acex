@@ -43,24 +43,30 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/upload', require('./routes/upload'));
-app.use('/api/rubrics', require('./routes/rubrics'));
-app.use('/api/mark', require('./routes/mark'));
-app.use('/api/results', require('./routes/results'));
-app.use('/api/batches', require('./routes/batches'));
-app.use('/api/rubric-generator', require('./routes/rubric-generator'));
-app.use('/api/reports', require('./routes/reports'));
-app.use('/api/mcq', require('./routes/mcq'));
-app.use('/api/training', require('./routes/training'));
-app.use('/api/local-models', require('./routes/local-models'));
-app.use('/api/assessments', require('./routes/assessments'));
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+// API router (mount at /api and optionally at BASE_PATH + /api when proxy forwards full path e.g. /tools/api)
+const apiRouter = express.Router();
+apiRouter.use('/auth', require('./routes/auth'));
+apiRouter.use('/upload', require('./routes/upload'));
+apiRouter.use('/rubrics', require('./routes/rubrics'));
+apiRouter.use('/mark', require('./routes/mark'));
+apiRouter.use('/results', require('./routes/results'));
+apiRouter.use('/batches', require('./routes/batches'));
+apiRouter.use('/rubric-generator', require('./routes/rubric-generator'));
+apiRouter.use('/reports', require('./routes/reports'));
+apiRouter.use('/mcq', require('./routes/mcq'));
+apiRouter.use('/training', require('./routes/training'));
+apiRouter.use('/local-models', require('./routes/local-models'));
+apiRouter.use('/assessments', require('./routes/assessments'));
+apiRouter.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+app.use('/api', apiRouter);
+const basePath = (process.env.BASE_PATH || '').replace(/\/$/, '');
+if (basePath) {
+  app.use(basePath + '/api', apiRouter);
+  console.log('API also mounted at', basePath + '/api');
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {

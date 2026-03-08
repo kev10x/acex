@@ -1,17 +1,51 @@
-import React, { useState, useEffect } from 'react';
-import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X } from 'lucide-react';
 import { assessmentsAPI, rubricsAPI, GeneratedAssessment } from '../services/api';
 
+export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
+
+const QUESTION_TYPE_LABELS: Record<QuestionTypeOption, string> = {
+  mcq: 'Multiple choice (MCQ)',
+  essay: 'Essay',
+  short_answer: 'Short answer',
+  mix_and_match: 'Mix and match',
+};
+
+const LEVEL_OPTIONS = [
+  { value: '', label: 'Any level' },
+  { value: 'Grade 8', label: 'Grade 8' },
+  { value: 'Grade 9', label: 'Grade 9' },
+  { value: 'Grade 10', label: 'Grade 10' },
+  { value: 'Grade 11', label: 'Grade 11' },
+  { value: 'Grade 12', label: 'Grade 12' },
+  { value: 'Year 1', label: 'Year 1 (tertiary)' },
+  { value: 'Year 2', label: 'Year 2 (tertiary)' },
+  { value: 'Year 3', label: 'Year 3 (tertiary)' },
+  { value: 'Undergraduate', label: 'Undergraduate' },
+  { value: 'Postgraduate', label: 'Postgraduate' },
+];
+
 const AssessmentGenerator: React.FC = () => {
+  const [useCustomTopics, setUseCustomTopics] = useState(false);
+  const [customTopicsText, setCustomTopicsText] = useState('');
+  const [customTopicsFile, setCustomTopicsFile] = useState<File | null>(null);
+  const [level, setLevel] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedRubricId, setSelectedRubricId] = useState<number | null>(null);
   const [selectedRubric, setSelectedRubric] = useState<any | null>(null);
   const [topic, setTopic] = useState('');
   const [difficultyLevel, setDifficultyLevel] = useState<'beginner' | 'moderate' | 'advanced'>('moderate');
   const [questionCount, setQuestionCount] = useState(5);
   const [assessmentType, setAssessmentType] = useState<'assignment' | 'exam' | 'quiz' | 'essay'>('assignment');
+  const [questionTypeMode, setQuestionTypeMode] = useState<'mix' | 'custom'>('mix');
+  const [selectedQuestionTypes, setSelectedQuestionTypes] = useState<QuestionTypeOption[]>(['mcq', 'short_answer']);
   const [useExistingPatterns, setUseExistingPatterns] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedAssessment, setGeneratedAssessment] = useState<GeneratedAssessment | null>(null);
+  const [savedRubricId, setSavedRubricId] = useState<number | null>(null);
+  const [savedRubricName, setSavedRubricName] = useState<string | null>(null);
+  const [publishedLink, setPublishedLink] = useState<string | null>(null);
+  const [publishedCode, setPublishedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
@@ -54,32 +88,61 @@ const AssessmentGenerator: React.FC = () => {
     setGeneratedAssessment(null);
   };
 
+  const getCustomTopicsString = async (): Promise<string> => {
+    if (customTopicsFile) {
+      const text = await customTopicsFile.text();
+      return text.trim();
+    }
+    return customTopicsText.trim();
+  };
+
   const handleGenerate = async () => {
-    if (!selectedRubricId) {
-      setError('Please select a rubric');
+    const hasCustomTopics = useCustomTopics && (customTopicsText.trim() || customTopicsFile);
+    if (!hasCustomTopics && !selectedRubricId) {
+      setError('Select a rubric/memo or use custom topics');
       return;
+    }
+    if (hasCustomTopics) {
+      const topicsStr = await getCustomTopicsString();
+      if (!topicsStr || topicsStr.length < 10) {
+        setError('Please enter or upload a topic list (at least a few words)');
+        return;
+      }
     }
 
     setIsGenerating(true);
     setError(null);
     setGeneratedAssessment(null);
+    setSavedRubricId(null);
+    setSavedRubricName(null);
 
     try {
-      const response = await assessmentsAPI.generate({
-        rubric_id: selectedRubricId,
+      const question_types = questionTypeMode === 'mix' ? ['mix'] : selectedQuestionTypes;
+      const payload: any = {
         difficulty_level: difficultyLevel,
         question_count: questionCount,
         assessment_type: assessmentType,
-        use_existing_patterns: useExistingPatterns,
-        topic: topic.trim() || null
-      });
+        use_existing_patterns: useCustomTopics ? false : useExistingPatterns,
+        topic: topic.trim() || null,
+        question_types,
+        level: level.trim() || null,
+      };
+      if (hasCustomTopics) {
+        payload.custom_topics = await getCustomTopicsString();
+      } else {
+        payload.rubric_id = selectedRubricId;
+      }
+      const response = await assessmentsAPI.generate(payload);
 
       if (response.data.success) {
         setGeneratedAssessment(response.data.assessment);
-        // Store rubric info if provided
         if (response.data.rubric) {
           setSelectedRubric(response.data.rubric);
         }
+        setSavedRubricId(response.data.saved_rubric_id ?? null);
+        setSavedRubricName(response.data.saved_rubric_name ?? null);
+        setPublishedLink(null);
+        setPublishedCode(null);
       } else {
         setError(response.data.error || 'Failed to generate assessment');
       }
@@ -94,32 +157,55 @@ const AssessmentGenerator: React.FC = () => {
   const handleDownload = () => {
     if (!generatedAssessment) return;
 
-    const content = `ASSESSMENT: ${generatedAssessment.title}
-Topic: ${generatedAssessment.topic}
-Difficulty: ${generatedAssessment.difficulty_level}
-Type: ${generatedAssessment.assessment_type}
-Estimated Time: ${generatedAssessment.estimated_time}
-Total Points: ${generatedAssessment.total_points}
+    const lines: string[] = [
+      `ASSESSMENT: ${generatedAssessment.title}`,
+      `Topic: ${generatedAssessment.topic}`,
+      `Difficulty: ${generatedAssessment.difficulty_level}`,
+      `Type: ${generatedAssessment.assessment_type}`,
+      `Estimated Time: ${generatedAssessment.estimated_time}`,
+      `Total Points: ${generatedAssessment.total_points}`,
+      '',
+      'INSTRUCTIONS:',
+      generatedAssessment.instructions,
+      '',
+      'QUESTIONS:',
+      '',
+    ];
 
-INSTRUCTIONS:
-${generatedAssessment.instructions}
+    generatedAssessment.questions.forEach((q) => {
+      lines.push(`${q.number}. [${(q.type || '').replace(/_/g, ' ').toUpperCase()}] (${q.points} points)`);
+      lines.push(q.question);
+      if (q.options && q.options.length > 0) {
+        q.options.forEach((opt, i) => lines.push(`   ${String.fromCharCode(65 + i)}) ${opt}`));
+      }
+      if (q.left_column && q.right_column && q.left_column.length > 0) {
+        lines.push('   Column A:');
+        q.left_column.forEach((item, i) => lines.push(`     ${i + 1}. ${item}`));
+        lines.push('   Column B:');
+        q.right_column.forEach((item, i) => lines.push(`     ${String.fromCharCode(65 + i)}. ${item}`));
+        lines.push('   (Match items from Column A to Column B)');
+      }
+      if (q.hints && q.hints.length > 0) {
+        lines.push('   Hints: ' + q.hints.join('; '));
+      }
+      lines.push('');
+    });
 
-QUESTIONS:
+    lines.push('---');
+    lines.push('ANSWER KEY (for teacher):');
+    generatedAssessment.questions.forEach((q) => {
+      if (q.correct_answer !== undefined) {
+        lines.push(`Q${q.number}: ${q.correct_answer}`);
+      }
+      if (q.correct_pairings && Array.isArray(q.correct_pairings) && q.correct_pairings.length > 0) {
+        const pairStr = q.correct_pairings.map((p: any) =>
+          typeof p === 'object' && p.left_index != null ? `${p.left_index}-${p.right_index}` : String(p)
+        ).join(', ');
+        lines.push(`Q${q.number} (match): ${pairStr}`);
+      }
+    });
 
-${generatedAssessment.questions.map(q => `
-${q.number}. [${q.type.toUpperCase()}] (${q.points} points)
-${q.question}
-${q.hints && q.hints.length > 0 ? `\nHints:\n${q.hints.map(h => `- ${h}`).join('\n')}` : ''}
-`).join('\n')}
-
-${generatedAssessment.suggested_rubric_criteria && generatedAssessment.suggested_rubric_criteria.length > 0 ? `SUGGESTED RUBRIC CRITERIA:
-
-${generatedAssessment.suggested_rubric_criteria.map(c => `
-- ${c.name} (${c.max_points} points)
-  ${c.description}
-`).join('\n')}` : ''}
-`;
-
+    const content = lines.join('\n');
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -164,61 +250,150 @@ ${generatedAssessment.suggested_rubric_criteria.map(c => `
         )}
 
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Rubric * <span className="text-gray-500">(Select the rubric to base the assessment on)</span>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="useCustomTopics"
+              checked={useCustomTopics}
+              onChange={(e) => {
+                setUseCustomTopics(e.target.checked);
+                if (!e.target.checked) {
+                  setCustomTopicsFile(null);
+                  setCustomTopicsText('');
+                }
+                setGeneratedAssessment(null);
+              }}
+              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+            />
+            <label htmlFor="useCustomTopics" className="text-sm font-medium text-gray-700">
+              Use custom topic list (and level) instead of a memo/rubric
             </label>
-            <select
-              value={selectedRubricId || ''}
-              onChange={(e) => handleRubricChange(e.target.value ? parseInt(e.target.value) : null)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              required
-            >
-              <option value="">Select a rubric...</option>
-              {rubrics.map(rubric => (
-                <option key={rubric.id} value={rubric.id}>
-                  {rubric.name} ({rubric.total_points} points, {Array.isArray(rubric.criteria) ? rubric.criteria.length : 0} criteria)
-                </option>
-              ))}
-            </select>
-            {selectedRubric && (
-              <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="text-sm font-semibold text-blue-900 mb-2">Selected Rubric: {selectedRubric.name}</div>
-                <div className="text-sm text-blue-700">
-                  <div>Total Points: {selectedRubric.total_points}</div>
-                  <div>Criteria: {Array.isArray(selectedRubric.criteria) ? selectedRubric.criteria.length : 0}</div>
-                  {Array.isArray(selectedRubric.criteria) && selectedRubric.criteria.length > 0 && (
-                    <div className="mt-2">
-                      <div className="font-medium mb-1">Criteria:</div>
-                      <ul className="list-disc list-inside space-y-1">
-                        {selectedRubric.criteria.slice(0, 5).map((criterion: any, idx: number) => (
-                          <li key={idx} className="text-xs">
-                            {criterion.name} ({criterion.max_points} points)
-                          </li>
-                        ))}
-                        {selectedRubric.criteria.length > 5 && (
-                          <li className="text-xs text-gray-600">... and {selectedRubric.criteria.length - 5} more</li>
-                        )}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Topic/Subject Area <span className="text-gray-500">(optional - e.g., "World War II", "Photosynthesis")</span>
-            </label>
-            <input
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="Enter a specific topic (optional)"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-          </div>
+          {useCustomTopics ? (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Topic list * <span className="text-gray-500">(one topic per line or comma-separated; or upload a .txt file)</span>
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setCustomTopicsFile(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Upload topic list (.txt or .csv)
+                  </button>
+                  {customTopicsFile && (
+                    <span className="inline-flex items-center gap-1 text-sm text-gray-600">
+                      {customTopicsFile.name}
+                      <button type="button" onClick={() => setCustomTopicsFile(null)} className="text-red-600 hover:text-red-800">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={customTopicsText}
+                  onChange={(e) => setCustomTopicsText(e.target.value)}
+                  placeholder="e.g. Photosynthesis, Cell division, Genetics, Evolution..."
+                  rows={4}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Level</label>
+                <select
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  {LEVEL_OPTIONS.map((opt) => (
+                    <option key={opt.value || 'any'} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Memo / Rubric <span className="text-gray-500">(Select to base the assessment on)</span>
+                </label>
+                <select
+                  value={selectedRubricId || ''}
+                  onChange={(e) => handleRubricChange(e.target.value ? parseInt(e.target.value) : null)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="">Select a memo or rubric...</option>
+                  {rubrics.map(rubric => (
+                    <option key={rubric.id} value={rubric.id}>
+                      {rubric.rubric_type === 'answer_key' ? '📋 Memo: ' : '📌 '}{rubric.name} ({rubric.total_points} pts, {Array.isArray(rubric.criteria) ? rubric.criteria.length : 0} criteria)
+                    </option>
+                  ))}
+                </select>
+                {selectedRubric && (
+                  <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="text-sm font-semibold text-blue-900 mb-2">Selected: {selectedRubric.name}</div>
+                    <div className="text-sm text-blue-700">
+                      <div>Total Points: {selectedRubric.total_points}</div>
+                      <div>Criteria: {Array.isArray(selectedRubric.criteria) ? selectedRubric.criteria.length : 0}</div>
+                      {Array.isArray(selectedRubric.criteria) && selectedRubric.criteria.length > 0 && (
+                        <div className="mt-2">
+                          <div className="font-medium mb-1">Criteria:</div>
+                          <ul className="list-disc list-inside space-y-1">
+                            {selectedRubric.criteria.slice(0, 5).map((criterion: any, idx: number) => (
+                              <li key={idx} className="text-xs">
+                                {criterion.name} ({criterion.max_points} points)
+                              </li>
+                            ))}
+                            {selectedRubric.criteria.length > 5 && (
+                              <li className="text-xs text-gray-600">... and {selectedRubric.criteria.length - 5} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Topic/Subject Area <span className="text-gray-500">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="e.g. World War II, Photosynthesis"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Level</label>
+                <select
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  {LEVEL_OPTIONS.map((opt) => (
+                    <option key={opt.value || 'any'} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -267,6 +442,53 @@ ${generatedAssessment.suggested_rubric_criteria.map(c => `
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Question types
+            </label>
+            <div className="flex flex-wrap gap-3 items-center">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="questionTypeMode"
+                  checked={questionTypeMode === 'mix'}
+                  onChange={() => setQuestionTypeMode('mix')}
+                  className="text-purple-600 border-gray-300 focus:ring-purple-500"
+                />
+                <span className="text-sm">Mix (AI chooses variety)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="questionTypeMode"
+                  checked={questionTypeMode === 'custom'}
+                  onChange={() => setQuestionTypeMode('custom')}
+                  className="text-purple-600 border-gray-300 focus:ring-purple-500"
+                />
+                <span className="text-sm">Select types:</span>
+              </label>
+              {questionTypeMode === 'custom' && (
+                (['mcq', 'essay', 'short_answer', 'mix_and_match'] as QuestionTypeOption[]).map((t) => (
+                  <label key={t} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedQuestionTypes.includes(t)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedQuestionTypes((prev) => [...prev, t]);
+                        } else {
+                          setSelectedQuestionTypes((prev) => prev.filter((x) => x !== t));
+                        }
+                      }}
+                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm">{QUESTION_TYPE_LABELS[t]}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -280,9 +502,16 @@ ${generatedAssessment.suggested_rubric_criteria.map(c => `
             </label>
           </div>
 
+          {questionTypeMode === 'custom' && selectedQuestionTypes.length === 0 && (
+            <p className="text-amber-700 text-sm">Select at least one question type.</p>
+          )}
           <button
             onClick={handleGenerate}
-            disabled={isGenerating || !selectedRubricId}
+            disabled={
+              isGenerating ||
+              (!useCustomTopics && !selectedRubricId) ||
+              (questionTypeMode === 'custom' && selectedQuestionTypes.length === 0)
+            }
             className="w-full bg-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isGenerating ? (
@@ -313,14 +542,72 @@ ${generatedAssessment.suggested_rubric_criteria.map(c => `
               <FileText className="w-6 h-6 text-purple-600" />
               <h2 className="text-2xl font-bold text-gray-800">{generatedAssessment.title}</h2>
             </div>
-            <button
-              onClick={handleDownload}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-            >
-              <Download className="w-4 h-4" />
-              Download
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleDownload}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <Download className="w-4 h-4" />
+                Download
+              </button>
+              {savedRubricId && (
+                <button
+                  onClick={async () => {
+                    if (!generatedAssessment || !savedRubricId) return;
+                    try {
+                      const res = await assessmentsAPI.publish({ assessment: generatedAssessment, rubric_id: savedRubricId });
+                      if (res.data.success && res.data.code) {
+                        const path = window.location.pathname.replace(/\/$/, '');
+                        const base = path.startsWith('/tools') ? '/tools' : (path.split('/').filter(Boolean)[0] ? '/' + path.split('/').filter(Boolean)[0] : '');
+                        const link = `${window.location.origin}${base}/take-assessment?code=${res.data.code}`;
+                        setPublishedLink(link);
+                        setPublishedCode(res.data.code);
+                      }
+                    } catch (e: any) {
+                      setError(e.response?.data?.error || 'Failed to publish');
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                >
+                  <Link2 className="w-4 h-4" />
+                  Publish for students
+                </button>
+              )}
+            </div>
           </div>
+
+          {publishedLink && (
+            <div className="mb-6 p-4 bg-violet-50 border border-violet-200 rounded-lg">
+              <div className="font-semibold text-violet-900 mb-1">Share link with students</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  readOnly
+                  value={publishedLink}
+                  className="flex-1 min-w-[200px] px-3 py-2 border border-violet-300 rounded bg-white text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(publishedLink); }}
+                  className="px-3 py-2 bg-violet-600 text-white rounded text-sm hover:bg-violet-700"
+                >
+                  Copy link
+                </button>
+              </div>
+              <p className="text-sm text-violet-700 mt-2">Students open this link to take the assessment; marking runs when they submit.</p>
+            </div>
+          )}
+
+          {savedRubricId && savedRubricName && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+              <Link2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+              <div>
+                <div className="font-semibold text-green-900">Rubric saved</div>
+                <div className="text-sm text-green-700">
+                  &quot;{savedRubricName}&quot; has been stored. Use it in Marking to mark scripts against this assessment.
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="flex items-center gap-2 text-gray-600">
@@ -381,6 +668,29 @@ ${generatedAssessment.suggested_rubric_criteria.map(c => `
                     </div>
                   </div>
                   <p className="text-gray-700 mb-2">{question.question}</p>
+                  {question.options && question.options.length > 0 && (
+                    <div className="ml-2 mb-2 text-sm text-gray-600">
+                      {question.options.map((opt, i) => (
+                        <div key={i}>{String.fromCharCode(65 + i)}) {opt}</div>
+                      ))}
+                    </div>
+                  )}
+                  {question.left_column && question.right_column && question.left_column.length > 0 && (
+                    <div className="ml-2 mb-2 flex gap-6 text-sm">
+                      <div>
+                        <div className="font-medium text-gray-700 mb-1">Column A</div>
+                        {question.left_column.map((item, i) => (
+                          <div key={i}>{i + 1}. {item}</div>
+                        ))}
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-700 mb-1">Column B</div>
+                        {question.right_column.map((item, i) => (
+                          <div key={i}>{String.fromCharCode(65 + i)}. {item}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {question.related_criteria && question.related_criteria.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-gray-200">
                       <div className="text-sm font-medium text-purple-600 mb-1">Assesses Rubric Criteria:</div>
