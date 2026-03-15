@@ -350,6 +350,53 @@ export const assessmentsAPI = {
   /** Export as SCORM 1.2 ZIP (includes answer key). Returns blob. */
   exportScorm: (assessment: GeneratedAssessment) =>
     api.post('/assessments/export/scorm', { assessment }, { responseType: 'blob' }),
+  /** List current user's published assessments (for reusability). */
+  getPublished: () => api.get('/assessments/published'),
+};
+
+// Content generator API
+export interface ContentSection {
+  title: string;
+  body: string;
+}
+export interface ContentQuizQuestion {
+  number: number;
+  type: string;
+  question: string;
+  points?: number;
+  options?: string[];
+  correct_answer?: string;
+}
+export interface GeneratedContent {
+  title: string;
+  instructions?: string;
+  sections: ContentSection[];
+  quiz?: { questions: ContentQuizQuestion[]; total_points?: number };
+}
+export const contentAPI = {
+  generate: (data: {
+    topics: string;
+    level?: string;
+    num_sections?: number;
+    rubric_id?: number;
+    rubric_context?: string;
+  }) => api.post('/content/generate', data),
+  publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean }) =>
+    api.post('/content/publish', data),
+  getMy: () => api.get('/content/my'),
+  getByCode: (code: string) => api.get(`/content/take/${code}`),
+  submitQuiz: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
+    api.post('/content/submit-quiz', data),
+  getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),
+  exportPptx: (content: GeneratedContent) =>
+    api.post('/content/export/pptx', { content }, { responseType: 'blob' }),
+  exportLectureNotes: (content: GeneratedContent) =>
+    api.post('/content/export/lecture-notes', { content }, { responseType: 'blob' }),
+  uploadTemplate: (file: File) => {
+    const form = new FormData();
+    form.append('template', file);
+    return api.post('/content/template', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
 };
 
 // Authentication API

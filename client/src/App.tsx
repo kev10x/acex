@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, BarChart3, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine } from 'lucide-react';
+import { Upload, FileText, BarChart3, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine, Presentation } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import RubricManager from './components/RubricManager';
 import MarkingInterface from './components/MarkingInterface';
@@ -11,13 +11,15 @@ import BatchManager from './components/BatchManager';
 import TrainingDataManager from './components/TrainingDataManager';
 import AssessmentGenerator from './components/AssessmentGenerator';
 import TakeAssessment from './components/TakeAssessment';
+import ContentGenerator from './components/ContentGenerator';
+import TakeContent from './components/TakeContent';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
 import AdminDashboard from './components/AdminDashboard';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'admin';
+type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'content' | 'admin';
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('upload');
@@ -44,7 +46,10 @@ function AppContent() {
   const memorandumsItems: { id: TabType; label: string; icon: typeof FileText }[] = [
     { id: 'rubrics', label: 'Manage Rubrics', icon: FileText },
     { id: 'generator', label: 'AI Rubric Generator', icon: Wand2 },
-    ...(allowGenerateAssessments ? [{ id: 'assessments' as TabType, label: 'Generate Assessments', icon: Sparkles }] : []),
+    ...(allowGenerateAssessments ? [
+      { id: 'assessments' as TabType, label: 'Generate Assessments', icon: Sparkles },
+      { id: 'content' as TabType, label: 'Content Generator', icon: Presentation },
+    ] : []),
   ];
   const markingItems: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
     { id: 'marking', label: 'AI Marking', icon: BarChart3 },
@@ -54,9 +59,12 @@ function AppContent() {
     { id: 'training', label: 'Model Training', icon: Brain },
   ];
 
-  // Take-assessment route: no auth required, render student view first
+  // Take-assessment / take-content routes: no auth required, render student view first
   if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
     return <TakeAssessment />;
+  }
+  if (typeof window !== 'undefined' && window.location.pathname.includes('take-content')) {
+    return <TakeContent />;
   }
 
   // Show loading state
@@ -255,6 +263,7 @@ function AppContent() {
         {activeTab === 'rubrics' && <RubricManager />}
         {activeTab === 'generator' && <RubricGenerator />}
         {activeTab === 'assessments' && <AssessmentGenerator />}
+        {activeTab === 'content' && <ContentGenerator />}
         {activeTab === 'marking' && <MarkingInterface />}
         {activeTab === 'manual-marking' && <ManualMarkingInterface />}
         {activeTab === 'mcq' && <MCQInterface />}

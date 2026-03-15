@@ -426,6 +426,40 @@ router.post('/export/scorm', requireAuth, requireFeature('generate_assessments')
 });
 
 /**
+ * List current user's published assessments (for reusability / copy links).
+ */
+router.get('/published', requireAuth, async (req, res) => {
+  try {
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    const result = isMySQL
+      ? await query('SELECT id, code, assessment_json, created_at FROM published_assessments WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
+      : await query('SELECT id, code, assessment_json, created_at FROM published_assessments WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+    const rows = result.rows || result;
+    const list = Array.isArray(rows) ? rows : [rows];
+    const base = process.env.CLIENT_URL || '';
+    const takePath = base ? `${base.replace(/\/$/, '')}/take-assessment` : '/take-assessment';
+    const items = list.map((r) => {
+      let title = '';
+      try {
+        const j = typeof r.assessment_json === 'string' ? JSON.parse(r.assessment_json) : r.assessment_json;
+        title = j && j.title ? j.title : '';
+      } catch (_) {}
+      return {
+        id: r.id,
+        code: r.code,
+        title,
+        link: `${takePath}?code=${r.code}`,
+        created_at: r.created_at,
+      };
+    });
+    res.json({ success: true, items });
+  } catch (error) {
+    console.error('Published assessments list error:', error);
+    res.status(500).json({ error: 'Failed to list published assessments' });
+  }
+});
+
+/**
  * Get statistics about available assignment data for assessment generation
  */
 router.get('/stats', async (req, res) => {
@@ -554,6 +588,8 @@ router.post('/submit', async (req, res) => {
     if (!code || !student_name || !Array.isArray(answers)) {
       return res.status(400).json({ error: 'code, student_name, and answers array are required' });
     }
+    if (String(code).length > 32) return res.status(400).json({ error: 'code too long' });
+    if (String(student_name).length > 200) return res.status(400).json({ error: 'student_name too long' });
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const pubResult = isMySQL
       ? await query('SELECT id, assessment_json, rubric_id, user_id FROM published_assessments WHERE code = ?', [code])

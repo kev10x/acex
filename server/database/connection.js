@@ -198,6 +198,32 @@ const initDatabase = async () => {
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS published_content (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          code VARCHAR(32) NOT NULL UNIQUE,
+          title VARCHAR(500) NOT NULL,
+          content_json LONGTEXT NOT NULL,
+          rubric_id INT NULL,
+          user_id INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS content_videos (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          published_content_id INT NOT NULL,
+          openai_video_id VARCHAR(255) NOT NULL,
+          status VARCHAR(50) DEFAULT 'queued',
+          file_path TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE CASCADE,
+          UNIQUE(published_content_id)
+        )
+      `);
       
       // Migrate existing tables: Add new columns if they don't exist
       try {
@@ -634,6 +660,29 @@ const initDatabase = async () => {
           rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS published_content (
+          id SERIAL PRIMARY KEY,
+          code VARCHAR(32) NOT NULL UNIQUE,
+          title VARCHAR(500) NOT NULL,
+          content_json TEXT NOT NULL,
+          rubric_id INTEGER NULL REFERENCES rubrics(id) ON DELETE SET NULL,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS content_videos (
+          id SERIAL PRIMARY KEY,
+          published_content_id INTEGER NOT NULL REFERENCES published_content(id) ON DELETE CASCADE,
+          openai_video_id VARCHAR(255) NOT NULL,
+          status VARCHAR(50) DEFAULT 'queued',
+          file_path TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(published_content_id)
         )
       `);
       

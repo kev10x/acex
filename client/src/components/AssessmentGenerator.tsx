@@ -51,11 +51,20 @@ const AssessmentGenerator: React.FC = () => {
   const [exportingFormat, setExportingFormat] = useState<'text' | 'moodle' | 'scorm' | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
+  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string }[]>([]);
 
   useEffect(() => {
     loadStats();
     loadRubrics();
+    loadPublished();
   }, []);
+
+  const loadPublished = async () => {
+    try {
+      const res = await assessmentsAPI.getPublished();
+      if (res.data.success && res.data.items) setPublishedList(res.data.items);
+    } catch (_) {}
+  };
 
   const loadStats = async () => {
     try {
@@ -270,6 +279,27 @@ const AssessmentGenerator: React.FC = () => {
         <p className="text-gray-600 mb-6">
           Generate new assessments automatically based on your rubrics. The system creates questions that align with your rubric criteria, ensuring assessments match your marking standards.
         </p>
+
+        {publishedList.length > 0 && (
+          <div className="mb-6 p-4 bg-violet-50 border border-violet-200 rounded-lg">
+            <h3 className="text-sm font-semibold text-violet-900 mb-2">My published assessments (reuse links)</h3>
+            <ul className="space-y-2">
+              {publishedList.map((item) => (
+                <li key={item.id} className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                  <input readOnly value={item.link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(item.link)}
+                    className="px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
+                  >
+                    Copy link
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
@@ -631,6 +661,7 @@ const AssessmentGenerator: React.FC = () => {
                         const link = `${window.location.origin}${base}/take-assessment?code=${res.data.code}`;
                         setPublishedLink(link);
                         setPublishedCode(res.data.code);
+                        loadPublished();
                       }
                     } catch (e: any) {
                       setError(e.response?.data?.error || 'Failed to publish');
