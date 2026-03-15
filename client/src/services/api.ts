@@ -356,7 +356,12 @@ export const assessmentsAPI = {
 
 // Content generator API
 export interface ContentSection {
-  title: string;
+  /** Assertion-evidence style: one complete sentence (main idea). */
+  heading?: string;
+  /** Legacy or fallback. */
+  title?: string;
+  /** One short supporting line for slides. */
+  support?: string;
   body: string;
 }
 export interface ContentQuizQuestion {

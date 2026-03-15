@@ -316,9 +316,10 @@ const ContentGenerator: React.FC = () => {
             <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">{generatedContent.instructions}</div>
           )}
           <div className="space-y-4">
-            {(generatedContent.sections || []).map((sec, i) => (
+            {(generatedContent.sections || []).map((sec: any, i: number) => (
               <div key={i} className="border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-800 mb-2">{sec.title}</h3>
+                <h3 className="font-semibold text-gray-800 mb-1">{sec.heading || sec.title || 'Section'}</h3>
+                {sec.support && <p className="text-gray-600 text-sm mb-2">{sec.support}</p>}
                 <p className="text-gray-700 whitespace-pre-wrap text-sm">{sec.body}</p>
               </div>
             ))}

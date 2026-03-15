@@ -224,13 +224,19 @@ const TakeContent: React.FC = () => {
             </div>
           )}
 
-          <div className="p-6 space-y-6">
-            {(content?.sections || []).map((sec, i) => (
-              <div key={i}>
-                <h2 className="text-lg font-semibold text-gray-800 mb-2">{sec.title}</h2>
-                <p className="text-gray-700 whitespace-pre-wrap">{sec.body}</p>
-              </div>
-            ))}
+          <div className="p-6 space-y-10">
+            {(content?.sections || []).map((sec, i) => {
+              const assertion = (sec as any).heading || sec.title || 'Section';
+              const support = (sec as any).support ? String((sec as any).support).trim() : '';
+              const body = sec.body || '';
+              return (
+                <section key={i} className="max-w-[65ch]">
+                  <h2 className="text-xl font-semibold text-gray-900 leading-snug mb-2">{assertion}</h2>
+                  {support && <p className="text-gray-600 text-base mb-3">{support}</p>}
+                  <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">{body}</div>
+                </section>
+              );
+            })}
           </div>
 
           {hasQuiz && (

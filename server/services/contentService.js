@@ -14,14 +14,19 @@ const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
 async function generateContentWithAI(opts) {
   const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '' } = opts;
   const config = aiConfig.getConfig('assignment', 'openai');
-  const prompt = `You are an expert educator creating course/lecture content for students.
+  const prompt = `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text—no long bullet lists or text-heavy slides.
 
 TOPICS TO COVER (create clear sections that teach these):
 ${topics}
 ${level ? `TARGET LEVEL: ${level}\n` : ''}
 ${rubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${rubricContext}\n` : ''}
 
-Generate a structured course with exactly ${numSections} sections. Each section should have a clear title and body text (2–4 short paragraphs) that teach the topic. Include one optional short knowledge-check quiz at the end (3–5 multiple choice questions with correct_answer and options).
+Generate a structured course with exactly ${numSections} sections. For each section provide:
+- heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
+- support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
+- body: Full explanation for lecture notes and detailed reading (2–4 short paragraphs). Use \\n for paragraph breaks.
+
+Include one optional short knowledge-check quiz at the end (3–5 multiple choice questions with correct_answer and options).
 
 Respond with a JSON object only (no markdown), in this exact format:
 {
@@ -29,8 +34,9 @@ Respond with a JSON object only (no markdown), in this exact format:
   "instructions": "Brief instructions for the learner (1–2 sentences).",
   "sections": [
     {
-      "title": "Section title",
-      "body": "Section content in plain text. Use \\n for paragraph breaks. Teach the concept clearly."
+      "heading": "One complete sentence stating this slide's main idea.",
+      "support": "One short supporting line or key takeaway.",
+      "body": "Full explanation for notes and reading. Use \\n for paragraph breaks."
     }
   ],
   "quiz": {
@@ -48,7 +54,7 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Ensure sections are educational and well-ordered. Quiz questions must have options and correct_answer.`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. Quiz questions must have options and correct_answer.`;
 
   const completion = await aiService.createCompletionWithRetry({
     provider: config.provider,
@@ -73,9 +79,24 @@ Ensure sections are educational and well-ordered. Quiz questions must have optio
   return data;
 }
 
+// Normalize section for assertion-evidence: support both legacy (title, body) and new (heading, support, body)
+function getSectionAssertion(sec) {
+  return sec.heading || sec.title || 'Section';
+}
+function getSectionSupport(sec) {
+  if (sec.support && String(sec.support).trim()) return String(sec.support).trim();
+  const body = sec.body || '';
+  const first = body.split(/\n/)[0] || '';
+  return first.length > 120 ? first.slice(0, 117) + '...' : first;
+}
+function getSectionBody(sec) {
+  return sec.body || '';
+}
+
 /**
- * Build a PowerPoint buffer from content (sections = slides).
- * @param {object} content - { title, instructions, sections: [{ title, body }] }
+ * Build a PowerPoint buffer from content using assertion-evidence design (CMU).
+ * One clear sentence per slide, minimal supporting text, no bullet lists.
+ * @param {object} content - { title, instructions, sections: [{ heading?, title?, support?, body }] }
  * @returns {Promise<Buffer>}
  */
 async function buildPptx(content) {
@@ -84,26 +105,35 @@ async function buildPptx(content) {
   pptx.title = title;
   pptx.author = 'MarkMate';
   pptx.subject = title;
+  const slideW = 10;
+  const margin = 0.6;
 
+  // Title slide: one main message, brief instructions only
   const slide1 = pptx.addSlide();
-  slide1.addText(title, { x: 0.5, y: 1, w: 9, h: 1.2, fontSize: 28, bold: true });
+  slide1.addText(title, { x: margin, y: 1.2, w: slideW - 2 * margin, h: 1.4, fontSize: 32, bold: true, align: 'center', valign: 'middle' });
   if (content.instructions) {
-    slide1.addText(content.instructions, { x: 0.5, y: 2.2, w: 9, h: 1.5, fontSize: 14 });
+    slide1.addText(content.instructions, { x: margin, y: 2.8, w: slideW - 2 * margin, h: 1.2, fontSize: 14, align: 'center', color: '363636' });
   }
 
   const sections = content.sections || [];
   for (const sec of sections) {
     const slide = pptx.addSlide();
-    slide.addText(sec.title || 'Section', { x: 0.5, y: 0.3, w: 9, h: 0.8, fontSize: 22, bold: true });
-    const body = (sec.body || '').replace(/\n/g, '\n');
-    slide.addText(body, { x: 0.5, y: 1.2, w: 9, h: 5.5, fontSize: 12, valign: 'top' });
+    const assertion = getSectionAssertion(sec);
+    const support = getSectionSupport(sec);
+    // Assertion at top (complete sentence) – main idea only
+    slide.addText(assertion, { x: margin, y: 0.5, w: slideW - 2 * margin, h: 1.6, fontSize: 24, bold: true, valign: 'top', wrap: true });
+    // One short supporting line only – no long paragraphs or bullets
+    if (support) {
+      slide.addText(support, { x: margin, y: 2.3, w: slideW - 2 * margin, h: 1.2, fontSize: 16, color: '404040', valign: 'top', wrap: true });
+    }
+    // White space below; no body text on slide (keeps slides readable and focused)
   }
 
   if (content.quiz && content.quiz.questions && content.quiz.questions.length > 0) {
     const quizSlide = pptx.addSlide();
-    quizSlide.addText('Knowledge check', { x: 0.5, y: 0.3, w: 9, h: 0.6, fontSize: 22, bold: true });
-    const lines = content.quiz.questions.map((q, i) => `${i + 1}. ${(q.question || '').slice(0, 80)}...`);
-    quizSlide.addText(lines.join('\n'), { x: 0.5, y: 1, w: 9, h: 5, fontSize: 12 });
+    quizSlide.addText('Knowledge check', { x: margin, y: 0.6, w: slideW - 2 * margin, h: 0.7, fontSize: 26, bold: true });
+    const lines = content.quiz.questions.map((q, i) => `${i + 1}. ${(q.question || '').slice(0, 70)}${(q.question || '').length > 70 ? '…' : ''}`);
+    quizSlide.addText(lines.join('\n'), { x: margin, y: 1.5, w: slideW - 2 * margin, h: 5, fontSize: 14, valign: 'top' });
   }
 
   return pptx.write({ outputType: 'nodebuffer' });
@@ -128,7 +158,8 @@ function buildLectureNotesHtml(content, includeAnswerKey = true) {
     h1 { color: #333; }
     .instructions { background: #f5f5f5; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; }
     .section { margin-bottom: 2rem; }
-    .section h2 { color: #444; border-bottom: 1px solid #ddd; padding-bottom: 0.3rem; }
+    .section h2 { color: #1a1a1a; font-size: 1.25rem; margin-bottom: 0.5rem; line-height: 1.35; }
+    .section-support { color: #555; font-size: 0.95rem; margin-bottom: 0.75rem; }
     .quiz { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #ddd; }
     .answer-key { margin-top: 2rem; background: #e8f5e9; padding: 1rem; border-radius: 8px; }
   </style>
@@ -138,9 +169,13 @@ function buildLectureNotesHtml(content, includeAnswerKey = true) {
   ${content.instructions ? `<div class="instructions">${escapeHtml(content.instructions).replace(/\n/g, '<br/>')}</div>` : ''}
 `;
   sections.forEach((sec) => {
+    const heading = getSectionAssertion(sec);
+    const body = getSectionBody(sec);
+    const support = sec.support && String(sec.support).trim() ? escapeHtml(sec.support) : '';
     html += `  <div class="section">
-    <h2>${escapeHtml(sec.title || 'Section')}</h2>
-    <p>${escapeHtml(sec.body || '').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>
+    <h2>${escapeHtml(heading)}</h2>
+    ${support ? `<p class="section-support">${support}</p>` : ''}
+    <p>${escapeHtml(body).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>
   </div>
 `;
   });
