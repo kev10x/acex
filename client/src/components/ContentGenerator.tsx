@@ -4,6 +4,8 @@ import { contentAPI, rubricsAPI, GeneratedContent } from '../services/api';
 
 const LEVEL_OPTIONS = [
   { value: '', label: 'Any level' },
+  { value: 'ECD', label: 'ECD (Early Childhood Development)' },
+  { value: 'Foundation Phase', label: 'Foundation Phase' },
   { value: 'Grade 8', label: 'Grade 8' },
   { value: 'Grade 10', label: 'Grade 10' },
   { value: 'Grade 12', label: 'Grade 12' },
