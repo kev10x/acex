@@ -13,6 +13,7 @@ interface User {
   name: string | null;
   account_type?: 'individual' | 'organisation';
   organisation_name?: string | null;
+  organisation_id?: number | null;
   role?: string;
   is_approved?: boolean;
   features?: UserFeatures;

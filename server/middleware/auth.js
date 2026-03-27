@@ -33,7 +33,7 @@ const authenticateToken = async (req, res, next) => {
     
     // Verify user still exists and is active
     const userResult = await query(
-      'SELECT id, email, name, is_active, role, is_approved FROM users WHERE id = $1',
+      'SELECT id, email, name, is_active, role, is_approved, organisation_id, organisation_name FROM users WHERE id = $1',
       [decoded.userId]
     );
     
@@ -52,7 +52,9 @@ const authenticateToken = async (req, res, next) => {
       email: user.email,
       name: user.name,
       role: normalizeRole(user.role),
-      is_approved: user.is_approved
+      is_approved: user.is_approved,
+      organisation_id: user.organisation_id || null,
+      organisation_name: user.organisation_name || null
     };
 
     next();
@@ -80,7 +82,7 @@ const optionalAuth = async (req, res, next) => {
     if (token) {
       const decoded = jwt.verify(token, JWT_SECRET);
       const userResult = await query(
-        'SELECT id, email, name, is_active, role, is_approved FROM users WHERE id = $1',
+        'SELECT id, email, name, is_active, role, is_approved, organisation_id, organisation_name FROM users WHERE id = $1',
         [decoded.userId]
       );
       
@@ -92,7 +94,9 @@ const optionalAuth = async (req, res, next) => {
           email: user.email,
           name: user.name,
           role: normalizeRole(user.role),
-          is_approved: user.is_approved
+          is_approved: user.is_approved,
+          organisation_id: user.organisation_id || null,
+          organisation_name: user.organisation_name || null
         };
       }
     }

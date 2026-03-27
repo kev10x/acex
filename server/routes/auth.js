@@ -17,6 +17,16 @@ const authLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' }
 });
 
+async function ensureOrganisationIdByName(nameRaw) {
+  const name = String(nameRaw || '').trim();
+  if (!name) return null;
+  const existing = await query('SELECT id FROM organisations WHERE LOWER(name) = LOWER($1)', [name]);
+  const ex = existing.rows?.[0] || existing?.[0];
+  if (ex?.id) return ex.id;
+  const inserted = await query('INSERT INTO organisations (name) VALUES ($1)', [name]);
+  return inserted.insertId || inserted.lastID || inserted.rows?.[0]?.id || null;
+}
+
 // Register new user
 router.post('/register', authLimiter, [
   body('email').isEmail().normalizeEmail(),
@@ -56,10 +66,12 @@ router.post('/register', authLimiter, [
     const verificationTokenExpires = new Date();
     verificationTokenExpires.setHours(verificationTokenExpires.getHours() + 24); // 24 hours from now
 
-    // Create user (account_type, organisation_name, and verification columns)
+    const organisationId = orgName ? await ensureOrganisationIdByName(orgName) : null;
+
+    // Create user (account_type, organisation_name, organisation_id and verification columns)
     const result = await query(
-      'INSERT INTO users (email, password_hash, name, account_type, organisation_name, email_verified, verification_token, verification_token_expires, role, is_approved) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-      [email, passwordHash, name || null, accountType, orgName, false, verificationToken, verificationTokenExpires, 'lecturer', false]
+      'INSERT INTO users (email, password_hash, name, account_type, organisation_name, organisation_id, email_verified, verification_token, verification_token_expires, role, is_approved) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+      [email, passwordHash, name || null, accountType, orgName, organisationId, false, verificationToken, verificationTokenExpires, 'lecturer', false]
     );
 
     // Get the inserted user ID (MySQL uses insertId, PostgreSQL uses RETURNING)
@@ -71,7 +83,7 @@ router.post('/register', authLimiter, [
     
     // Fetch the created user
     const userResult = await query(
-      'SELECT id, email, name, created_at, account_type, organisation_name FROM users WHERE id = $1',
+      'SELECT id, email, name, created_at, account_type, organisation_name, organisation_id FROM users WHERE id = $1',
       [userId]
     );
     
@@ -110,6 +122,7 @@ router.post('/register', authLimiter, [
         name: user.name,
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
+        organisation_id: user.organisation_id || null,
         email_verified: false
       },
       requiresVerification: true,
@@ -147,7 +160,7 @@ router.post('/login', authLimiter, [
 
     // Find user
     const result = await query(
-      'SELECT id, email, password_hash, name, is_active, email_verified, is_approved, role, account_type, organisation_name, features FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, name, is_active, email_verified, is_approved, role, account_type, organisation_name, organisation_id, features FROM users WHERE email = $1',
       [email]
     );
 
@@ -202,6 +215,7 @@ router.post('/login', authLimiter, [
         name: user.name,
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
+        organisation_id: user.organisation_id || null,
         role: normalizeRole(user.role),
         features
       },
@@ -230,7 +244,7 @@ function parseUserFeatures(features) {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, name, created_at, last_login, account_type, organisation_name, email_verified, is_approved, role, features FROM users WHERE id = $1',
+      'SELECT id, email, name, created_at, last_login, account_type, organisation_name, organisation_id, email_verified, is_approved, role, features FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -250,6 +264,7 @@ router.get('/me', requireAuth, async (req, res) => {
         last_login: user.last_login,
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
+        organisation_id: user.organisation_id || null,
         email_verified: user.email_verified,
         is_approved: user.is_approved,
         role: normalizeRole(user.role),
@@ -492,6 +507,24 @@ const getRows = (result) => {
   return [];
 };
 
+// Organisation boundary helper:
+// - if requester has no organisation_id, treat as platform-level manager (can manage all)
+// - if requester has organisation_id, can only manage users in the same organisation
+async function getManageableTargetUser(requester, targetId) {
+  const result = await query(
+    'SELECT id, role, organisation_id FROM users WHERE id = $1',
+    [targetId]
+  );
+  const target = result.rows?.[0] || result?.[0];
+  if (!target) return { status: 'not_found' };
+  const requesterOrg = requester.organisation_id == null ? null : Number(requester.organisation_id);
+  const targetOrg = target.organisation_id == null ? null : Number(target.organisation_id);
+  if (requesterOrg != null && requesterOrg !== targetOrg) {
+    return { status: 'forbidden' };
+  }
+  return { status: 'ok', target };
+}
+
 // Normalize user row for JSON (MySQL can return 0/1 for booleans)
 const mapUser = (u) => ({
   id: u.id,
@@ -503,18 +536,33 @@ const mapUser = (u) => ({
   is_approved: !!u.is_approved,
   role: normalizeRole(u.role),
   is_active: u.is_active !== undefined ? !!u.is_active : true,
-  features: parseUserFeatures(u.features)
+  features: parseUserFeatures(u.features),
+  organisation_id: u.organisation_id || null,
+  organisation_name: u.organisation_name || null
 });
 
 // Admin routes - Get pending users
 router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const result = await query(`
-      SELECT id, email, name, created_at, email_verified, is_approved, role, features
-      FROM users 
-      WHERE email_verified = 1 AND is_approved = 0
-      ORDER BY created_at DESC
-    `);
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    let result;
+    if (requesterOrg == null) {
+      result = await query(`
+        SELECT u.id, u.email, u.name, u.created_at, u.email_verified, u.is_approved, u.role, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM users u
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE email_verified = 1 AND is_approved = 0
+        ORDER BY u.created_at DESC
+      `);
+    } else {
+      result = await query(`
+        SELECT u.id, u.email, u.name, u.created_at, u.email_verified, u.is_approved, u.role, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM users u
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE email_verified = 1 AND is_approved = 0 AND u.organisation_id = $1
+        ORDER BY u.created_at DESC
+      `, [requesterOrg]);
+    }
 
     const rows = getRows(result);
     const users = rows.map(u => ({
@@ -533,11 +581,24 @@ router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) =
 // Admin routes - Get all users
 router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const result = await query(`
-      SELECT id, email, name, created_at, last_login, email_verified, is_approved, role, is_active, features
-      FROM users 
-      ORDER BY created_at DESC
-    `);
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    let result;
+    if (requesterOrg == null) {
+      result = await query(`
+        SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.email_verified, u.is_approved, u.role, u.is_active, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM users u
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        ORDER BY created_at DESC
+      `);
+    } else {
+      result = await query(`
+        SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.email_verified, u.is_approved, u.role, u.is_active, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM users u
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE u.organisation_id = $1
+        ORDER BY created_at DESC
+      `, [requesterOrg]);
+    }
 
     const rows = getRows(result);
     const users = rows.map(mapUser);
@@ -553,6 +614,9 @@ router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
 router.post('/admin/users/:id/approve', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
+    const guard = await getManageableTargetUser(req.user, Number(id));
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
 
     await query('UPDATE users SET is_approved = 1 WHERE id = $1', [id]);
     const result = await query(
@@ -592,6 +656,9 @@ router.post('/admin/users/:id/reject', requireAuth, requireAdmin, [
 
     const { id } = req.params;
     const { deactivate } = req.body;
+    const guard = await getManageableTargetUser(req.user, Number(id));
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
 
     let updateQuery = 'UPDATE users SET is_approved = 0';
     const values = [];
@@ -643,6 +710,9 @@ router.put('/admin/users/:id/lock', requireAuth, requireAdmin, [
 
     const { id } = req.params;
     const { locked } = req.body;
+    const guard = await getManageableTargetUser(req.user, Number(id));
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
 
     if (Number(id) === req.user.id) {
       return res.status(400).json({ error: 'You cannot lock your own account' });
@@ -690,14 +760,10 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
       return res.status(400).json({ error: 'You cannot delete your own account' });
     }
 
-    const target = await query(
-      'SELECT id, role FROM users WHERE id = $1',
-      [targetId]
-    );
-    const targetUser = target.rows?.[0] || target?.[0];
-    if (!targetUser) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    const guard = await getManageableTargetUser(req.user, targetId);
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
+    const targetUser = guard.target;
 
     if (normalizeRole(targetUser.role) === 'management') {
       const adminCount = await query(
@@ -736,6 +802,9 @@ const updateUserFeaturesHandler = [
       }
       const { id } = req.params;
       const { features } = req.body;
+      const guard = await getManageableTargetUser(req.user, Number(id));
+      if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+      if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
       if (!features || typeof features !== 'object') {
         return res.status(400).json({ error: 'features object required' });
       }
@@ -784,6 +853,9 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
 
     const { id } = req.params;
     const { role } = req.body;
+    const guard = await getManageableTargetUser(req.user, Number(id));
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
 
     // Prevent removing the last admin
     if (role !== 'management') {
@@ -820,6 +892,89 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
   } catch (error) {
     console.error('Update user role error:', error);
     res.status(500).json({ error: 'Failed to update user role' });
+  }
+});
+
+// Admin routes - list organisations
+router.get('/admin/organisations', requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const requesterOrg = _req.user.organisation_id == null ? null : Number(_req.user.organisation_id);
+    const result = requesterOrg == null
+      ? await query('SELECT id, name, created_at FROM organisations ORDER BY name ASC')
+      : await query('SELECT id, name, created_at FROM organisations WHERE id = $1 ORDER BY name ASC', [requesterOrg]);
+    const rows = getRows(result);
+    res.json({ organisations: rows });
+  } catch (error) {
+    console.error('Get organisations error:', error);
+    res.status(500).json({ error: 'Failed to fetch organisations' });
+  }
+});
+
+// Admin routes - create organisation
+router.post('/admin/organisations', requireAuth, requireAdmin, [
+  body('name').trim().isLength({ min: 2, max: 255 }).withMessage('Organisation name is required')
+], async (req, res) => {
+  try {
+    if (req.user.organisation_id != null) {
+      return res.status(403).json({ error: 'Tenant-scoped management cannot create additional organisations' });
+    }
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const name = String(req.body.name || '').trim();
+    const existing = await query('SELECT id, name FROM organisations WHERE LOWER(name) = LOWER($1)', [name]);
+    const ex = existing.rows?.[0] || existing?.[0];
+    if (ex) return res.status(400).json({ error: 'Organisation already exists' });
+    const ins = await query('INSERT INTO organisations (name) VALUES ($1)', [name]);
+    const id = ins.insertId || ins.lastID || ins.rows?.[0]?.id;
+    res.json({ success: true, organisation: { id, name } });
+  } catch (error) {
+    console.error('Create organisation error:', error);
+    res.status(500).json({ error: 'Failed to create organisation' });
+  }
+});
+
+// Admin routes - assign user to organisation
+router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
+  body('organisation_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('organisation_id must be a positive integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const { id } = req.params;
+    const orgId = req.body.organisation_id ?? null;
+    const guard = await getManageableTargetUser(req.user, Number(id));
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+
+    if (orgId != null) {
+      const orgCheck = await query('SELECT id, name FROM organisations WHERE id = $1', [orgId]);
+      const org = orgCheck.rows?.[0] || orgCheck?.[0];
+      if (!org) return res.status(404).json({ error: 'Organisation not found' });
+      if (requesterOrg != null && Number(org.id) !== requesterOrg) {
+        return res.status(403).json({ error: 'You can only assign users to your own organisation' });
+      }
+      await query('UPDATE users SET organisation_id = $1, organisation_name = $2 WHERE id = $3', [orgId, org.name, id]);
+    } else {
+      if (requesterOrg != null) {
+        return res.status(403).json({ error: 'You cannot remove organisation assignment in tenant-scoped mode' });
+      }
+      await query('UPDATE users SET organisation_id = NULL WHERE id = $1', [id]);
+    }
+
+    const result = await query(
+      `SELECT u.id, u.email, u.name, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+       FROM users u
+       LEFT JOIN organisations o ON o.id = u.organisation_id
+       WHERE u.id = $1`,
+      [id]
+    );
+    const user = result.rows?.[0] || result?.[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Assign organisation error:', error);
+    res.status(500).json({ error: 'Failed to assign organisation' });
   }
 });
 

@@ -71,6 +71,13 @@ const initDatabase = async () => {
     console.log('Initializing database, isMySQL:', usingMySQL);
     
     if (usingMySQL) {
+      await query(`
+        CREATE TABLE IF NOT EXISTS organisations (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(255) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       // Create users table first
       await query(`
         CREATE TABLE IF NOT EXISTS users (
@@ -88,7 +95,9 @@ const initDatabase = async () => {
           verification_token VARCHAR(255),
           verification_token_expires TIMESTAMP,
           role VARCHAR(50) DEFAULT 'lecturer',
-          is_approved TINYINT(1) DEFAULT 0
+          is_approved TINYINT(1) DEFAULT 0,
+          organisation_id INT NULL,
+          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL
         )
       `);
 
@@ -266,6 +275,19 @@ const initDatabase = async () => {
       
       // Migrate existing tables: Add new columns if they don't exist
       try {
+        const orgIdCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE()
+          AND table_name = 'users'
+          AND column_name = 'organisation_id'
+        `);
+        const hasOrgId = (orgIdCheck.rows?.[0]?.count || orgIdCheck?.[0]?.count || 0) > 0;
+        if (!hasOrgId) {
+          await query(`ALTER TABLE users ADD COLUMN organisation_id INT NULL`);
+          await query(`ALTER TABLE users ADD CONSTRAINT fk_users_organisation FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL`);
+        }
+
         // Check if version column exists
         const versionCheck = await query(`
           SELECT COUNT(*) as count 
@@ -593,6 +615,13 @@ const initDatabase = async () => {
         console.log('Note: Could not create index idx_marking_results_current:', err.message);
       }
     } else {
+      await query(`
+        CREATE TABLE IF NOT EXISTS organisations (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       // Create users table first
       await query(`
         CREATE TABLE IF NOT EXISTS users (
@@ -610,7 +639,8 @@ const initDatabase = async () => {
           verification_token VARCHAR(255),
           verification_token_expires TIMESTAMP,
           role VARCHAR(50) DEFAULT 'lecturer',
-          is_approved BOOLEAN DEFAULT FALSE
+          is_approved BOOLEAN DEFAULT FALSE,
+          organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL
         )
       `);
 
@@ -759,6 +789,16 @@ const initDatabase = async () => {
       
       // Migrate existing tables: Add new columns if they don't exist (PostgreSQL)
       try {
+        const orgIdCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'users'
+          AND column_name = 'organisation_id'
+        `);
+        if ((orgIdCheck.rows?.[0]?.count || orgIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL`);
+        }
+
         // Check and add columns if they don't exist
         const versionCheck = await query(`
           SELECT COUNT(*) as count 

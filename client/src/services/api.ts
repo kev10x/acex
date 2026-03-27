@@ -165,6 +165,13 @@ export interface MarkingResult {
   override_total_score?: number | null;
   effective_feedback?: string;
   effective_total_score?: number;
+  folder_name?: string | null;
+}
+
+export interface Organisation {
+  id: number;
+  name: string;
+  created_at?: string;
 }
 
 // Upload API
@@ -524,6 +531,20 @@ export const authAPI = {
     });
     return Array.isArray(response.data?.users) ? response.data.users : [];
   },
+
+  getOrganisations: async (token: string) => {
+    const response = await api.get('/auth/admin/organisations', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return Array.isArray(response.data?.organisations) ? response.data.organisations : [];
+  },
+
+  createOrganisation: async (token: string, name: string) => {
+    const response = await api.post('/auth/admin/organisations', { name }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
   
   approveUser: async (token: string, userId: number) => {
     const response = await api.post(`/auth/admin/users/${userId}/approve`, {}, {
@@ -566,6 +587,13 @@ export const authAPI = {
     features: { generate_assessments?: boolean; download_results?: boolean; feedback_video?: boolean }
   ) => {
     const response = await api.put(`/auth/admin/users/${userId}/features`, { features }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  updateUserOrganisation: async (token: string, userId: number, organisation_id: number | null) => {
+    const response = await api.put(`/auth/admin/users/${userId}/organisation`, { organisation_id }, {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;

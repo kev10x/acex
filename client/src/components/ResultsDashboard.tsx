@@ -3,7 +3,7 @@ import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileT
 import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
-type GroupByOption = 'none' | 'rubric' | 'date';
+type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
 const USD_TO_ZAR = 18.5;
 
@@ -26,6 +26,7 @@ const ResultsDashboard: React.FC = () => {
   const allowFeedbackVideo = user?.features?.feedback_video !== false;
   const normalizedRole = (user?.role === 'admin' ? 'management' : user?.role || 'lecturer').toLowerCase();
   const canModerate = normalizedRole === 'lecturer' || normalizedRole === 'management';
+  const isStudent = normalizedRole === 'student';
   const [allResults, setAllResults] = useState<MarkingResult[]>([]);
   const [, setRubrics] = useState<Rubric[]>([]);
   const [loading, setLoading] = useState(false);
@@ -56,12 +57,16 @@ const ResultsDashboard: React.FC = () => {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [hourInterval, setHourInterval] = useState<string>('');
-  const [groupBy, setGroupBy] = useState<GroupByOption>('none');
+  const [groupBy, setGroupBy] = useState<GroupByOption>(isStudent ? 'folder' : 'none');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (isStudent) setGroupBy('folder');
+  }, [isStudent]);
 
   useEffect(() => {
     setFeedbackVideoStatus('idle');
@@ -91,11 +96,19 @@ const ResultsDashboard: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      if (isStudent) {
+        const resultsRes = await resultsAPI.getResults();
+        setAllResults(resultsRes.data.results);
+        setStats(null);
+        setRubrics([]);
+        setAnalytics(null);
+        return;
+      }
       const [resultsRes, statsRes, rubricsRes, analyticsRes] = await Promise.all([
         resultsAPI.getResults(),
         resultsAPI.getStats(),
         rubricsAPI.getRubrics(),
-        resultsAPI.getAnalyticsOverview().catch(() => null) // Analytics is optional
+        resultsAPI.getAnalyticsOverview().catch(() => null)
       ]);
       setAllResults(resultsRes.data.results);
       setStats(statsRes.data.stats);
@@ -180,6 +193,15 @@ const ResultsDashboard: React.FC = () => {
           grouped[date] = [];
         }
         grouped[date].push(result);
+      });
+      return { grouped: true, data: grouped };
+    }
+    if (groupBy === 'folder') {
+      const grouped: Record<string, MarkingResult[]> = {};
+      filtered.forEach(result => {
+        const key = result.folder_name || 'Unassigned';
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(result);
       });
       return { grouped: true, data: grouped };
     }
@@ -520,12 +542,12 @@ const ResultsDashboard: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Results Dashboard</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{isStudent ? 'Student Portal: My Results' : 'Results Dashboard'}</h2>
           <p className="mt-1 text-sm text-gray-600">
-            View and manage marking results.
+            {isStudent ? 'View your marked scripts grouped by folder.' : 'View and manage marking results.'}
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        {!isStudent && <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setShowAnalytics(!showAnalytics)}
             className="inline-flex items-center px-4 py-2 border border-primary-300 text-sm font-medium rounded-md shadow-sm text-primary-700 bg-white hover:bg-primary-50"
@@ -567,7 +589,7 @@ const ResultsDashboard: React.FC = () => {
               Delete All Results
             </button>
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Error Message */}
@@ -583,7 +605,7 @@ const ResultsDashboard: React.FC = () => {
       )}
 
       {/* Analytics Section */}
-      {showAnalytics && analytics && (
+      {!isStudent && showAnalytics && analytics && (
         <div className="bg-white shadow rounded-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Analytics Overview</h3>
           
@@ -678,7 +700,7 @@ const ResultsDashboard: React.FC = () => {
       )}
 
       {/* Statistics Cards */}
-      {stats && (
+      {!isStudent && stats && (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="p-5">
@@ -763,7 +785,7 @@ const ResultsDashboard: React.FC = () => {
       )}
 
       {/* Filters and Grouping */}
-      <div className="bg-white shadow rounded-lg">
+      {!isStudent && <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <div className="flex flex-wrap items-end gap-4 mb-4">
             <div className="flex-1 min-w-[200px]">
@@ -873,7 +895,7 @@ const ResultsDashboard: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Results Table */}
       <div className="bg-white shadow rounded-lg">
@@ -913,6 +935,11 @@ const ResultsDashboard: React.FC = () => {
                       {groupBy !== 'rubric' && (
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Rubric
+                        </th>
+                      )}
+                      {groupBy !== 'folder' && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Folder
                         </th>
                       )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -977,6 +1004,11 @@ const ResultsDashboard: React.FC = () => {
                         {groupBy !== 'rubric' && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {result.rubric_name}
+                          </td>
+                        )}
+                        {groupBy !== 'folder' && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {result.folder_name || 'Unassigned'}
                           </td>
                         )}
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1059,14 +1091,14 @@ const ResultsDashboard: React.FC = () => {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button
+                            {!isStudent && <button
                               onClick={() => handleViewAnnotatedPDF(result.id)}
                               className="text-green-600 hover:text-green-900"
                               title="View Annotated PDF"
                             >
                               <FileCheck className="w-4 h-4" />
-                            </button>
-                            {allowDownloadResults && (
+                            </button>}
+                            {!isStudent && allowDownloadResults && (
                               <button
                                 onClick={() => handleDownloadPDF(result.id)}
                                 className="text-blue-600 hover:text-blue-900"
@@ -1075,13 +1107,13 @@ const ResultsDashboard: React.FC = () => {
                                 <FileText className="w-4 h-4" />
                               </button>
                             )}
-                            <button
+                            {!isStudent && <button
                               onClick={() => handleDeleteResult(result.id)}
                               className="text-red-600 hover:text-red-900"
                               title="Delete Result"
                             >
                               <Trash2 className="w-4 h-4" />
-                            </button>
+                            </button>}
                             {canModerate && (
                               <button
                                 onClick={() => handleToggleModerationFlag(result)}
@@ -1192,6 +1224,7 @@ const ResultsDashboard: React.FC = () => {
                   {selectedResult.student_name && (
                     <p className="text-sm text-gray-600">Student: {selectedResult.student_name}</p>
                   )}
+                  <p className="text-sm text-gray-600">Folder: {selectedResult.folder_name || 'Unassigned'}</p>
                 </div>
 
                 <div>
@@ -1614,7 +1647,7 @@ const ResultsDashboard: React.FC = () => {
                   <p className="text-sm text-gray-900">{formatDate(selectedResult.marked_at)}</p>
                 </div>
 
-                <div className="flex space-x-2 pt-4">
+                {!isStudent && <div className="flex space-x-2 pt-4">
                   <button
                     onClick={() => handleViewAnnotatedPDF(selectedResult.id)}
                     className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
@@ -1631,7 +1664,7 @@ const ResultsDashboard: React.FC = () => {
                       Download Report
                     </button>
                   )}
-                </div>
+                </div>}
               </div>
 
               <div className="mt-6 flex justify-end">

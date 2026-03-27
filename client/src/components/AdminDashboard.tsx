@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI } from '../services/api';
+import { authAPI, Organisation } from '../services/api';
 import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video } from 'lucide-react';
 
 export interface UserFeatures {
@@ -20,6 +20,8 @@ interface UserData {
   role: string;
   is_active?: boolean;
   features?: UserFeatures;
+  organisation_id?: number | null;
+  organisation_name?: string | null;
 }
 type UserRole = 'management' | 'lecturer' | 'student';
 const normalizeRole = (role?: string): UserRole => {
@@ -37,6 +39,8 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [organisations, setOrganisations] = useState<Organisation[]>([]);
+  const [newOrganisationName, setNewOrganisationName] = useState('');
 
   useEffect(() => {
     console.log('AdminDashboard useEffect triggered:', { 
@@ -76,9 +80,10 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all] = await Promise.all([
+      const [pending, all, orgs] = await Promise.all([
         authAPI.getPendingUsers(token),
-        authAPI.getAllUsers(token)
+        authAPI.getAllUsers(token),
+        authAPI.getOrganisations(token)
       ]);
       console.log('Users loaded successfully:', { 
         pendingCount: pending?.length || 0, 
@@ -88,6 +93,7 @@ const AdminDashboard: React.FC = () => {
       });
       setPendingUsers(Array.isArray(pending) ? pending : []);
       setAllUsers(Array.isArray(all) ? all : []);
+      setOrganisations(Array.isArray(orgs) ? orgs : []);
     } catch (err: any) {
       console.error('Error loading users:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to load users';
@@ -200,6 +206,35 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleCreateOrganisation = async () => {
+    if (!token) return;
+    const name = newOrganisationName.trim();
+    if (!name) return;
+    setActionLoading(-1);
+    try {
+      await authAPI.createOrganisation(token, name);
+      setNewOrganisationName('');
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to create organisation');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleOrganisationChange = async (userId: number, organisationId: number | null) => {
+    if (!token) return;
+    setActionLoading(userId);
+    try {
+      await authAPI.updateUserOrganisation(token, userId, organisationId);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to assign organisation');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Show loading if user data is still being fetched
   if (!user) {
     return (
@@ -208,6 +243,27 @@ const AdminDashboard: React.FC = () => {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading user information...</p>
         </div>
+      </div>
+
+      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Organisation management</h3>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newOrganisationName}
+            onChange={(e) => setNewOrganisationName(e.target.value)}
+            placeholder="Add organisation name"
+            className="w-full md:w-80 border border-gray-300 rounded-md px-3 py-2 text-sm"
+          />
+          <button
+            onClick={handleCreateOrganisation}
+            disabled={actionLoading === -1 || !newOrganisationName.trim()}
+            className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+          >
+            {actionLoading === -1 ? 'Adding...' : 'Add organisation'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-600 mt-2">Total organisations: {organisations.length}</p>
       </div>
     );
   }
@@ -427,6 +483,9 @@ const AdminDashboard: React.FC = () => {
                   Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Organisation
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Features
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -471,6 +530,19 @@ const AdminDashboard: React.FC = () => {
                       <option value="student">Student</option>
                       <option value="lecturer">Lecturer</option>
                       <option value="management">Management</option>
+                    </select>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <select
+                      value={userData.organisation_id || ''}
+                      onChange={(e) => handleOrganisationChange(userData.id, e.target.value ? Number(e.target.value) : null)}
+                      disabled={actionLoading === userData.id}
+                      className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
+                    >
+                      <option value="">No organisation</option>
+                      {organisations.map((org) => (
+                        <option key={org.id} value={org.id}>{org.name}</option>
+                      ))}
                     </select>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

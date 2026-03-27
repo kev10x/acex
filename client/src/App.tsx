@@ -23,7 +23,7 @@ type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking'
 type AppRole = 'management' | 'lecturer' | 'student';
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<TabType>('upload');
+  const [activeTab, setActiveTab] = useState<TabType>('marking');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
   const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
   const { user, loading, logout } = useAuth();
@@ -68,6 +68,7 @@ function AppContent() {
     ] : []),
   ];
   const markingItems: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
+    ...(canAccessTab('upload') ? [{ id: 'upload' as TabType, label: 'Upload Scripts', icon: Upload }] : []),
     ...(canAccessTab('marking') ? [{ id: 'marking' as TabType, label: 'AI Marking', icon: BarChart3 }] : []),
     ...(canAccessTab('manual-marking') ? [{ id: 'manual-marking' as TabType, label: 'Manual Marking', icon: Edit3 }] : []),
     ...(canAccessTab('mcq') ? [{ id: 'mcq' as TabType, label: 'MCQ Forms', icon: ClipboardCheck }] : []),
@@ -141,21 +142,6 @@ function AppContent() {
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-1">
-            {/* Upload (standalone) */}
-            {canAccessTab('upload') && (
-              <button
-                onClick={() => setActiveTab('upload')}
-                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                  activeTab === 'upload'
-                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload
-              </button>
-            )}
-
             {/* Memorandums (dropdown) */}
             {memorandumsItems.length > 0 && <div className="relative">
               <button

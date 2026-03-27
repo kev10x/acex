@@ -7,33 +7,93 @@ const feedbackVideoService = require('../services/feedbackVideoService');
 
 const router = express.Router();
 
+const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
+const normalizeRole = (role) => {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin') return 'management';
+  if (r === 'user') return 'lecturer';
+  return r || 'lecturer';
+};
+const getStudentIdentityKeys = (user) => {
+  const keys = [];
+  const name = String(user?.name || '').trim().toLowerCase();
+  const email = String(user?.email || '').trim().toLowerCase();
+  const emailLocal = email.includes('@') ? email.split('@')[0] : email;
+  if (name) keys.push(name);
+  if (email) keys.push(email);
+  if (emailLocal) keys.push(emailLocal);
+  return Array.from(new Set(keys));
+};
+
 // Get all marking results
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const result = await query(`
-      SELECT 
-        mr.*,
-        a.filename,
-        a.file_path,
-        a.uploaded_at,
-        r.name as rubric_name,
-        r.total_points as max_points,
-        m.flagged_for_moderation,
-        m.moderation_reason,
-        m.custom_feedback,
-        m.override_total_score,
-        m.updated_by_user_id as moderation_updated_by,
-        m.updated_at as moderation_updated_at
-      FROM marking_results mr
-      JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
-      LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
-      WHERE mr.user_id = ?
-      ORDER BY mr.marked_at DESC
-    `, [req.user.id]);
+    const role = normalizeRole(req.user.role);
+    let result;
+    if (role === 'student') {
+      const keys = getStudentIdentityKeys(req.user);
+      if (keys.length === 0) {
+        return res.json({ success: true, results: [] });
+      }
+      const placeholders = keys.map(() => '?').join(',');
+      result = await query(
+        `SELECT 
+          mr.*,
+          a.filename,
+          a.file_path,
+          a.uploaded_at,
+          b.name as folder_name,
+          r.name as rubric_name,
+          r.total_points as max_points,
+          m.flagged_for_moderation,
+          m.moderation_reason,
+          m.custom_feedback,
+          m.override_total_score,
+          m.updated_by_user_id as moderation_updated_by,
+          m.updated_at as moderation_updated_at
+        FROM marking_results mr
+        JOIN assignments a ON mr.assignment_id = a.id
+        JOIN users owner ON owner.id = mr.user_id
+        LEFT JOIN batches b ON a.batch_id = b.id
+        JOIN rubrics r ON mr.rubric_id = r.id
+        LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+        WHERE LOWER(TRIM(COALESCE(mr.student_name, ''))) IN (${placeholders})
+          AND (
+            (? IS NULL AND owner.organisation_id IS NULL)
+            OR owner.organisation_id = ?
+          )
+        ORDER BY mr.marked_at DESC`,
+        [...keys, req.user.organisation_id || null, req.user.organisation_id || null]
+      );
+    } else {
+      result = await query(
+        `SELECT 
+          mr.*,
+          a.filename,
+          a.file_path,
+          a.uploaded_at,
+          b.name as folder_name,
+          r.name as rubric_name,
+          r.total_points as max_points,
+          m.flagged_for_moderation,
+          m.moderation_reason,
+          m.custom_feedback,
+          m.override_total_score,
+          m.updated_by_user_id as moderation_updated_by,
+          m.updated_at as moderation_updated_at
+        FROM marking_results mr
+        JOIN assignments a ON mr.assignment_id = a.id
+        LEFT JOIN batches b ON a.batch_id = b.id
+        JOIN rubrics r ON mr.rubric_id = r.id
+        LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+        WHERE mr.user_id = ?
+        ORDER BY mr.marked_at DESC`,
+        [req.user.id]
+      );
+    }
     
     // Convert rows to plain objects (MySQL RowDataPacket doesn't always spread correctly) and parse JSON/numeric fields
-    const parsedResults = result.rows.map(row => {
+    const parsedResults = rowsOf(result).map(row => {
       const plain = row && typeof row === 'object' ? JSON.parse(JSON.stringify(row)) : {};
       let scores = plain.scores;
       if (typeof scores === 'string') {
