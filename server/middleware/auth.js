@@ -4,6 +4,11 @@ const { query } = require('../database/connection');
 const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+const ROLE_ALIASES = {
+  admin: 'management',
+  user: 'lecturer'
+};
+const normalizeRole = (role) => ROLE_ALIASES[String(role || '').toLowerCase()] || String(role || 'lecturer').toLowerCase();
 
 if (JWT_SECRET === DEFAULT_JWT_SECRET) {
   if (process.env.NODE_ENV === 'production') {
@@ -46,7 +51,7 @@ const authenticateToken = async (req, res, next) => {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      role: normalizeRole(user.role),
       is_approved: user.is_approved
     };
 
@@ -86,7 +91,7 @@ const optionalAuth = async (req, res, next) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: user.role,
+          role: normalizeRole(user.role),
           is_approved: user.is_approved
         };
       }
@@ -111,8 +116,8 @@ const requireAdmin = async (req, res, next) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (req.user.role !== 'management') {
+      return res.status(403).json({ error: 'Management access required' });
     }
 
     next();
@@ -120,6 +125,19 @@ const requireAdmin = async (req, res, next) => {
     console.error('Admin middleware error:', error);
     return res.status(500).json({ error: 'Authorization error' });
   }
+};
+
+// Middleware to require one of the allowed roles (normalized roles)
+const requireRoles = (allowedRoles = []) => {
+  const allowed = new Set((Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles]).map((r) => String(r).toLowerCase()));
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    const role = normalizeRole(req.user.role);
+    if (!allowed.has(role)) {
+      return res.status(403).json({ error: 'You do not have permission for this action' });
+    }
+    next();
+  };
 };
 
 // Parse user features from DB (JSON string or object)
@@ -142,7 +160,7 @@ const requireFeature = (featureName) => {
       if (!req.user) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      if (req.user.role === 'admin') {
+      if (req.user.role === 'management') {
         return next();
       }
       const result = await query('SELECT features FROM users WHERE id = $1', [req.user.id]);
@@ -164,6 +182,8 @@ module.exports = {
   authenticateToken,
   requireAuth,
   requireAdmin,
+  requireRoles,
+  normalizeRole,
   requireFeature,
   optionalAuth,
   generateToken,

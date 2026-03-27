@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { query } = require('../database/connection');
-const { requireAuth, requireFeature } = require('../middleware/auth');
+const { requireAuth, requireFeature, requireRoles } = require('../middleware/auth');
 const feedbackVideoService = require('../services/feedbackVideoService');
 
 const router = express.Router();
@@ -17,10 +17,17 @@ router.get('/', requireAuth, async (req, res) => {
         a.file_path,
         a.uploaded_at,
         r.name as rubric_name,
-        r.total_points as max_points
+        r.total_points as max_points,
+        m.flagged_for_moderation,
+        m.moderation_reason,
+        m.custom_feedback,
+        m.override_total_score,
+        m.updated_by_user_id as moderation_updated_by,
+        m.updated_at as moderation_updated_at
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
       JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
       WHERE mr.user_id = ?
       ORDER BY mr.marked_at DESC
     `, [req.user.id]);
@@ -60,6 +67,12 @@ router.get('/', requireAuth, async (req, res) => {
         scores,
         corrections,
         language_errors,
+        flagged_for_moderation: plain.flagged_for_moderation === true || plain.flagged_for_moderation === 1,
+        moderation_reason: plain.moderation_reason || null,
+        custom_feedback: plain.custom_feedback || null,
+        override_total_score: plain.override_total_score != null ? Number(plain.override_total_score) : null,
+        effective_feedback: plain.custom_feedback != null && String(plain.custom_feedback).trim().length > 0 ? String(plain.custom_feedback) : (plain.feedback != null ? String(plain.feedback) : ''),
+        effective_total_score: plain.override_total_score != null ? Number(plain.override_total_score) : Number(plain.total_score),
         feedback: plain.feedback != null ? String(plain.feedback) : '',
         estimated_cost_usd: plain.estimated_cost_usd != null ? Number(plain.estimated_cost_usd) : null,
         prompt_tokens: plain.prompt_tokens != null ? Number(plain.prompt_tokens) : null,
@@ -75,6 +88,113 @@ router.get('/', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Get results error:', error);
     res.status(500).json({ error: 'Failed to fetch results' });
+  }
+});
+
+// Flag/unflag result for moderation
+router.post('/:id/moderation-flag', requireAuth, requireRoles(['lecturer', 'management']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { flagged = true, moderation_reason = null } = req.body || {};
+    const flaggedVal = !!flagged;
+
+    const own = await query('SELECT id FROM marking_results WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    const ownRows = own.rows || own;
+    if (!Array.isArray(ownRows) || ownRows.length === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    if (isMySQL) {
+      await query(
+        `INSERT INTO marking_result_moderation (result_id, user_id, flagged_for_moderation, moderation_reason, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           flagged_for_moderation = VALUES(flagged_for_moderation),
+           moderation_reason = VALUES(moderation_reason),
+           updated_by_user_id = VALUES(updated_by_user_id)`,
+        [id, req.user.id, flaggedVal ? 1 : 0, moderation_reason || null, req.user.id]
+      );
+    } else {
+      await query(
+        `INSERT INTO marking_result_moderation (result_id, user_id, flagged_for_moderation, moderation_reason, updated_by_user_id)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (result_id) DO UPDATE SET
+           flagged_for_moderation = EXCLUDED.flagged_for_moderation,
+           moderation_reason = EXCLUDED.moderation_reason,
+           updated_by_user_id = EXCLUDED.updated_by_user_id,
+           updated_at = CURRENT_TIMESTAMP`,
+        [id, req.user.id, flaggedVal, moderation_reason || null, req.user.id]
+      );
+    }
+
+    res.json({ success: true, flagged_for_moderation: flaggedVal, moderation_reason: moderation_reason || null });
+  } catch (error) {
+    console.error('Moderation flag error:', error);
+    res.status(500).json({ error: 'Failed to update moderation flag' });
+  }
+});
+
+// Lecturer custom feedback and mark override
+router.put('/:id/lecturer-override', requireAuth, requireRoles(['lecturer', 'management']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { custom_feedback = null, override_total_score = null, moderation_reason = null } = req.body || {};
+    const parsedOverride = override_total_score === null || override_total_score === '' ? null : Number(override_total_score);
+    if (parsedOverride != null && !Number.isFinite(parsedOverride)) {
+      return res.status(400).json({ error: 'override_total_score must be a valid number' });
+    }
+    const own = await query(
+      `SELECT mr.id, mr.user_id, r.total_points as max_points
+       FROM marking_results mr
+       JOIN rubrics r ON r.id = mr.rubric_id
+       WHERE mr.id = ? AND mr.user_id = ?`,
+      [id, req.user.id]
+    );
+    const ownRows = own.rows || own;
+    const row = Array.isArray(ownRows) ? ownRows[0] : null;
+    if (!row) return res.status(404).json({ error: 'Result not found' });
+    if (parsedOverride != null && parsedOverride < 0) {
+      return res.status(400).json({ error: 'override_total_score cannot be negative' });
+    }
+    if (parsedOverride != null && row.max_points != null && parsedOverride > Number(row.max_points)) {
+      return res.status(400).json({ error: `override_total_score cannot exceed max points (${row.max_points})` });
+    }
+
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    if (isMySQL) {
+      await query(
+        `INSERT INTO marking_result_moderation (result_id, user_id, custom_feedback, override_total_score, moderation_reason, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           custom_feedback = VALUES(custom_feedback),
+           override_total_score = VALUES(override_total_score),
+           moderation_reason = VALUES(moderation_reason),
+           updated_by_user_id = VALUES(updated_by_user_id)`,
+        [id, req.user.id, custom_feedback, parsedOverride, moderation_reason || null, req.user.id]
+      );
+    } else {
+      await query(
+        `INSERT INTO marking_result_moderation (result_id, user_id, custom_feedback, override_total_score, moderation_reason, updated_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (result_id) DO UPDATE SET
+           custom_feedback = EXCLUDED.custom_feedback,
+           override_total_score = EXCLUDED.override_total_score,
+           moderation_reason = EXCLUDED.moderation_reason,
+           updated_by_user_id = EXCLUDED.updated_by_user_id,
+           updated_at = CURRENT_TIMESTAMP`,
+        [id, req.user.id, custom_feedback, parsedOverride, moderation_reason || null, req.user.id]
+      );
+    }
+    res.json({
+      success: true,
+      custom_feedback,
+      override_total_score: parsedOverride,
+      moderation_reason: moderation_reason || null
+    });
+  } catch (error) {
+    console.error('Lecturer override error:', error);
+    res.status(500).json({ error: 'Failed to save lecturer override' });
   }
 });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video } from 'lucide-react';
+import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save } from 'lucide-react';
 import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -24,6 +24,8 @@ const ResultsDashboard: React.FC = () => {
   const { user } = useAuth();
   const allowDownloadResults = user?.features?.download_results !== false;
   const allowFeedbackVideo = user?.features?.feedback_video !== false;
+  const normalizedRole = (user?.role === 'admin' ? 'management' : user?.role || 'lecturer').toLowerCase();
+  const canModerate = normalizedRole === 'lecturer' || normalizedRole === 'management';
   const [allResults, setAllResults] = useState<MarkingResult[]>([]);
   const [, setRubrics] = useState<Rubric[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,10 @@ const ResultsDashboard: React.FC = () => {
   const [feedbackVideoProgress, setFeedbackVideoProgress] = useState(0);
   const [feedbackVideoError, setFeedbackVideoError] = useState<string | null>(null);
   const [feedbackVideoBlobUrl, setFeedbackVideoBlobUrl] = useState<string | null>(null);
+  const [moderationReason, setModerationReason] = useState('');
+  const [customFeedback, setCustomFeedback] = useState('');
+  const [overrideScore, setOverrideScore] = useState('');
+  const [savingModeration, setSavingModeration] = useState(false);
   const feedbackVideoPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const feedbackVideoBlobUrlRef = React.useRef<string | null>(null);
   
@@ -71,6 +77,16 @@ const ResultsDashboard: React.FC = () => {
       feedbackVideoPollRef.current = null;
     }
   }, [selectedResult?.id]);
+
+  useEffect(() => {
+    setModerationReason(selectedResult?.moderation_reason || '');
+    setCustomFeedback(selectedResult?.custom_feedback || '');
+    setOverrideScore(
+      selectedResult?.override_total_score != null && Number.isFinite(Number(selectedResult.override_total_score))
+        ? String(selectedResult.override_total_score)
+        : ''
+    );
+  }, [selectedResult]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -223,6 +239,48 @@ const ResultsDashboard: React.FC = () => {
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to delete result');
+    }
+  };
+
+  const applyResultPatch = (id: number, patch: Partial<MarkingResult>) => {
+    setAllResults((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setSelectedResult((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  const handleToggleModerationFlag = async (result: MarkingResult) => {
+    try {
+      const nextFlag = !result.flagged_for_moderation;
+      await resultsAPI.setModerationFlag(result.id, {
+        flagged: nextFlag,
+        moderation_reason: moderationReason || result.moderation_reason || undefined
+      });
+      applyResultPatch(result.id, { flagged_for_moderation: nextFlag, moderation_reason: moderationReason || result.moderation_reason || null });
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update moderation flag');
+    }
+  };
+
+  const handleSaveLecturerOverride = async () => {
+    if (!selectedResult) return;
+    try {
+      setSavingModeration(true);
+      const overrideVal = overrideScore.trim() === '' ? null : Number(overrideScore);
+      await resultsAPI.saveLecturerOverride(selectedResult.id, {
+        custom_feedback: customFeedback.trim() || null,
+        override_total_score: overrideVal,
+        moderation_reason: moderationReason.trim() || null
+      });
+      applyResultPatch(selectedResult.id, {
+        custom_feedback: customFeedback.trim() || null,
+        override_total_score: overrideVal,
+        moderation_reason: moderationReason.trim() || null,
+        effective_feedback: customFeedback.trim() || selectedResult.feedback,
+        effective_total_score: overrideVal == null ? selectedResult.total_score : overrideVal
+      });
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to save lecturer override');
+    } finally {
+      setSavingModeration(false);
     }
   };
 
@@ -894,6 +952,17 @@ const ResultsDashboard: React.FC = () => {
                                   Review
                                 </span>
                               )}
+                              {result.flagged_for_moderation && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 flex-shrink-0" title="Flagged for moderation">
+                                  <Flag className="w-3 h-3 mr-1" />
+                                  Moderation
+                                </span>
+                              )}
+                              {result.override_total_score != null && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 flex-shrink-0" title="Lecturer score override">
+                                  Override
+                                </span>
+                              )}
                               {result.language_errors && result.language_errors.length > 0 && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 flex-shrink-0" title={`${result.language_errors.length} language error(s) detected`}>
                                   {result.language_errors.length} error{result.language_errors.length !== 1 ? 's' : ''}
@@ -913,16 +982,17 @@ const ResultsDashboard: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           {(() => {
                             const maxPoints = result.max_points || 100;
-                            const percentage = ((result.total_score / maxPoints) * 100).toFixed(1);
+                            const shownScore = result.effective_total_score ?? result.override_total_score ?? result.total_score;
+                            const percentage = ((shownScore / maxPoints) * 100).toFixed(1);
                             return (
                               <div className="flex flex-col">
                                 <span
                                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGradeColor(
-                                    result.total_score,
+                                    shownScore,
                                     maxPoints
                                   )}`}
                                 >
-                                  {result.total_score}
+                                  {shownScore}
                                   {result.max_points ? ` / ${result.max_points}` : ''}
                                 </span>
                                 <span className="text-xs text-gray-500 mt-1">
@@ -1012,6 +1082,15 @@ const ResultsDashboard: React.FC = () => {
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                            {canModerate && (
+                              <button
+                                onClick={() => handleToggleModerationFlag(result)}
+                                className={`${result.flagged_for_moderation ? 'text-amber-700 hover:text-amber-900' : 'text-gray-500 hover:text-amber-800'}`}
+                                title={result.flagged_for_moderation ? 'Remove moderation flag' : 'Flag for moderation'}
+                              >
+                                <Flag className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1145,12 +1224,12 @@ const ResultsDashboard: React.FC = () => {
                       <span className="text-sm font-medium text-gray-900">Total Score</span>
                       <div className="text-sm font-bold text-primary-900 flex items-center space-x-2">
                         <span>
-                          {selectedResult.total_score}
+                          {(selectedResult.effective_total_score ?? selectedResult.override_total_score ?? selectedResult.total_score)}
                           {selectedResult.max_points ? ` / ${selectedResult.max_points}` : ''}
                         </span>
                         {selectedResult.max_points && selectedResult.max_points > 0 && (
                           <span className="text-xs font-medium text-primary-600">
-                            {((selectedResult.total_score / selectedResult.max_points) * 100).toFixed(1)}%
+                            {(((selectedResult.effective_total_score ?? selectedResult.override_total_score ?? selectedResult.total_score) / selectedResult.max_points) * 100).toFixed(1)}%
                           </span>
                         )}
                       </div>
@@ -1255,10 +1334,75 @@ const ResultsDashboard: React.FC = () => {
                   )}
                   <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
                     <p className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
-                      {selectedResult.feedback ?? (selectedResult as any).overall_feedback ?? 'No feedback available'}
+                      {selectedResult.effective_feedback || selectedResult.custom_feedback || selectedResult.feedback ?? (selectedResult as any).overall_feedback ?? 'No feedback available'}
                     </p>
                   </div>
                 </div>
+
+                {canModerate && (
+                  <div className="mt-6 bg-amber-50 rounded-lg p-6 border-l-4 border-amber-500">
+                    <div className="flex items-center mb-4">
+                      <Flag className="w-5 h-5 text-amber-600 mr-2" />
+                      <h4 className="text-lg font-semibold text-gray-900">Moderation and Lecturer Override</h4>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Moderation reason</label>
+                        <input
+                          type="text"
+                          value={moderationReason}
+                          onChange={(e) => setModerationReason(e.target.value)}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          placeholder="Reason for moderation or override"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Custom lecturer feedback</label>
+                        <textarea
+                          value={customFeedback}
+                          onChange={(e) => setCustomFeedback(e.target.value)}
+                          rows={4}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          placeholder="Add or edit feedback for this script"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Override total score</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={selectedResult.max_points || undefined}
+                          step="0.5"
+                          value={overrideScore}
+                          onChange={(e) => setOverrideScore(e.target.value)}
+                          className="w-full md:w-60 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          placeholder="Leave blank to keep AI score"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleModerationFlag(selectedResult)}
+                          className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
+                            selectedResult.flagged_for_moderation ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          <Flag className="w-4 h-4 mr-2" />
+                          {selectedResult.flagged_for_moderation ? 'Unflag moderation' : 'Flag for moderation'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveLecturerOverride}
+                          disabled={savingModeration}
+                          className="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          <Save className="w-4 h-4 mr-2" />
+                          {savingModeration ? 'Saving...' : 'Save override'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Video explaining feedback (only when feature enabled) */}
                 {allowFeedbackVideo && (

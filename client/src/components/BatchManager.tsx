@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users } from 'lucide-react';
-import { batchesAPI, uploadAPI, Batch, Assignment } from '../services/api';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock } from 'lucide-react';
+import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob } from '../services/api';
 
 const BatchManager: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -11,12 +11,29 @@ const BatchManager: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState<Batch | null>(null);
   const [showAssignModal, setShowAssignModal] = useState<Batch | null>(null);
+  const [showScheduleModal, setShowScheduleModal] = useState<Batch | null>(null);
   const [newBatchName, setNewBatchName] = useState('');
   const [newBatchDescription, setNewBatchDescription] = useState('');
   const [selectedAssignments, setSelectedAssignments] = useState<number[]>([]);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [jobs, setJobs] = useState<MarkingJob[]>([]);
+  const [selectedRubricId, setSelectedRubricId] = useState<number | ''>('');
+  const [scheduledFor, setScheduledFor] = useState('');
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await batchesAPI.getAllJobs();
+        setJobs(res.data.jobs || []);
+      } catch {
+        // Keep current UI state if polling fails.
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const fetchData = async () => {
@@ -28,6 +45,9 @@ const BatchManager: React.FC = () => {
       ]);
       setBatches(batchesRes.data.batches);
       setAssignments(assignmentsRes.data.assignments);
+      const [rubricsRes, jobsRes] = await Promise.all([rubricsAPI.getRubrics(), batchesAPI.getAllJobs()]);
+      setRubrics(rubricsRes.data.rubrics || []);
+      setJobs(jobsRes.data.jobs || []);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch data');
     } finally {
@@ -124,6 +144,31 @@ const BatchManager: React.FC = () => {
     }
   };
 
+  const handleScheduleMarking = async () => {
+    if (!showScheduleModal) return;
+    if (!selectedRubricId) {
+      setError('Please select a rubric for marking');
+      return;
+    }
+    try {
+      setLoading(true);
+      setError(null);
+      await batchesAPI.scheduleMarking(showScheduleModal.id, {
+        rubric_id: Number(selectedRubricId),
+        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : undefined
+      });
+      setSuccess('Batch marking job scheduled');
+      setShowScheduleModal(null);
+      setSelectedRubricId('');
+      setScheduledFor('');
+      fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to schedule marking');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openEditModal = (batch: Batch) => {
     setShowEditModal(batch);
     setNewBatchName(batch.name);
@@ -135,8 +180,19 @@ const BatchManager: React.FC = () => {
     setSelectedAssignments([]);
   };
 
+  const openScheduleModal = (batch: Batch) => {
+    setShowScheduleModal(batch);
+    setSelectedRubricId('');
+    setScheduledFor('');
+  };
+
   const getUnassignedAssignments = () => {
     return assignments.filter(a => !a.batch_id);
+  };
+
+  const getJobProgress = (job: MarkingJob) => {
+    if (!job.total_count || job.total_count <= 0) return 0;
+    return Math.min(100, Math.round((job.processed_count / job.total_count) * 100));
   };
 
   if (loading && batches.length === 0) {
@@ -175,6 +231,31 @@ const BatchManager: React.FC = () => {
           {success}
         </div>
       )}
+
+      {/* Progress report */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-indigo-900 mb-3">Marking progress report</h3>
+        {jobs.length === 0 ? (
+          <p className="text-sm text-indigo-700">No batch jobs yet. Schedule one from a folder card.</p>
+        ) : (
+          <div className="space-y-3">
+            {jobs.slice(0, 6).map((job) => (
+              <div key={job.id} className="bg-white border border-indigo-100 rounded-md p-3">
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="font-medium text-gray-800">{job.batch_name || `Folder #${job.batch_id}`}</span>
+                  <span className="text-gray-600">{job.status}</span>
+                </div>
+                <div className="w-full h-2 bg-gray-200 rounded">
+                  <div className="h-2 bg-indigo-600 rounded" style={{ width: `${getJobProgress(job)}%` }} />
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  {job.processed_count}/{job.total_count} processed • {job.success_count} succeeded • {job.failed_count} failed
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Batches List */}
       {batches.length === 0 ? (
@@ -237,6 +318,12 @@ const BatchManager: React.FC = () => {
                 className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
                 Assign Assignments
+              </button>
+              <button
+                onClick={() => openScheduleModal(batch)}
+                className="w-full mt-2 px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+              >
+                Schedule Marking
               </button>
             </div>
           ))}
@@ -440,6 +527,75 @@ const BatchManager: React.FC = () => {
                   className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50"
                 >
                   {loading ? 'Assigning...' : `Assign ${selectedAssignments.length}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Marking Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                <CalendarClock className="h-5 w-5 mr-2 text-indigo-600" />
+                Schedule Marking
+              </h3>
+              <button
+                onClick={() => {
+                  setShowScheduleModal(null);
+                  setSelectedRubricId('');
+                  setScheduledFor('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Folder: <span className="font-medium">{showScheduleModal.name}</span>
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rubric *</label>
+                <select
+                  value={selectedRubricId}
+                  onChange={(e) => setSelectedRubricId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select rubric</option>
+                  {rubrics.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Start time (optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={scheduledFor}
+                  onChange={(e) => setScheduledFor(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Leave empty to start immediately.</p>
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  onClick={() => setShowScheduleModal(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleScheduleMarking}
+                  disabled={loading}
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {loading ? 'Scheduling...' : 'Schedule'}
                 </button>
               </div>
             </div>

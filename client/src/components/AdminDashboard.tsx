@@ -21,6 +21,13 @@ interface UserData {
   is_active?: boolean;
   features?: UserFeatures;
 }
+type UserRole = 'management' | 'lecturer' | 'student';
+const normalizeRole = (role?: string): UserRole => {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin') return 'management';
+  if (r === 'student' || r === 'management' || r === 'lecturer') return r;
+  return 'lecturer';
+};
 
 const AdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
@@ -40,7 +47,7 @@ const AdminDashboard: React.FC = () => {
     });
     
     if (token && user) {
-      if (user.role === 'admin') {
+      if (normalizeRole(user.role) === 'management') {
         console.log('User is admin, calling loadUsers...');
         loadUsers();
       } else {
@@ -128,10 +135,10 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleRoleChange = async (userId: number, newRole: 'admin' | 'user') => {
+  const handleRoleChange = async (userId: number, newRole: UserRole) => {
     if (!token) return;
     
-    if (newRole === 'user' && !window.confirm('Are you sure you want to remove admin privileges from this user?')) {
+    if (newRole !== 'management' && !window.confirm('Are you sure you want to remove management privileges from this user?')) {
       return;
     }
     
@@ -221,7 +228,7 @@ const AdminDashboard: React.FC = () => {
     );
   }
 
-  if (user.role !== 'admin') {
+  if (normalizeRole(user.role) !== 'management') {
     return (
       <div className="max-w-4xl mx-auto p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -456,13 +463,14 @@ const AdminDashboard: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <select
-                      value={userData.role}
-                      onChange={(e) => handleRoleChange(userData.id, e.target.value as 'admin' | 'user')}
+                      value={normalizeRole(userData.role)}
+                      onChange={(e) => handleRoleChange(userData.id, e.target.value as UserRole)}
                       disabled={actionLoading === userData.id || userData.id === user?.id}
                       className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
                     >
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
+                      <option value="student">Student</option>
+                      <option value="lecturer">Lecturer</option>
+                      <option value="management">Management</option>
                     </select>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

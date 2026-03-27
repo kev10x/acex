@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { query } = require('../database/connection');
-const { requireAuth, requireAdmin, generateToken } = require('../middleware/auth');
+const { requireAuth, requireAdmin, generateToken, normalizeRole } = require('../middleware/auth');
 const emailService = require('../services/emailService');
 
 const router = express.Router();
@@ -59,7 +59,7 @@ router.post('/register', authLimiter, [
     // Create user (account_type, organisation_name, and verification columns)
     const result = await query(
       'INSERT INTO users (email, password_hash, name, account_type, organisation_name, email_verified, verification_token, verification_token_expires, role, is_approved) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-      [email, passwordHash, name || null, accountType, orgName, false, verificationToken, verificationTokenExpires, 'user', false]
+      [email, passwordHash, name || null, accountType, orgName, false, verificationToken, verificationTokenExpires, 'lecturer', false]
     );
 
     // Get the inserted user ID (MySQL uses insertId, PostgreSQL uses RETURNING)
@@ -202,7 +202,7 @@ router.post('/login', authLimiter, [
         name: user.name,
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
-        role: user.role,
+        role: normalizeRole(user.role),
         features
       },
       token
@@ -252,7 +252,7 @@ router.get('/me', requireAuth, async (req, res) => {
         organisation_name: user.organisation_name || null,
         email_verified: user.email_verified,
         is_approved: user.is_approved,
-        role: user.role,
+        role: normalizeRole(user.role),
         features
       }
     });
@@ -501,7 +501,7 @@ const mapUser = (u) => ({
   last_login: u.last_login,
   email_verified: !!u.email_verified,
   is_approved: !!u.is_approved,
-  role: u.role || 'user',
+  role: normalizeRole(u.role),
   is_active: u.is_active !== undefined ? !!u.is_active : true,
   features: parseUserFeatures(u.features)
 });
@@ -699,14 +699,14 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (targetUser.role === 'admin') {
+    if (normalizeRole(targetUser.role) === 'management') {
       const adminCount = await query(
-        'SELECT COUNT(*) as count FROM users WHERE role = $1',
-        ['admin']
+        'SELECT COUNT(*) as count FROM users WHERE LOWER(role) = $1 OR LOWER(role) = $2',
+        ['management', 'admin']
       );
       const count = Number(adminCount.rows?.[0]?.count ?? adminCount?.[0]?.count ?? 0);
       if (count <= 1) {
-        return res.status(400).json({ error: 'Cannot delete the last admin' });
+        return res.status(400).json({ error: 'Cannot delete the last management user' });
       }
     }
 
@@ -774,7 +774,7 @@ router.patch('/admin/users/:id/features', updateUserFeaturesHandler);
 
 // Admin routes - Update user role
 router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
-  body('role').isIn(['admin', 'user']).withMessage('Role must be either admin or user')
+  body('role').isIn(['management', 'lecturer', 'student']).withMessage('Role must be management, lecturer, or student')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -786,14 +786,14 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
     const { role } = req.body;
 
     // Prevent removing the last admin
-    if (role === 'user') {
+    if (role !== 'management') {
       const adminCount = await query(
-        'SELECT COUNT(*) as count FROM users WHERE role = $1 AND id != $2',
-        ['admin', id]
+        'SELECT COUNT(*) as count FROM users WHERE (LOWER(role) = $1 OR LOWER(role) = $2) AND id != $3',
+        ['management', 'admin', id]
       );
       const count = adminCount.rows?.[0]?.count || adminCount?.[0]?.count || 0;
       if (count === 0) {
-        return res.status(400).json({ error: 'Cannot remove the last admin' });
+        return res.status(400).json({ error: 'Cannot remove the last management user' });
       }
     }
 
@@ -814,7 +814,7 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role
+        role: normalizeRole(user.role)
       }
     });
   } catch (error) {

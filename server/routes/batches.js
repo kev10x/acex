@@ -1,8 +1,110 @@
 const express = require('express');
 const { query } = require('../database/connection');
 const { requireAuth } = require('../middleware/auth');
+const { generateMarking } = require('./mark');
 
 const router = express.Router();
+const scheduledTimers = new Map();
+
+const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
+const firstRow = (result) => rowsOf(result)[0];
+
+const scheduleJobProcessor = (jobId, when) => {
+  if (scheduledTimers.has(jobId)) {
+    clearTimeout(scheduledTimers.get(jobId));
+    scheduledTimers.delete(jobId);
+  }
+  const delay = Math.max(0, new Date(when).getTime() - Date.now());
+  const timer = setTimeout(() => {
+    runMarkingJob(jobId).catch((err) => {
+      console.error(`Marking job ${jobId} failed:`, err);
+    });
+  }, delay);
+  scheduledTimers.set(jobId, timer);
+};
+
+const runMarkingJob = async (jobId) => {
+  const job = firstRow(await query('SELECT * FROM marking_jobs WHERE id = ?', [jobId]));
+  if (!job || (job.status !== 'scheduled' && job.status !== 'running')) return;
+
+  await query(
+    'UPDATE marking_jobs SET status = ?, started_at = COALESCE(started_at, NOW()), completed_at = NULL WHERE id = ?',
+    ['running', jobId]
+  );
+
+  const assignments = rowsOf(await query(
+    `SELECT a.id, a.filename, a.extracted_text
+     FROM assignments a
+     WHERE a.batch_id = ? AND a.user_id = ?
+     ORDER BY a.uploaded_at ASC`,
+    [job.batch_id, job.user_id]
+  ));
+  const rubric = firstRow(await query(
+    'SELECT id, criteria, total_points FROM rubrics WHERE id = ? AND user_id = ?',
+    [job.rubric_id, job.user_id]
+  ));
+
+  if (!rubric) {
+    await query(
+      'UPDATE marking_jobs SET status = ?, completed_at = NOW(), last_error = ? WHERE id = ?',
+      ['failed', 'Rubric not found for this user', jobId]
+    );
+    return;
+  }
+
+  await query(
+    'UPDATE marking_jobs SET total_count = ?, processed_count = 0, success_count = 0, failed_count = 0, last_error = NULL WHERE id = ?',
+    [assignments.length, jobId]
+  );
+
+  let processed = 0;
+  let success = 0;
+  let failed = 0;
+
+  for (const assignment of assignments) {
+    try {
+      const text = (assignment.extracted_text || '').trim();
+      if (!text) throw new Error(`No extracted text for ${assignment.filename}`);
+
+      const result = await generateMarking(text, rubric);
+      await query(
+        `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          assignment.id,
+          job.rubric_id,
+          assignment.filename.replace(/\.pdf$/i, ''),
+          JSON.stringify(result.scores || []),
+          result.feedback || '',
+          Number(result.total_score || 0),
+          job.user_id
+        ]
+      );
+      await query('UPDATE assignments SET status = ? WHERE id = ? AND user_id = ?', ['completed', assignment.id, job.user_id]);
+      success += 1;
+    } catch (err) {
+      failed += 1;
+      await query('UPDATE assignments SET status = ? WHERE id = ? AND user_id = ?', ['error', assignment.id, job.user_id]);
+      await query('UPDATE marking_jobs SET last_error = ? WHERE id = ?', [err?.message || 'Unknown error', jobId]);
+    } finally {
+      processed += 1;
+      await query(
+        'UPDATE marking_jobs SET processed_count = ?, success_count = ?, failed_count = ? WHERE id = ?',
+        [processed, success, failed, jobId]
+      );
+    }
+  }
+
+  const finalStatus = failed > 0 && success === 0 ? 'failed' : failed > 0 ? 'completed_with_errors' : 'completed';
+  await query(
+    'UPDATE marking_jobs SET status = ?, completed_at = NOW() WHERE id = ?',
+    [finalStatus, jobId]
+  );
+  if (scheduledTimers.has(jobId)) {
+    clearTimeout(scheduledTimers.get(jobId));
+    scheduledTimers.delete(jobId);
+  }
+};
 
 // Get all batches
 router.get('/', requireAuth, async (req, res) => {
@@ -230,6 +332,78 @@ router.post('/:id/unassign', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Unassign from batch error:', error);
     res.status(500).json({ error: 'Failed to remove assignments from batch' });
+  }
+});
+
+// Schedule batch marking job
+router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rubric_id, scheduled_for } = req.body;
+
+    if (!rubric_id) return res.status(400).json({ error: 'rubric_id is required' });
+
+    const batch = firstRow(await query('SELECT id FROM batches WHERE id = ? AND user_id = ?', [id, req.user.id]));
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+
+    const rubric = firstRow(await query('SELECT id FROM rubrics WHERE id = ? AND user_id = ?', [rubric_id, req.user.id]));
+    if (!rubric) return res.status(404).json({ error: 'Rubric not found' });
+
+    const assignmentCountRow = firstRow(await query(
+      'SELECT COUNT(*) AS count FROM assignments WHERE batch_id = ? AND user_id = ?',
+      [id, req.user.id]
+    ));
+    const assignmentCount = Number(assignmentCountRow?.count || 0);
+    if (assignmentCount === 0) return res.status(400).json({ error: 'This folder has no scripts to mark' });
+
+    const scheduleTime = scheduled_for ? new Date(scheduled_for) : new Date();
+    if (Number.isNaN(scheduleTime.getTime())) {
+      return res.status(400).json({ error: 'Invalid scheduled_for datetime' });
+    }
+
+    const insert = await query(
+      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, status, scheduled_for, total_count)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, rubric_id, req.user.id, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount]
+    );
+    const jobId = insert.lastID || insert.insertId || insert.rows?.[0]?.id;
+
+    scheduleJobProcessor(jobId, scheduleTime);
+
+    res.json({
+      success: true,
+      job: {
+        id: jobId,
+        batch_id: Number(id),
+        rubric_id: Number(rubric_id),
+        status: 'scheduled',
+        scheduled_for: scheduleTime.toISOString(),
+        total_count: assignmentCount
+      }
+    });
+  } catch (error) {
+    console.error('Schedule marking error:', error);
+    res.status(500).json({ error: 'Failed to schedule marking job' });
+  }
+});
+
+// List all jobs for current user
+router.get('/jobs/all', requireAuth, async (req, res) => {
+  try {
+    const jobs = rowsOf(await query(
+      `SELECT j.*, b.name AS batch_name, r.name AS rubric_name
+       FROM marking_jobs j
+       JOIN batches b ON b.id = j.batch_id
+       JOIN rubrics r ON r.id = j.rubric_id
+       WHERE j.user_id = ?
+       ORDER BY j.created_at DESC
+       LIMIT 100`,
+      [req.user.id]
+    ));
+    res.json({ success: true, jobs });
+  } catch (error) {
+    console.error('Get jobs error:', error);
+    res.status(500).json({ error: 'Failed to fetch marking jobs' });
   }
 });
 

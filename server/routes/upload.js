@@ -9,6 +9,16 @@ const { extractTextFromPDF } = require('../services/pdfOCR');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
+
+const resolveBatchId = async (batchIdRaw, userId) => {
+  if (!batchIdRaw) return null;
+  const parsed = Number(batchIdRaw);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error('Invalid batch_id');
+  const batch = rowsOf(await query('SELECT id FROM batches WHERE id = ? AND user_id = ?', [parsed, userId]))[0];
+  if (!batch) throw new Error('Batch not found');
+  return parsed;
+};
 
 // Test endpoint
 router.get('/test', (req, res) => {
@@ -131,11 +141,13 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
       return res.status(400).json({ error: 'Only PDF files are allowed' });
     }
 
+    const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
     const assignment = {
       filename: req.file.originalname,
       file_path: req.file.path,
       file_size: req.file.size,
-      status: 'uploaded'
+      status: 'uploaded',
+      batch_id: batchId
     };
 
     console.log('Saving assignment to database:', assignment);
@@ -156,8 +168,8 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
     }
 
     const result = await query(
-      'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id]
+      'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id, assignment.batch_id]
     );
     
     // Get the last inserted ID
@@ -168,6 +180,7 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
       file_path: assignment.file_path,
       file_size: assignment.file_size,
       status: assignment.status,
+      batch_id: assignment.batch_id,
       uploaded_at: new Date().toISOString()
     };
 
@@ -204,6 +217,7 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
       return res.status(400).json({ error: 'No PDF files uploaded' });
     }
 
+    const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
     const assignments = [];
     
     for (const file of req.files) {
@@ -211,7 +225,8 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
         filename: file.originalname,
         file_path: file.path,
         file_size: file.size,
-        status: 'uploaded'
+        status: 'uploaded',
+        batch_id: batchId
       };
 
       // Extract text from PDF and store it
@@ -227,8 +242,8 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
       }
 
       const result = await query(
-        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id]
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [assignment.filename, assignment.file_path, assignment.file_size, assignment.status, extractedText, req.user.id, assignment.batch_id]
       );
 
       // Get the last inserted ID
@@ -239,6 +254,7 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
         file_path: assignment.file_path,
         file_size: assignment.file_size,
         status: assignment.status,
+        batch_id: assignment.batch_id,
         uploaded_at: new Date().toISOString()
       };
 
@@ -264,6 +280,7 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
       return res.status(400).json({ error: 'No ZIP file uploaded' });
     }
 
+    const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
     const zipPath = req.file.path;
     const extractedAssignments = [];
 
@@ -282,8 +299,8 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
       }
       
       const result = await query(
-        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [filename, filePath, fileSize, 'uploaded', extractedText, req.user.id]
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [filename, filePath, fileSize, 'uploaded', extractedText, req.user.id, batchId]
       );
       const insertedId = result.lastID || result.rows?.[0]?.id;
       extractedAssignments.push({
@@ -292,6 +309,7 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
         file_path: filePath,
         file_size: fileSize,
         status: 'uploaded',
+        batch_id: batchId,
         uploaded_at: new Date().toISOString()
       });
     };

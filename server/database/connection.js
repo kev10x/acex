@@ -87,7 +87,7 @@ const initDatabase = async () => {
           email_verified TINYINT(1) DEFAULT 0,
           verification_token VARCHAR(255),
           verification_token_expires TIMESTAMP,
-          role VARCHAR(50) DEFAULT 'user',
+          role VARCHAR(50) DEFAULT 'lecturer',
           is_approved TINYINT(1) DEFAULT 0
         )
       `);
@@ -222,6 +222,45 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE CASCADE,
           UNIQUE(published_content_id)
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS marking_jobs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          batch_id INT NOT NULL,
+          rubric_id INT NOT NULL,
+          user_id INT NOT NULL,
+          status VARCHAR(50) DEFAULT 'scheduled',
+          scheduled_for TIMESTAMP NULL,
+          started_at TIMESTAMP NULL,
+          completed_at TIMESTAMP NULL,
+          total_count INT DEFAULT 0,
+          processed_count INT DEFAULT 0,
+          success_count INT DEFAULT 0,
+          failed_count INT DEFAULT 0,
+          last_error TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS marking_result_moderation (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          result_id INT NOT NULL,
+          user_id INT NOT NULL,
+          flagged_for_moderation TINYINT(1) DEFAULT 0,
+          moderation_reason TEXT NULL,
+          custom_feedback LONGTEXT NULL,
+          override_total_score DECIMAL(7,2) NULL,
+          updated_by_user_id INT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_result_moderation (result_id),
+          FOREIGN KEY (result_id) REFERENCES marking_results(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
         )
       `);
       
@@ -481,7 +520,7 @@ const initDatabase = async () => {
           AND column_name = 'role'
         `);
         if ((roleCheck.rows?.[0]?.count || roleCheck?.[0]?.count || 0) === 0) {
-          await query(`ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'user'`);
+          await query(`ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'lecturer'`);
         }
         
         const isApprovedCheck = await query(`
@@ -570,7 +609,7 @@ const initDatabase = async () => {
           email_verified BOOLEAN DEFAULT FALSE,
           verification_token VARCHAR(255),
           verification_token_expires TIMESTAMP,
-          role VARCHAR(50) DEFAULT 'user',
+          role VARCHAR(50) DEFAULT 'lecturer',
           is_approved BOOLEAN DEFAULT FALSE
         )
       `);
@@ -683,6 +722,38 @@ const initDatabase = async () => {
           file_path TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(published_content_id)
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS marking_jobs (
+          id SERIAL PRIMARY KEY,
+          batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+          rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(50) DEFAULT 'scheduled',
+          scheduled_for TIMESTAMP NULL,
+          started_at TIMESTAMP NULL,
+          completed_at TIMESTAMP NULL,
+          total_count INTEGER DEFAULT 0,
+          processed_count INTEGER DEFAULT 0,
+          success_count INTEGER DEFAULT 0,
+          failed_count INTEGER DEFAULT 0,
+          last_error TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS marking_result_moderation (
+          id SERIAL PRIMARY KEY,
+          result_id INTEGER NOT NULL UNIQUE REFERENCES marking_results(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          flagged_for_moderation BOOLEAN DEFAULT FALSE,
+          moderation_reason TEXT NULL,
+          custom_feedback TEXT NULL,
+          override_total_score DECIMAL(7,2) NULL,
+          updated_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
       
@@ -893,7 +964,7 @@ const initDatabase = async () => {
           AND column_name = 'role'
         `);
         if ((roleCheck.rows?.[0]?.count || roleCheck?.[0]?.count || 0) === 0) {
-          await query(`ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'user'`);
+          await query(`ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'lecturer'`);
         }
         
         const isApprovedCheck = await query(`

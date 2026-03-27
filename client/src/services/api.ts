@@ -76,6 +76,25 @@ export interface Batch {
   assignment_count?: number;
 }
 
+export interface MarkingJob {
+  id: number;
+  batch_id: number;
+  rubric_id: number;
+  user_id: number;
+  status: 'scheduled' | 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  scheduled_for?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  total_count: number;
+  processed_count: number;
+  success_count: number;
+  failed_count: number;
+  last_error?: string | null;
+  created_at: string;
+  batch_name?: string;
+  rubric_name?: string;
+}
+
 export interface RubricCriterion {
   name: string;
   max_points: number;
@@ -140,13 +159,20 @@ export interface MarkingResult {
   estimated_cost_usd?: number | null;
   corrections?: Correction[]; // Array of corrections and suggestions with location information
   language_errors?: LanguageError[]; // Array of grammar, spelling, and reference errors
+  flagged_for_moderation?: boolean;
+  moderation_reason?: string | null;
+  custom_feedback?: string | null;
+  override_total_score?: number | null;
+  effective_feedback?: string;
+  effective_total_score?: number;
 }
 
 // Upload API
 export const uploadAPI = {
-  uploadSingle: (file: File) => {
+  uploadSingle: (file: File, batch_id?: number) => {
     const formData = new FormData();
     formData.append('pdf', file);
+    if (batch_id) formData.append('batch_id', String(batch_id));
     return api.post('/upload/single', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -154,11 +180,12 @@ export const uploadAPI = {
     });
   },
 
-  uploadMultiple: (files: File[]) => {
+  uploadMultiple: (files: File[], batch_id?: number) => {
     const formData = new FormData();
     files.forEach((file) => {
       formData.append('pdfs', file);
     });
+    if (batch_id) formData.append('batch_id', String(batch_id));
     return api.post('/upload/multiple', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -169,9 +196,10 @@ export const uploadAPI = {
   getAssignments: () => api.get('/upload'),
   deleteAssignment: (id: number) => api.delete(`/upload/${id}`),
   
-  uploadZip: (file: File) => {
+  uploadZip: (file: File, batch_id?: number) => {
     const formData = new FormData();
     formData.append('zip', file);
+    if (batch_id) formData.append('batch_id', String(batch_id));
     return api.post('/upload/zip', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -252,6 +280,10 @@ export const resultsAPI = {
   createFeedbackVideo: (resultId: number) => api.post(`/results/feedback-video/${resultId}`),
   getFeedbackVideoStatus: (resultId: number) => api.get(`/results/feedback-video/${resultId}/status`),
   getFeedbackVideoContent: (resultId: number) => api.get(`/results/feedback-video/${resultId}/content`, { responseType: 'blob' }),
+  setModerationFlag: (id: number, data: { flagged: boolean; moderation_reason?: string }) =>
+    api.post(`/results/${id}/moderation-flag`, data),
+  saveLecturerOverride: (id: number, data: { custom_feedback?: string | null; override_total_score?: number | null; moderation_reason?: string | null }) =>
+    api.put(`/results/${id}/lecturer-override`, data),
 };
 
 // Reports API
@@ -289,6 +321,9 @@ export const batchesAPI = {
   deleteBatch: (id: number) => api.delete(`/batches/${id}`),
   assignToBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/assign`, { assignment_ids }),
   unassignFromBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/unassign`, { assignment_ids }),
+  scheduleMarking: (id: number, data: { rubric_id: number; scheduled_for?: string }) =>
+    api.post(`/batches/${id}/schedule-marking`, data),
+  getAllJobs: () => api.get('/batches/jobs/all'),
 };
 
 // Assessments API
@@ -504,7 +539,7 @@ export const authAPI = {
     return response.data;
   },
   
-  updateUserRole: async (token: string, userId: number, role: 'admin' | 'user') => {
+  updateUserRole: async (token: string, userId: number, role: 'management' | 'lecturer' | 'student') => {
     const response = await api.put(`/auth/admin/users/${userId}/role`, { role }, {
       headers: { Authorization: `Bearer ${token}` }
     });

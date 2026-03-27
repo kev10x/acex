@@ -20,12 +20,22 @@ import AdminDashboard from './components/AdminDashboard';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'content' | 'admin';
+type AppRole = 'management' | 'lecturer' | 'student';
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('upload');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
   const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
   const { user, loading, logout } = useAuth();
+  const normalizedRole: AppRole = (user?.role === 'admin'
+    ? 'management'
+    : (user?.role as AppRole) || 'lecturer');
+  const roleTabAccess: Record<AppRole, TabType[]> = {
+    management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'admin'],
+    lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content'],
+    student: ['mcq', 'results']
+  };
+  const canAccessTab = (tab: TabType) => roleTabAccess[normalizedRole].includes(tab);
 
   // Check if we're on the verification page
   useEffect(() => {
@@ -42,21 +52,27 @@ function AppContent() {
     return () => document.removeEventListener('click', close);
   }, [openDropdown]);
 
+  useEffect(() => {
+    if (user && !canAccessTab(activeTab)) {
+      setActiveTab(roleTabAccess[normalizedRole][0] || 'results');
+    }
+  }, [activeTab, normalizedRole, user]);
+
   const allowGenerateAssessments = user?.features?.generate_assessments !== false;
   const memorandumsItems: { id: TabType; label: string; icon: typeof FileText }[] = [
-    { id: 'rubrics', label: 'Manage Rubrics', icon: FileText },
-    { id: 'generator', label: 'AI Rubric Generator', icon: Wand2 },
+    ...(canAccessTab('rubrics') ? [{ id: 'rubrics' as TabType, label: 'Manage Rubrics', icon: FileText }] : []),
+    ...(canAccessTab('generator') ? [{ id: 'generator' as TabType, label: 'AI Rubric Generator', icon: Wand2 }] : []),
     ...(allowGenerateAssessments ? [
-      { id: 'assessments' as TabType, label: 'Generate Assessments', icon: Sparkles },
-      { id: 'content' as TabType, label: 'Content Generator', icon: Presentation },
+      ...(canAccessTab('assessments') ? [{ id: 'assessments' as TabType, label: 'Generate Assessments', icon: Sparkles }] : []),
+      ...(canAccessTab('content') ? [{ id: 'content' as TabType, label: 'Content Generator', icon: Presentation }] : []),
     ] : []),
   ];
   const markingItems: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
-    { id: 'marking', label: 'AI Marking', icon: BarChart3 },
-    { id: 'manual-marking', label: 'Manual Marking', icon: Edit3 },
-    { id: 'mcq', label: 'MCQ Forms', icon: ClipboardCheck },
-    { id: 'batches', label: 'Batches', icon: Folder },
-    { id: 'training', label: 'Model Training', icon: Brain },
+    ...(canAccessTab('marking') ? [{ id: 'marking' as TabType, label: 'AI Marking', icon: BarChart3 }] : []),
+    ...(canAccessTab('manual-marking') ? [{ id: 'manual-marking' as TabType, label: 'Manual Marking', icon: Edit3 }] : []),
+    ...(canAccessTab('mcq') ? [{ id: 'mcq' as TabType, label: 'MCQ Forms', icon: ClipboardCheck }] : []),
+    ...(canAccessTab('batches') ? [{ id: 'batches' as TabType, label: 'Batches', icon: Folder }] : []),
+    ...(canAccessTab('training') ? [{ id: 'training' as TabType, label: 'Model Training', icon: Brain }] : []),
   ];
 
   // Take-assessment / take-content routes: no auth required, render student view first
@@ -126,20 +142,22 @@ function AppContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-1">
             {/* Upload (standalone) */}
-            <button
-              onClick={() => setActiveTab('upload')}
-              className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                activeTab === 'upload'
-                  ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              Upload
-            </button>
+            {canAccessTab('upload') && (
+              <button
+                onClick={() => setActiveTab('upload')}
+                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                  activeTab === 'upload'
+                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Upload
+              </button>
+            )}
 
             {/* Memorandums (dropdown) */}
-            <div className="relative">
+            {memorandumsItems.length > 0 && <div className="relative">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -180,10 +198,10 @@ function AppContent() {
                   })}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Marking (dropdown) */}
-            <div className="relative">
+            {markingItems.length > 0 && <div className="relative">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -224,23 +242,25 @@ function AppContent() {
                   })}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Results (standalone) */}
-            <button
-              onClick={() => setActiveTab('results')}
-              className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                activeTab === 'results'
-                  ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Results
-            </button>
+            {canAccessTab('results') && (
+              <button
+                onClick={() => setActiveTab('results')}
+                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
+                  activeTab === 'results'
+                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4 mr-2" />
+                Results
+              </button>
+            )}
 
             {/* Admin (standalone, admin only) */}
-            {user?.role === 'admin' && (
+            {normalizedRole === 'management' && (
               <button
                 onClick={() => setActiveTab('admin')}
                 className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
@@ -259,18 +279,18 @@ function AppContent() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'upload' && <FileUpload />}
-        {activeTab === 'rubrics' && <RubricManager />}
-        {activeTab === 'generator' && <RubricGenerator />}
-        {activeTab === 'assessments' && <AssessmentGenerator />}
-        {activeTab === 'content' && <ContentGenerator />}
-        {activeTab === 'marking' && <MarkingInterface />}
-        {activeTab === 'manual-marking' && <ManualMarkingInterface />}
-        {activeTab === 'mcq' && <MCQInterface />}
-        {activeTab === 'batches' && <BatchManager />}
-        {activeTab === 'training' && <TrainingDataManager />}
-        {activeTab === 'results' && <ResultsDashboard />}
-        {activeTab === 'admin' && <AdminDashboard />}
+        {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
+        {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
+        {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
+        {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
+        {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
+        {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
+        {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
+        {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
+        {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
+        {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
+        {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+        {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
       </main>
     </div>
   );

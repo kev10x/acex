@@ -1,12 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, File, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
-import { uploadAPI, Assignment } from '../services/api';
+import { uploadAPI, batchesAPI, Assignment, Batch } from '../services/api';
 
 const FileUpload: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<number | ''>('');
 
   const fetchAssignments = useCallback(async () => {
     try {
@@ -17,9 +19,19 @@ const FileUpload: React.FC = () => {
     }
   }, []);
 
+  const fetchBatches = useCallback(async () => {
+    try {
+      const response = await batchesAPI.getBatches();
+      setBatches(response.data.batches || []);
+    } catch (err) {
+      console.error('Failed to fetch batches:', err);
+    }
+  }, []);
+
   React.useEffect(() => {
     fetchAssignments();
-  }, [fetchAssignments]);
+    fetchBatches();
+  }, [fetchAssignments, fetchBatches]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     console.log('Files dropped:', acceptedFiles);
@@ -32,7 +44,7 @@ const FileUpload: React.FC = () => {
         const isZip = file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip');
         if (isZip) {
           console.log('Uploading ZIP file for extraction:', file.name);
-          const response = await uploadAPI.uploadZip(file);
+          const response = await uploadAPI.uploadZip(file, selectedBatchId || undefined);
           console.log('ZIP upload response:', response.data);
           // Prepend extracted assignments
           if (response.data.assignments) {
@@ -40,13 +52,13 @@ const FileUpload: React.FC = () => {
           }
         } else {
           console.log('Uploading single file:', file.name);
-          const response = await uploadAPI.uploadSingle(file);
+          const response = await uploadAPI.uploadSingle(file, selectedBatchId || undefined);
           console.log('Upload response:', response.data);
           setAssignments(prev => [response.data.assignment, ...prev]);
         }
       } else {
         console.log('Uploading multiple files:', acceptedFiles.map(f => f.name));
-        const response = await uploadAPI.uploadMultiple(acceptedFiles);
+        const response = await uploadAPI.uploadMultiple(acceptedFiles, selectedBatchId || undefined);
         console.log('Upload response:', response.data);
         setAssignments(prev => [...response.data.assignments, ...prev]);
       }
@@ -73,7 +85,7 @@ const FileUpload: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedBatchId]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -135,6 +147,24 @@ const FileUpload: React.FC = () => {
         <p className="mt-1 text-sm text-gray-600">
           Upload one or multiple PDF files to get started with marking.
         </p>
+      </div>
+
+      <div className="bg-white rounded-lg border p-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Upload into folder (optional)
+        </label>
+        <select
+          value={selectedBatchId}
+          onChange={(e) => setSelectedBatchId(e.target.value ? Number(e.target.value) : '')}
+          className="w-full max-w-md border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">No folder (unassigned)</option>
+          {batches.map((batch) => (
+            <option key={batch.id} value={batch.id}>
+              {batch.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Upload Area */}
