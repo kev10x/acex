@@ -244,27 +244,6 @@ const AdminDashboard: React.FC = () => {
           <p className="mt-4 text-gray-600">Loading user information...</p>
         </div>
       </div>
-
-      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Organisation management</h3>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newOrganisationName}
-            onChange={(e) => setNewOrganisationName(e.target.value)}
-            placeholder="Add organisation name"
-            className="w-full md:w-80 border border-gray-300 rounded-md px-3 py-2 text-sm"
-          />
-          <button
-            onClick={handleCreateOrganisation}
-            disabled={actionLoading === -1 || !newOrganisationName.trim()}
-            className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
-          >
-            {actionLoading === -1 ? 'Adding...' : 'Add organisation'}
-          </button>
-        </div>
-        <p className="text-xs text-gray-600 mt-2">Total organisations: {organisations.length}</p>
-      </div>
     );
   }
 
@@ -313,6 +292,27 @@ const AdminDashboard: React.FC = () => {
             Role={user?.role || 'none'}
           </div>
         )}
+      </div>
+
+      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Organisation management</h3>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newOrganisationName}
+            onChange={(e) => setNewOrganisationName(e.target.value)}
+            placeholder="Add organisation name"
+            className="w-full md:w-80 border border-gray-300 rounded-md px-3 py-2 text-sm"
+          />
+          <button
+            onClick={handleCreateOrganisation}
+            disabled={actionLoading === -1 || !newOrganisationName.trim()}
+            className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+          >
+            {actionLoading === -1 ? 'Adding...' : 'Add organisation'}
+          </button>
+        </div>
+        <p className="text-xs text-gray-600 mt-2">Total organisations: {organisations.length}</p>
       </div>
 
       {/* Tabs */}
