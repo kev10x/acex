@@ -1367,7 +1367,7 @@ const ResultsDashboard: React.FC = () => {
                   )}
                   <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
                     <p className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
-                      {selectedResult.effective_feedback || selectedResult.custom_feedback || selectedResult.feedback ?? (selectedResult as any).overall_feedback ?? 'No feedback available'}
+                      {selectedResult.effective_feedback || selectedResult.custom_feedback || selectedResult.feedback || (selectedResult as any).overall_feedback || 'No feedback available'}
                     </p>
                   </div>
                 </div>
