@@ -364,7 +364,7 @@ function AppContent() {
 
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex flex-wrap gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {availableWorkspaces.map((workspace) => {
               const meta = WORKSPACE_META[workspace];
               const Icon = meta.icon;
@@ -374,7 +374,7 @@ function AppContent() {
                 <button
                   key={workspace}
                   onClick={() => switchWorkspace(workspace)}
-                  className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                  className={`h-full rounded-xl border px-4 py-3 text-left transition-colors ${
                     isActive
                       ? `${meta.accent} shadow-sm`
                       : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
