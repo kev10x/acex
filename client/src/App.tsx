@@ -1,5 +1,19 @@
-import React, { Suspense, lazy, useState, useEffect } from 'react';
-import { Upload, FileText, BarChart3, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine, Presentation } from 'lucide-react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import {
+  BarChart3,
+  Brain,
+  ClipboardCheck,
+  Edit3,
+  FileText,
+  Folder,
+  LogOut,
+  Presentation,
+  Shield,
+  Sparkles,
+  Upload,
+  User,
+  Wand2
+} from 'lucide-react';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
@@ -20,12 +34,119 @@ const ContentGenerator = lazy(() => import('./components/ContentGenerator'));
 const TakeContent = lazy(() => import('./components/TakeContent'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 
-type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'content' | 'admin';
+type TabType =
+  | 'upload'
+  | 'rubrics'
+  | 'generator'
+  | 'marking'
+  | 'manual-marking'
+  | 'results'
+  | 'mcq'
+  | 'batches'
+  | 'training'
+  | 'assessments'
+  | 'content'
+  | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
+type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
+type IconType = typeof BarChart3;
+
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
   management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'admin'],
   lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content'],
   student: ['mcq', 'results']
+};
+
+const WORKSPACE_ORDER: WorkspaceType[] = ['marking', 'student', 'labs', 'admin'];
+
+const TAB_META: Record<TabType, { label: string; description: string; icon: IconType }> = {
+  upload: {
+    label: 'Upload Scripts',
+    description: 'Bring student work into the marking pipeline.',
+    icon: Upload
+  },
+  rubrics: {
+    label: 'Manage Rubrics',
+    description: 'Create, refine, and maintain the memorandums you mark against.',
+    icon: FileText
+  },
+  generator: {
+    label: 'AI Rubric Generator',
+    description: 'Draft rubrics and memorandums faster with AI assistance.',
+    icon: Wand2
+  },
+  marking: {
+    label: 'AI Marking',
+    description: 'Run automated marking against your selected rubric.',
+    icon: BarChart3
+  },
+  'manual-marking': {
+    label: 'Manual Marking',
+    description: 'Capture marks and feedback manually when you want full control.',
+    icon: Edit3
+  },
+  results: {
+    label: 'Results',
+    description: 'Review, moderate, and export marked work.',
+    icon: BarChart3
+  },
+  mcq: {
+    label: 'MCQ Forms',
+    description: 'Process multiple-choice answer sheets and answer keys.',
+    icon: ClipboardCheck
+  },
+  batches: {
+    label: 'Batches',
+    description: 'Organise uploads into manageable marking groups.',
+    icon: Folder
+  },
+  training: {
+    label: 'Model Training',
+    description: 'Export curated data for training and quality-improvement workflows.',
+    icon: Brain
+  },
+  assessments: {
+    label: 'Generate Assessments',
+    description: 'Prepare and publish student-facing assessments.',
+    icon: Sparkles
+  },
+  content: {
+    label: 'Content Generator',
+    description: 'Create lesson content and publish learning materials.',
+    icon: Presentation
+  },
+  admin: {
+    label: 'Admin Dashboard',
+    description: 'Manage organisations, approvals, permissions, and system health.',
+    icon: Shield
+  }
+};
+
+const WORKSPACE_META: Record<WorkspaceType, { label: string; description: string; icon: IconType; accent: string }> = {
+  marking: {
+    label: 'Marking Workspace',
+    description: 'The core lecturer journey: upload, prepare memorandums, mark, review, and export.',
+    icon: BarChart3,
+    accent: 'bg-blue-50 text-blue-700 border-blue-200'
+  },
+  student: {
+    label: 'Student Workspace',
+    description: 'Student-facing assessments, content, and outcome views live here.',
+    icon: Presentation,
+    accent: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  },
+  labs: {
+    label: 'Labs and Advanced Tools',
+    description: 'Specialist utilities for scanning, training, and advanced workflows.',
+    icon: Brain,
+    accent: 'bg-amber-50 text-amber-700 border-amber-200'
+  },
+  admin: {
+    label: 'Admin Workspace',
+    description: 'Organisation oversight, approvals, permissions, and operational visibility.',
+    icon: Shield,
+    accent: 'bg-slate-100 text-slate-700 border-slate-300'
+  }
 };
 
 function TabLoadingFallback() {
@@ -39,17 +160,46 @@ function TabLoadingFallback() {
   );
 }
 
+function WorkspaceShell({
+  activeTab,
+  canAccessTab,
+  normalizedRole
+}: {
+  activeTab: TabType;
+  canAccessTab: (tab: TabType) => boolean;
+  normalizedRole: AppRole;
+}) {
+  return (
+    <Suspense fallback={<TabLoadingFallback />}>
+      {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
+      {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
+      {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
+      {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
+      {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
+      {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
+      {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
+      {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
+      {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
+      {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
+      {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+      {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
+    </Suspense>
+  );
+}
+
 function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('marking');
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('marking');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
-  const [openDropdown, setOpenDropdown] = useState<'memorandums' | 'marking' | null>(null);
   const { user, loading, logout } = useAuth();
-  const normalizedRole: AppRole = (user?.role === 'admin'
-    ? 'management'
-    : (user?.role as AppRole) || 'lecturer');
-  const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
 
-  // Check if we're on the verification page
+  const normalizedRole: AppRole = user?.role === 'admin'
+    ? 'management'
+    : (user?.role as AppRole) || 'lecturer';
+
+  const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
+  const allowGenerateAssessments = user?.features?.generate_assessments !== false;
+
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('token') && window.location.pathname.includes('verify-email')) {
@@ -57,38 +207,72 @@ function AppContent() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!openDropdown) return;
-    const close = () => setOpenDropdown(null);
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [openDropdown]);
+  const workspaceTabs = useMemo<Record<WorkspaceType, TabType[]>>(
+    () => ({
+      marking: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'].filter((tab) =>
+        ROLE_TAB_ACCESS[normalizedRole].includes(tab)
+      ),
+      student:
+        normalizedRole === 'student'
+          ? ['results', 'mcq'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+          : allowGenerateAssessments
+            ? ['assessments', 'content'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+            : [],
+      labs:
+        normalizedRole === 'student'
+          ? []
+          : ['mcq', 'training'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
+      admin: normalizedRole === 'management' ? ['admin'] : []
+    }),
+    [allowGenerateAssessments, normalizedRole]
+  );
+
+  const availableWorkspaces = useMemo(
+    () => WORKSPACE_ORDER.filter((workspace) => workspaceTabs[workspace].length > 0),
+    [workspaceTabs]
+  );
+
+  const currentWorkspaceTabs = workspaceTabs[activeWorkspace] || [];
+  const activeTabMeta = TAB_META[activeTab] || TAB_META.results;
+  const activeWorkspaceMeta = WORKSPACE_META[activeWorkspace] || WORKSPACE_META.marking;
 
   useEffect(() => {
-    if (user && !ROLE_TAB_ACCESS[normalizedRole].includes(activeTab)) {
-      setActiveTab(ROLE_TAB_ACCESS[normalizedRole][0] || 'results');
+    if (!user || availableWorkspaces.length === 0) return;
+
+    const defaultWorkspace =
+      normalizedRole === 'student' && availableWorkspaces.includes('student')
+        ? 'student'
+        : availableWorkspaces[0];
+    const activeTabWorkspace = WORKSPACE_ORDER.find((workspace) => workspaceTabs[workspace].includes(activeTab));
+
+    if (!activeTabWorkspace) {
+      setActiveWorkspace(defaultWorkspace);
+      setActiveTab(workspaceTabs[defaultWorkspace][0]);
+      return;
     }
-  }, [activeTab, normalizedRole, user]);
 
-  const allowGenerateAssessments = user?.features?.generate_assessments !== false;
-  const memorandumsItems: { id: TabType; label: string; icon: typeof FileText }[] = [
-    ...(canAccessTab('rubrics') ? [{ id: 'rubrics' as TabType, label: 'Manage Rubrics', icon: FileText }] : []),
-    ...(canAccessTab('generator') ? [{ id: 'generator' as TabType, label: 'AI Rubric Generator', icon: Wand2 }] : []),
-    ...(allowGenerateAssessments ? [
-      ...(canAccessTab('assessments') ? [{ id: 'assessments' as TabType, label: 'Generate Assessments', icon: Sparkles }] : []),
-      ...(canAccessTab('content') ? [{ id: 'content' as TabType, label: 'Content Generator', icon: Presentation }] : []),
-    ] : []),
-  ];
-  const markingItems: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
-    ...(canAccessTab('upload') ? [{ id: 'upload' as TabType, label: 'Upload Scripts', icon: Upload }] : []),
-    ...(canAccessTab('marking') ? [{ id: 'marking' as TabType, label: 'AI Marking', icon: BarChart3 }] : []),
-    ...(canAccessTab('manual-marking') ? [{ id: 'manual-marking' as TabType, label: 'Manual Marking', icon: Edit3 }] : []),
-    ...(canAccessTab('mcq') ? [{ id: 'mcq' as TabType, label: 'MCQ Forms', icon: ClipboardCheck }] : []),
-    ...(canAccessTab('batches') ? [{ id: 'batches' as TabType, label: 'Batches', icon: Folder }] : []),
-    ...(canAccessTab('training') ? [{ id: 'training' as TabType, label: 'Model Training', icon: Brain }] : []),
-  ];
+    if (!availableWorkspaces.includes(activeWorkspace)) {
+      setActiveWorkspace(defaultWorkspace);
+      if (!workspaceTabs[defaultWorkspace].includes(activeTab)) {
+        setActiveTab(workspaceTabs[defaultWorkspace][0]);
+      }
+      return;
+    }
 
-  // Take-assessment / take-content routes: no auth required, render student view first
+    if (activeWorkspace !== activeTabWorkspace) {
+      setActiveWorkspace(activeTabWorkspace);
+    }
+  }, [activeTab, activeWorkspace, availableWorkspaces, normalizedRole, user, workspaceTabs]);
+
+  const switchWorkspace = (workspace: WorkspaceType) => {
+    const tabs = workspaceTabs[workspace];
+    if (!tabs?.length) return;
+    setActiveWorkspace(workspace);
+    if (!tabs.includes(activeTab)) {
+      setActiveTab(tabs[0]);
+    }
+  };
+
   if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
@@ -96,6 +280,7 @@ function AppContent() {
       </Suspense>
     );
   }
+
   if (typeof window !== 'undefined' && window.location.pathname.includes('take-content')) {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
@@ -104,7 +289,6 @@ function AppContent() {
     );
   }
 
-  // Show loading state
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -116,14 +300,18 @@ function AppContent() {
     );
   }
 
-  // Show login/register/verify if not authenticated
   if (!user) {
     if (authMode === 'verify') {
-      return <VerifyEmail onBackToLogin={() => {
-        setAuthMode('login');
-        window.history.replaceState({}, '', window.location.pathname);
-      }} />;
+      return (
+        <VerifyEmail
+          onBackToLogin={() => {
+            setAuthMode('login');
+            window.history.replaceState({}, '', window.location.pathname);
+          }}
+        />
+      );
     }
+
     return authMode === 'login' ? (
       <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
     ) : (
@@ -133,22 +321,33 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
-              <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
+          <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex items-center">
+                <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
+                <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
+              </div>
+              {user.organisation_name && (
+                <p className="mt-1 text-sm text-gray-500">{user.organisation_name}</p>
+              )}
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2 text-sm text-gray-700">
-                <User className="h-4 w-4" />
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
+                <User className="mr-2 h-4 w-4" />
                 <span>{user.name || user.email}</span>
+              </div>
+              <div className="inline-flex items-center rounded-full bg-primary-50 px-3 py-1.5 text-sm font-medium text-primary-700">
+                {normalizedRole === 'management'
+                  ? 'Management'
+                  : normalizedRole === 'student'
+                    ? 'Student'
+                    : 'Lecturer'}
               </div>
               <button
                 onClick={logout}
-                className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                className="flex items-center space-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900"
               >
                 <LogOut className="h-4 w-4" />
                 <span>Logout</span>
@@ -158,147 +357,84 @@ function AppContent() {
         </div>
       </header>
 
-      {/* Navigation */}
       <nav className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-1">
-            {/* Memorandums (dropdown) */}
-            {memorandumsItems.length > 0 && <div className="relative">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpenDropdown((prev) => (prev === 'memorandums' ? null : 'memorandums'));
-                }}
-                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                  openDropdown === 'memorandums' || memorandumsItems.some((i) => i.id === activeTab)
-                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                <Award className="w-4 h-4 mr-2" />
-                Memorandums
-                <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${openDropdown === 'memorandums' ? 'rotate-180' : ''}`} />
-              </button>
-              {openDropdown === 'memorandums' && (
-                <div
-                  className="absolute left-0 top-full z-50 mt-0 w-56 rounded-b-md border border-t-0 border-gray-200 bg-white py-1 shadow-lg"
-                  onClick={(e) => e.stopPropagation()}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex flex-wrap gap-3">
+            {availableWorkspaces.map((workspace) => {
+              const meta = WORKSPACE_META[workspace];
+              const Icon = meta.icon;
+              const isActive = workspace === activeWorkspace;
+
+              return (
+                <button
+                  key={workspace}
+                  onClick={() => switchWorkspace(workspace)}
+                  className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                    isActive
+                      ? `${meta.accent} shadow-sm`
+                      : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
-                  {memorandumsItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          setActiveTab(item.id);
-                          setOpenDropdown(null);
-                        }}
-                        className={`flex w-full items-center px-4 py-2.5 text-left text-sm ${
-                          activeTab === item.id ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 mr-3 text-gray-500" />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>}
-
-            {/* Marking (dropdown) */}
-            {markingItems.length > 0 && <div className="relative">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpenDropdown((prev) => (prev === 'marking' ? null : 'marking'));
-                }}
-                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                  openDropdown === 'marking' || markingItems.some((i) => i.id === activeTab)
-                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                <PenLine className="w-4 h-4 mr-2" />
-                Marking
-                <ChevronDown className={`w-4 h-4 ml-1 transition-transform ${openDropdown === 'marking' ? 'rotate-180' : ''}`} />
-              </button>
-              {openDropdown === 'marking' && (
-                <div
-                  className="absolute left-0 top-full z-50 mt-0 w-56 rounded-b-md border border-t-0 border-gray-200 bg-white py-1 shadow-lg"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {markingItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          setActiveTab(item.id);
-                          setOpenDropdown(null);
-                        }}
-                        className={`flex w-full items-center px-4 py-2.5 text-left text-sm ${
-                          activeTab === item.id ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 mr-3 text-gray-500" />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>}
-
-            {/* Results (standalone) */}
-            {canAccessTab('results') && (
-              <button
-                onClick={() => setActiveTab('results')}
-                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                  activeTab === 'results'
-                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                <BarChart3 className="w-4 h-4 mr-2" />
-                Results
-              </button>
-            )}
-
-            {/* Admin (standalone, admin only) */}
-            {normalizedRole === 'management' && (
-              <button
-                onClick={() => setActiveTab('admin')}
-                className={`flex items-center px-4 py-3.5 text-sm font-medium rounded-t-md transition-colors ${
-                  activeTab === 'admin'
-                    ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                <Shield className="w-4 h-4 mr-2" />
-                Admin
-              </button>
-            )}
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Icon className="h-4 w-4" />
+                    <span>{meta.label}</span>
+                  </div>
+                  <div className="mt-1 max-w-sm text-xs opacity-80">
+                    {meta.description}
+                  </div>
+                </button>
+              );
+            })}
           </div>
+
+          {currentWorkspaceTabs.length > 0 && (
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+                    {activeWorkspaceMeta.label}
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-gray-900">
+                    {activeTabMeta.label}
+                  </h2>
+                  <p className="mt-1 max-w-2xl text-sm text-gray-600">
+                    {activeTabMeta.description}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {currentWorkspaceTabs.map((tab) => {
+                    const meta = TAB_META[tab];
+                    const Icon = meta.icon;
+                    const isActive = activeTab === tab;
+
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`inline-flex items-center rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'bg-primary-600 text-white shadow-sm'
+                            : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Icon className="mr-2 h-4 w-4" />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Suspense fallback={<TabLoadingFallback />}>
-          {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
-          {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
-          {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
-          {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
-          {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
-          {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
-          {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
-          {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
-          {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
-          {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
-          {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
-          {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
-        </Suspense>
+        <WorkspaceShell
+          activeTab={activeTab}
+          canAccessTab={canAccessTab}
+          normalizedRole={normalizedRole}
+        />
       </main>
     </div>
   );
