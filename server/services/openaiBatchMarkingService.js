@@ -7,6 +7,9 @@ const { parseMarkingResponsePayload } = require('../routes/mark');
 
 const POLL_INTERVAL_MS = 30000;
 const COMPLETION_WINDOW = '24h';
+const DEFAULT_MAX_RETRIES = Math.max(0, Number(process.env.OPENAI_BATCH_MAX_RETRIES || 3));
+const RETRY_BASE_SECONDS = Math.max(10, Number(process.env.OPENAI_BATCH_RETRY_BASE_SECONDS || 30));
+const RETRY_MAX_SECONDS = Math.max(RETRY_BASE_SECONDS, Number(process.env.OPENAI_BATCH_RETRY_MAX_SECONDS || 600));
 const TEMP_DIR = path.join(__dirname, '../uploads/temp/openai-batches');
 
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
@@ -260,6 +263,83 @@ function getAssignmentIdFromCustomId(customId) {
   return match ? Number(match[1]) : null;
 }
 
+function computeRetryDelaySeconds(retryCount) {
+  const exponent = Math.max(0, Number(retryCount || 0));
+  return Math.min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * (2 ** exponent));
+}
+
+async function releaseClaimedAssignmentsForRetry(job, message) {
+  await query(
+    `UPDATE assignments
+     SET status = ?, processing_job_id = NULL
+     WHERE processing_job_id = ? AND user_id = ? AND status = ?`,
+    ['uploaded', job.id, job.user_id, 'processing']
+  );
+  await query(
+    `UPDATE assessment_submissions
+     SET status = ?, failure_reason = ?, completed_at = NULL
+     WHERE assignment_id IN (
+       SELECT id FROM assignments WHERE batch_id = ? AND user_id = ? AND status = ?
+     )`,
+    ['queued', message, job.batch_id, job.user_id, 'uploaded']
+  );
+}
+
+async function markPendingAssignmentsAsFailedForJob(job, message) {
+  const pendingAssignments = rowsOf(await query(
+    `SELECT id, user_id
+     FROM assignments
+     WHERE batch_id = ? AND user_id = ? AND (status = ? OR processing_job_id = ?)`,
+    [job.batch_id, job.user_id, 'uploaded', job.id]
+  ));
+
+  if (pendingAssignments.length === 0) {
+    return;
+  }
+
+  for (const assignment of pendingAssignments) {
+    await query(
+      'UPDATE assignments SET status = ?, processing_job_id = NULL WHERE id = ? AND user_id = ?',
+      ['error', assignment.id, assignment.user_id]
+    );
+    await query(
+      'UPDATE assessment_submissions SET status = ?, failure_reason = ?, completed_at = NOW() WHERE assignment_id = ?',
+      ['failed', message, assignment.id]
+    );
+  }
+}
+
+async function handleJobRetryableFailure(job, error, stage) {
+  const errorMessage = `${stage}: ${error?.message || 'Unknown error'}`;
+  const nextRetryCount = Number(job.retry_count || 0) + 1;
+  const maxRetries = Number(job.max_retries ?? DEFAULT_MAX_RETRIES);
+
+  if (nextRetryCount > maxRetries) {
+    await markPendingAssignmentsAsFailedForJob(job, errorMessage);
+    await query(
+      `UPDATE marking_jobs
+       SET status = ?, completed_at = NOW(), retry_count = ?, last_error = ?, last_status_at = NOW()
+       WHERE id = ?`,
+      ['failed', nextRetryCount, errorMessage, job.id]
+    );
+    return;
+  }
+
+  await releaseClaimedAssignmentsForRetry(job, errorMessage);
+  const delaySeconds = computeRetryDelaySeconds(nextRetryCount - 1);
+  const nextRetryAt = new Date(Date.now() + (delaySeconds * 1000));
+
+  await query(
+    `UPDATE marking_jobs
+     SET status = ?, openai_batch_id = NULL, openai_input_file_id = NULL,
+         openai_output_file_id = NULL, openai_error_file_id = NULL, completed_at = NULL,
+         retry_count = ?, next_retry_at = ?,
+         last_error = ?, last_status_at = NOW()
+     WHERE id = ?`,
+    ['scheduled', nextRetryCount, nextRetryAt, errorMessage, job.id]
+  );
+}
+
 async function submitOpenAIBatchJob(job) {
   const client = ensureOpenAIClient();
   if (!client) {
@@ -306,7 +386,7 @@ async function submitOpenAIBatchJob(job) {
   }
 
   await query(
-    'UPDATE marking_jobs SET total_count = ?, processed_count = 0, success_count = 0, failed_count = 0, request_count = ?, last_error = NULL WHERE id = ?',
+    'UPDATE marking_jobs SET total_count = ?, processed_count = 0, success_count = 0, failed_count = 0, request_count = ?, last_error = NULL, last_status_at = NOW() WHERE id = ?',
     [assignments.length, validAssignments.length, job.id]
   );
 
@@ -372,9 +452,10 @@ async function submitOpenAIBatchJob(job) {
     await query(
       `UPDATE marking_jobs
        SET status = ?, started_at = COALESCE(started_at, NOW()), completed_at = NULL,
-           provider = ?, processing_mode = ?, openai_batch_id = ?, openai_input_file_id = ?, completion_window = ?
+           provider = ?, processing_mode = ?, openai_batch_id = ?, openai_input_file_id = ?, completion_window = ?,
+           next_retry_at = NULL, max_retries = COALESCE(max_retries, ?), last_status_at = NOW()
        WHERE id = ?`,
-      ['submitted', 'openai', 'openai_batch', batch.id, uploadedFile.id, COMPLETION_WINDOW, job.id]
+      ['submitted', 'openai', 'openai_batch', batch.id, uploadedFile.id, COMPLETION_WINDOW, DEFAULT_MAX_RETRIES, job.id]
     );
   } finally {
     try {
@@ -483,7 +564,7 @@ async function finalizeOpenAIBatchJob(job, batchRecord) {
   await query(
     `UPDATE marking_jobs
      SET status = ?, completed_at = NOW(), processed_count = ?, success_count = ?, failed_count = ?,
-         last_error = ?, openai_output_file_id = ?, openai_error_file_id = ?
+         last_error = ?, openai_output_file_id = ?, openai_error_file_id = ?, next_retry_at = NULL, last_status_at = NOW()
      WHERE id = ?`,
     [finalStatus, processed, success, failed, lastError, batchRecord.output_file_id || null, batchRecord.error_file_id || null, job.id]
   );
@@ -505,24 +586,28 @@ async function refreshActiveOpenAIBatchJobs() {
   ));
 
   for (const job of jobs) {
-    const batchRecord = await client.batches.retrieve(job.openai_batch_id);
-    const status = batchRecord.status;
+    try {
+      const batchRecord = await client.batches.retrieve(job.openai_batch_id);
+      const status = batchRecord.status;
 
-    if (status === 'completed' || status === 'failed' || status === 'expired' || status === 'cancelled') {
-      await finalizeOpenAIBatchJob(job, batchRecord);
-      continue;
+      if (status === 'completed' || status === 'failed' || status === 'expired' || status === 'cancelled') {
+        await finalizeOpenAIBatchJob(job, batchRecord);
+        continue;
+      }
+
+      const normalizedStatus = status === 'validating'
+        ? 'submitted'
+        : status === 'in_progress'
+        ? 'running'
+        : status;
+
+      await query(
+        'UPDATE marking_jobs SET status = ?, openai_output_file_id = ?, openai_error_file_id = ?, last_status_at = NOW() WHERE id = ?',
+        [normalizedStatus, batchRecord.output_file_id || null, batchRecord.error_file_id || null, job.id]
+      );
+    } catch (error) {
+      await handleJobRetryableFailure(job, error, 'batch_refresh');
     }
-
-    const normalizedStatus = status === 'validating'
-      ? 'submitted'
-      : status === 'in_progress'
-      ? 'running'
-      : status;
-
-    await query(
-      'UPDATE marking_jobs SET status = ?, openai_output_file_id = ?, openai_error_file_id = ? WHERE id = ?',
-      [normalizedStatus, batchRecord.output_file_id || null, batchRecord.error_file_id || null, job.id]
-    );
   }
 }
 
@@ -538,12 +623,17 @@ async function processPendingOpenAIBatchJobs() {
      WHERE processing_mode = ? AND provider = ? AND status = ?
        AND openai_batch_id IS NULL
        AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+       AND (next_retry_at IS NULL OR next_retry_at <= NOW())
      ORDER BY scheduled_for ASC, created_at ASC`,
     ['openai_batch', 'openai', 'scheduled']
   ));
 
   for (const job of dueJobs) {
-    await submitOpenAIBatchJob(job);
+    try {
+      await submitOpenAIBatchJob(job);
+    } catch (error) {
+      await handleJobRetryableFailure(job, error, 'batch_submit');
+    }
   }
 }
 

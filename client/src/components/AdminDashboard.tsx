@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI, Department, FeatureFlags, ManagementPerformanceResponse, Organisation, resultsAPI, systemAPI, SystemHealthResponse } from '../services/api';
+import {
+  authAPI,
+  batchesAPI,
+  BatchJobsHealthResponse,
+  Department,
+  FeatureFlags,
+  ManagementPerformanceResponse,
+  Organisation,
+  resultsAPI,
+  systemAPI,
+  SystemHealthResponse
+} from '../services/api';
 import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video, BarChart3, TrendingUp } from 'lucide-react';
 
 export interface UserFeatures {
@@ -67,6 +78,7 @@ const AdminDashboard: React.FC = () => {
   const [newDepartmentOrganisationId, setNewDepartmentOrganisationId] = useState<number | ''>('');
   const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
   const [performance, setPerformance] = useState<ManagementPerformanceResponse | null>(null);
+  const [batchJobsHealth, setBatchJobsHealth] = useState<BatchJobsHealthResponse | null>(null);
   const [showPolicyAffectedOnly, setShowPolicyAffectedOnly] = useState(false);
 
   useEffect(() => {
@@ -107,13 +119,14 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all, orgs, depts, health, performanceData] = await Promise.all([
+      const [pending, all, orgs, depts, health, performanceData, jobsHealth] = await Promise.all([
         authAPI.getPendingUsers(token),
         authAPI.getAllUsers(token),
         authAPI.getOrganisations(token),
         authAPI.getDepartments(token),
         systemAPI.getHealth().catch(() => null),
-        resultsAPI.getManagementPerformance().catch(() => null)
+        resultsAPI.getManagementPerformance().catch(() => null),
+        batchesAPI.getJobsHealth().catch(() => null)
       ]);
       console.log('Users loaded successfully:', { 
         pendingCount: pending?.length || 0, 
@@ -127,6 +140,7 @@ const AdminDashboard: React.FC = () => {
       setDepartments(Array.isArray(depts) ? depts : []);
       setSystemHealth(health?.data || null);
       setPerformance(performanceData?.data || null);
+      setBatchJobsHealth(jobsHealth?.data || null);
     } catch (err: any) {
       console.error('Error loading users:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to load users';
@@ -813,6 +827,59 @@ const AdminDashboard: React.FC = () => {
                   </ul>
                 )}
               </div>
+              {batchJobsHealth && (
+                <div className={`rounded-lg border p-4 ${
+                  batchJobsHealth.status === 'healthy'
+                    ? 'bg-green-50 border-green-200'
+                    : 'bg-yellow-50 border-yellow-200'
+                }`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Batch Marking Pipeline: {batchJobsHealth.status}</h3>
+                      <p className="text-sm text-gray-700 mt-1">
+                        Scope: {batchJobsHealth.scope === 'all' ? 'all jobs' : 'your jobs'} | Stuck threshold: {batchJobsHealth.stuck_threshold_minutes} min
+                      </p>
+                    </div>
+                    <div className="text-right text-sm text-gray-700">
+                      <div>Running: {batchJobsHealth.summary.running_jobs + batchJobsHealth.summary.submitted_jobs + batchJobsHealth.summary.finalizing_jobs}</div>
+                      <div>Retrying: {batchJobsHealth.retrying_jobs.length}</div>
+                      <div>Failed: {batchJobsHealth.summary.failed_jobs}</div>
+                    </div>
+                  </div>
+                  {(batchJobsHealth.stuck_jobs.length > 0 || batchJobsHealth.recent_failures.length > 0) && (
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <div className="font-semibold text-gray-900 mb-1">Stuck Jobs</div>
+                        {batchJobsHealth.stuck_jobs.length === 0 ? (
+                          <div className="text-gray-600">No stuck jobs detected.</div>
+                        ) : (
+                          <div className="space-y-1">
+                            {batchJobsHealth.stuck_jobs.slice(0, 5).map((job) => (
+                              <div key={job.id} className="text-gray-700">
+                                Job #{job.id} ({job.batch_name}) - {job.status}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="bg-white border border-gray-200 rounded p-3">
+                        <div className="font-semibold text-gray-900 mb-1">Recent Failures</div>
+                        {batchJobsHealth.recent_failures.length === 0 ? (
+                          <div className="text-gray-600">No recent failed jobs.</div>
+                        ) : (
+                          <div className="space-y-1">
+                            {batchJobsHealth.recent_failures.slice(0, 5).map((job) => (
+                              <div key={job.id} className="text-gray-700">
+                                Job #{job.id} ({job.batch_name}) retries {job.retry_count ?? 0}/{job.max_retries ?? 0}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {Object.entries(systemHealth.checks).map(([key, value]) => (
                   <div key={key} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">

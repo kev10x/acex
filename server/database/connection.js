@@ -288,6 +288,10 @@ const initDatabase = async () => {
           openai_output_file_id VARCHAR(255) NULL,
           openai_error_file_id VARCHAR(255) NULL,
           completion_window VARCHAR(20) NULL,
+          retry_count INT DEFAULT 0,
+          max_retries INT DEFAULT 3,
+          next_retry_at TIMESTAMP NULL,
+          last_status_at TIMESTAMP NULL,
           last_error TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
@@ -577,6 +581,38 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_jobs ADD COLUMN openai_output_file_id VARCHAR(255) DEFAULT NULL`);
           await query(`ALTER TABLE marking_jobs ADD COLUMN openai_error_file_id VARCHAR(255) DEFAULT NULL`);
           await query(`ALTER TABLE marking_jobs ADD COLUMN completion_window VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const markingJobRetryCountCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'retry_count'
+        `);
+        if ((markingJobRetryCountCheck.rows?.[0]?.count || markingJobRetryCountCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN retry_count INT DEFAULT 0`);
+        }
+
+        const markingJobMaxRetriesCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'max_retries'
+        `);
+        if ((markingJobMaxRetriesCheck.rows?.[0]?.count || markingJobMaxRetriesCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN max_retries INT DEFAULT 3`);
+        }
+
+        const markingJobNextRetryCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'next_retry_at'
+        `);
+        if ((markingJobNextRetryCheck.rows?.[0]?.count || markingJobNextRetryCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN next_retry_at TIMESTAMP NULL`);
+        }
+
+        const markingJobLastStatusCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'last_status_at'
+        `);
+        if ((markingJobLastStatusCheck.rows?.[0]?.count || markingJobLastStatusCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN last_status_at TIMESTAMP NULL`);
         }
 
         const publishedAssessmentBatchCheck = await query(`
@@ -945,6 +981,10 @@ const initDatabase = async () => {
           openai_output_file_id VARCHAR(255) NULL,
           openai_error_file_id VARCHAR(255) NULL,
           completion_window VARCHAR(20) NULL,
+          retry_count INTEGER DEFAULT 0,
+          max_retries INTEGER DEFAULT 3,
+          next_retry_at TIMESTAMP NULL,
+          last_status_at TIMESTAMP NULL,
           last_error TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -1177,6 +1217,38 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_jobs ADD COLUMN openai_output_file_id VARCHAR(255) DEFAULT NULL`);
           await query(`ALTER TABLE marking_jobs ADD COLUMN openai_error_file_id VARCHAR(255) DEFAULT NULL`);
           await query(`ALTER TABLE marking_jobs ADD COLUMN completion_window VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const markingJobRetryCountCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'retry_count'
+        `);
+        if ((markingJobRetryCountCheckPg.rows?.[0]?.count || markingJobRetryCountCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN retry_count INTEGER DEFAULT 0`);
+        }
+
+        const markingJobMaxRetriesCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'max_retries'
+        `);
+        if ((markingJobMaxRetriesCheckPg.rows?.[0]?.count || markingJobMaxRetriesCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN max_retries INTEGER DEFAULT 3`);
+        }
+
+        const markingJobNextRetryCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'next_retry_at'
+        `);
+        if ((markingJobNextRetryCheckPg.rows?.[0]?.count || markingJobNextRetryCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN next_retry_at TIMESTAMP NULL`);
+        }
+
+        const markingJobLastStatusCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'last_status_at'
+        `);
+        if ((markingJobLastStatusCheckPg.rows?.[0]?.count || markingJobLastStatusCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN last_status_at TIMESTAMP NULL`);
         }
 
         const publishedAssessmentBatchCheckPg = await query(`

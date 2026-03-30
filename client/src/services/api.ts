@@ -88,6 +88,10 @@ export interface MarkingJob {
   started_at?: string | null;
   completed_at?: string | null;
   request_count?: number;
+  retry_count?: number;
+  max_retries?: number;
+  next_retry_at?: string | null;
+  last_status_at?: string | null;
   total_count: number;
   processed_count: number;
   success_count: number;
@@ -97,6 +101,46 @@ export interface MarkingJob {
   created_at: string;
   batch_name?: string;
   rubric_name?: string;
+}
+
+export interface BatchJobHealthSummary {
+  total_jobs: number;
+  scheduled_jobs: number;
+  submitted_jobs: number;
+  running_jobs: number;
+  finalizing_jobs: number;
+  completed_jobs: number;
+  completed_with_errors_jobs: number;
+  failed_jobs: number;
+  retried_jobs: number;
+}
+
+export interface BatchJobHealthItem {
+  id: number;
+  status: string;
+  retry_count?: number;
+  max_retries?: number;
+  last_error?: string | null;
+  created_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  last_status_at?: string | null;
+  next_retry_at?: string | null;
+  batch_id: number;
+  batch_name?: string;
+  user_id: number;
+  owner_email?: string;
+}
+
+export interface BatchJobsHealthResponse {
+  success: boolean;
+  status: 'healthy' | 'degraded';
+  scope: 'all' | 'own';
+  stuck_threshold_minutes: number;
+  summary: BatchJobHealthSummary;
+  stuck_jobs: BatchJobHealthItem[];
+  retrying_jobs: BatchJobHealthItem[];
+  recent_failures: BatchJobHealthItem[];
 }
 
 export interface RubricCriterion {
@@ -465,6 +509,7 @@ export const batchesAPI = {
   scheduleMarking: (id: number, data: { rubric_id: number; scheduled_for?: string }) =>
     api.post(`/batches/${id}/schedule-marking`, data),
   getAllJobs: () => api.get('/batches/jobs/all'),
+  getJobsHealth: () => api.get<BatchJobsHealthResponse>('/batches/jobs/health'),
 };
 
 // Assessments API

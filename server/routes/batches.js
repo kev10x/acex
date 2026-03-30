@@ -9,6 +9,7 @@ const scheduledTimers = new Map();
 
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const firstRow = (result) => rowsOf(result)[0];
+const isManagementUser = (user) => ['management', 'admin'].includes(String(user?.role || '').toLowerCase());
 
 const scheduleJobProcessor = (jobId, when) => {
   if (scheduledTimers.has(jobId)) {
@@ -451,6 +452,106 @@ router.get('/jobs/all', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Get jobs error:', error);
     res.status(500).json({ error: 'Failed to fetch marking jobs' });
+  }
+});
+
+// Batch job health summary for observability
+router.get('/jobs/health', requireAuth, async (req, res) => {
+  try {
+    const canViewAll = isManagementUser(req.user);
+    const ownershipClause = canViewAll ? '' : 'AND j.user_id = ?';
+    const ownershipParams = canViewAll ? [] : [req.user.id];
+    const stuckMinutes = Math.max(5, Number(process.env.BATCH_STUCK_MINUTES || 20));
+    const stuckCutoff = new Date(Date.now() - (stuckMinutes * 60 * 1000));
+
+    const summaryRows = rowsOf(await query(
+      `SELECT
+         COUNT(*) AS total_jobs,
+         SUM(CASE WHEN j.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_jobs,
+         SUM(CASE WHEN j.status = 'submitted' THEN 1 ELSE 0 END) AS submitted_jobs,
+         SUM(CASE WHEN j.status = 'running' THEN 1 ELSE 0 END) AS running_jobs,
+         SUM(CASE WHEN j.status = 'finalizing' THEN 1 ELSE 0 END) AS finalizing_jobs,
+         SUM(CASE WHEN j.status = 'completed' THEN 1 ELSE 0 END) AS completed_jobs,
+         SUM(CASE WHEN j.status = 'completed_with_errors' THEN 1 ELSE 0 END) AS completed_with_errors_jobs,
+         SUM(CASE WHEN j.status = 'failed' THEN 1 ELSE 0 END) AS failed_jobs,
+         SUM(CASE WHEN j.retry_count > 0 THEN 1 ELSE 0 END) AS retried_jobs
+       FROM marking_jobs j
+       WHERE 1 = 1 ${ownershipClause}`,
+      ownershipParams
+    ));
+
+    const stuckJobs = rowsOf(await query(
+      `SELECT
+         j.id, j.status, j.retry_count, j.max_retries, j.last_error, j.created_at,
+         j.started_at, j.completed_at, j.last_status_at, j.next_retry_at,
+         j.batch_id, b.name AS batch_name, j.user_id, u.email AS owner_email
+       FROM marking_jobs j
+       JOIN batches b ON b.id = j.batch_id
+       JOIN users u ON u.id = j.user_id
+       WHERE j.status IN ('submitted', 'running', 'finalizing')
+         AND COALESCE(j.last_status_at, j.started_at, j.created_at) < ?
+         ${ownershipClause}
+       ORDER BY COALESCE(j.last_status_at, j.started_at, j.created_at) ASC
+       LIMIT 25`,
+      [stuckCutoff, ...ownershipParams]
+    ));
+
+    const retryingJobs = rowsOf(await query(
+      `SELECT
+         j.id, j.status, j.retry_count, j.max_retries, j.last_error, j.next_retry_at,
+         j.batch_id, b.name AS batch_name, j.user_id, u.email AS owner_email
+       FROM marking_jobs j
+       JOIN batches b ON b.id = j.batch_id
+       JOIN users u ON u.id = j.user_id
+       WHERE j.status = 'scheduled' AND j.retry_count > 0
+         ${ownershipClause}
+       ORDER BY j.next_retry_at ASC, j.created_at ASC
+       LIMIT 25`,
+      ownershipParams
+    ));
+
+    const recentFailures = rowsOf(await query(
+      `SELECT
+         j.id, j.status, j.retry_count, j.max_retries, j.last_error, j.completed_at,
+         j.batch_id, b.name AS batch_name, j.user_id, u.email AS owner_email
+       FROM marking_jobs j
+       JOIN batches b ON b.id = j.batch_id
+       JOIN users u ON u.id = j.user_id
+       WHERE j.status = 'failed'
+         ${ownershipClause}
+       ORDER BY j.completed_at DESC, j.created_at DESC
+       LIMIT 25`,
+      ownershipParams
+    ));
+
+    const summary = summaryRows[0] || {};
+    const status = stuckJobs.length > 0 || Number(summary.failed_jobs || 0) > 0
+      ? 'degraded'
+      : 'healthy';
+
+    res.json({
+      success: true,
+      status,
+      scope: canViewAll ? 'all' : 'own',
+      stuck_threshold_minutes: stuckMinutes,
+      summary: {
+        total_jobs: Number(summary.total_jobs || 0),
+        scheduled_jobs: Number(summary.scheduled_jobs || 0),
+        submitted_jobs: Number(summary.submitted_jobs || 0),
+        running_jobs: Number(summary.running_jobs || 0),
+        finalizing_jobs: Number(summary.finalizing_jobs || 0),
+        completed_jobs: Number(summary.completed_jobs || 0),
+        completed_with_errors_jobs: Number(summary.completed_with_errors_jobs || 0),
+        failed_jobs: Number(summary.failed_jobs || 0),
+        retried_jobs: Number(summary.retried_jobs || 0)
+      },
+      stuck_jobs: stuckJobs,
+      retrying_jobs: retryingJobs,
+      recent_failures: recentFailures
+    });
+  } catch (error) {
+    console.error('Get batch jobs health error:', error);
+    res.status(500).json({ error: 'Failed to fetch batch jobs health' });
   }
 });
 
