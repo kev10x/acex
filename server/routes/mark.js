@@ -118,6 +118,91 @@ router.post('/debug', requireAuth, async (req, res) => {
 
 // AI Service is initialized in aiService.js
 
+const extractFirstJsonObject = (text) => {
+  const source = String(text || '');
+  const start = source.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < source.length; i++) {
+    const char = source[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, i + 1);
+      }
+    }
+  }
+
+  return source.slice(start);
+};
+
+const normalizeJsonCandidate = (value) => String(value || '')
+  .trim()
+  .replace(/^```(?:json)?\s*/i, '')
+  .replace(/\s*```$/i, '')
+  .replace(/^\uFEFF/, '')
+  .replace(/[“”]/g, '"')
+  .replace(/[‘’]/g, "'");
+
+const repairJsonCandidate = (value) => normalizeJsonCandidate(value)
+  .replace(/":\s*\\"/g, '": "')
+  .replace(/\\"(\s*[,}\]])/g, '"$1')
+  .replace(/,\s*([}\]])/g, '$1')
+  .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
+  .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3');
+
+const parseAiJsonResponse = (rawResponse) => {
+  const extracted = extractFirstJsonObject(rawResponse);
+  const baseCandidates = [normalizeJsonCandidate(rawResponse)];
+  if (extracted) {
+    baseCandidates.push(normalizeJsonCandidate(extracted));
+  }
+
+  const seen = new Set();
+  let lastError = null;
+
+  for (const candidate of baseCandidates) {
+    if (!candidate) continue;
+    for (const variant of [candidate, repairJsonCandidate(candidate)]) {
+      if (!variant || seen.has(variant)) continue;
+      seen.add(variant);
+      try {
+        return {
+          parsed: JSON.parse(variant),
+          cleanedText: variant
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to parse AI response as JSON');
+};
+
 // PDF helpers (extract text or get page images for vision-based marking)
 const { extractTextFromPDF: extractWithOCR, getPdfPageImages } = require('../services/pdfOCR');
 
@@ -1185,10 +1270,12 @@ JSON format (return ONLY this, no other text):
     // Try to parse the JSON response
     try {
       // Clean up response - remove markdown code blocks if present
-      let cleanResponse = response.trim();
-      if (!cleanResponse) {
+      const rawTrimmed = response.trim();
+      if (!rawTrimmed) {
         throw new Error('Response was empty after trimming');
       }
+      const { cleanedText } = parseAiJsonResponse(response);
+      let cleanResponse = cleanedText;
       
       // Remove markdown code blocks (handle both single-line and multi-line)
       // Match ```json ... ``` or ``` ... ```
@@ -1364,8 +1451,19 @@ JSON format (return ONLY this, no other text):
       console.error('Raw AI Response (first 1000 chars):', response.substring(0, 1000));
       console.error('Raw AI Response length:', response.length);
       
-      // Try to extract and fix common JSON issues
+      // Try the repair pipeline one more time before failing the whole marking run
       try {
+        const { parsed: repairedMarkingResult, cleanedText } = parseAiJsonResponse(response);
+        console.log('ðŸ”„ Repaired JSON preview:', cleanedText.substring(0, 500));
+        console.log('âœ… Successfully repaired AI JSON response!');
+        if (result && result.usage) {
+          repairedMarkingResult.usage = result.usage;
+          repairedMarkingResult.estimated_cost_usd = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
+        }
+        if (repairedMarkingResult.scores && Array.isArray(repairedMarkingResult.scores)) {
+          return repairedMarkingResult;
+        }
+
         // Find the first { and then find the matching closing }
         const jsonStart = response.indexOf('{');
         if (jsonStart !== -1) {
