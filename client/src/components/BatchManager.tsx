@@ -15,6 +15,7 @@ const BatchManager: React.FC = () => {
   const [newBatchName, setNewBatchName] = useState('');
   const [newBatchDescription, setNewBatchDescription] = useState('');
   const [selectedAssignments, setSelectedAssignments] = useState<number[]>([]);
+  const [selectedAssignmentsToRemove, setSelectedAssignmentsToRemove] = useState<number[]>([]);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [jobs, setJobs] = useState<MarkingJob[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | ''>('');
@@ -124,21 +125,34 @@ const BatchManager: React.FC = () => {
   };
 
   const handleAssignToBatch = async () => {
-    if (!showAssignModal || selectedAssignments.length === 0) {
-      setError('Please select at least one assignment');
+    if (!showAssignModal || (selectedAssignments.length === 0 && selectedAssignmentsToRemove.length === 0)) {
+      setError('Please select at least one change');
       return;
     }
 
     try {
       setLoading(true);
       setError(null);
-      await batchesAPI.assignToBatch(showAssignModal.id, selectedAssignments);
-      setSuccess(`Assigned ${selectedAssignments.length} assignment(s) to batch`);
+      if (selectedAssignments.length > 0) {
+        await batchesAPI.assignToBatch(showAssignModal.id, selectedAssignments);
+      }
+      if (selectedAssignmentsToRemove.length > 0) {
+        await batchesAPI.unassignFromBatch(showAssignModal.id, selectedAssignmentsToRemove);
+      }
+      const messages = [];
+      if (selectedAssignments.length > 0) {
+        messages.push(`added ${selectedAssignments.length}`);
+      }
+      if (selectedAssignmentsToRemove.length > 0) {
+        messages.push(`removed ${selectedAssignmentsToRemove.length}`);
+      }
+      setSuccess(`Batch contents updated: ${messages.join(', ')}`);
       setShowAssignModal(null);
       setSelectedAssignments([]);
+      setSelectedAssignmentsToRemove([]);
       fetchData();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to assign assignments');
+      setError(err.response?.data?.error || 'Failed to update batch contents');
     } finally {
       setLoading(false);
     }
@@ -178,6 +192,7 @@ const BatchManager: React.FC = () => {
   const openAssignModal = (batch: Batch) => {
     setShowAssignModal(batch);
     setSelectedAssignments([]);
+    setSelectedAssignmentsToRemove([]);
   };
 
   const openScheduleModal = (batch: Batch) => {
@@ -191,6 +206,13 @@ const BatchManager: React.FC = () => {
   };
   const getAssignmentsForBatch = (batchId: number) => {
     return assignments.filter((a) => a.batch_id === batchId);
+  };
+  const getMovableAssignments = (batchId: number) => {
+    return assignments.filter((assignment) => assignment.batch_id !== batchId);
+  };
+  const getBatchName = (batchId?: number | null) => {
+    if (!batchId) return 'Unassigned';
+    return batches.find((batch) => batch.id === batchId)?.name || `Folder #${batchId}`;
   };
 
   const getJobProgress = (job: MarkingJob) => {
@@ -350,7 +372,7 @@ const BatchManager: React.FC = () => {
                 onClick={() => openAssignModal(batch)}
                 className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
-                Assign Assignments
+                Edit Contents
               </button>
               <button
                 onClick={() => openScheduleModal(batch)}
@@ -501,15 +523,16 @@ const BatchManager: React.FC = () => {
       {/* Assign to Batch Modal */}
       {showAssignModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white max-h-[80vh] overflow-y-auto">
+          <div className="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-900">
-                Assign to "{showAssignModal.name}"
+                Edit Contents for "{showAssignModal.name}"
               </h3>
               <button
                 onClick={() => {
                   setShowAssignModal(null);
                   setSelectedAssignments([]);
+                  setSelectedAssignmentsToRemove([]);
                   setError(null);
                 }}
                 className="text-gray-400 hover:text-gray-600"
@@ -519,36 +542,76 @@ const BatchManager: React.FC = () => {
             </div>
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Select assignments to add to this batch:
+                Add or remove assignments from this batch:
               </p>
-              {getUnassignedAssignments().length === 0 ? (
-                <p className="text-sm text-gray-500">No unassigned assignments available.</p>
-              ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {getUnassignedAssignments().map((assignment) => (
-                    <label key={assignment.id} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded">
-                      <input
-                        type="checkbox"
-                        checked={selectedAssignments.includes(assignment.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedAssignments([...selectedAssignments, assignment.id]);
-                          } else {
-                            setSelectedAssignments(selectedAssignments.filter(id => id !== assignment.id));
-                          }
-                        }}
-                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                      />
-                      <span className="text-sm text-gray-700">{assignment.filename}</span>
-                    </label>
-                  ))}
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-2">Currently in this batch</h4>
+                  {getAssignmentsForBatch(showAssignModal.id).length === 0 ? (
+                    <p className="text-sm text-gray-500">No assignments in this batch yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-md p-2">
+                      {getAssignmentsForBatch(showAssignModal.id).map((assignment) => (
+                        <label key={assignment.id} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedAssignmentsToRemove.includes(assignment.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedAssignmentsToRemove([...selectedAssignmentsToRemove, assignment.id]);
+                              } else {
+                                setSelectedAssignmentsToRemove(selectedAssignmentsToRemove.filter(currentId => currentId !== assignment.id));
+                              }
+                            }}
+                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                          />
+                          <span className="text-sm text-gray-700 flex-1">{assignment.filename}</span>
+                          <span className="text-xs text-red-600">Remove</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-800 mb-2">Available to add or move in</h4>
+                  {getMovableAssignments(showAssignModal.id).length === 0 ? (
+                    <p className="text-sm text-gray-500">No assignments available to move into this batch.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-md p-2">
+                      {getMovableAssignments(showAssignModal.id).map((assignment) => (
+                        <label key={assignment.id} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedAssignments.includes(assignment.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedAssignments([...selectedAssignments, assignment.id]);
+                              } else {
+                                setSelectedAssignments(selectedAssignments.filter(currentId => currentId !== assignment.id));
+                              }
+                            }}
+                            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-gray-700 truncate">{assignment.filename}</div>
+                            <div className="text-xs text-gray-500">From: {getBatchName(assignment.batch_id)}</div>
+                          </div>
+                          <span className="text-xs text-primary-600">
+                            {assignment.batch_id ? 'Move here' : 'Add'}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="flex justify-end space-x-3 pt-4 border-t">
                 <button
                   onClick={() => {
                     setShowAssignModal(null);
                     setSelectedAssignments([]);
+                    setSelectedAssignmentsToRemove([]);
                     setError(null);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -557,10 +620,10 @@ const BatchManager: React.FC = () => {
                 </button>
                 <button
                   onClick={handleAssignToBatch}
-                  disabled={loading || selectedAssignments.length === 0}
+                  disabled={loading || (selectedAssignments.length === 0 && selectedAssignmentsToRemove.length === 0)}
                   className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50"
                 >
-                  {loading ? 'Assigning...' : `Assign ${selectedAssignments.length}`}
+                  {loading ? 'Saving...' : `Save Changes (${selectedAssignments.length + selectedAssignmentsToRemove.length})`}
                 </button>
               </div>
             </div>
