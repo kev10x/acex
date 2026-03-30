@@ -988,42 +988,42 @@ const ResultsDashboard: React.FC = () => {
 
             const renderResultsTable = (resultsToShow: MarkingResult[]) => (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full table-fixed divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[24%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Student/Assignment
                       </th>
                       {!isStudent && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Review Status
                         </th>
                       )}
                       {groupBy !== 'rubric' && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Rubric
                         </th>
                       )}
                       {groupBy !== 'folder' && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Folder
                         </th>
                       )}
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Score
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Confidence
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Tokens / Cost
                       </th>
                       {groupBy !== 'date' && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Marked At
                         </th>
                       )}
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
@@ -1034,10 +1034,10 @@ const ResultsDashboard: React.FC = () => {
                         key={result.id || `result-${index}`} 
                         className={`hover:bg-gray-50 ${result.needs_review ? 'bg-red-50 border-l-4 border-red-400' : ''}`}
                       >
-	                        <td className="px-6 py-4 max-w-xs">
+	                        <td className="px-4 py-4 align-top">
 	                          <div>
-                            <div className="flex items-start space-x-2 flex-wrap">
-                              <div className="text-sm font-medium text-gray-900 break-words min-w-0 flex-1">
+                            <div className="flex min-w-0 flex-wrap items-start gap-2">
+                              <div className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-gray-900">
                                 {result.student_name || 'Unnamed Student'}
                               </div>
                               {result.needs_review && (
@@ -1063,15 +1063,15 @@ const ResultsDashboard: React.FC = () => {
                                 </span>
                               )}
                             </div>
-	                            <div className="text-sm text-gray-500 break-words mt-1">
+	                            <div className="mt-1 text-sm text-gray-500 whitespace-normal break-words">
 	                              {result.filename}
 	                            </div>
 	                          </div>
 	                        </td>
                           {!isStudent && (
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-4 align-top">
                               <span
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                className={`inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-normal break-words ${
                                   result.review_status === 'reviewed'
                                     ? 'bg-green-100 text-green-800'
                                     : result.flagged_for_moderation
@@ -1090,18 +1090,18 @@ const ResultsDashboard: React.FC = () => {
                                   : 'Normal'}
                               </span>
                             </td>
-                          )}
+	                          )}
 	                        {groupBy !== 'rubric' && (
-	                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+	                          <td className="px-4 py-4 align-top text-sm text-gray-900 whitespace-normal break-words">
 	                            {result.rubric_name}
-                          </td>
+	                          </td>
                         )}
                         {groupBy !== 'folder' && (
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className="px-4 py-4 align-top text-sm text-gray-900 whitespace-normal break-words">
                             {result.folder_name || 'Unassigned'}
                           </td>
                         )}
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top">
                           {(() => {
                             const maxPoints = result.max_points || 100;
                             const shownScore = result.effective_total_score ?? result.override_total_score ?? result.total_score;
@@ -1124,7 +1124,7 @@ const ResultsDashboard: React.FC = () => {
                             );
                           })()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top">
                           <div className="flex flex-col space-y-0.5">
                             {result.overall_confidence !== undefined ? (
                               <>
@@ -1157,7 +1157,7 @@ const ResultsDashboard: React.FC = () => {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        <td className="px-4 py-4 align-top text-sm text-gray-600">
                           <div className="flex flex-col">
                             <span className="text-xs">
                               {formatTokens(result.total_tokens)} tokens
@@ -1168,12 +1168,12 @@ const ResultsDashboard: React.FC = () => {
                           </div>
                         </td>
                         {groupBy !== 'date' && (
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <td className="px-4 py-4 align-top text-sm text-gray-500 whitespace-normal break-words">
                             {formatDate(result.marked_at)}
                           </td>
                         )}
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-2">
+                        <td className="px-4 py-4 align-top text-sm font-medium">
+                          <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => setSelectedResult(result)}
                               className="text-primary-600 hover:text-primary-900"
@@ -1287,7 +1287,7 @@ const ResultsDashboard: React.FC = () => {
       {/* Result Detail Modal */}
       {selectedResult && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-10 mx-auto p-6 border w-11/12 md:w-4/5 lg:w-3/4 xl:w-2/3 shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
+          <div className="relative top-10 mx-auto w-11/12 rounded-md border bg-white p-6 shadow-lg max-h-[90vh] overflow-y-auto md:w-11/12 lg:w-5/6 xl:w-4/5 2xl:w-3/4">
             <div className="mt-3">
               <div className="flex justify-between items-center mb-6">
                 <div>
@@ -1307,28 +1307,30 @@ const ResultsDashboard: React.FC = () => {
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700">Assignment</h4>
-                  <p className="text-sm text-gray-900">{selectedResult.filename}</p>
-                  {selectedResult.student_name && (
-                    <p className="text-sm text-gray-600">Student: {selectedResult.student_name}</p>
-                  )}
-                  <p className="text-sm text-gray-600">Folder: {selectedResult.folder_name || 'Unassigned'}</p>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <h4 className="text-sm font-medium text-gray-700">Assignment</h4>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-normal break-words">{selectedResult.filename}</p>
+                    {selectedResult.student_name && (
+                      <p className="mt-2 text-sm text-gray-600 whitespace-normal break-words">Student: {selectedResult.student_name}</p>
+                    )}
+                    <p className="mt-1 text-sm text-gray-600 whitespace-normal break-words">Folder: {selectedResult.folder_name || 'Unassigned'}</p>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <h4 className="text-sm font-medium text-gray-700">Rubric</h4>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-normal break-words">{selectedResult.rubric_name}</p>
+                  </div>
                 </div>
 
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700">Rubric</h4>
-                  <p className="text-sm text-gray-900">{selectedResult.rubric_name}</p>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700">Scores</h4>
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <h4 className="mb-3 text-sm font-medium text-gray-700">Scores</h4>
                   <div className="space-y-2">
                     {(Array.isArray(selectedResult.scores) ? selectedResult.scores : []).map((score, index) => (
-                      <div key={`score-${selectedResult.id}-${index}`} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                        <div className="flex-1">
-                          <span className="text-sm text-gray-900">{score.criterion_name}</span>
+                      <div key={`score-${selectedResult.id}-${index}`} className="flex flex-col gap-3 rounded-lg bg-gray-50 p-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm text-gray-900 whitespace-normal break-words">{score.criterion_name}</span>
                           {score.confidence !== undefined && (
                             <div className="mt-1">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getConfidenceColor(score.confidence)}`}>
@@ -1338,14 +1340,14 @@ const ResultsDashboard: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        <span className="text-sm font-medium text-gray-900 ml-2">
+                        <span className="shrink-0 text-sm font-medium text-gray-900">
                           {score.points_awarded}/{score.max_points}
                         </span>
                       </div>
                     ))}
-                    <div className="flex justify-between items-center p-2 bg-primary-50 rounded border-t">
+                    <div className="flex flex-col gap-2 rounded-lg border-t bg-primary-50 p-3 sm:flex-row sm:items-center sm:justify-between">
                       <span className="text-sm font-medium text-gray-900">Total Score</span>
-                      <div className="text-sm font-bold text-primary-900 flex items-center space-x-2">
+                      <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-primary-900">
                         <span>
                           {(selectedResult.effective_total_score ?? selectedResult.override_total_score ?? selectedResult.total_score)}
                           {selectedResult.max_points ? ` / ${selectedResult.max_points}` : ''}
@@ -1360,12 +1362,13 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                 {selectedResult.overall_confidence !== undefined && (
-                  <div>
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Assessment Confidence</h4>
-                    <div className="flex items-center space-x-3">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
+                    <div className="flex flex-col gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                           <span className="text-xs text-gray-600">Overall Confidence</span>
                           <span className={`text-sm font-medium ${getConfidenceColor(selectedResult.overall_confidence).split(' ')[0]}`}>
                             {selectedResult.overall_confidence}% ({getConfidenceLabel(selectedResult.overall_confidence)})
@@ -1382,7 +1385,7 @@ const ResultsDashboard: React.FC = () => {
                         </div>
                       </div>
                       {selectedResult.needs_review && (
-                        <div className="flex items-center px-3 py-2 bg-red-50 border border-red-200 rounded-md">
+                        <div className="flex items-center rounded-md border border-red-200 bg-red-50 px-3 py-2">
                           <AlertTriangle className="w-4 h-4 text-red-600 mr-2" />
                           <span className="text-xs text-red-800 font-medium">Needs Review</span>
                         </div>
@@ -1397,11 +1400,11 @@ const ResultsDashboard: React.FC = () => {
                 )}
 
                 {selectedResult.handwriting_recognition_confidence != null && (
-                  <div className="mt-4">
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Handwriting recognition</h4>
-                    <div className="flex items-center space-x-3">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                           <span className="text-xs text-gray-600">How legible the handwritten submission was</span>
                           <span className={`text-sm font-medium ${getConfidenceColor(selectedResult.handwriting_recognition_confidence).split(' ')[0]}`}>
                             {selectedResult.handwriting_recognition_confidence}% ({getConfidenceLabel(selectedResult.handwriting_recognition_confidence)})
@@ -1422,11 +1425,11 @@ const ResultsDashboard: React.FC = () => {
                 )}
 
                 {(selectedResult.prompt_tokens != null || selectedResult.estimated_cost_usd != null) && (
-                  <div className="mt-4">
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Token usage & cost</h4>
-                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-600">
                       {selectedResult.total_tokens != null && (
-                        <span>{formatTokens(selectedResult.total_tokens)} total tokens</span>
+                        <span className="whitespace-normal break-words">{formatTokens(selectedResult.total_tokens)} total tokens</span>
                       )}
                       {selectedResult.prompt_tokens != null && (
                         <span>{formatTokens(selectedResult.prompt_tokens)} in · {formatTokens(selectedResult.completion_tokens)} out</span>
@@ -1434,7 +1437,7 @@ const ResultsDashboard: React.FC = () => {
                       {selectedResult.estimated_cost_usd != null && (() => {
                         const usd = Number(selectedResult.estimated_cost_usd);
                         return (
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 whitespace-normal break-words">
                             {formatCostUsdToZar(selectedResult.estimated_cost_usd)}
                             {Number.isFinite(usd) ? ` (≈ $${usd.toFixed(4)} USD)` : ''}
                           </span>
@@ -1443,6 +1446,7 @@ const ResultsDashboard: React.FC = () => {
                     </div>
                   </div>
                 )}
+                </div>
 
                 {/* Comprehensive Feedback Section - Primary Focus */}
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border-l-4 border-blue-500">
@@ -1451,12 +1455,12 @@ const ResultsDashboard: React.FC = () => {
                     <h4 className="text-lg font-semibold text-gray-900">Comprehensive Feedback</h4>
                   </div>
                   {selectedResult.handwriting_recognition_confidence != null && (
-                    <p className="mb-3 text-sm text-gray-600">
+                    <p className="mb-3 text-sm text-gray-600 whitespace-normal break-words">
                       Handwritten submission — recognition confidence: <span className="font-medium">{selectedResult.handwriting_recognition_confidence}%</span>
                     </p>
                   )}
                   <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
-                    <p className="text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-base text-gray-900 whitespace-pre-wrap break-words leading-relaxed">
                       {selectedResult.effective_feedback || selectedResult.custom_feedback || selectedResult.feedback || (selectedResult as any).overall_feedback || 'No feedback available'}
                     </p>
                   </div>
@@ -1480,7 +1484,7 @@ const ResultsDashboard: React.FC = () => {
                         />
                       </div>
                       {(selectedResult.moderation_updated_at || selectedResult.moderation_updated_by_name || selectedResult.moderation_updated_by_email) && (
-                        <div className="rounded-md bg-white/80 border border-amber-200 px-3 py-2 text-sm text-gray-700">
+                        <div className="rounded-md bg-white/80 border border-amber-200 px-3 py-2 text-sm text-gray-700 whitespace-normal break-words">
                           <span className="font-medium text-gray-900">Last review update:</span>{' '}
                           {formatModeratorLabel(selectedResult) || 'Unknown reviewer'}
                           {selectedResult.moderation_updated_at ? ` on ${formatDate(selectedResult.moderation_updated_at)}` : ''}
@@ -1509,7 +1513,7 @@ const ResultsDashboard: React.FC = () => {
                           placeholder="Leave blank to keep AI score"
                         />
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => handleToggleModerationFlag(selectedResult)}
@@ -1606,17 +1610,17 @@ const ResultsDashboard: React.FC = () => {
                           key={`feedback-${selectedResult.id}-${index}`}
                           className="bg-white rounded-lg p-5 shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
                         >
-                          <div className="flex items-start justify-between mb-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-3">
                             <div className="flex-1">
-                              <h5 className="text-base font-semibold text-gray-900 mb-1">
+                              <h5 className="text-base font-semibold text-gray-900 mb-1 whitespace-normal break-words">
                                 {score.criterion_name}
                               </h5>
-                              <div className="flex items-center space-x-3 text-sm">
-                                <span className="text-gray-600">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                <span className="text-gray-600 whitespace-normal break-words">
                                   Score: <span className="font-semibold text-gray-900">{score.points_awarded} / {score.max_points}</span>
                                 </span>
                                 {score.confidence !== undefined && (
-                                  <span className="text-gray-500">
+                                  <span className="text-gray-500 whitespace-normal break-words">
                                     Confidence: {score.confidence}%
                                   </span>
                                 )}
@@ -1625,10 +1629,10 @@ const ResultsDashboard: React.FC = () => {
                           </div>
                           {score.feedback && (
                             <div className="mt-3 pt-3 border-t border-gray-100">
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                                {score.feedback}
-                              </p>
-                            </div>
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed">
+                              {score.feedback}
+                            </p>
+                          </div>
                           )}
                         </div>
                       ))}
@@ -1649,7 +1653,7 @@ const ResultsDashboard: React.FC = () => {
                               : 'bg-blue-50 border-blue-400'
                           }`}
                         >
-                          <div className="flex items-start justify-between mb-2">
+                          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                               correction.type === 'correction'
                                 ? 'bg-red-100 text-red-800'
@@ -1657,23 +1661,23 @@ const ResultsDashboard: React.FC = () => {
                             }`}>
                               {correction.type === 'correction' ? 'Correction' : 'Suggestion'}
                             </span>
-                            <span className="text-xs text-gray-500 font-medium">
+                            <span className="text-xs text-gray-500 font-medium whitespace-normal break-words">
                               {correction.criterion_name}
                             </span>
                           </div>
                           <div className="mt-2">
-                            <p className="text-xs font-semibold text-gray-700 mb-1">
+                            <p className="text-xs font-semibold text-gray-700 mb-1 whitespace-normal break-words">
                               Location: <span className="font-normal">{correction.location}</span>
                             </p>
-                            <p className="text-sm text-gray-800 mb-2">
+                            <p className="text-sm text-gray-800 mb-2 whitespace-pre-wrap break-words">
                               <span className="font-semibold">Issue:</span> {correction.issue}
                             </p>
-                            <p className="text-sm text-gray-800 mb-2">
+                            <p className="text-sm text-gray-800 mb-2 whitespace-pre-wrap break-words">
                               <span className="font-semibold">
                                 {correction.type === 'correction' ? 'Correction:' : 'Suggestion:'}
                               </span> {correction.correction}
                             </p>
-                            <p className="text-xs text-gray-600 italic">
+                            <p className="text-xs text-gray-600 italic whitespace-pre-wrap break-words">
                               {correction.reason}
                             </p>
                           </div>
@@ -1704,7 +1708,7 @@ const ResultsDashboard: React.FC = () => {
                               : 'bg-indigo-50 border-indigo-400'
                           }`}
                         >
-                          <div className="flex items-start justify-between mb-2">
+                          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                               error.error_type === 'grammar'
                                 ? 'bg-yellow-100 text-yellow-800'
@@ -1720,16 +1724,16 @@ const ResultsDashboard: React.FC = () => {
                             </span>
                           </div>
                           <div className="mt-2 space-y-1">
-                            <p className="text-xs font-semibold text-gray-700">
+                            <p className="text-xs font-semibold text-gray-700 whitespace-normal break-words">
                               Location: <span className="font-normal">{error.location}</span>
                             </p>
-                            <p className="text-sm text-red-700">
+                            <p className="text-sm text-red-700 whitespace-pre-wrap break-words">
                               <span className="font-semibold">Error:</span> "{error.error_text}"
                             </p>
-                            <p className="text-sm text-green-700">
+                            <p className="text-sm text-green-700 whitespace-pre-wrap break-words">
                               <span className="font-semibold">Correction:</span> "{error.correction}"
                             </p>
-                            <p className="text-xs text-gray-600 italic">
+                            <p className="text-xs text-gray-600 italic whitespace-pre-wrap break-words">
                               {error.explanation}
                             </p>
                           </div>
@@ -1744,7 +1748,7 @@ const ResultsDashboard: React.FC = () => {
                   <p className="text-sm text-gray-900">{formatDate(selectedResult.marked_at)}</p>
                 </div>
 
-                {!isStudent && <div className="flex space-x-2 pt-4">
+                {!isStudent && <div className="flex flex-wrap gap-2 pt-4">
                   <button
                     onClick={() => handleViewAnnotatedPDF(selectedResult.id)}
                     className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
