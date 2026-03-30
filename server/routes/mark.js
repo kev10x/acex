@@ -348,6 +348,135 @@ Respond with ONLY a JSON object:
   }
 };
 
+const parseMarkingResponsePayload = (response, { selectedProvider = 'openai', usage = null, imageBased = false } = {}) => {
+  const trimmedResponse = String(response || '').trim();
+  if (!trimmedResponse) {
+    throw new Error('The AI returned an empty response. This can happen with content filters, rate limits, or token limits. Please try again or use a shorter submission.');
+  }
+
+  let cleanResponse = parseAiJsonResponse(trimmedResponse).cleanedText;
+  cleanResponse = cleanResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+  const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    cleanResponse = jsonMatch[0];
+  }
+
+  cleanResponse = cleanResponse.trim();
+  cleanResponse = cleanResponse.replace(/":\s*\\"/g, '": "');
+  cleanResponse = cleanResponse.replace(/\\"(\s*[,}\]])/g, '"$1');
+
+  let markingResult;
+  try {
+    markingResult = JSON.parse(cleanResponse);
+  } catch (firstParseError) {
+    const repaired = cleanResponse.replace(/([^\\])\\"([^"\\]|$)/g, (_, before, after) => before + '"' + after);
+    markingResult = JSON.parse(repaired);
+  }
+
+  if (!markingResult.scores || !Array.isArray(markingResult.scores)) {
+    throw new Error('Invalid response structure: missing scores array');
+  }
+  if (!markingResult.overall_feedback || typeof markingResult.overall_feedback !== 'string') {
+    throw new Error('Invalid response structure: missing overall_feedback');
+  }
+  if (typeof markingResult.total_score !== 'number') {
+    throw new Error('Invalid response structure: missing or invalid total_score');
+  }
+
+  const confidenceThreshold = 70;
+
+  markingResult.scores = markingResult.scores.map((score) => ({
+    ...score,
+    confidence: typeof score.confidence === 'number' ? Math.max(0, Math.min(100, score.confidence)) : 80
+  }));
+
+  if (typeof markingResult.overall_confidence !== 'number') {
+    const avgConfidence = markingResult.scores.length > 0
+      ? markingResult.scores.reduce((sum, score) => sum + (score.confidence || 80), 0) / markingResult.scores.length
+      : 80;
+    markingResult.overall_confidence = Math.round(avgConfidence);
+  } else {
+    markingResult.overall_confidence = Math.max(0, Math.min(100, markingResult.overall_confidence));
+  }
+
+  if (!markingResult.corrections || !Array.isArray(markingResult.corrections)) {
+    markingResult.corrections = [];
+  } else {
+    markingResult.corrections = markingResult.corrections.filter((correction) => (
+      correction &&
+      typeof correction.type === 'string' &&
+      (correction.type === 'correction' || correction.type === 'suggestion') &&
+      typeof correction.location === 'string' &&
+      typeof correction.issue === 'string' &&
+      typeof correction.correction === 'string'
+    ));
+  }
+
+  if (!markingResult.language_errors || !Array.isArray(markingResult.language_errors)) {
+    markingResult.language_errors = [];
+  }
+
+  markingResult.needs_review = markingResult.overall_confidence < confidenceThreshold;
+  markingResult.confidence_level = markingResult.overall_confidence >= 80
+    ? 'high'
+    : markingResult.overall_confidence >= 60
+    ? 'medium'
+    : 'low';
+
+  if (imageBased) {
+    const handwritingConfidence = markingResult.handwriting_recognition_confidence;
+    markingResult.handwriting_recognition_confidence = typeof handwritingConfidence === 'number' && !Number.isNaN(handwritingConfidence)
+      ? Math.max(0, Math.min(100, Math.round(handwritingConfidence)))
+      : null;
+  } else {
+    markingResult.handwriting_recognition_confidence = null;
+  }
+
+  const minConfidence = Math.min(...markingResult.scores.map((score) => score.confidence || 80));
+  markingResult.min_criterion_confidence = minConfidence;
+  markingResult.has_low_criterion_confidence = minConfidence < confidenceThreshold;
+
+  markingResult.scores = markingResult.scores.map((score) => {
+    const maxPoints = score.max_points || 0;
+    let normalizedPoints = score.points_awarded || 0;
+
+    if (maxPoints > 0 && Number.isInteger(maxPoints)) {
+      normalizedPoints = Math.round(normalizedPoints * 2) / 2;
+    } else {
+      normalizedPoints = Math.round(normalizedPoints * 10) / 10;
+    }
+
+    normalizedPoints = Math.min(Math.max(normalizedPoints, 0), maxPoints);
+
+    return {
+      ...score,
+      points_awarded: normalizedPoints,
+      feedback: score.feedback
+        ? score.feedback.replace(/\s+/g, ' ').replace(/\n\s*\n\s*\n/g, '\n\n').trim()
+        : score.feedback
+    };
+  });
+
+  markingResult.total_score = Math.round(
+    markingResult.scores.reduce((sum, score) => sum + (score.points_awarded || 0), 0) * 10
+  ) / 10;
+
+  if (markingResult.overall_feedback) {
+    markingResult.overall_feedback = markingResult.overall_feedback
+      .replace(/\s+/g, ' ')
+      .replace(/\n\s*\n\s*\n/g, '\n\n')
+      .trim();
+  }
+
+  if (usage) {
+    markingResult.usage = usage;
+    markingResult.estimated_cost_usd = aiConfig.estimateCost(usage.prompt_tokens, usage.completion_tokens, selectedProvider);
+  }
+
+  return markingResult;
+};
+
 // Generate AI marking using OpenAI or Anthropic
 // When assignmentImages (array of base64 strings) is provided, the PDF is marked from images instead of extracted text (vision-based).
 const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null) => {
@@ -1517,61 +1646,151 @@ JSON format (return ONLY this, no other text):
   }
 };
 
+const ANCHOR_STOP_WORDS = new Set([
+  'about', 'after', 'again', 'against', 'because', 'before', 'between', 'could', 'does',
+  'doing', 'during', 'each', 'from', 'have', 'having', 'into', 'more', 'most', 'other',
+  'over', 'should', 'some', 'such', 'than', 'that', 'their', 'there', 'these', 'they',
+  'this', 'those', 'through', 'under', 'very', 'what', 'when', 'where', 'which', 'while',
+  'with', 'would', 'your', 'student', 'criterion', 'feedback'
+]);
+
+const chunkArray = (items, chunkSize) => {
+  const result = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    result.push(items.slice(index, index + chunkSize));
+  }
+  return result;
+};
+
+const extractAnchorKeywords = (...values) => {
+  const seen = new Set();
+  const keywords = [];
+
+  values
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ')
+    .match(/[a-z0-9]{4,}/g)
+    ?.forEach((word) => {
+      if (seen.has(word) || ANCHOR_STOP_WORDS.has(word)) return;
+      seen.add(word);
+      keywords.push(word);
+    });
+
+  return keywords.slice(0, 12);
+};
+
+const getDocumentAnchorCandidates = (documentText) => {
+  const rawSegments = String(documentText || '')
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=[.!?;:])\s+/))
+    .map((segment) => segment.replace(/\s+/g, ' ').trim())
+    .filter((segment) => segment.length >= 20 && segment.length <= 160);
+
+  const unique = [];
+  const seen = new Set();
+  for (const segment of rawSegments) {
+    const normalized = segment.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(segment);
+    if (unique.length >= 500) break;
+  }
+
+  return unique;
+};
+
+const buildHeuristicAnchorsMap = (documentText, markingResult) => {
+  const candidates = getDocumentAnchorCandidates(documentText);
+  const map = new Map();
+
+  for (const score of markingResult?.scores || []) {
+    const keywords = extractAnchorKeywords(score.criterion_name, score.feedback);
+    if (keywords.length === 0) continue;
+
+    const ranked = candidates
+      .map((candidate) => {
+        const lower = candidate.toLowerCase();
+        const keywordHits = keywords.reduce((sum, keyword) => sum + (lower.includes(keyword) ? 1 : 0), 0);
+        const phraseBoost = lower.includes(String(score.criterion_name || '').toLowerCase()) ? 1 : 0;
+        const scoreValue = keywordHits * 10 + phraseBoost - Math.abs(candidate.length - 90) / 40;
+        return { candidate, scoreValue };
+      })
+      .filter((item) => item.scoreValue > 0)
+      .sort((a, b) => b.scoreValue - a.scoreValue)
+      .slice(0, 3)
+      .map((item) => item.candidate);
+
+    if (ranked.length > 0) {
+      map.set(score.criterion_name, ranked);
+    }
+  }
+
+  return map;
+};
+
 // Generate short anchor quotes from the document for each criterion to enable pinpoint annotations
 const generateAnchorPhrases = async (documentText, markingResult, documentType = 'treatise') => {
+  const heuristicAnchors = buildHeuristicAnchorsMap(documentText, markingResult);
+
   try {
     const config = aiConfig.getConfig(documentType);
 
     // Keep this call small to avoid extra costs and TPM issues
-    const maxEssayChars = Math.min(8000, documentText?.length || 0);
+    const maxEssayChars = Math.min(4000, documentText?.length || 0);
     const essaySnippet = documentText?.substring(0, maxEssayChars) || '';
 
     const compactScores = (markingResult?.scores || []).map(s => ({
       criterion_name: s.criterion_name,
-      feedback: (s.feedback || '').slice(0, 400)
+      feedback: (s.feedback || '').slice(0, 220)
     }));
 
-    const anchorPrompt = `You are assisting with academic markup.
-We have a treatise excerpt (first ${maxEssayChars} chars) and per-criterion feedback.
-For each criterion, return up to 3 SHORT exact quotes (<=120 chars) copied verbatim from the excerpt that best exemplify the issue described in the feedback. Quotes must be exact substrings of the excerpt.
-Return ONLY JSON in this format:
-{
-  "anchors": [
-    { "criterion_name": "...", "quotes": ["short exact quote", "short exact quote"] }
-  ]
-}
+    const map = new Map();
+    const anchorConfig = aiConfig.getTaskConfig('anchorExtraction', config.provider);
+    const scoreChunks = chunkArray(compactScores, 6);
 
-TREATISE EXCERPT:
+    for (const scoreChunk of scoreChunks) {
+      const anchorPrompt = `Return exact anchor quotes for PDF comments.
+Use only the excerpt below.
+For each criterion, return up to 2 exact quotes copied verbatim from the excerpt.
+Each quote must be 8 to 120 characters.
+Return JSON only:
+{"anchors":[{"criterion_name":"...","quotes":["exact quote"]}]}
+
+EXCERPT:
 ${essaySnippet}
 
-FEEDBACK:
-${JSON.stringify(compactScores)}`;
+CRITERIA:
+${JSON.stringify(scoreChunk)}`;
 
-    // Use aiService for anchor phrase generation
-    const result = await aiService.createCompletionWithRetry({
-      provider: config.provider,
-      model: config.model,
-      messages: [{ role: 'user', content: anchorPrompt }],
-      temperature: 0.1,
-      maxTokens: 800
-    }, 2);
+      const result = await aiService.createCompletionWithRetry({
+        provider: anchorConfig.provider,
+        model: anchorConfig.model,
+        messages: [{ role: 'user', content: anchorPrompt }],
+        temperature: anchorConfig.temperature,
+        maxTokens: anchorConfig.maxTokens
+      }, 2);
 
-    const raw = result.content || '';
-    let clean = raw.trim();
-    if (clean.startsWith('```json')) clean = clean.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    else if (clean.startsWith('```')) clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '');
-
-    const parsed = JSON.parse(clean);
-    const map = new Map();
-    for (const item of parsed.anchors || []) {
-      if (item?.criterion_name && Array.isArray(item.quotes)) {
-        map.set(item.criterion_name, item.quotes.filter(q => typeof q === 'string' && q.length >= 8 && q.length <= 160));
+      const raw = result.content || '';
+      const parsed = parseAiJsonResponse(raw).parsed;
+      for (const item of parsed.anchors || []) {
+        if (!item?.criterion_name || !Array.isArray(item.quotes)) continue;
+        const filteredQuotes = item.quotes.filter((q) => typeof q === 'string' && q.length >= 8 && q.length <= 160);
+        if (filteredQuotes.length > 0) {
+          map.set(item.criterion_name, filteredQuotes.slice(0, 2));
+        }
       }
     }
+
+    for (const [criterionName, quotes] of heuristicAnchors.entries()) {
+      if (!map.has(criterionName) && quotes.length > 0) {
+        map.set(criterionName, quotes);
+      }
+    }
+
     return map;
   } catch (error) {
     console.warn('Anchor phrase generation failed (non-fatal):', error.message);
-    return new Map();
+    return heuristicAnchors;
   }
 };
 
@@ -2562,4 +2781,5 @@ router.get('/history/compare/:result_id1/:result_id2', requireAuth, async (req, 
 
 module.exports = router;
 module.exports.generateMarking = generateMarking;
+module.exports.parseMarkingResponsePayload = parseMarkingResponsePayload;
 

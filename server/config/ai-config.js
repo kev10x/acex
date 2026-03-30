@@ -93,6 +93,37 @@ module.exports = {
     }
   },
 
+  // Task-specific overrides so lightweight extraction/classification work
+  // does not accidentally inherit large marking budgets.
+  taskProfiles: {
+    classification: {
+      openai: { model: 'gpt-5-mini', maxTokens: 220, temperature: 0.1 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 220, temperature: 0.1 }
+    },
+    structuredExtraction: {
+      openai: { model: 'gpt-5-mini', maxTokens: 3200, temperature: 0.2 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 3200, temperature: 0.2 }
+    },
+    assessmentGeneration: {
+      openai: { model: 'gpt-5-mini', maxTokens: 4500, temperature: 0.6 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4500, temperature: 0.6 }
+    },
+    contentGeneration: {
+      openai: { model: 'gpt-5-mini', maxTokens: 4200, temperature: 0.55 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4200, temperature: 0.55 }
+    },
+    anchorExtraction: {
+      openai: { model: 'gpt-4o-mini', maxTokens: 250, temperature: 0.1 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 250, temperature: 0.1 }
+    },
+    visionOCR: {
+      openai: { model: 'gpt-4o-mini', maxTokens: 1800, temperature: 0.2 }
+    },
+    visionMCQ: {
+      openai: { model: 'gpt-4o-mini', maxTokens: 350, temperature: 0.1 }
+    }
+  },
+
   // Cost estimation (pricing as of 2025; GPT-5.2 is higher than GPT-4o)
   pricing: {
     openai: {
@@ -120,6 +151,26 @@ module.exports = {
       model: providerConfig.models[documentType] || providerConfig.models.default,
       maxTokens: providerConfig.maxTokens[documentType] || providerConfig.maxTokens.default,
       temperature: providerConfig.temperature[documentType] || providerConfig.temperature.default
+    };
+  },
+
+  getTaskConfig: function(taskName, provider = null) {
+    const selectedProvider = provider || this.defaultProvider;
+    const profile = this.taskProfiles[taskName];
+    if (!profile) {
+      throw new Error(`Unknown AI task profile: ${taskName}`);
+    }
+
+    const providerProfile = profile[selectedProvider] || profile.openai || profile.anthropic;
+    if (!providerProfile) {
+      throw new Error(`No AI task profile for task ${taskName} and provider ${selectedProvider}`);
+    }
+
+    return {
+      provider: selectedProvider,
+      model: providerProfile.model,
+      maxTokens: providerProfile.maxTokens,
+      temperature: providerProfile.temperature
     };
   },
 

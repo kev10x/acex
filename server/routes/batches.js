@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../database/connection');
 const { requireAuth } = require('../middleware/auth');
 const { generateMarking } = require('./mark');
+const { runOpenAIBatchPollingCycle } = require('../services/openaiBatchMarkingService');
 
 const router = express.Router();
 const scheduledTimers = new Map();
@@ -35,9 +36,9 @@ const runMarkingJob = async (jobId) => {
   const assignments = rowsOf(await query(
     `SELECT a.id, a.filename, a.extracted_text
      FROM assignments a
-     WHERE a.batch_id = ? AND a.user_id = ?
+     WHERE a.batch_id = ? AND a.user_id = ? AND a.status = ?
      ORDER BY a.uploaded_at ASC`,
-    [job.batch_id, job.user_id]
+    [job.batch_id, job.user_id, 'uploaded']
   ));
   const rubric = firstRow(await query(
     'SELECT id, criteria, total_points FROM rubrics WHERE id = ? AND user_id = ?',
@@ -63,11 +64,19 @@ const runMarkingJob = async (jobId) => {
 
   for (const assignment of assignments) {
     try {
+      await query(
+        'UPDATE assignments SET status = ?, processing_job_id = ? WHERE id = ? AND user_id = ?',
+        ['processing', jobId, assignment.id, job.user_id]
+      );
+      await query(
+        'UPDATE assessment_submissions SET status = ?, failure_reason = NULL, completed_at = NULL WHERE assignment_id = ?',
+        ['processing', assignment.id]
+      );
       const text = (assignment.extracted_text || '').trim();
       if (!text) throw new Error(`No extracted text for ${assignment.filename}`);
 
       const result = await generateMarking(text, rubric);
-      await query(
+      const insertResult = await query(
         `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -80,11 +89,26 @@ const runMarkingJob = async (jobId) => {
           job.user_id
         ]
       );
-      await query('UPDATE assignments SET status = ? WHERE id = ? AND user_id = ?', ['completed', assignment.id, job.user_id]);
+      const resultId = insertResult.insertId ?? insertResult.lastID ?? insertResult.rows?.[0]?.id ?? null;
+      await query(
+        'UPDATE assignments SET status = ?, processing_job_id = NULL WHERE id = ? AND user_id = ?',
+        ['completed', assignment.id, job.user_id]
+      );
+      await query(
+        'UPDATE assessment_submissions SET status = ?, result_id = ?, failure_reason = NULL, completed_at = NOW() WHERE assignment_id = ?',
+        ['completed', resultId, assignment.id]
+      );
       success += 1;
     } catch (err) {
       failed += 1;
-      await query('UPDATE assignments SET status = ? WHERE id = ? AND user_id = ?', ['error', assignment.id, job.user_id]);
+      await query(
+        'UPDATE assignments SET status = ?, processing_job_id = NULL WHERE id = ? AND user_id = ?',
+        ['error', assignment.id, job.user_id]
+      );
+      await query(
+        'UPDATE assessment_submissions SET status = ?, failure_reason = ?, completed_at = NOW() WHERE assignment_id = ?',
+        ['failed', err?.message || 'Unknown error', assignment.id]
+      );
       await query('UPDATE marking_jobs SET last_error = ? WHERE id = ?', [err?.message || 'Unknown error', jobId]);
     } finally {
       processed += 1;
@@ -339,7 +363,7 @@ router.post('/:id/unassign', requireAuth, async (req, res) => {
 router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { rubric_id, scheduled_for } = req.body;
+    const { rubric_id, scheduled_for, provider = 'openai', processing_mode } = req.body;
 
     if (!rubric_id) return res.status(400).json({ error: 'rubric_id is required' });
 
@@ -361,14 +385,35 @@ router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid scheduled_for datetime' });
     }
 
+    const requestedProvider = String(provider || 'openai').toLowerCase();
+    const supportsOpenAIBatch = requestedProvider === 'openai' && !!process.env.OPENAI_API_KEY;
+    const finalProcessingMode = processing_mode
+      ? String(processing_mode)
+      : supportsOpenAIBatch
+      ? 'openai_batch'
+      : 'standard';
+
+    if (finalProcessingMode === 'openai_batch' && requestedProvider !== 'openai') {
+      return res.status(400).json({ error: 'OpenAI batch processing requires provider "openai"' });
+    }
+    if (finalProcessingMode === 'openai_batch' && !process.env.OPENAI_API_KEY) {
+      return res.status(400).json({ error: 'OpenAI batch processing is unavailable because OPENAI_API_KEY is not configured' });
+    }
+
     const insert = await query(
-      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, status, scheduled_for, total_count)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, rubric_id, req.user.id, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount]
+      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, provider, processing_mode, status, scheduled_for, total_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, rubric_id, req.user.id, requestedProvider, finalProcessingMode, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount]
     );
     const jobId = insert.lastID || insert.insertId || insert.rows?.[0]?.id;
 
-    scheduleJobProcessor(jobId, scheduleTime);
+    if (finalProcessingMode === 'standard') {
+      scheduleJobProcessor(jobId, scheduleTime);
+    } else {
+      runOpenAIBatchPollingCycle().catch((error) => {
+        console.error(`OpenAI batch job ${jobId} kick-off failed:`, error);
+      });
+    }
 
     res.json({
       success: true,
@@ -377,6 +422,8 @@ router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
         batch_id: Number(id),
         rubric_id: Number(rubric_id),
         status: 'scheduled',
+        provider: requestedProvider,
+        processing_mode: finalProcessingMode,
         scheduled_for: scheduleTime.toISOString(),
         total_count: assignmentCount
       }

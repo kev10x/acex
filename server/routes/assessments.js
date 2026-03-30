@@ -5,11 +5,97 @@ const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
 const { requireAuth, requireFeature } = require('../middleware/auth');
 const { buildMoodleXml, buildScormPackage } = require('../services/assessmentExport');
+const { runOpenAIBatchPollingCycle } = require('../services/openaiBatchMarkingService');
 
 const router = express.Router();
 
+const ASSESSMENT_CONTEXT_LIMITS = {
+  assignmentPreview: 320,
+  rubricDescription: 140,
+  rubricLevelDescription: 90,
+  topicSummary: 900
+};
+
 function generateCode() {
   return crypto.randomBytes(6).toString('base64url').slice(0, 8);
+}
+
+function generateSubmissionCode() {
+  return crypto.randomBytes(9).toString('base64url').slice(0, 12);
+}
+
+async function ensurePublishedAssessmentBatch(publishedAssessment, assessment) {
+  if (publishedAssessment.batch_id) {
+    return publishedAssessment.batch_id;
+  }
+
+  const title = String(assessment?.title || 'Published Assessment').trim();
+  const batchName = `Assessment Submissions - ${title}`.slice(0, 255);
+  const description = `Auto-managed submissions batch for assessment code ${publishedAssessment.code}`;
+  const createResult = await query(
+    'INSERT INTO batches (name, description, user_id) VALUES (?, ?, ?)',
+    [batchName, description, publishedAssessment.user_id]
+  );
+  const batchId = createResult.insertId ?? createResult.lastID ?? createResult.rows?.[0]?.id;
+
+  await query(
+    'UPDATE published_assessments SET batch_id = ? WHERE id = ?',
+    [batchId, publishedAssessment.id]
+  );
+
+  publishedAssessment.batch_id = batchId;
+  return batchId;
+}
+
+async function ensureQueuedAssessmentBatchJob({ batchId, rubricId, userId }) {
+  const existingJobResult = await query(
+    `SELECT id
+     FROM marking_jobs
+     WHERE batch_id = ? AND rubric_id = ? AND user_id = ?
+       AND provider = ? AND processing_mode = ? AND status = ?
+       AND openai_batch_id IS NULL
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [batchId, rubricId, userId, 'openai', 'openai_batch', 'scheduled']
+  );
+  const existingJob = Array.isArray(existingJobResult)
+    ? existingJobResult[0]
+    : (existingJobResult.rows?.[0] || existingJobResult?.[0]);
+
+  if (existingJob?.id) {
+    return existingJob.id;
+  }
+
+  const jobInsert = await query(
+    `INSERT INTO marking_jobs (
+      batch_id, rubric_id, user_id, provider, processing_mode, status, scheduled_for, total_count
+    ) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
+    [batchId, rubricId, userId, 'openai', 'openai_batch', 'scheduled', 0]
+  );
+  return jobInsert.insertId ?? jobInsert.lastID ?? jobInsert.rows?.[0]?.id ?? null;
+}
+
+function buildAssessmentScriptText(questions, answers) {
+  const answerMap = new Map(answers.map((a) => [a.question_number, a.value]));
+  const scriptLines = questions.map((q) => {
+    const num = q.number != null ? q.number : q.question_number;
+    const ans = answerMap.get(num) ?? answerMap.get(Number(num)) ?? '';
+    return `Question ${num}: ${ans}`;
+  });
+  return scriptLines.join('\n\n');
+}
+
+function parseAssessmentSubmissionResult(row) {
+  const scores = typeof row.scores === 'string' ? JSON.parse(row.scores) : (row.scores || []);
+  const feedback = row.effective_feedback || row.feedback || '';
+  const totalScore = row.effective_total_score ?? row.total_score ?? 0;
+
+  return {
+    total_score: totalScore,
+    feedback,
+    scores,
+    marked_at: row.marked_at || row.completed_at || null
+  };
 }
 
 /**
@@ -142,12 +228,14 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
         ? JSON.parse(selectedRubric.criteria)
         : selectedRubric.criteria;
       topicsFromRubric = (rubricCriteria && Array.isArray(rubricCriteria))
-        ? rubricCriteria.map((c) => `${c.name}${c.description ? ': ' + String(c.description).slice(0, 120) : ''}`).join('; ')
+        ? rubricCriteria
+            .map((c) => `${c.name}${c.description ? ': ' + String(c.description).slice(0, ASSESSMENT_CONTEXT_LIMITS.rubricDescription) : ''}`)
+            .join('; ')
         : selectedRubric.name;
     }
 
     if (useCustomTopics) {
-      topicsFromRubric = String(custom_topics).trim();
+      topicsFromRubric = String(custom_topics).trim().slice(0, ASSESSMENT_CONTEXT_LIMITS.topicSummary);
       const defaultTotal = 100;
       selectedRubric = {
         name: 'Custom topics assessment',
@@ -173,7 +261,7 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
       contextData.assignments.slice(0, 3).forEach((assignment, idx) => {
         contextPrompt += `\nExample ${idx + 1}: ${assignment.filename}\n`;
         if (assignment.text_preview) {
-          contextPrompt += `Content preview: ${assignment.text_preview}...\n`;
+          contextPrompt += `Content preview: ${assignment.text_preview.slice(0, ASSESSMENT_CONTEXT_LIMITS.assignmentPreview)}...\n`;
         }
         if (assignment.total_score !== null) {
           contextPrompt += `Score: ${assignment.total_score}/${selectedRubric.total_points}\n`;
@@ -198,11 +286,11 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
         rubricCriteria.forEach((criterion, idx) => {
           rubricDescription += `${idx + 1}. ${criterion.name} (${criterion.max_points} points)\n`;
           if (criterion.description) {
-            rubricDescription += `   ${criterion.description.substring(0, 200)}${criterion.description.length > 200 ? '...' : ''}\n`;
+            rubricDescription += `   ${criterion.description.substring(0, ASSESSMENT_CONTEXT_LIMITS.rubricDescription)}${criterion.description.length > ASSESSMENT_CONTEXT_LIMITS.rubricDescription ? '...' : ''}\n`;
           }
           if (criterion.levels && Array.isArray(criterion.levels)) {
             criterion.levels.forEach((lev, levelIdx) => {
-              rubricDescription += `   Level ${levelIdx + 1}: ${lev.description || lev.name || ''}\n`;
+              rubricDescription += `   Level ${levelIdx + 1}: ${String(lev.description || lev.name || '').slice(0, ASSESSMENT_CONTEXT_LIMITS.rubricLevelDescription)}\n`;
             });
           }
         });
@@ -274,7 +362,7 @@ IMPORTANT:
 - Use the requested question types. For MCQ always include "options" and "correct_answer". For mix_and_match include "left_column", "right_column", "correct_pairings".
 - Create variety: different questions on the same topic should use different phrasings and angles.`;
 
-    const config = aiConfig.getConfig('assignment', 'openai');
+    const config = aiConfig.getTaskConfig('assessmentGeneration', 'openai');
     const completion = await aiService.createCompletionWithRetry({
       provider: config.provider,
       model: config.model,
@@ -288,8 +376,8 @@ IMPORTANT:
           content: assessmentPrompt
         }
       ],
-      temperature: 0.7, // Higher temperature for creative assessment generation
-      maxTokens: config.maxTokens.assignment
+      temperature: config.temperature,
+      maxTokens: config.maxTokens
     });
 
     let assessmentData;
@@ -432,8 +520,8 @@ router.get('/published', requireAuth, async (req, res) => {
   try {
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT id, code, assessment_json, created_at FROM published_assessments WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
-      : await query('SELECT id, code, assessment_json, created_at FROM published_assessments WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+      ? await query('SELECT id, code, assessment_json, batch_id, created_at FROM published_assessments WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
+      : await query('SELECT id, code, assessment_json, batch_id, created_at FROM published_assessments WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
     const rows = result.rows || result;
     const list = Array.isArray(rows) ? rows : [rows];
     const base = process.env.CLIENT_URL || '';
@@ -447,6 +535,7 @@ router.get('/published', requireAuth, async (req, res) => {
       return {
         id: r.id,
         code: r.code,
+        batch_id: r.batch_id ?? null,
         title,
         link: `${takePath}?code=${r.code}`,
         created_at: r.created_at,
@@ -508,20 +597,23 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
       return res.status(400).json({ error: 'Invalid assessment: needs title and questions array' });
     }
     let code;
+    let publishedId = null;
     for (let i = 0; i < 5; i++) {
       code = generateCode();
       const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
       try {
         if (isMySQL) {
-          await query(
+          const insertResult = await query(
             'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id) VALUES (?, ?, ?, ?)',
             [code, JSON.stringify(assessment), rubric_id, req.user.id]
           );
+          publishedId = insertResult.insertId ?? insertResult.lastID ?? null;
         } else {
-          await query(
-            'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id) VALUES ($1, $2, $3, $4)',
+          const insertResult = await query(
+            'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
             [code, JSON.stringify(assessment), rubric_id, req.user.id]
           );
+          publishedId = insertResult.rows?.[0]?.id ?? insertResult?.[0]?.id ?? null;
         }
         break;
       } catch (e) {
@@ -534,11 +626,22 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
     if (!code) {
       return res.status(500).json({ error: 'Could not generate unique code' });
     }
+    const batchName = `Assessment Submissions - ${String(assessment.title || 'Published Assessment').trim()}`.slice(0, 255);
+    const batchDescription = `Auto-managed submissions batch for assessment code ${code}`;
+    const batchResult = await query(
+      'INSERT INTO batches (name, description, user_id) VALUES (?, ?, ?)',
+      [batchName, batchDescription, req.user.id]
+    );
+    const batchId = batchResult.insertId ?? batchResult.lastID ?? batchResult.rows?.[0]?.id ?? null;
+    if (publishedId && batchId) {
+      await query('UPDATE published_assessments SET batch_id = ? WHERE id = ?', [batchId, publishedId]);
+    }
     const base = process.env.CLIENT_URL || '';
     const takePath = base ? `${base.replace(/\/$/, '')}/take-assessment` : '/take-assessment';
     res.json({
       success: true,
       code,
+      batch_id: batchId,
       link: `${takePath}?code=${code}`,
       message: 'Assessment published. Share the link with students.',
     });
@@ -580,7 +683,51 @@ router.get('/take/:code', async (req, res) => {
 });
 
 /**
- * Submit student answers and run marking. Public. Returns marking result.
+ * Get public submission status and result for an assessment submission receipt.
+ */
+router.get('/submission-status/:submissionCode', async (req, res) => {
+  try {
+    const { submissionCode } = req.params;
+    if (!submissionCode || String(submissionCode).length > 64) {
+      return res.status(400).json({ error: 'Invalid submission code' });
+    }
+
+    const result = await query(
+      `SELECT s.submission_code, s.student_name, s.status, s.failure_reason, s.submitted_at, s.completed_at,
+              mr.scores, mr.feedback, mr.total_score, mr.marked_at
+       FROM assessment_submissions s
+       LEFT JOIN marking_results mr ON mr.id = s.result_id
+       WHERE s.submission_code = ?
+       LIMIT 1`,
+      [submissionCode]
+    );
+    const rows = result.rows || result;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+
+    if (!row) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    res.json({
+      success: true,
+      submission: {
+        submission_code: row.submission_code,
+        student_name: row.student_name,
+        status: row.status,
+        failure_reason: row.failure_reason || null,
+        submitted_at: row.submitted_at,
+        completed_at: row.completed_at || row.marked_at || null,
+        result: row.status === 'completed' ? parseAssessmentSubmissionResult(row) : null
+      }
+    });
+  } catch (error) {
+    console.error('Assessment submission status error:', error);
+    res.status(500).json({ error: 'Failed to load submission status' });
+  }
+});
+
+/**
+ * Submit student answers and queue marking. Public. Returns submission receipt.
  */
 router.post('/submit', async (req, res) => {
   try {
@@ -591,112 +738,87 @@ router.post('/submit', async (req, res) => {
     if (String(code).length > 32) return res.status(400).json({ error: 'code too long' });
     if (String(student_name).length > 200) return res.status(400).json({ error: 'student_name too long' });
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({ error: 'Automated assessment marking is unavailable right now' });
+    }
+
     const pubResult = isMySQL
-      ? await query('SELECT id, assessment_json, rubric_id, user_id FROM published_assessments WHERE code = ?', [code])
-      : await query('SELECT id, assessment_json, rubric_id, user_id FROM published_assessments WHERE code = $1', [code]);
+      ? await query('SELECT id, code, assessment_json, rubric_id, batch_id, user_id FROM published_assessments WHERE code = ?', [code])
+      : await query('SELECT id, code, assessment_json, rubric_id, batch_id, user_id FROM published_assessments WHERE code = $1', [code]);
     const pubRows = pubResult.rows || pubResult;
     const pub = Array.isArray(pubRows) ? pubRows[0] : pubRows;
     if (!pub) {
       return res.status(404).json({ error: 'Assessment not found or link expired' });
     }
     const assessment = typeof pub.assessment_json === 'string' ? JSON.parse(pub.assessment_json) : pub.assessment_json;
-    const questions = assessment.questions || [];
-    const answerMap = new Map(answers.map((a) => [a.question_number, a.value]));
-    const scriptLines = questions.map((q) => {
-      const num = q.number != null ? q.number : q.question_number;
-      const ans = answerMap.get(num) ?? answerMap.get(Number(num)) ?? '';
-      return `Question ${num}: ${ans}`;
-    });
-    const scriptText = scriptLines.join('\n\n');
+    const batchId = await ensurePublishedAssessmentBatch(pub, assessment);
     const rubricResult = isMySQL
-      ? await query('SELECT id, name, criteria, total_points, rubric_type FROM rubrics WHERE id = ?', [pub.rubric_id])
-      : await query('SELECT id, name, criteria, total_points, rubric_type FROM rubrics WHERE id = $1', [pub.rubric_id]);
+      ? await query('SELECT id FROM rubrics WHERE id = ?', [pub.rubric_id])
+      : await query('SELECT id FROM rubrics WHERE id = $1', [pub.rubric_id]);
     const rubricRows = rubricResult.rows || rubricResult;
     const rubricRow = Array.isArray(rubricRows) ? rubricRows[0] : rubricRows;
     if (!rubricRow) {
       return res.status(500).json({ error: 'Rubric not found' });
     }
-    const rubricData = {
-      id: rubricRow.id,
-      name: rubricRow.name,
-      total_points: rubricRow.total_points,
-      rubric_type: rubricRow.rubric_type,
-      criteria: typeof rubricRow.criteria === 'string' ? JSON.parse(rubricRow.criteria) : rubricRow.criteria,
-    };
+
+    const scriptText = buildAssessmentScriptText(assessment.questions || [], answers);
     const filename = `Submission - ${student_name} - ${code}.txt`;
     const insertAssign = isMySQL
       ? await query(
-          'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
-          [filename, '', 0, 'uploaded', scriptText, pub.user_id]
+          'INSERT INTO assignments (filename, file_path, file_size, status, batch_id, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [filename, '', 0, 'uploaded', batchId, scriptText, pub.user_id]
         )
       : await query(
-          'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-          [filename, '', 0, 'uploaded', scriptText, pub.user_id]
+          'INSERT INTO assignments (filename, file_path, file_size, status, batch_id, extracted_text, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+          [filename, '', 0, 'uploaded', batchId, scriptText, pub.user_id]
         );
     const assignmentId = isMySQL ? (insertAssign.insertId ?? insertAssign.lastID) : (insertAssign.rows?.[0]?.id ?? insertAssign?.[0]?.id);
-    const { generateMarking } = require('./mark');
-    const markingResult = await generateMarking(scriptText, rubricData, 'assignment', null, null, 'strict', assignmentId, null);
-    const insertMr = isMySQL
-      ? await query(
-          'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [
-            assignmentId,
-            pub.rubric_id,
-            student_name,
-            JSON.stringify(markingResult.scores || []),
-            markingResult.feedback || '',
-            markingResult.total_score ?? 0,
-            1,
-            1,
-            'strict',
-            'openai',
-            markingResult.corrections ? JSON.stringify(markingResult.corrections) : null,
-            markingResult.language_errors ? JSON.stringify(markingResult.language_errors) : null,
-            markingResult.handwriting_recognition_confidence ?? null,
-            markingResult.prompt_tokens ?? null,
-            markingResult.completion_tokens ?? null,
-            markingResult.total_tokens ?? null,
-            markingResult.estimated_cost_usd ?? null,
-            pub.user_id,
-          ]
-        )
-      : await query(
-          'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)',
-          [
-            assignmentId,
-            pub.rubric_id,
-            student_name,
-            JSON.stringify(markingResult.scores || []),
-            markingResult.feedback || '',
-            markingResult.total_score ?? 0,
-            1,
-            true,
-            'strict',
-            'openai',
-            markingResult.corrections ? JSON.stringify(markingResult.corrections) : null,
-            markingResult.language_errors ? JSON.stringify(markingResult.language_errors) : null,
-            markingResult.handwriting_recognition_confidence ?? null,
-            markingResult.prompt_tokens ?? null,
-            markingResult.completion_tokens ?? null,
-            markingResult.total_tokens ?? null,
-            markingResult.estimated_cost_usd ?? null,
-            pub.user_id,
-          ]
+    let submissionCode;
+    for (let i = 0; i < 5; i += 1) {
+      submissionCode = generateSubmissionCode();
+      try {
+        await query(
+          `INSERT INTO assessment_submissions (
+            submission_code, published_assessment_id, assignment_id, student_name, status
+          ) VALUES (?, ?, ?, ?, ?)`,
+          [submissionCode, pub.id, assignmentId, student_name.trim(), 'queued']
         );
-    res.json({
+        break;
+      } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY' || error.message?.includes('unique') || error.code === '23505') {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!submissionCode) {
+      return res.status(500).json({ error: 'Could not generate submission receipt' });
+    }
+
+    await ensureQueuedAssessmentBatchJob({
+      batchId,
+      rubricId: pub.rubric_id,
+      userId: pub.user_id
+    });
+    runOpenAIBatchPollingCycle().catch((pollError) => {
+      console.error('Assessment submission batch polling trigger failed:', pollError);
+    });
+
+    res.status(202).json({
       success: true,
-      result: {
-        total_score: markingResult.total_score,
-        feedback: markingResult.feedback,
-        scores: markingResult.scores,
-        corrections: markingResult.corrections,
-        language_errors: markingResult.language_errors,
+      submission: {
+        submission_code: submissionCode,
+        status: 'queued',
+        student_name: student_name.trim(),
+        submitted_at: new Date().toISOString(),
+        batch_id: batchId
       },
     });
   } catch (error) {
     console.error('Submit assessment error:', error);
     res.status(500).json({
-      error: 'Failed to mark submission',
+      error: 'Failed to queue submission for marking',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }

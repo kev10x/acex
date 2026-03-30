@@ -260,6 +260,7 @@ function parseJSONWithFallback(jsonString) {
 // Detect document type (question paper, memorandum, treatise, assignment, etc.)
 const detectDocumentType = async (documentText) => {
   try {
+    const preview = documentText.substring(0, 1200);
     const detectionPrompt = `Analyze the following document and determine its type.
 
 Types:
@@ -273,7 +274,7 @@ Types:
 - "proposal": A research proposal.
 
 DOCUMENT PREVIEW:
-${documentText.substring(0, 2000)}
+${preview}
 
 Respond with ONLY a JSON object:
 {
@@ -281,10 +282,10 @@ Respond with ONLY a JSON object:
   "confidence": "high" or "medium" or "low"
 }`;
 
-    const config = aiConfig.getConfig('assignment', 'openai');
+    const config = aiConfig.getTaskConfig('classification', 'openai');
     const completion = await aiService.createCompletionWithRetry({
       provider: 'openai',
-      model: 'gpt-5-mini', // Use mini for detection
+      model: config.model,
       messages: [
         { 
           role: "system", 
@@ -295,8 +296,8 @@ Respond with ONLY a JSON object:
           content: detectionPrompt 
         }
       ],
-      temperature: 0.1,
-      maxTokens: 512,
+      temperature: config.temperature,
+      maxTokens: config.maxTokens,
       user: "anonymous"
     });
 
@@ -327,6 +328,8 @@ const extractTextFromPDF = async (filePath) => {
 
 // Max characters of question paper to send to the model (avoids context overflow and empty responses)
 const QUESTION_PAPER_MAX_CHARS = 28000;
+const MEMO_EXTRACTION_MAX_CHARS = 20000;
+const RUBRIC_GENERATION_MAX_CHARS = 16000;
 
 // Generate answer key (memo) from question paper
 const generateAnswerKeyFromQuestionPaper = async (questionPaperText, rubricName) => {
@@ -379,7 +382,7 @@ IMPORTANT:
 - Include "Model Answer", "Marking Scheme", "Correct Answer" in descriptions so the system detects this as a memo.
 - For calculations, show worked solutions. For essays, list key points and acceptable alternative formulations.`;
 
-    const config = aiConfig.getConfig('assignment', 'openai');
+    const config = aiConfig.getTaskConfig('structuredExtraction', 'openai');
     const completion = await aiService.createCompletionWithRetry({
       provider: 'openai',
       model: config.model,
@@ -393,8 +396,8 @@ IMPORTANT:
           content: prompt
         }
       ],
-      temperature: 0.2,
-      maxTokens: 12000,
+      temperature: config.temperature,
+      maxTokens: config.maxTokens,
       user: 'anonymous'
     });
 
@@ -492,10 +495,14 @@ const extractRubricFromMemo = async (memoText, rubricName) => {
       throw new Error('Memorandum text extraction failed or returned insufficient content');
     }
 
+    const memoPreview = memoText.length > MEMO_EXTRACTION_MAX_CHARS
+      ? memoText.substring(0, MEMO_EXTRACTION_MAX_CHARS) + '\n\n[... memorandum truncated for extraction ...]'
+      : memoText;
+
     const prompt = `The following document IS a marking memorandum / answer key. It provides answers to questions. Your task is to EXTRACT its structure so there is exactly ONE grading item per question, and to SUPPLEMENT the memo's model answers with possible acceptable alternatives for use when marking.
 
 MEMORANDUM DOCUMENT:
-${memoText}
+${memoPreview}
 
 Your task:
 1. Identify EVERY question in the memorandum (Question 1, Question 2, ...). Create exactly ONE criterion per question. If the memo has 10 questions, output exactly 10 criteria. Do not merge questions or omit any. One grading item per question.
@@ -520,7 +527,7 @@ Respond with a JSON object in this exact format:
   "total_points": <document total or sum of criteria>
 }`;
 
-    const config = aiConfig.getConfig('assignment', 'openai');
+    const config = aiConfig.getTaskConfig('structuredExtraction', 'openai');
     const completion = await aiService.createCompletionWithRetry({
       provider: 'openai',
       model: config.model,
@@ -531,8 +538,8 @@ Respond with a JSON object in this exact format:
         },
         { role: 'user', content: prompt }
       ],
-      temperature: 0.2,
-      maxTokens: 4000,
+      temperature: config.temperature,
+      maxTokens: config.maxTokens,
       user: 'anonymous'
     });
 
@@ -594,11 +601,15 @@ const generateRubricFromPDF = async (pdfText, rubricName) => {
       throw new Error('PDF text extraction failed or returned insufficient content');
     }
     
+    const pdfPreview = pdfText.length > RUBRIC_GENERATION_MAX_CHARS
+      ? pdfText.substring(0, RUBRIC_GENERATION_MAX_CHARS) + '\n\n[... document truncated for rubric generation ...]'
+      : pdfText;
+
     const prompt = `
 You are an expert educator who creates marking rubrics that EXACTLY match the uploaded document. The rubric MUST give a breakdown BY QUESTION (or by section/part), not by abstract themes.
 
 DOCUMENT CONTENT:
-${pdfText}
+${pdfPreview}
 
 Your task:
 1. BREAKDOWN BY QUESTION: Identify every question, part, or section that has a mark allocation in the document (e.g. "Question 1 (10 marks)", "1.1 [3]", "Question 2 – 20 marks", "Section A – 15"). Create exactly ONE criterion per question/part/section. If the document has 6 questions, output exactly 6 criteria—one per question. Do NOT merge questions into fewer criteria. Do NOT replace question numbers with thematic names.
@@ -622,7 +633,7 @@ Respond with a JSON object in this exact format:
 }
 `;
 
-    const config = aiConfig.getConfig('assignment', 'openai');
+    const config = aiConfig.getTaskConfig('structuredExtraction', 'openai');
     const completion = await aiService.createCompletionWithRetry({
       provider: 'openai',
       model: config.model,
@@ -636,8 +647,8 @@ Respond with a JSON object in this exact format:
           content: prompt
         }
       ],
-      temperature: 0.3,
-      maxTokens: 2000,
+      temperature: config.temperature,
+      maxTokens: Math.min(config.maxTokens, 2200),
       user: 'anonymous'
     });
 

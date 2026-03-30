@@ -13,13 +13,15 @@ const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
  */
 async function generateContentWithAI(opts) {
   const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '' } = opts;
-  const config = aiConfig.getConfig('assignment', 'openai');
+  const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
+  const compactTopics = String(topics || '').trim().slice(0, 1200);
+  const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const prompt = `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text—no long bullet lists or text-heavy slides.
 
 TOPICS TO COVER (create clear sections that teach these):
-${topics}
+${compactTopics}
 ${level ? `TARGET LEVEL/CATEGORY: ${level}.${level === 'ECD' || level === 'Foundation Phase' ? ' Use age-appropriate language, simple sentences, and concrete examples suitable for early childhood or foundation phase learners.' : ''}\n` : ''}
-${rubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${rubricContext}\n` : ''}
+${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` : ''}
 
 Generate a structured course with exactly ${numSections} sections. For each section provide:
 - heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
@@ -63,8 +65,8 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
       { role: 'system', content: 'You are an expert educator. Respond only with valid JSON, no markdown.' },
       { role: 'user', content: prompt },
     ],
-    temperature: 0.6,
-    maxTokens: config.maxTokens?.assignment ?? 4096,
+    temperature: config.temperature,
+    maxTokens: config.maxTokens,
   });
 
   let raw = completion.content || completion.choices?.[0]?.message?.content || '';

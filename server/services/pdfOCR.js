@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
 const { spawnSync } = require('child_process');
+const aiConfig = require('../config/ai-config');
 
 /**
  * Resolve path to GraphicsMagick (gm) binary. Under PM2/cron PATH may not include /usr/bin.
@@ -238,6 +239,7 @@ const VISION_EXTRACT_PROMPT = `Extract ALL text from this image. The document ma
 - Include numbers, formulas, and annotations.
 - If you truly see no text at all, reply with exactly: NO_TEXT_FOUND
 Otherwise return only the extracted text, no commentary.`;
+const VISION_TASK_CONFIG = aiConfig.getTaskConfig('visionOCR', 'openai');
 
 /**
  * Extract text using OpenAI Vision API (GPT-4 Vision)
@@ -427,7 +429,7 @@ const extractTextWithVisionAPI = async (filePath) => {
           
           try {
             const response = await openai.chat.completions.create({
-              model: 'gpt-5.2',
+              model: VISION_TASK_CONFIG.model,
               messages: [
                 {
                   role: 'user',
@@ -445,8 +447,8 @@ const extractTextWithVisionAPI = async (filePath) => {
                   ]
                 }
               ],
-              max_completion_tokens: 4096,
-              temperature: 1
+              max_completion_tokens: VISION_TASK_CONFIG.maxTokens,
+              temperature: VISION_TASK_CONFIG.temperature
             });
 
             const pageText = response?.choices?.[0]?.message?.content;
@@ -510,7 +512,7 @@ const extractTextWithVisionAPI = async (filePath) => {
         let response;
         try {
           response = await openai.chat.completions.create({
-            model: 'gpt-5.2',
+            model: VISION_TASK_CONFIG.model,
             messages: [
               {
                 role: 'user',
@@ -528,8 +530,8 @@ const extractTextWithVisionAPI = async (filePath) => {
                 ]
               }
             ],
-            max_completion_tokens: 4096,
-            temperature: 1
+            max_completion_tokens: VISION_TASK_CONFIG.maxTokens,
+            temperature: VISION_TASK_CONFIG.temperature
           });
         } catch (apiError) {
           const status = apiError.status ?? apiError.statusCode;

@@ -163,6 +163,7 @@ const initDatabase = async () => {
           uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           status VARCHAR(50) DEFAULT 'uploaded',
           batch_id INT,
+          processing_job_id INT NULL,
           extracted_text LONGTEXT,
           user_id INT,
           FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL,
@@ -214,10 +215,29 @@ const initDatabase = async () => {
           code VARCHAR(32) NOT NULL UNIQUE,
           assessment_json LONGTEXT NOT NULL,
           rubric_id INT NOT NULL,
+          batch_id INT NULL,
           user_id INT NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
+          FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL,
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_submissions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          submission_code VARCHAR(32) NOT NULL UNIQUE,
+          published_assessment_id INT NOT NULL,
+          assignment_id INT NOT NULL UNIQUE,
+          result_id INT NULL,
+          student_name VARCHAR(255) NOT NULL,
+          status VARCHAR(50) DEFAULT 'queued',
+          failure_reason TEXT NULL,
+          submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          completed_at TIMESTAMP NULL,
+          FOREIGN KEY (published_assessment_id) REFERENCES published_assessments(id) ON DELETE CASCADE,
+          FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+          FOREIGN KEY (result_id) REFERENCES marking_results(id) ON DELETE SET NULL
         )
       `);
 
@@ -252,14 +272,22 @@ const initDatabase = async () => {
           batch_id INT NOT NULL,
           rubric_id INT NOT NULL,
           user_id INT NOT NULL,
+          provider VARCHAR(50) DEFAULT 'openai',
+          processing_mode VARCHAR(50) DEFAULT 'standard',
           status VARCHAR(50) DEFAULT 'scheduled',
           scheduled_for TIMESTAMP NULL,
           started_at TIMESTAMP NULL,
           completed_at TIMESTAMP NULL,
+          request_count INT DEFAULT 0,
           total_count INT DEFAULT 0,
           processed_count INT DEFAULT 0,
           success_count INT DEFAULT 0,
           failed_count INT DEFAULT 0,
+          openai_batch_id VARCHAR(255) NULL,
+          openai_input_file_id VARCHAR(255) NULL,
+          openai_output_file_id VARCHAR(255) NULL,
+          openai_error_file_id VARCHAR(255) NULL,
+          completion_window VARCHAR(20) NULL,
           last_error TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
@@ -419,6 +447,17 @@ const initDatabase = async () => {
           console.log('Adding batch_id column to assignments table...');
           await query(`ALTER TABLE assignments ADD COLUMN batch_id INT`);
         }
+
+        const processingJobIdCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE()
+          AND table_name = 'assignments'
+          AND column_name = 'processing_job_id'
+        `);
+        if ((processingJobIdCheck.rows?.[0]?.count || processingJobIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN processing_job_id INT NULL`);
+        }
         
         // Check if extracted_text column exists
         const extractedTextCheck = await query(`
@@ -502,6 +541,74 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_results ADD COLUMN completion_tokens INT DEFAULT NULL`);
           await query(`ALTER TABLE marking_results ADD COLUMN total_tokens INT DEFAULT NULL`);
           await query(`ALTER TABLE marking_results ADD COLUMN estimated_cost_usd DECIMAL(12,6) DEFAULT NULL`);
+        }
+
+        const markingJobProviderCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'provider'
+        `);
+        if ((markingJobProviderCheck.rows?.[0]?.count || markingJobProviderCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN provider VARCHAR(50) DEFAULT 'openai'`);
+        }
+
+        const markingJobModeCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'processing_mode'
+        `);
+        if ((markingJobModeCheck.rows?.[0]?.count || markingJobModeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN processing_mode VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const markingJobRequestCountCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'request_count'
+        `);
+        if ((markingJobRequestCountCheck.rows?.[0]?.count || markingJobRequestCountCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN request_count INT DEFAULT 0`);
+        }
+
+        const markingJobBatchIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'openai_batch_id'
+        `);
+        if ((markingJobBatchIdCheck.rows?.[0]?.count || markingJobBatchIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_batch_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_input_file_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_output_file_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_error_file_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN completion_window VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const publishedAssessmentBatchCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'published_assessments' AND column_name = 'batch_id'
+        `);
+        if ((publishedAssessmentBatchCheck.rows?.[0]?.count || publishedAssessmentBatchCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE published_assessments ADD COLUMN batch_id INT NULL`);
+        }
+
+        const assessmentSubmissionsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'assessment_submissions'
+        `);
+        if ((assessmentSubmissionsTableCheck.rows?.[0]?.count || assessmentSubmissionsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE assessment_submissions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              submission_code VARCHAR(32) NOT NULL UNIQUE,
+              published_assessment_id INT NOT NULL,
+              assignment_id INT NOT NULL UNIQUE,
+              result_id INT NULL,
+              student_name VARCHAR(255) NOT NULL,
+              status VARCHAR(50) DEFAULT 'queued',
+              failure_reason TEXT NULL,
+              submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              completed_at TIMESTAMP NULL,
+              FOREIGN KEY (published_assessment_id) REFERENCES published_assessments(id) ON DELETE CASCADE,
+              FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+              FOREIGN KEY (result_id) REFERENCES marking_results(id) ON DELETE SET NULL
+            )
+          `);
         }
         
         const accountTypeCheck = await query(`
@@ -729,6 +836,7 @@ const initDatabase = async () => {
           uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           status VARCHAR(50) DEFAULT 'uploaded',
           batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL,
+          processing_job_id INTEGER NULL,
           extracted_text TEXT,
           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
         )
@@ -773,8 +881,23 @@ const initDatabase = async () => {
           code VARCHAR(32) NOT NULL UNIQUE,
           assessment_json TEXT NOT NULL,
           rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+          batch_id INTEGER NULL REFERENCES batches(id) ON DELETE SET NULL,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_submissions (
+          id SERIAL PRIMARY KEY,
+          submission_code VARCHAR(32) NOT NULL UNIQUE,
+          published_assessment_id INTEGER NOT NULL REFERENCES published_assessments(id) ON DELETE CASCADE,
+          assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id) ON DELETE CASCADE,
+          result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+          student_name VARCHAR(255) NOT NULL,
+          status VARCHAR(50) DEFAULT 'queued',
+          failure_reason TEXT NULL,
+          submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          completed_at TIMESTAMP NULL
         )
       `);
 
@@ -806,14 +929,22 @@ const initDatabase = async () => {
           batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
           rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          provider VARCHAR(50) DEFAULT 'openai',
+          processing_mode VARCHAR(50) DEFAULT 'standard',
           status VARCHAR(50) DEFAULT 'scheduled',
           scheduled_for TIMESTAMP NULL,
           started_at TIMESTAMP NULL,
           completed_at TIMESTAMP NULL,
+          request_count INTEGER DEFAULT 0,
           total_count INTEGER DEFAULT 0,
           processed_count INTEGER DEFAULT 0,
           success_count INTEGER DEFAULT 0,
           failed_count INTEGER DEFAULT 0,
+          openai_batch_id VARCHAR(255) NULL,
+          openai_input_file_id VARCHAR(255) NULL,
+          openai_output_file_id VARCHAR(255) NULL,
+          openai_error_file_id VARCHAR(255) NULL,
+          completion_window VARCHAR(20) NULL,
           last_error TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -926,6 +1057,16 @@ const initDatabase = async () => {
         if ((batchIdCheck.rows?.[0]?.count || batchIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE assignments ADD COLUMN batch_id INTEGER REFERENCES batches(id) ON DELETE SET NULL`);
         }
+
+        const processingJobIdCheckPg = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'assignments'
+          AND column_name = 'processing_job_id'
+        `);
+        if ((processingJobIdCheckPg.rows?.[0]?.count || processingJobIdCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN processing_job_id INTEGER NULL`);
+        }
         
         // Check if extracted_text column exists
         const extractedTextCheck = await query(`
@@ -1000,6 +1141,71 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_results ADD COLUMN completion_tokens INTEGER DEFAULT NULL`);
           await query(`ALTER TABLE marking_results ADD COLUMN total_tokens INTEGER DEFAULT NULL`);
           await query(`ALTER TABLE marking_results ADD COLUMN estimated_cost_usd DECIMAL(12,6) DEFAULT NULL`);
+        }
+
+        const markingJobProviderCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'provider'
+        `);
+        if ((markingJobProviderCheckPg.rows?.[0]?.count || markingJobProviderCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN provider VARCHAR(50) DEFAULT 'openai'`);
+        }
+
+        const markingJobModeCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'processing_mode'
+        `);
+        if ((markingJobModeCheckPg.rows?.[0]?.count || markingJobModeCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN processing_mode VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const markingJobRequestCountCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'request_count'
+        `);
+        if ((markingJobRequestCountCheckPg.rows?.[0]?.count || markingJobRequestCountCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN request_count INTEGER DEFAULT 0`);
+        }
+
+        const markingJobBatchIdCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'openai_batch_id'
+        `);
+        if ((markingJobBatchIdCheckPg.rows?.[0]?.count || markingJobBatchIdCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_batch_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_input_file_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_output_file_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN openai_error_file_id VARCHAR(255) DEFAULT NULL`);
+          await query(`ALTER TABLE marking_jobs ADD COLUMN completion_window VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const publishedAssessmentBatchCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'published_assessments' AND column_name = 'batch_id'
+        `);
+        if ((publishedAssessmentBatchCheckPg.rows?.[0]?.count || publishedAssessmentBatchCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE published_assessments ADD COLUMN batch_id INTEGER NULL REFERENCES batches(id) ON DELETE SET NULL`);
+        }
+
+        const assessmentSubmissionsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'assessment_submissions'
+        `);
+        if ((assessmentSubmissionsTableCheckPg.rows?.[0]?.count || assessmentSubmissionsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE assessment_submissions (
+              id SERIAL PRIMARY KEY,
+              submission_code VARCHAR(32) NOT NULL UNIQUE,
+              published_assessment_id INTEGER NOT NULL REFERENCES published_assessments(id) ON DELETE CASCADE,
+              assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id) ON DELETE CASCADE,
+              result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+              student_name VARCHAR(255) NOT NULL,
+              status VARCHAR(50) DEFAULT 'queued',
+              failure_reason TEXT NULL,
+              submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              completed_at TIMESTAMP NULL
+            )
+          `);
         }
         
         const accountTypeCheck = await query(`

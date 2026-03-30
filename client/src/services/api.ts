@@ -81,14 +81,18 @@ export interface MarkingJob {
   batch_id: number;
   rubric_id: number;
   user_id: number;
-  status: 'scheduled' | 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  status: 'scheduled' | 'submitted' | 'running' | 'finalizing' | 'completed' | 'completed_with_errors' | 'failed';
+  provider?: string;
+  processing_mode?: string;
   scheduled_for?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
+  request_count?: number;
   total_count: number;
   processed_count: number;
   success_count: number;
   failed_count: number;
+  openai_batch_id?: string | null;
   last_error?: string | null;
   created_at: string;
   batch_name?: string;
@@ -498,6 +502,32 @@ export interface GeneratedAssessment {
   rubric_alignment?: string; // Explanation of how assessment aligns with rubric
 }
 
+export interface PublishedAssessmentItem {
+  id: number;
+  code: string;
+  title: string;
+  link: string;
+  created_at: string;
+  batch_id?: number | null;
+}
+
+export interface AssessmentSubmissionResult {
+  total_score: number;
+  feedback?: string;
+  scores?: any[];
+  marked_at?: string | null;
+}
+
+export interface AssessmentSubmissionStatus {
+  submission_code: string;
+  student_name: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  submitted_at: string;
+  completed_at?: string | null;
+  failure_reason?: string | null;
+  result?: AssessmentSubmissionResult | null;
+}
+
 export const assessmentsAPI = {
   generate: (data: {
     rubric_id?: number; // optional when custom_topics is provided
@@ -516,6 +546,7 @@ export const assessmentsAPI = {
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/assessments/submit', data),
+  getSubmissionStatus: (submissionCode: string) => api.get(`/assessments/submission-status/${submissionCode}`),
   /** Export as Moodle XML (includes answers). Returns blob. */
   exportMoodleXml: (assessment: GeneratedAssessment) =>
     api.post('/assessments/export/moodle-xml', { assessment }, { responseType: 'blob' }),

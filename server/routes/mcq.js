@@ -4,6 +4,7 @@ const OpenAI = require('openai');
 const { query } = require('../database/connection');
 const { extractTextFromPDF } = require('../services/pdfOCR');
 const { requireAuth, requireRoles } = require('../middleware/auth');
+const aiConfig = require('../config/ai-config');
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ const router = express.Router();
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+const MCQ_VISION_CONFIG = aiConfig.getTaskConfig('visionMCQ', 'openai');
 
 /**
  * Extract MCQ answers from a scanned form using Vision API
@@ -87,7 +89,7 @@ Important:
 - Return ONLY the JSON object, no additional text or explanation`;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-5.2',
+      model: MCQ_VISION_CONFIG.model,
       messages: [
         {
           role: 'user',
@@ -105,8 +107,8 @@ Important:
           ]
         }
       ],
-      max_completion_tokens: 1000,
-      temperature: 1
+      max_completion_tokens: MCQ_VISION_CONFIG.maxTokens,
+      temperature: MCQ_VISION_CONFIG.temperature
     });
 
     // Clean up temp image
