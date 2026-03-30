@@ -4,10 +4,11 @@ const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { query } = require('../database/connection');
-const { requireAuth, requireAdmin, generateToken, normalizeRole } = require('../middleware/auth');
+const { requireAuth, requireAdmin, generateToken, normalizeRole, parseUserFeatures, mergeFeatures, normalizeFeatureSet } = require('../middleware/auth');
 const emailService = require('../services/emailService');
 
 const router = express.Router();
+const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -25,6 +26,32 @@ async function ensureOrganisationIdByName(nameRaw) {
   if (ex?.id) return ex.id;
   const inserted = await query('INSERT INTO organisations (name) VALUES ($1)', [name]);
   return inserted.insertId || inserted.lastID || inserted.rows?.[0]?.id || null;
+}
+
+function isSuperAdmin(user) {
+  return String(user?.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+}
+
+async function getDepartmentById(departmentId) {
+  if (departmentId == null) return null;
+  const result = await query(
+    `SELECT d.id, d.name, d.organisation_id, o.name as organisation_name
+     FROM departments d
+     INNER JOIN organisations o ON o.id = d.organisation_id
+     WHERE d.id = $1`,
+    [departmentId]
+  );
+  return result.rows?.[0] || result?.[0] || null;
+}
+
+function normalizeFeatureFlags(features) {
+  const normalized = normalizeFeatureSet(features);
+  return {
+    assessment_creation: normalized.assessment_creation !== false,
+    content_creation: normalized.content_creation !== false,
+    download_results: normalized.download_results !== false,
+    feedback_video: normalized.feedback_video !== false
+  };
 }
 
 // Register new user
@@ -161,7 +188,13 @@ router.post('/login', authLimiter, [
 
     // Find user
     const result = await query(
-      'SELECT id, email, password_hash, name, is_active, email_verified, is_approved, role, account_type, organisation_name, organisation_id, features FROM users WHERE email = $1',
+      `SELECT u.id, u.email, u.password_hash, u.name, u.is_active, u.email_verified, u.is_approved, u.role,
+              u.account_type, COALESCE(o.name, u.organisation_name) as organisation_name, u.organisation_id,
+              u.department_id, d.name as department_name, u.features as user_features, o.features as organisation_features
+       FROM users u
+       LEFT JOIN organisations o ON o.id = u.organisation_id
+       LEFT JOIN departments d ON d.id = u.department_id
+       WHERE u.email = $1`,
       [email]
     );
 
@@ -207,7 +240,7 @@ router.post('/login', authLimiter, [
     // Generate token
     const token = generateToken(user.id);
 
-    const features = parseUserFeatures(user.features);
+    const features = normalizeFeatureFlags(mergeFeatures(user.user_features, user.organisation_features));
     res.json({
       message: 'Login successful',
       user: {
@@ -217,6 +250,8 @@ router.post('/login', authLimiter, [
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
         organisation_id: user.organisation_id || null,
+        department_id: user.department_id || null,
+        department_name: user.department_name || null,
         role: normalizeRole(user.role),
         features
       },
@@ -228,24 +263,18 @@ router.post('/login', authLimiter, [
   }
 });
 
-// Parse features from DB (JSON string or object). Null/undefined => {} so missing keys mean "allowed".
-function parseUserFeatures(features) {
-  if (features == null) return {};
-  if (typeof features === 'string') {
-    try {
-      return JSON.parse(features) || {};
-    } catch (_) {
-      return {};
-    }
-  }
-  return typeof features === 'object' ? features : {};
-}
-
 // Get current user info
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, name, created_at, last_login, account_type, organisation_name, organisation_id, email_verified, is_approved, role, features FROM users WHERE id = $1',
+      `SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.account_type,
+              COALESCE(o.name, u.organisation_name) as organisation_name, u.organisation_id,
+              u.department_id, d.name as department_name, u.email_verified, u.is_approved, u.role,
+              u.features as user_features, o.features as organisation_features
+       FROM users u
+       LEFT JOIN organisations o ON o.id = u.organisation_id
+       LEFT JOIN departments d ON d.id = u.department_id
+       WHERE u.id = $1`,
       [req.user.id]
     );
 
@@ -255,7 +284,7 @@ router.get('/me', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const features = parseUserFeatures(user.features);
+    const features = normalizeFeatureFlags(mergeFeatures(user.user_features, user.organisation_features));
     res.json({
       user: {
         id: user.id,
@@ -266,6 +295,8 @@ router.get('/me', requireAuth, async (req, res) => {
         account_type: user.account_type || 'individual',
         organisation_name: user.organisation_name || null,
         organisation_id: user.organisation_id || null,
+        department_id: user.department_id || null,
+        department_name: user.department_name || null,
         email_verified: user.email_verified,
         is_approved: user.is_approved,
         role: normalizeRole(user.role),
@@ -509,18 +540,21 @@ const getRows = (result) => {
 };
 
 // Organisation boundary helper:
-// - if requester has no organisation_id, treat as platform-level manager (can manage all)
-// - if requester has organisation_id, can only manage users in the same organisation
+// - super admin can manage across organisations
+// - regular management users can only manage users inside their own organisation
 async function getManageableTargetUser(requester, targetId) {
   const result = await query(
-    'SELECT id, role, organisation_id FROM users WHERE id = $1',
+    'SELECT id, role, organisation_id, department_id FROM users WHERE id = $1',
     [targetId]
   );
   const target = result.rows?.[0] || result?.[0];
   if (!target) return { status: 'not_found' };
+  if (isSuperAdmin(requester)) {
+    return { status: 'ok', target };
+  }
   const requesterOrg = requester.organisation_id == null ? null : Number(requester.organisation_id);
   const targetOrg = target.organisation_id == null ? null : Number(target.organisation_id);
-  if (requesterOrg != null && requesterOrg !== targetOrg) {
+  if (requesterOrg == null || requesterOrg !== targetOrg) {
     return { status: 'forbidden' };
   }
   return { status: 'ok', target };
@@ -537,32 +571,43 @@ const mapUser = (u) => ({
   is_approved: !!u.is_approved,
   role: normalizeRole(u.role),
   is_active: u.is_active !== undefined ? !!u.is_active : true,
-  features: parseUserFeatures(u.features),
+  features: normalizeFeatureFlags(parseUserFeatures(u.features)),
   organisation_id: u.organisation_id || null,
-  organisation_name: u.organisation_name || null
+  organisation_name: u.organisation_name || null,
+  department_id: u.department_id || null,
+  department_name: u.department_name || null
 });
 
 // Admin routes - Get pending users
 router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
     let result;
-    if (requesterOrg == null) {
+    if (requesterIsSuperAdmin) {
       result = await query(`
-        SELECT u.id, u.email, u.name, u.created_at, u.email_verified, u.is_approved, u.role, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        SELECT u.id, u.email, u.name, u.created_at, u.email_verified, u.is_approved, u.role, u.features,
+               u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name,
+               u.department_id, d.name as department_name
         FROM users u
         LEFT JOIN organisations o ON o.id = u.organisation_id
+        LEFT JOIN departments d ON d.id = u.department_id
         WHERE email_verified = 1 AND is_approved = 0
         ORDER BY u.created_at DESC
       `);
-    } else {
+    } else if (requesterOrg != null) {
       result = await query(`
-        SELECT u.id, u.email, u.name, u.created_at, u.email_verified, u.is_approved, u.role, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        SELECT u.id, u.email, u.name, u.created_at, u.email_verified, u.is_approved, u.role, u.features,
+               u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name,
+               u.department_id, d.name as department_name
         FROM users u
         LEFT JOIN organisations o ON o.id = u.organisation_id
+        LEFT JOIN departments d ON d.id = u.department_id
         WHERE email_verified = 1 AND is_approved = 0 AND u.organisation_id = $1
         ORDER BY u.created_at DESC
       `, [requesterOrg]);
+    } else {
+      result = { rows: [] };
     }
 
     const rows = getRows(result);
@@ -583,22 +628,31 @@ router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) =
 router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
     let result;
-    if (requesterOrg == null) {
+    if (requesterIsSuperAdmin) {
       result = await query(`
-        SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.email_verified, u.is_approved, u.role, u.is_active, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.email_verified, u.is_approved, u.role, u.is_active, u.features,
+               u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name,
+               u.department_id, d.name as department_name
         FROM users u
         LEFT JOIN organisations o ON o.id = u.organisation_id
+        LEFT JOIN departments d ON d.id = u.department_id
         ORDER BY created_at DESC
       `);
-    } else {
+    } else if (requesterOrg != null) {
       result = await query(`
-        SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.email_verified, u.is_approved, u.role, u.is_active, u.features, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+        SELECT u.id, u.email, u.name, u.created_at, u.last_login, u.email_verified, u.is_approved, u.role, u.is_active, u.features,
+               u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name,
+               u.department_id, d.name as department_name
         FROM users u
         LEFT JOIN organisations o ON o.id = u.organisation_id
+        LEFT JOIN departments d ON d.id = u.department_id
         WHERE u.organisation_id = $1
         ORDER BY created_at DESC
       `, [requesterOrg]);
+    } else {
+      result = { rows: [] };
     }
 
     const rows = getRows(result);
@@ -786,13 +840,14 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
   }
 });
 
-// Admin routes - Update user features (e.g. generate_assessments, download_results, feedback_video)
+// Admin routes - Update user features (e.g. assessment_creation, content_creation, download_results, feedback_video)
 // Support both PUT and PATCH so the route is found regardless of client or proxy behavior
 const updateUserFeaturesHandler = [
   requireAuth,
   requireAdmin,
   body('features').optional().isObject(),
-  body('features.generate_assessments').optional().isBoolean(),
+  body('features.assessment_creation').optional().isBoolean(),
+  body('features.content_creation').optional().isBoolean(),
   body('features.download_results').optional().isBoolean(),
   body('features.feedback_video').optional().isBoolean(),
   async (req, res) => {
@@ -810,7 +865,8 @@ const updateUserFeaturesHandler = [
         return res.status(400).json({ error: 'features object required' });
       }
       const allowed = {
-        generate_assessments: !!features.generate_assessments,
+        assessment_creation: features.assessment_creation !== false,
+        content_creation: features.content_creation !== false,
         download_results: !!features.download_results,
         feedback_video: !!features.feedback_video
       };
@@ -830,7 +886,7 @@ const updateUserFeaturesHandler = [
           id: user.id,
           email: user.email,
           name: user.name,
-          features: parseUserFeatures(user.features)
+          features: normalizeFeatureFlags(parseUserFeatures(user.features))
         }
       });
     } catch (error) {
@@ -900,10 +956,15 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
 router.get('/admin/organisations', requireAuth, requireAdmin, async (_req, res) => {
   try {
     const requesterOrg = _req.user.organisation_id == null ? null : Number(_req.user.organisation_id);
-    const result = requesterOrg == null
-      ? await query('SELECT id, name, created_at FROM organisations ORDER BY name ASC')
-      : await query('SELECT id, name, created_at FROM organisations WHERE id = $1 ORDER BY name ASC', [requesterOrg]);
-    const rows = getRows(result);
+    const result = isSuperAdmin(_req.user)
+      ? await query('SELECT id, name, features, created_at FROM organisations ORDER BY name ASC')
+      : requesterOrg == null
+        ? { rows: [] }
+        : await query('SELECT id, name, features, created_at FROM organisations WHERE id = $1 ORDER BY name ASC', [requesterOrg]);
+    const rows = getRows(result).map((row) => ({
+      ...row,
+      features: normalizeFeatureFlags(parseUserFeatures(row.features))
+    }));
     res.json({ organisations: rows });
   } catch (error) {
     console.error('Get organisations error:', error);
@@ -916,8 +977,8 @@ router.post('/admin/organisations', requireAuth, requireAdmin, [
   body('name').trim().isLength({ min: 2, max: 255 }).withMessage('Organisation name is required')
 ], async (req, res) => {
   try {
-    if (req.user.organisation_id != null) {
-      return res.status(403).json({ error: 'Tenant-scoped management cannot create additional organisations' });
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ error: 'Only the super admin can create organisations' });
     }
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -934,11 +995,154 @@ router.post('/admin/organisations', requireAuth, requireAdmin, [
   }
 });
 
+router.put('/admin/organisations/:id/features', requireAuth, requireAdmin, [
+  body('features').isObject().withMessage('features object required'),
+  body('features.assessment_creation').optional().isBoolean(),
+  body('features.content_creation').optional().isBoolean(),
+  body('features.download_results').optional().isBoolean(),
+  body('features.feedback_video').optional().isBoolean()
+], async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ error: 'Only the super admin can update organisation features' });
+    }
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const organisationId = Number(req.params.id);
+    const features = normalizeFeatureFlags(req.body.features || {});
+    const featuresJson = JSON.stringify(features);
+    const existing = await query('SELECT id, name FROM organisations WHERE id = $1', [organisationId]);
+    const organisation = existing.rows?.[0] || existing?.[0];
+    if (!organisation) return res.status(404).json({ error: 'Organisation not found' });
+
+    await query('UPDATE organisations SET features = $1 WHERE id = $2', [featuresJson, organisationId]);
+
+    res.json({
+      success: true,
+      organisation: {
+        id: organisationId,
+        name: organisation.name,
+        features
+      }
+    });
+  } catch (error) {
+    console.error('Update organisation features error:', error);
+    res.status(500).json({ error: 'Failed to update organisation features' });
+  }
+});
+
+// Admin routes - list departments
+router.get('/admin/departments', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requestedOrg = req.query.organisation_id == null ? null : Number(req.query.organisation_id);
+    let result;
+
+    if (isSuperAdmin(req.user)) {
+      if (requestedOrg != null && Number.isFinite(requestedOrg)) {
+        result = await query(
+          `SELECT d.id, d.name, d.organisation_id, o.name as organisation_name, d.created_at
+           FROM departments d
+           INNER JOIN organisations o ON o.id = d.organisation_id
+           WHERE d.organisation_id = $1
+           ORDER BY o.name ASC, d.name ASC`,
+          [requestedOrg]
+        );
+      } else {
+        result = await query(
+          `SELECT d.id, d.name, d.organisation_id, o.name as organisation_name, d.created_at
+           FROM departments d
+           INNER JOIN organisations o ON o.id = d.organisation_id
+           ORDER BY o.name ASC, d.name ASC`
+        );
+      }
+    } else if (requesterOrg != null) {
+      result = await query(
+        `SELECT d.id, d.name, d.organisation_id, o.name as organisation_name, d.created_at
+         FROM departments d
+         INNER JOIN organisations o ON o.id = d.organisation_id
+         WHERE d.organisation_id = $1
+         ORDER BY d.name ASC`,
+        [requesterOrg]
+      );
+    } else {
+      result = { rows: [] };
+    }
+
+    res.json({ departments: getRows(result) });
+  } catch (error) {
+    console.error('Get departments error:', error);
+    res.status(500).json({ error: 'Failed to fetch departments' });
+  }
+});
+
+// Admin routes - create department
+router.post('/admin/departments', requireAuth, requireAdmin, [
+  body('name').trim().isLength({ min: 2, max: 255 }).withMessage('Department name is required'),
+  body('organisation_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('organisation_id must be a positive integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
+    const requestedOrgId = req.body.organisation_id == null ? null : Number(req.body.organisation_id);
+    const organisationId = requesterIsSuperAdmin ? requestedOrgId : requesterOrg;
+
+    if (organisationId == null) {
+      return res.status(400).json({ error: 'An organisation is required to create a department' });
+    }
+
+    if (!requesterIsSuperAdmin && requestedOrgId != null && requestedOrgId !== requesterOrg) {
+      return res.status(403).json({ error: 'You can only create departments in your own organisation' });
+    }
+
+    const organisationResult = await query('SELECT id, name FROM organisations WHERE id = $1', [organisationId]);
+    const organisation = organisationResult.rows?.[0] || organisationResult?.[0];
+    if (!organisation) {
+      return res.status(404).json({ error: 'Organisation not found' });
+    }
+
+    const name = String(req.body.name || '').trim();
+    const existing = await query(
+      'SELECT id FROM departments WHERE organisation_id = $1 AND LOWER(name) = LOWER($2)',
+      [organisationId, name]
+    );
+    if ((existing.rows?.[0] || existing?.[0])?.id) {
+      return res.status(400).json({ error: 'Department already exists in this organisation' });
+    }
+
+    const inserted = await query(
+      'INSERT INTO departments (organisation_id, name) VALUES ($1, $2)',
+      [organisationId, name]
+    );
+    const departmentId = inserted.insertId || inserted.lastID || inserted.rows?.[0]?.id;
+
+    res.json({
+      success: true,
+      department: {
+        id: departmentId,
+        name,
+        organisation_id: Number(organisation.id),
+        organisation_name: organisation.name
+      }
+    });
+  } catch (error) {
+    console.error('Create department error:', error);
+    res.status(500).json({ error: 'Failed to create department' });
+  }
+});
+
 // Admin routes - assign user to organisation
 router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
   body('organisation_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('organisation_id must be a positive integer')
 ], async (req, res) => {
   try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ error: 'Only the super admin can change organisation assignments' });
+    }
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
     const { id } = req.params;
@@ -946,27 +1150,32 @@ router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
     const guard = await getManageableTargetUser(req.user, Number(id));
     if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
     if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
-    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
 
     if (orgId != null) {
       const orgCheck = await query('SELECT id, name FROM organisations WHERE id = $1', [orgId]);
       const org = orgCheck.rows?.[0] || orgCheck?.[0];
       if (!org) return res.status(404).json({ error: 'Organisation not found' });
-      if (requesterOrg != null && Number(org.id) !== requesterOrg) {
-        return res.status(403).json({ error: 'You can only assign users to your own organisation' });
-      }
-      await query('UPDATE users SET organisation_id = $1, organisation_name = $2 WHERE id = $3', [orgId, org.name, id]);
+      await query(
+        `UPDATE users
+         SET organisation_id = $1,
+             organisation_name = $2,
+             department_id = CASE
+               WHEN department_id IN (SELECT id FROM departments WHERE organisation_id = $1) THEN department_id
+               ELSE NULL
+             END
+         WHERE id = $3`,
+        [orgId, org.name, id]
+      );
     } else {
-      if (requesterOrg != null) {
-        return res.status(403).json({ error: 'You cannot remove organisation assignment in tenant-scoped mode' });
-      }
-      await query('UPDATE users SET organisation_id = NULL WHERE id = $1', [id]);
+      await query('UPDATE users SET organisation_id = NULL, organisation_name = NULL, department_id = NULL WHERE id = $1', [id]);
     }
 
     const result = await query(
-      `SELECT u.id, u.email, u.name, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name
+      `SELECT u.id, u.email, u.name, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name,
+              u.department_id, d.name as department_name
        FROM users u
        LEFT JOIN organisations o ON o.id = u.organisation_id
+       LEFT JOIN departments d ON d.id = u.department_id
        WHERE u.id = $1`,
       [id]
     );
@@ -976,6 +1185,66 @@ router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
   } catch (error) {
     console.error('Assign organisation error:', error);
     res.status(500).json({ error: 'Failed to assign organisation' });
+  }
+});
+
+// Admin routes - assign user to department
+router.put('/admin/users/:id/department', requireAuth, requireAdmin, [
+  body('department_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('department_id must be a positive integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const { id } = req.params;
+    const departmentId = req.body.department_id ?? null;
+    const guard = await getManageableTargetUser(req.user, Number(id));
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
+
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const targetOrg = guard.target.organisation_id == null ? null : Number(guard.target.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
+
+    if (departmentId == null) {
+      await query('UPDATE users SET department_id = NULL WHERE id = $1', [id]);
+    } else {
+      const department = await getDepartmentById(Number(departmentId));
+      if (!department) return res.status(404).json({ error: 'Department not found' });
+
+      if (!requesterIsSuperAdmin && requesterOrg !== Number(department.organisation_id)) {
+        return res.status(403).json({ error: 'You can only assign departments in your own organisation' });
+      }
+
+      if (targetOrg != null && targetOrg !== Number(department.organisation_id)) {
+        return res.status(400).json({ error: 'The selected department belongs to a different organisation' });
+      }
+
+      await query(
+        `UPDATE users
+         SET organisation_id = $1,
+             organisation_name = $2,
+             department_id = $3
+         WHERE id = $4`,
+        [department.organisation_id, department.organisation_name, department.id, id]
+      );
+    }
+
+    const result = await query(
+      `SELECT u.id, u.email, u.name, u.organisation_id, COALESCE(o.name, u.organisation_name) as organisation_name,
+              u.department_id, d.name as department_name
+       FROM users u
+       LEFT JOIN organisations o ON o.id = u.organisation_id
+       LEFT JOIN departments d ON d.id = u.department_id
+       WHERE u.id = $1`,
+      [id]
+    );
+    const user = result.rows?.[0] || result?.[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Assign department error:', error);
+    res.status(500).json({ error: 'Failed to assign department' });
   }
 });
 

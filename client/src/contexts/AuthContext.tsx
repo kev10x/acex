@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { authAPI } from '../services/api';
 
 export interface UserFeatures {
-  generate_assessments?: boolean;
+  assessment_creation?: boolean;
+  content_creation?: boolean;
   download_results?: boolean;
   feedback_video?: boolean;
 }
@@ -14,6 +15,8 @@ interface User {
   account_type?: 'individual' | 'organisation';
   organisation_name?: string | null;
   organisation_id?: number | null;
+  department_name?: string | null;
+  department_id?: number | null;
   role?: string;
   is_approved?: boolean;
   features?: UserFeatures;

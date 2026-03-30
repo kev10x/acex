@@ -6,6 +6,7 @@ const { requireAuth, requireFeature, requireRoles } = require('../middleware/aut
 const feedbackVideoService = require('../services/feedbackVideoService');
 
 const router = express.Router();
+const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
 
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const normalizeRole = (role) => {
@@ -14,6 +15,7 @@ const normalizeRole = (role) => {
   if (r === 'user') return 'lecturer';
   return r || 'lecturer';
 };
+const isSuperAdmin = (user) => String(user?.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 const getStudentIdentityKeys = (user) => {
   const keys = [];
   const name = String(user?.name || '').trim().toLowerCase();
@@ -1235,6 +1237,147 @@ router.get('/analytics/overview', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Analytics overview error:', error);
     res.status(500).json({ error: 'Failed to fetch analytics overview' });
+  }
+});
+
+router.get('/analytics/management-performance', requireAuth, requireRoles(['management']), async (req, res) => {
+  try {
+    const scopeParams = [];
+    let scopeClause = '';
+    if (!isSuperAdmin(req.user)) {
+      if (req.user.organisation_id == null) {
+        return res.json({
+          success: true,
+          summary: {
+            total_results: 0,
+            lecturer_count: 0,
+            student_count: 0,
+            average_percentage: 0,
+            reviewed_or_flagged_results: 0
+          },
+          lecturer_performance: [],
+          student_performance: []
+        });
+      }
+      scopeClause = ' AND owner.organisation_id = ?';
+      scopeParams.push(req.user.organisation_id);
+    }
+
+    const summaryResult = await query(
+      `SELECT
+         COUNT(*) as total_results,
+         COUNT(DISTINCT owner.id) as lecturer_count,
+         COUNT(DISTINCT CASE WHEN TRIM(COALESCE(mr.student_name, '')) <> '' THEN LOWER(TRIM(mr.student_name)) END) as student_count,
+         AVG(CASE WHEN COALESCE(r.total_points, 0) > 0 THEN (mr.total_score / r.total_points) * 100 END) as average_percentage,
+         SUM(CASE
+           WHEN COALESCE(m.flagged_for_moderation, 0) = 1
+             OR COALESCE(mr.needs_review, 0) = 1
+             OR COALESCE(mr.has_low_criterion_confidence, 0) = 1
+           THEN 1 ELSE 0 END) as reviewed_or_flagged_results
+       FROM marking_results mr
+       INNER JOIN users owner ON owner.id = mr.user_id
+       LEFT JOIN rubrics r ON r.id = mr.rubric_id
+       LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+       WHERE mr.is_current = 1${scopeClause}`,
+      scopeParams
+    );
+
+    const lecturerResult = await query(
+      `SELECT
+         owner.id as lecturer_id,
+         COALESCE(owner.name, owner.email) as lecturer_name,
+         owner.email as lecturer_email,
+         COALESCE(org.name, owner.organisation_name) as organisation_name,
+         COUNT(*) as total_results,
+         COUNT(DISTINCT mr.assignment_id) as assignments_marked,
+         AVG(mr.total_score) as average_score,
+         AVG(CASE WHEN COALESCE(r.total_points, 0) > 0 THEN (mr.total_score / r.total_points) * 100 END) as average_percentage,
+         SUM(CASE
+           WHEN COALESCE(m.flagged_for_moderation, 0) = 1
+             OR COALESCE(mr.needs_review, 0) = 1
+             OR COALESCE(mr.has_low_criterion_confidence, 0) = 1
+           THEN 1 ELSE 0 END) as review_queue_count,
+         COUNT(DISTINCT DATE(mr.marked_at)) as active_days,
+         MAX(mr.marked_at) as last_marked_at
+       FROM marking_results mr
+       INNER JOIN users owner ON owner.id = mr.user_id
+       LEFT JOIN organisations org ON org.id = owner.organisation_id
+       LEFT JOIN rubrics r ON r.id = mr.rubric_id
+       LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+       WHERE mr.is_current = 1${scopeClause}
+       GROUP BY owner.id, owner.name, owner.email, organisation_name
+       ORDER BY total_results DESC, average_percentage DESC, lecturer_name ASC`,
+      scopeParams
+    );
+
+    const studentResult = await query(
+      `SELECT
+         LOWER(TRIM(mr.student_name)) as student_key,
+         MAX(TRIM(mr.student_name)) as student_name,
+         COUNT(*) as total_results,
+         COUNT(DISTINCT mr.user_id) as lecturers_involved,
+         AVG(mr.total_score) as average_score,
+         AVG(CASE WHEN COALESCE(r.total_points, 0) > 0 THEN (mr.total_score / r.total_points) * 100 END) as average_percentage,
+         MIN(CASE WHEN COALESCE(r.total_points, 0) > 0 THEN (mr.total_score / r.total_points) * 100 END) as min_percentage,
+         MAX(CASE WHEN COALESCE(r.total_points, 0) > 0 THEN (mr.total_score / r.total_points) * 100 END) as max_percentage,
+         SUM(CASE WHEN COALESCE(r.total_points, 0) > 0 AND ((mr.total_score / r.total_points) * 100) >= 50 THEN 1 ELSE 0 END) as pass_count,
+         MAX(mr.marked_at) as last_marked_at
+       FROM marking_results mr
+       INNER JOIN users owner ON owner.id = mr.user_id
+       LEFT JOIN rubrics r ON r.id = mr.rubric_id
+       WHERE mr.is_current = 1
+         AND TRIM(COALESCE(mr.student_name, '')) <> ''${scopeClause}
+       GROUP BY LOWER(TRIM(mr.student_name))
+       ORDER BY total_results DESC, average_percentage DESC, student_name ASC`,
+      scopeParams
+    );
+
+    const summary = rowsOf(summaryResult)[0] || {};
+    const lecturerPerformance = rowsOf(lecturerResult).map((row) => ({
+      lecturer_id: Number(row.lecturer_id),
+      lecturer_name: row.lecturer_name || row.lecturer_email,
+      lecturer_email: row.lecturer_email,
+      organisation_name: row.organisation_name || null,
+      total_results: Number(row.total_results || 0),
+      assignments_marked: Number(row.assignments_marked || 0),
+      average_score: Number(row.average_score || 0),
+      average_percentage: Number(row.average_percentage || 0),
+      review_queue_count: Number(row.review_queue_count || 0),
+      active_days: Number(row.active_days || 0),
+      last_marked_at: row.last_marked_at || null
+    }));
+    const studentPerformance = rowsOf(studentResult).map((row) => {
+      const totalResults = Number(row.total_results || 0);
+      const passCount = Number(row.pass_count || 0);
+      return {
+        student_key: row.student_key,
+        student_name: row.student_name,
+        total_results: totalResults,
+        lecturers_involved: Number(row.lecturers_involved || 0),
+        average_score: Number(row.average_score || 0),
+        average_percentage: Number(row.average_percentage || 0),
+        min_percentage: Number(row.min_percentage || 0),
+        max_percentage: Number(row.max_percentage || 0),
+        pass_rate: totalResults > 0 ? (passCount / totalResults) * 100 : 0,
+        last_marked_at: row.last_marked_at || null
+      };
+    });
+
+    res.json({
+      success: true,
+      summary: {
+        total_results: Number(summary.total_results || 0),
+        lecturer_count: Number(summary.lecturer_count || 0),
+        student_count: Number(summary.student_count || 0),
+        average_percentage: Number(summary.average_percentage || 0),
+        reviewed_or_flagged_results: Number(summary.reviewed_or_flagged_results || 0)
+      },
+      lecturer_performance: lecturerPerformance,
+      student_performance: studentPerformance
+    });
+  } catch (error) {
+    console.error('Management performance analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch management performance analytics' });
   }
 });
 

@@ -16,7 +16,7 @@ function generateCode() {
  * Generate a new assessment based on existing assignment data in the database
  * This uses stored assignment text, rubrics, and marking patterns to create new assessments
  */
-router.post('/generate', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/generate', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
     const {
       rubric_id,
@@ -387,7 +387,7 @@ IMPORTANT:
  * Export assessment as Moodle question bank XML (includes correct answers).
  * Body: { assessment } (full assessment object with questions, options, correct_answer, etc.)
  */
-router.post('/export/moodle-xml', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/export/moodle-xml', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
     const { assessment } = req.body;
     if (!assessment || !assessment.questions || !Array.isArray(assessment.questions)) {
@@ -408,7 +408,7 @@ router.post('/export/moodle-xml', requireAuth, requireFeature('generate_assessme
  * Export assessment as SCORM 1.2 package ZIP (includes answer key as separate resource).
  * Body: { assessment }
  */
-router.post('/export/scorm', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/export/scorm', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
     const { assessment } = req.body;
     if (!assessment || !assessment.questions || !Array.isArray(assessment.questions)) {
@@ -498,7 +498,7 @@ router.get('/stats', async (req, res) => {
  * Publish an assessment so students can take it via a shareable link.
  * Requires auth. Returns code and link.
  */
-router.post('/publish', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/publish', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
     const { assessment, rubric_id } = req.body;
     if (!assessment || !rubric_id) {

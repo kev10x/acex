@@ -174,9 +174,67 @@ export interface MarkingResult {
   review_reasons?: string[];
 }
 
+export interface FeatureFlags {
+  assessment_creation?: boolean;
+  content_creation?: boolean;
+  download_results?: boolean;
+  feedback_video?: boolean;
+}
+
+export interface LecturerPerformance {
+  lecturer_id: number;
+  lecturer_name: string;
+  lecturer_email: string;
+  organisation_name?: string | null;
+  total_results: number;
+  assignments_marked: number;
+  average_score: number;
+  average_percentage: number;
+  review_queue_count: number;
+  active_days: number;
+  last_marked_at?: string | null;
+}
+
+export interface StudentPerformance {
+  student_key: string;
+  student_name: string;
+  total_results: number;
+  lecturers_involved: number;
+  average_score: number;
+  average_percentage: number;
+  min_percentage: number;
+  max_percentage: number;
+  pass_rate: number;
+  last_marked_at?: string | null;
+}
+
+export interface ManagementPerformanceSummary {
+  total_results: number;
+  lecturer_count: number;
+  student_count: number;
+  average_percentage: number;
+  reviewed_or_flagged_results: number;
+}
+
+export interface ManagementPerformanceResponse {
+  success: boolean;
+  summary: ManagementPerformanceSummary;
+  lecturer_performance: LecturerPerformance[];
+  student_performance: StudentPerformance[];
+}
+
 export interface Organisation {
   id: number;
   name: string;
+  features?: FeatureFlags;
+  created_at?: string;
+}
+
+export interface Department {
+  id: number;
+  name: string;
+  organisation_id: number;
+  organisation_name?: string;
   created_at?: string;
 }
 
@@ -286,6 +344,7 @@ export const resultsAPI = {
   downloadCSV: () => api.get('/results/download/csv', { responseType: 'blob' }),
   getAnnotatedPDF: (resultId: number) => api.get(`/results/annotated-pdf/${resultId}`, { responseType: 'blob' }),
   getAnalyticsOverview: () => api.get('/results/analytics/overview'),
+  getManagementPerformance: () => api.get<ManagementPerformanceResponse>('/results/analytics/management-performance'),
   getCriteriaAnalytics: (rubricId: number) => api.get(`/results/analytics/criteria/${rubricId}`),
   getCommonIssues: () => api.get('/results/analytics/common-issues'),
   getMarkingHistory: (assignmentId: number) => api.get(`/mark/history/${assignmentId}`),
@@ -610,8 +669,29 @@ export const authAPI = {
     return Array.isArray(response.data?.organisations) ? response.data.organisations : [];
   },
 
+  getDepartments: async (token: string) => {
+    const response = await api.get('/auth/admin/departments', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return Array.isArray(response.data?.departments) ? response.data.departments : [];
+  },
+
   createOrganisation: async (token: string, name: string) => {
     const response = await api.post('/auth/admin/organisations', { name }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  updateOrganisationFeatures: async (token: string, organisationId: number, features: FeatureFlags) => {
+    const response = await api.put(`/auth/admin/organisations/${organisationId}/features`, { features }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  createDepartment: async (token: string, name: string, organisation_id?: number | null) => {
+    const response = await api.post('/auth/admin/departments', { name, organisation_id }, {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;
@@ -655,7 +735,7 @@ export const authAPI = {
   updateUserFeatures: async (
     token: string,
     userId: number,
-    features: { generate_assessments?: boolean; download_results?: boolean; feedback_video?: boolean }
+    features: { assessment_creation?: boolean; content_creation?: boolean; download_results?: boolean; feedback_video?: boolean }
   ) => {
     const response = await api.put(`/auth/admin/users/${userId}/features`, { features }, {
       headers: { Authorization: `Bearer ${token}` }
@@ -665,6 +745,13 @@ export const authAPI = {
 
   updateUserOrganisation: async (token: string, userId: number, organisation_id: number | null) => {
     const response = await api.put(`/auth/admin/users/${userId}/organisation`, { organisation_id }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  updateUserDepartment: async (token: string, userId: number, department_id: number | null) => {
+    const response = await api.put(`/auth/admin/users/${userId}/department`, { department_id }, {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;

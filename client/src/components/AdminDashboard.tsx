@@ -1,13 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI, Organisation, systemAPI, SystemHealthResponse } from '../services/api';
-import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video } from 'lucide-react';
+import { authAPI, Department, FeatureFlags, ManagementPerformanceResponse, Organisation, resultsAPI, systemAPI, SystemHealthResponse } from '../services/api';
+import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video, BarChart3, TrendingUp } from 'lucide-react';
 
 export interface UserFeatures {
-  generate_assessments?: boolean;
+  assessment_creation?: boolean;
+  content_creation?: boolean;
   download_results?: boolean;
   feedback_video?: boolean;
 }
+
+type FeatureKey = keyof UserFeatures;
+type FeatureDefinition = {
+  key: FeatureKey;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+const FEATURE_DEFINITIONS: FeatureDefinition[] = [
+  { key: 'assessment_creation', label: 'Assessment creation', icon: Sparkles },
+  { key: 'content_creation', label: 'Content creation', icon: BarChart3 },
+  { key: 'download_results', label: 'Download results', icon: Download },
+  { key: 'feedback_video', label: 'Video explaining feedback', icon: Video }
+];
+
+const isFeatureAllowed = (value?: boolean) => value !== false;
+const getEffectiveFeatureValue = (userFeatures: UserFeatures | undefined, organisationFeatures: UserFeatures | undefined, key: FeatureKey) =>
+  isFeatureAllowed(userFeatures?.[key]) && isFeatureAllowed(organisationFeatures?.[key]);
 
 interface UserData {
   id: number;
@@ -22,6 +41,8 @@ interface UserData {
   features?: UserFeatures;
   organisation_id?: number | null;
   organisation_name?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
 }
 type UserRole = 'management' | 'lecturer' | 'student';
 const normalizeRole = (role?: string): UserRole => {
@@ -35,13 +56,18 @@ const AdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'system'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'performance' | 'system'>('pending');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [newOrganisationName, setNewOrganisationName] = useState('');
+  const [newDepartmentName, setNewDepartmentName] = useState('');
+  const [newDepartmentOrganisationId, setNewDepartmentOrganisationId] = useState<number | ''>('');
   const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
+  const [performance, setPerformance] = useState<ManagementPerformanceResponse | null>(null);
+  const [showPolicyAffectedOnly, setShowPolicyAffectedOnly] = useState(false);
 
   useEffect(() => {
     console.log('AdminDashboard useEffect triggered:', { 
@@ -81,11 +107,13 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all, orgs, health] = await Promise.all([
+      const [pending, all, orgs, depts, health, performanceData] = await Promise.all([
         authAPI.getPendingUsers(token),
         authAPI.getAllUsers(token),
         authAPI.getOrganisations(token),
-        systemAPI.getHealth().catch(() => null)
+        authAPI.getDepartments(token),
+        systemAPI.getHealth().catch(() => null),
+        resultsAPI.getManagementPerformance().catch(() => null)
       ]);
       console.log('Users loaded successfully:', { 
         pendingCount: pending?.length || 0, 
@@ -96,7 +124,9 @@ const AdminDashboard: React.FC = () => {
       setPendingUsers(Array.isArray(pending) ? pending : []);
       setAllUsers(Array.isArray(all) ? all : []);
       setOrganisations(Array.isArray(orgs) ? orgs : []);
+      setDepartments(Array.isArray(depts) ? depts : []);
       setSystemHealth(health?.data || null);
+      setPerformance(performanceData?.data || null);
     } catch (err: any) {
       console.error('Error loading users:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to load users';
@@ -189,7 +219,7 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleFeaturesChange = async (userId: number, field: 'generate_assessments' | 'download_results' | 'feedback_video', value: boolean) => {
+  const handleFeaturesChange = async (userId: number, field: 'assessment_creation' | 'content_creation' | 'download_results' | 'feedback_video', value: boolean) => {
     if (!token) return;
     const userData = allUsers.find((u) => u.id === userId);
     if (!userData) return;
@@ -197,7 +227,8 @@ const AdminDashboard: React.FC = () => {
     setActionLoading(userId);
     try {
       await authAPI.updateUserFeatures(token, userId, {
-        generate_assessments: field === 'generate_assessments' ? value : (current.generate_assessments !== false),
+        assessment_creation: field === 'assessment_creation' ? value : (current.assessment_creation !== false),
+        content_creation: field === 'content_creation' ? value : (current.content_creation !== false),
         download_results: field === 'download_results' ? value : (current.download_results !== false),
         feedback_video: field === 'feedback_video' ? value : (current.feedback_video !== false)
       });
@@ -225,6 +256,58 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleCreateDepartment = async () => {
+    if (!token) return;
+    if (!isSuperAdmin && !user?.organisation_id) return;
+    const name = newDepartmentName.trim();
+    if (!name) return;
+    setActionLoading(-2);
+    try {
+      await authAPI.createDepartment(
+        token,
+        name,
+        newDepartmentOrganisationId === '' ? undefined : Number(newDepartmentOrganisationId)
+      );
+      setNewDepartmentName('');
+      if (user?.organisation_id != null && !isSuperAdmin) {
+        setNewDepartmentOrganisationId(user.organisation_id);
+      } else {
+        setNewDepartmentOrganisationId('');
+      }
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to create department');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleOrganisationFeatureChange = async (
+    organisationId: number,
+    field: keyof FeatureFlags,
+    value: boolean
+  ) => {
+    if (!token) return;
+    const organisation = organisations.find((item) => item.id === organisationId);
+    if (!organisation) return;
+    const current = organisation.features || {};
+    const nextFeatures: FeatureFlags = {
+      assessment_creation: field === 'assessment_creation' ? value : current.assessment_creation !== false,
+      content_creation: field === 'content_creation' ? value : current.content_creation !== false,
+      download_results: field === 'download_results' ? value : current.download_results !== false,
+      feedback_video: field === 'feedback_video' ? value : current.feedback_video !== false
+    };
+    setActionLoading(1000000 + organisationId);
+    try {
+      await authAPI.updateOrganisationFeatures(token, organisationId, nextFeatures);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to update organisation features');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleOrganisationChange = async (userId: number, organisationId: number | null) => {
     if (!token) return;
     setActionLoading(userId);
@@ -233,6 +316,19 @@ const AdminDashboard: React.FC = () => {
       await loadUsers();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to assign organisation');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDepartmentChange = async (userId: number, departmentId: number | null) => {
+    if (!token) return;
+    setActionLoading(userId);
+    try {
+      await authAPI.updateUserDepartment(token, userId, departmentId);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to assign department');
     } finally {
       setActionLoading(null);
     }
@@ -282,6 +378,26 @@ const AdminDashboard: React.FC = () => {
     );
   }
 
+  const isSuperAdmin = user.email?.toLowerCase() === 'kkativu@gmail.com';
+  const defaultDepartmentOrgId =
+    newDepartmentOrganisationId === ''
+      ? (isSuperAdmin ? null : user.organisation_id ?? null)
+      : Number(newDepartmentOrganisationId);
+  const currentDepartmentChoices = defaultDepartmentOrgId == null
+    ? []
+    : departments.filter((department) => Number(department.organisation_id) === Number(defaultDepartmentOrgId));
+  const topLecturers = performance?.lecturer_performance?.slice(0, 8) || [];
+  const topStudents = performance?.student_performance?.slice(0, 10) || [];
+  const filteredUsers = allUsers.filter((userData) => {
+    if (!showPolicyAffectedOnly) return true;
+    const organisationFeatures = organisations.find((org) => org.id === userData.organisation_id)?.features || {};
+    return FEATURE_DEFINITIONS.some(({ key }) => {
+      const userAllowed = isFeatureAllowed(userData.features?.[key]);
+      const effectiveAllowed = getEffectiveFeatureValue(userData.features, organisationFeatures, key);
+      return userAllowed !== effectiveAllowed;
+    });
+  });
+
   return (
     <div className="max-w-7xl mx-auto p-6">
       <div className="mb-6">
@@ -297,25 +413,178 @@ const AdminDashboard: React.FC = () => {
         )}
       </div>
 
-      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Organisation management</h3>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newOrganisationName}
-            onChange={(e) => setNewOrganisationName(e.target.value)}
-            placeholder="Add organisation name"
-            className="w-full md:w-80 border border-gray-300 rounded-md px-3 py-2 text-sm"
-          />
-          <button
-            onClick={handleCreateOrganisation}
-            disabled={actionLoading === -1 || !newOrganisationName.trim()}
-            className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
-          >
-            {actionLoading === -1 ? 'Adding...' : 'Add organisation'}
-          </button>
+      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800 mb-1">Organisation and department management</h3>
+          <p className="text-xs text-gray-600">
+            {isSuperAdmin
+              ? 'The super admin can create organisations and departments across the platform.'
+              : 'Organisation admins can create departments inside their own organisation.'}
+          </p>
         </div>
-        <p className="text-xs text-gray-600 mt-2">Total organisations: {organisations.length}</p>
+
+        {isSuperAdmin && (
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">Create organisation</label>
+            <div className="flex flex-col md:flex-row gap-2">
+              <input
+                type="text"
+                value={newOrganisationName}
+                onChange={(e) => setNewOrganisationName(e.target.value)}
+                placeholder="Add organisation name"
+                className="w-full md:w-80 border border-gray-300 rounded-md px-3 py-2 text-sm"
+              />
+              <button
+                onClick={handleCreateOrganisation}
+                disabled={actionLoading === -1 || !newOrganisationName.trim()}
+                className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {actionLoading === -1 ? 'Adding...' : 'Add organisation'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">Create department</label>
+          <div className="flex flex-col lg:flex-row gap-2">
+            <input
+              type="text"
+              value={newDepartmentName}
+              onChange={(e) => setNewDepartmentName(e.target.value)}
+              placeholder="Add department name"
+              className="w-full lg:w-80 border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+            {isSuperAdmin ? (
+              <select
+                value={newDepartmentOrganisationId}
+                onChange={(e) => setNewDepartmentOrganisationId(e.target.value ? Number(e.target.value) : '')}
+                className="w-full lg:w-64 border border-gray-300 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">Select organisation</option>
+                {organisations.map((organisation) => (
+                  <option key={organisation.id} value={organisation.id}>
+                    {organisation.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="w-full lg:w-64 border border-gray-200 bg-white rounded-md px-3 py-2 text-sm text-gray-700">
+                {user.organisation_name || 'No organisation assigned'}
+              </div>
+            )}
+            <button
+              onClick={handleCreateDepartment}
+              disabled={
+                actionLoading === -2 ||
+                !newDepartmentName.trim() ||
+                (isSuperAdmin && defaultDepartmentOrgId == null) ||
+                (!isSuperAdmin && !user.organisation_id)
+              }
+              className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+            >
+              {actionLoading === -2 ? 'Adding...' : 'Add department'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-600 mt-2">
+            {isSuperAdmin
+              ? `Total organisations: ${organisations.length}. Total departments: ${departments.length}.`
+              : `Departments in your organisation: ${departments.length}.`}
+          </p>
+          {!isSuperAdmin && !user.organisation_id && (
+            <p className="text-xs text-amber-700 mt-2">Assign this admin to an organisation before creating departments.</p>
+          )}
+          {currentDepartmentChoices.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              Existing departments: {currentDepartmentChoices.map((department) => department.name).join(', ')}
+            </p>
+          )}
+        </div>
+
+        {isSuperAdmin && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-medium text-gray-700">Organisation management</label>
+              <span className="text-xs text-gray-500">Organisation-level settings override user-level access.</span>
+            </div>
+            <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organisation</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assessment Creation</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Content Creation</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Result Downloads</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback Video</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {organisations.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No organisations available yet.</td>
+                    </tr>
+                  ) : organisations.map((organisation) => {
+                    const organisationFeatures = organisation.features || {};
+                    const rowLoading = actionLoading === 1000000 + organisation.id;
+                    return (
+                      <tr key={organisation.id}>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{organisation.name}</td>
+                        <td className="px-4 py-3">
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={organisationFeatures.assessment_creation !== false}
+                              onChange={(e) => handleOrganisationFeatureChange(organisation.id, 'assessment_creation', e.target.checked)}
+                              disabled={rowLoading}
+                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            Enabled
+                          </label>
+                        </td>
+                        <td className="px-4 py-3">
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={organisationFeatures.content_creation !== false}
+                              onChange={(e) => handleOrganisationFeatureChange(organisation.id, 'content_creation', e.target.checked)}
+                              disabled={rowLoading}
+                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            Enabled
+                          </label>
+                        </td>
+                        <td className="px-4 py-3">
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={organisationFeatures.download_results !== false}
+                              onChange={(e) => handleOrganisationFeatureChange(organisation.id, 'download_results', e.target.checked)}
+                              disabled={rowLoading}
+                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            Enabled
+                          </label>
+                        </td>
+                        <td className="px-4 py-3">
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={organisationFeatures.feedback_video !== false}
+                              onChange={(e) => handleOrganisationFeatureChange(organisation.id, 'feedback_video', e.target.checked)}
+                              disabled={rowLoading}
+                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            Enabled
+                          </label>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -339,7 +608,17 @@ const AdminDashboard: React.FC = () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            All Users ({allUsers.length})
+            All Users ({filteredUsers.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('performance')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'performance'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Performance
           </button>
           <button
             onClick={() => setActiveTab('system')}
@@ -376,6 +655,139 @@ const AdminDashboard: React.FC = () => {
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading users...</p>
+        </div>
+      ) : activeTab === 'performance' ? (
+        <div className="space-y-6">
+          {!performance ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-yellow-800">Performance analytics are unavailable right now.</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-600">Marked Scripts</span>
+                    <BarChart3 className="h-4 w-4 text-blue-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-gray-900 mt-2">{performance.summary.total_results}</div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-600">Lecturers Active</span>
+                    <User className="h-4 w-4 text-emerald-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-gray-900 mt-2">{performance.summary.lecturer_count}</div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-600">Students Tracked</span>
+                    <User className="h-4 w-4 text-violet-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-gray-900 mt-2">{performance.summary.student_count}</div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-600">Average %</span>
+                    <TrendingUp className="h-4 w-4 text-amber-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-gray-900 mt-2">{performance.summary.average_percentage.toFixed(1)}%</div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-600">Queued for Review</span>
+                    <AlertCircle className="h-4 w-4 text-rose-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-gray-900 mt-2">{performance.summary.reviewed_or_flagged_results}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-900">Lecturer Performance</h3>
+                    <p className="text-xs text-gray-500 mt-1">Per-marker volume, average attainment, and review load.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lecturer</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scripts</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Average %</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Review Queue</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {topLecturers.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No lecturer performance data yet.</td>
+                          </tr>
+                        ) : topLecturers.map((lecturer) => (
+                          <tr key={lecturer.lecturer_id}>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-gray-900">{lecturer.lecturer_name}</div>
+                              <div className="text-xs text-gray-500">{lecturer.lecturer_email}</div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              <div>{lecturer.total_results}</div>
+                              <div className="text-xs text-gray-500">{lecturer.assignments_marked} assignments</div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{lecturer.average_percentage.toFixed(1)}%</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{lecturer.review_queue_count}</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              {lecturer.last_marked_at ? new Date(lecturer.last_marked_at).toLocaleDateString() : 'No activity'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-900">Student Performance</h3>
+                    <p className="text-xs text-gray-500 mt-1">Per-student attainment across marked scripts in this scope.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scripts</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Average %</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pass Rate</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Range</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {topStudents.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No student performance data yet.</td>
+                          </tr>
+                        ) : topStudents.map((studentPerf) => (
+                          <tr key={studentPerf.student_key}>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-medium text-gray-900">{studentPerf.student_name}</div>
+                              <div className="text-xs text-gray-500">{studentPerf.lecturers_involved} lecturer(s)</div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{studentPerf.total_results}</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{studentPerf.average_percentage.toFixed(1)}%</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{studentPerf.pass_rate.toFixed(0)}%</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              {studentPerf.min_percentage.toFixed(0)}% - {studentPerf.max_percentage.toFixed(0)}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       ) : activeTab === 'system' ? (
         <div className="space-y-4">
@@ -529,10 +941,29 @@ const AdminDashboard: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white shadow rounded-lg overflow-hidden">
-          {allUsers.length === 0 ? (
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">User Access Audit</h3>
+              <p className="text-xs text-gray-600">Review user-level overrides alongside organisation policy.</p>
+            </div>
+            {isSuperAdmin && (
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={showPolicyAffectedOnly}
+                  onChange={(e) => setShowPolicyAffectedOnly(e.target.checked)}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                Show only users affected by organisation policy
+              </label>
+            )}
+          </div>
+          {filteredUsers.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 rounded-lg">
               <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No users found</p>
+              <p className="text-gray-600">
+                {showPolicyAffectedOnly ? 'No users are currently affected by organisation-level feature policy.' : 'No users found'}
+              </p>
             </div>
           ) : (
           <table className="min-w-full divide-y divide-gray-200">
@@ -545,7 +976,7 @@ const AdminDashboard: React.FC = () => {
                   Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Organisation
+                  Organisation / Department
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Features
@@ -562,11 +993,9 @@ const AdminDashboard: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {allUsers.map((userData) => {
+              {filteredUsers.map((userData) => {
                 const feat = userData.features || {};
-                const allowAssessments = feat.generate_assessments !== false;
-                const allowDownloads = feat.download_results !== false;
-                const allowFeedbackVideo = feat.feedback_video !== false;
+                const organisationFeatures = organisations.find((org) => org.id === userData.organisation_id)?.features || {};
                 return (
                 <tr key={userData.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -595,53 +1024,77 @@ const AdminDashboard: React.FC = () => {
                     </select>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <select
-                      value={userData.organisation_id || ''}
-                      onChange={(e) => handleOrganisationChange(userData.id, e.target.value ? Number(e.target.value) : null)}
-                      disabled={actionLoading === userData.id}
-                      className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
-                    >
-                      <option value="">No organisation</option>
-                      {organisations.map((org) => (
-                        <option key={org.id} value={org.id}>{org.name}</option>
-                      ))}
-                    </select>
+                    <div className="flex flex-col gap-2 min-w-[220px]">
+                      {isSuperAdmin ? (
+                        <select
+                          value={userData.organisation_id || ''}
+                          onChange={(e) => handleOrganisationChange(userData.id, e.target.value ? Number(e.target.value) : null)}
+                          disabled={actionLoading === userData.id}
+                          className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
+                        >
+                          <option value="">No organisation</option>
+                          {organisations.map((org) => (
+                            <option key={org.id} value={org.id}>{org.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="text-sm text-gray-700">
+                          {userData.organisation_name || 'No organisation'}
+                        </div>
+                      )}
+                      <select
+                        value={userData.department_id || ''}
+                        onChange={(e) => handleDepartmentChange(userData.id, e.target.value ? Number(e.target.value) : null)}
+                        disabled={actionLoading === userData.id || !userData.organisation_id}
+                        className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
+                      >
+                        <option value="">{userData.organisation_id ? 'No department' : 'Assign organisation first'}</option>
+                        {departments
+                          .filter((department) => Number(department.organisation_id) === Number(userData.organisation_id))
+                          .map((department) => (
+                            <option key={department.id} value={department.id}>{department.name}</option>
+                          ))}
+                      </select>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-2 text-xs">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={allowAssessments}
-                          onChange={(e) => handleFeaturesChange(userData.id, 'generate_assessments', e.target.checked)}
-                          disabled={actionLoading === userData.id || userData.id === user?.id}
-                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <Sparkles className="h-3.5 w-3 text-gray-500" />
-                        <span>Generate assessments</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={allowDownloads}
-                          onChange={(e) => handleFeaturesChange(userData.id, 'download_results', e.target.checked)}
-                          disabled={actionLoading === userData.id || userData.id === user?.id}
-                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <Download className="h-3.5 w-3 text-gray-500" />
-                        <span>Download results</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={allowFeedbackVideo}
-                          onChange={(e) => handleFeaturesChange(userData.id, 'feedback_video', e.target.checked)}
-                          disabled={actionLoading === userData.id || userData.id === user?.id}
-                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <Video className="h-3.5 w-3 text-gray-500" />
-                        <span>Video explaining feedback</span>
-                      </label>
+                    <div className="flex flex-col gap-3 text-xs min-w-[280px]">
+                      {FEATURE_DEFINITIONS.map(({ key, label, icon: Icon }) => {
+                        const organisationAllowed = isFeatureAllowed(organisationFeatures[key]);
+                        const userAllowed = isFeatureAllowed(feat[key]);
+                        const effectiveAllowed = getEffectiveFeatureValue(feat, organisationFeatures, key);
+                        const orgStatusLabel = organisationAllowed ? 'Organisation enabled' : 'Organisation disabled';
+                        const userStatusLabel = userAllowed ? 'User enabled' : 'User disabled';
+
+                        return (
+                          <div key={key} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 text-gray-700">
+                                <Icon className="h-3.5 w-3.5 text-gray-500" />
+                                <span>{label}</span>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${effectiveAllowed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {effectiveAllowed ? 'Effective: enabled' : 'Effective: disabled'}
+                              </span>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={userAllowed}
+                                  onChange={(e) => handleFeaturesChange(userData.id, key, e.target.checked)}
+                                  disabled={actionLoading === userData.id || userData.id === user?.id}
+                                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                />
+                                <span className={`${userAllowed ? 'text-gray-700' : 'text-red-700'}`}>{userStatusLabel}</span>
+                              </label>
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${organisationAllowed ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {orgStatusLabel}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

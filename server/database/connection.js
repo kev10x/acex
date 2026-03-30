@@ -75,7 +75,18 @@ const initDatabase = async () => {
         CREATE TABLE IF NOT EXISTS organisations (
           id INT AUTO_INCREMENT PRIMARY KEY,
           name VARCHAR(255) NOT NULL UNIQUE,
+          features JSON DEFAULT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS departments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organisation_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_department_per_org (organisation_id, name),
+          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE
         )
       `);
       // Create users table first
@@ -97,7 +108,9 @@ const initDatabase = async () => {
           role VARCHAR(50) DEFAULT 'lecturer',
           is_approved TINYINT(1) DEFAULT 0,
           organisation_id INT NULL,
-          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL
+          department_id INT NULL,
+          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL,
+          FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
         )
       `);
 
@@ -286,6 +299,18 @@ const initDatabase = async () => {
         if (!hasOrgId) {
           await query(`ALTER TABLE users ADD COLUMN organisation_id INT NULL`);
           await query(`ALTER TABLE users ADD CONSTRAINT fk_users_organisation FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL`);
+        }
+        const departmentIdCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE()
+          AND table_name = 'users'
+          AND column_name = 'department_id'
+        `);
+        const hasDepartmentId = (departmentIdCheck.rows?.[0]?.count || departmentIdCheck?.[0]?.count || 0) > 0;
+        if (!hasDepartmentId) {
+          await query(`ALTER TABLE users ADD COLUMN department_id INT NULL`);
+          await query(`ALTER TABLE users ADD CONSTRAINT fk_users_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL`);
         }
 
         // Check if version column exists
@@ -565,6 +590,16 @@ const initDatabase = async () => {
         if ((featuresCheck.rows?.[0]?.count || featuresCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN features JSON DEFAULT NULL`);
         }
+        const orgFeaturesCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE()
+          AND table_name = 'organisations'
+          AND column_name = 'features'
+        `);
+        if ((orgFeaturesCheck.rows?.[0]?.count || orgFeaturesCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE organisations ADD COLUMN features JSON DEFAULT NULL`);
+        }
         const videoIdsCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
           WHERE table_schema = DATABASE() AND table_name = 'feedback_videos' AND column_name = 'openai_video_ids'
@@ -619,7 +654,17 @@ const initDatabase = async () => {
         CREATE TABLE IF NOT EXISTS organisations (
           id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL UNIQUE,
+          features JSONB DEFAULT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS departments (
+          id SERIAL PRIMARY KEY,
+          organisation_id INTEGER NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(organisation_id, name)
         )
       `);
       // Create users table first
@@ -640,7 +685,8 @@ const initDatabase = async () => {
           verification_token_expires TIMESTAMP,
           role VARCHAR(50) DEFAULT 'lecturer',
           is_approved BOOLEAN DEFAULT FALSE,
-          organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL
+          organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL,
+          department_id INTEGER NULL REFERENCES departments(id) ON DELETE SET NULL
         )
       `);
 
@@ -797,6 +843,15 @@ const initDatabase = async () => {
         `);
         if ((orgIdCheck.rows?.[0]?.count || orgIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL`);
+        }
+        const departmentIdCheckPg = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'users'
+          AND column_name = 'department_id'
+        `);
+        if ((departmentIdCheckPg.rows?.[0]?.count || departmentIdCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN department_id INTEGER NULL REFERENCES departments(id) ON DELETE SET NULL`);
         }
 
         // Check and add columns if they don't exist
@@ -1024,6 +1079,15 @@ const initDatabase = async () => {
         `);
         if ((featuresCheck.rows?.[0]?.count || featuresCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN features JSONB DEFAULT NULL`);
+        }
+        const orgFeaturesCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'organisations'
+          AND column_name = 'features'
+        `);
+        if ((orgFeaturesCheck.rows?.[0]?.count || orgFeaturesCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE organisations ADD COLUMN features JSONB DEFAULT NULL`);
         }
         const videoIdsCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.columns

@@ -40,7 +40,7 @@ const uploadTemplate = multer({
 /**
  * Generate course content with AI. Body: topics, level?, num_sections?, rubric_id?, rubric_context?, include_video? (boolean)
  */
-router.post('/generate', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/generate', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
     const { topics, level, num_sections = 5, rubric_id, rubric_context, include_video } = req.body;
     if (!topics || !String(topics).trim()) {
@@ -73,7 +73,7 @@ router.post('/generate', requireAuth, requireFeature('generate_assessments'), as
 /**
  * Publish content (store and get student link). Body: content, rubric_id?; optional: include_video (start Sora job).
  */
-router.post('/publish', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/publish', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
     const { content, rubric_id, include_video } = req.body;
     if (!content || !content.title) {
@@ -253,7 +253,7 @@ router.post('/submit-quiz', async (req, res) => {
 /**
  * Export content as PowerPoint. Body: { content }.
  */
-router.post('/export/pptx', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/export/pptx', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
@@ -271,7 +271,7 @@ router.post('/export/pptx', requireAuth, requireFeature('generate_assessments'),
 /**
  * Export content as lecture notes (HTML, includes answer key).
  */
-router.post('/export/lecture-notes', requireAuth, requireFeature('generate_assessments'), async (req, res) => {
+router.post('/export/lecture-notes', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
@@ -289,7 +289,7 @@ router.post('/export/lecture-notes', requireAuth, requireFeature('generate_asses
 /**
  * Upload PowerPoint template (stored for future use / slide styling).
  */
-router.post('/template', requireAuth, requireFeature('generate_assessments'), (req, res) => {
+router.post('/template', requireAuth, requireFeature('content_creation'), (req, res) => {
   uploadTemplate(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Template upload failed' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });

@@ -198,7 +198,8 @@ function AppContent() {
     : (user?.role as AppRole) || 'lecturer';
 
   const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
-  const allowGenerateAssessments = user?.features?.generate_assessments !== false;
+  const allowAssessmentCreation = user?.features?.assessment_creation !== false;
+  const allowContentCreation = user?.features?.content_creation !== false;
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -215,16 +216,20 @@ function AppContent() {
       student:
         normalizedRole === 'student'
           ? ['results', 'mcq'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-          : allowGenerateAssessments
-            ? ['assessments', 'content'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-            : [],
+          : ['assessments', 'content']
+              .filter((tab) => {
+                if (tab === 'assessments') return allowAssessmentCreation;
+                if (tab === 'content') return allowContentCreation;
+                return true;
+              })
+              .filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
       labs:
         normalizedRole === 'student'
           ? []
           : ['mcq', 'training'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
       admin: normalizedRole === 'management' ? ['admin'] : []
     }),
-    [allowGenerateAssessments, normalizedRole]
+    [allowAssessmentCreation, allowContentCreation, normalizedRole]
   );
 
   const availableWorkspaces = useMemo(

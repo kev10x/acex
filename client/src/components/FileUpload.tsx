@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Upload, File, Trash2, AlertCircle, CheckCircle, FolderPlus, Plus, X } from 'lucide-react';
 import { uploadAPI, batchesAPI, Assignment, Batch } from '../services/api';
 
 const FileUpload: React.FC = () => {
@@ -9,6 +9,10 @@ const FileUpload: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<number | ''>('');
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderDescription, setNewFolderDescription] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
 
   const fetchAssignments = useCallback(async () => {
     try {
@@ -106,6 +110,37 @@ const FileUpload: React.FC = () => {
     }
   };
 
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      setError('Folder name is required');
+      return;
+    }
+
+    try {
+      setCreatingFolder(true);
+      setError(null);
+      const response = await batchesAPI.createBatch({
+        name: newFolderName.trim(),
+        description: newFolderDescription.trim() || undefined
+      });
+
+      const createdBatch: Batch | undefined = response.data.batch;
+      await fetchBatches();
+
+      if (createdBatch?.id) {
+        setSelectedBatchId(createdBatch.id);
+      }
+
+      setNewFolderName('');
+      setNewFolderDescription('');
+      setShowCreateFolder(false);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to create folder');
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -149,22 +184,77 @@ const FileUpload: React.FC = () => {
         </p>
       </div>
 
-      <div className="bg-white rounded-lg border p-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Upload into folder (optional)
-        </label>
-        <select
-          value={selectedBatchId}
-          onChange={(e) => setSelectedBatchId(e.target.value ? Number(e.target.value) : '')}
-          className="w-full max-w-md border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
-        >
-          <option value="">No folder (unassigned)</option>
-          {batches.map((batch) => (
-            <option key={batch.id} value={batch.id}>
-              {batch.name}
-            </option>
-          ))}
-        </select>
+      <div className="bg-white rounded-lg border p-4 space-y-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="w-full max-w-md">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Upload into folder (optional)
+            </label>
+            <select
+              value={selectedBatchId}
+              onChange={(e) => setSelectedBatchId(e.target.value ? Number(e.target.value) : '')}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">No folder (unassigned)</option>
+              {batches.map((batch) => (
+                <option key={batch.id} value={batch.id}>
+                  {batch.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCreateFolder((prev) => !prev)}
+            className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-primary-200 bg-primary-50 text-primary-700 text-sm font-medium hover:bg-primary-100"
+          >
+            {showCreateFolder ? <X className="w-4 h-4 mr-2" /> : <FolderPlus className="w-4 h-4 mr-2" />}
+            {showCreateFolder ? 'Close folder creator' : 'Create folder here'}
+          </button>
+        </div>
+
+        {showCreateFolder && (
+          <div className="rounded-lg border border-dashed border-primary-200 bg-primary-50/40 p-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Folder name
+                </label>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="For example: Term 1 Essays"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description (optional)
+                </label>
+                <input
+                  type="text"
+                  value={newFolderDescription}
+                  onChange={(e) => setNewFolderDescription(e.target.value)}
+                  placeholder="Short note about this folder"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateFolder}
+                disabled={creatingFolder}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                {creatingFolder ? 'Creating...' : 'Create folder'}
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-gray-600">
+              New folders created here are available immediately and will be selected for the next upload.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Upload Area */}
