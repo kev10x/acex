@@ -10,15 +10,19 @@ const path = require('path');
 
 class TrainingDataExporter {
   constructor() {
-    this.exportDir = path.join(__dirname, '../../training_data');
+    this.baseExportDir = path.join(__dirname, '../../training_data');
+  }
+
+  getExportDir(userId) {
+    return path.join(this.baseExportDir, String(userId));
   }
 
   /**
    * Ensure export directory exists
    */
-  async ensureExportDir() {
+  async ensureExportDir(userId) {
     try {
-      await fs.mkdir(this.exportDir, { recursive: true });
+      await fs.mkdir(this.getExportDir(userId), { recursive: true });
     } catch (error) {
       console.error('Error creating export directory:', error);
       throw error;
@@ -36,6 +40,7 @@ class TrainingDataExporter {
    */
   async exportTrainingData(options = {}) {
     const {
+      userId = null,
       includeText = true,
       onlyCurrentVersions = true,
       minScoreCount = 1,
@@ -43,7 +48,11 @@ class TrainingDataExporter {
       providers = null
     } = options;
 
-    await this.ensureExportDir();
+    if (userId == null) {
+      throw new Error('userId is required for training export');
+    }
+
+    await this.ensureExportDir(userId);
 
     console.log('📊 Starting training data export...');
 
@@ -71,12 +80,12 @@ class TrainingDataExporter {
         r.criteria as rubric_criteria,
         r.rubric_type
       FROM marking_results mr
-      INNER JOIN assignments a ON mr.assignment_id = a.id
-      INNER JOIN rubrics r ON mr.rubric_id = r.id
-      WHERE 1=1
-    `;
+	      INNER JOIN assignments a ON mr.assignment_id = a.id
+	      INNER JOIN rubrics r ON mr.rubric_id = r.id
+	      WHERE mr.user_id = ? AND a.user_id = ? AND r.user_id = ?
+	    `;
 
-    const params = [];
+	    const params = [userId, userId, userId];
 
     if (onlyCurrentVersions) {
       sql += ' AND mr.is_current = 1';
@@ -200,7 +209,7 @@ class TrainingDataExporter {
       filename = `training_data_${timestamp}.json`;
     }
 
-    const filePath = path.join(this.exportDir, filename);
+    const filePath = path.join(this.getExportDir(options.userId), filename);
     await fs.writeFile(filePath, JSON.stringify(exportData, null, 2), 'utf8');
 
     console.log(`💾 Training data saved to: ${filePath}`);
@@ -329,6 +338,9 @@ ${example.assignment_text.substring(0, 8000)}`;
    * Export to JSONL format (one JSON object per line) for fine-tuning
    */
   async exportToJSONL(format = 'openai', options = {}) {
+    if (options.userId == null) {
+      throw new Error('userId is required for training export');
+    }
     let fineTuningData;
     
     if (format === 'openai') {
@@ -345,7 +357,7 @@ ${example.assignment_text.substring(0, 8000)}`;
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `training_data_${format}_${timestamp}.jsonl`;
-    const filePath = path.join(this.exportDir, filename);
+    const filePath = path.join(this.getExportDir(options.userId), filename);
 
     // Write JSONL (one JSON object per line)
     const lines = fineTuningData.map(item => JSON.stringify(item)).join('\n');
@@ -366,7 +378,10 @@ ${example.assignment_text.substring(0, 8000)}`;
   /**
    * Get training data statistics
    */
-  async getStatistics() {
+  async getStatistics(userId) {
+    if (userId == null) {
+      throw new Error('userId is required for training statistics');
+    }
     const stats = await query(`
       SELECT 
         COUNT(*) as total_results,
@@ -378,8 +393,8 @@ ${example.assignment_text.substring(0, 8000)}`;
         MIN(total_score) as min_score,
         MAX(total_score) as max_score
       FROM marking_results
-      WHERE is_current = 1
-    `);
+      WHERE is_current = 1 AND user_id = ?
+    `, [userId]);
 
     const row = Array.isArray(stats) ? stats[0] : (stats.rows?.[0] || stats[0]);
 

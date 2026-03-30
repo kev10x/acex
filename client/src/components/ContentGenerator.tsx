@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Loader2, Download, Video, Link2, Upload, X, Presentation, BookOpen } from 'lucide-react';
+import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen } from 'lucide-react';
 import { contentAPI, rubricsAPI, GeneratedContent } from '../services/api';
 
 const LEVEL_OPTIONS = [
@@ -23,7 +23,6 @@ const ContentGenerator: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
-  const [publishedCode, setPublishedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
@@ -115,7 +114,6 @@ const ContentGenerator: React.FC = () => {
         include_video: withVideo,
       });
       if (res.data.success && res.data.code) {
-        setPublishedCode(res.data.code);
         const link = res.data.link;
         const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
         setPublishedLink(link && link.startsWith('http') ? link : `${window.location.origin}${base}/take-content?code=${res.data.code}`);

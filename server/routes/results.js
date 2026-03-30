@@ -25,6 +25,91 @@ const getStudentIdentityKeys = (user) => {
   return Array.from(new Set(keys));
 };
 
+const rubricNameSelect = `COALESCE(r.name, 'MCQ Assessment')`;
+const reviewStatusSelect = `
+  CASE
+    WHEN COALESCE(m.flagged_for_moderation, 0) = 1 THEN 'queued'
+    WHEN (m.custom_feedback IS NOT NULL AND TRIM(m.custom_feedback) != '')
+      OR m.override_total_score IS NOT NULL
+      OR (m.moderation_reason IS NOT NULL AND TRIM(m.moderation_reason) != '')
+    THEN 'reviewed'
+    WHEN COALESCE(mr.needs_review, 0) = 1 OR COALESCE(mr.has_low_criterion_confidence, 0) = 1 THEN 'queued'
+    ELSE 'none'
+  END
+`;
+
+function mapResultRow(row) {
+  const plain = row && typeof row === 'object' ? JSON.parse(JSON.stringify(row)) : {};
+  let scores = plain.scores;
+  if (typeof scores === 'string') {
+    try {
+      scores = JSON.parse(scores);
+    } catch (_) {
+      scores = [];
+    }
+  }
+  if (!Array.isArray(scores)) scores = [];
+  let corrections = plain.corrections;
+  if (corrections != null && typeof corrections === 'string') {
+    try {
+      corrections = JSON.parse(corrections);
+    } catch (_) {
+      corrections = [];
+    }
+  }
+  if (!Array.isArray(corrections)) corrections = [];
+  let language_errors = plain.language_errors;
+  if (language_errors != null && typeof language_errors === 'string') {
+    try {
+      language_errors = JSON.parse(language_errors);
+    } catch (_) {
+      language_errors = [];
+    }
+  }
+  if (!Array.isArray(language_errors)) language_errors = [];
+  const review_reasons = [];
+  const flagged = plain.flagged_for_moderation === true || plain.flagged_for_moderation === 1;
+  const needsReview = plain.needs_review === true || plain.needs_review === 1;
+  const lowConfidence = plain.has_low_criterion_confidence === true || plain.has_low_criterion_confidence === 1;
+  if (flagged) review_reasons.push('moderation_flag');
+  if (needsReview) review_reasons.push('low_overall_confidence');
+  if (lowConfidence) review_reasons.push('low_criterion_confidence');
+  const moderationNote = plain.moderation_reason != null ? String(plain.moderation_reason).trim() : '';
+  if (moderationNote) review_reasons.push('lecturer_note');
+  if (plain.custom_feedback != null && String(plain.custom_feedback).trim()) review_reasons.push('feedback_override');
+  if (plain.override_total_score != null) review_reasons.push('score_override');
+  const review_status = plain.review_status || (
+    flagged || needsReview || lowConfidence
+      ? 'queued'
+      : (plain.custom_feedback != null || plain.override_total_score != null || moderationNote ? 'reviewed' : 'none')
+  );
+  return {
+    ...plain,
+    scores,
+    corrections,
+    language_errors,
+    flagged_for_moderation: flagged,
+    needs_review: needsReview,
+    has_low_criterion_confidence: lowConfidence,
+    moderation_reason: plain.moderation_reason || null,
+    moderation_updated_by: plain.moderation_updated_by != null ? Number(plain.moderation_updated_by) : null,
+    moderation_updated_by_name: plain.moderation_updated_by_name || null,
+    moderation_updated_by_email: plain.moderation_updated_by_email || null,
+    moderation_updated_at: plain.moderation_updated_at || null,
+    custom_feedback: plain.custom_feedback || null,
+    override_total_score: plain.override_total_score != null ? Number(plain.override_total_score) : null,
+    effective_feedback: plain.custom_feedback != null && String(plain.custom_feedback).trim().length > 0 ? String(plain.custom_feedback) : (plain.feedback != null ? String(plain.feedback) : ''),
+    effective_total_score: plain.override_total_score != null ? Number(plain.override_total_score) : Number(plain.total_score),
+    feedback: plain.feedback != null ? String(plain.feedback) : '',
+    estimated_cost_usd: plain.estimated_cost_usd != null ? Number(plain.estimated_cost_usd) : null,
+    prompt_tokens: plain.prompt_tokens != null ? Number(plain.prompt_tokens) : null,
+    completion_tokens: plain.completion_tokens != null ? Number(plain.completion_tokens) : null,
+    total_tokens: plain.total_tokens != null ? Number(plain.total_tokens) : null,
+    review_status,
+    review_reasons
+  };
+}
+
 // Get all marking results
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -43,20 +128,23 @@ router.get('/', requireAuth, async (req, res) => {
           a.file_path,
           a.uploaded_at,
           b.name as folder_name,
-          r.name as rubric_name,
+          ${rubricNameSelect} as rubric_name,
           r.total_points as max_points,
           m.flagged_for_moderation,
           m.moderation_reason,
           m.custom_feedback,
           m.override_total_score,
           m.updated_by_user_id as moderation_updated_by,
-          m.updated_at as moderation_updated_at
+          m.updated_at as moderation_updated_at,
+          reviewer.name as moderation_updated_by_name,
+          reviewer.email as moderation_updated_by_email
         FROM marking_results mr
         JOIN assignments a ON mr.assignment_id = a.id
         JOIN users owner ON owner.id = mr.user_id
         LEFT JOIN batches b ON a.batch_id = b.id
-        JOIN rubrics r ON mr.rubric_id = r.id
+        LEFT JOIN rubrics r ON mr.rubric_id = r.id
         LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+        LEFT JOIN users reviewer ON reviewer.id = m.updated_by_user_id
         WHERE LOWER(TRIM(COALESCE(mr.student_name, ''))) IN (${placeholders})
           AND (
             (? IS NULL AND owner.organisation_id IS NULL)
@@ -73,19 +161,22 @@ router.get('/', requireAuth, async (req, res) => {
           a.file_path,
           a.uploaded_at,
           b.name as folder_name,
-          r.name as rubric_name,
+          ${rubricNameSelect} as rubric_name,
           r.total_points as max_points,
           m.flagged_for_moderation,
           m.moderation_reason,
           m.custom_feedback,
           m.override_total_score,
           m.updated_by_user_id as moderation_updated_by,
-          m.updated_at as moderation_updated_at
+          m.updated_at as moderation_updated_at,
+          reviewer.name as moderation_updated_by_name,
+          reviewer.email as moderation_updated_by_email
         FROM marking_results mr
         JOIN assignments a ON mr.assignment_id = a.id
         LEFT JOIN batches b ON a.batch_id = b.id
-        JOIN rubrics r ON mr.rubric_id = r.id
+        LEFT JOIN rubrics r ON mr.rubric_id = r.id
         LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+        LEFT JOIN users reviewer ON reviewer.id = m.updated_by_user_id
         WHERE mr.user_id = ?
         ORDER BY mr.marked_at DESC`,
         [req.user.id]
@@ -93,61 +184,74 @@ router.get('/', requireAuth, async (req, res) => {
     }
     
     // Convert rows to plain objects (MySQL RowDataPacket doesn't always spread correctly) and parse JSON/numeric fields
-    const parsedResults = rowsOf(result).map(row => {
-      const plain = row && typeof row === 'object' ? JSON.parse(JSON.stringify(row)) : {};
-      let scores = plain.scores;
-      if (typeof scores === 'string') {
-        try {
-          scores = JSON.parse(scores);
-        } catch (_) {
-          scores = [];
-        }
-      }
-      if (!Array.isArray(scores)) scores = [];
-      let corrections = plain.corrections;
-      if (corrections != null && typeof corrections === 'string') {
-        try {
-          corrections = JSON.parse(corrections);
-        } catch (_) {
-          corrections = [];
-        }
-      }
-      if (!Array.isArray(corrections)) corrections = [];
-      let language_errors = plain.language_errors;
-      if (language_errors != null && typeof language_errors === 'string') {
-        try {
-          language_errors = JSON.parse(language_errors);
-        } catch (_) {
-          language_errors = [];
-        }
-      }
-      if (!Array.isArray(language_errors)) language_errors = [];
-      return {
-        ...plain,
-        scores,
-        corrections,
-        language_errors,
-        flagged_for_moderation: plain.flagged_for_moderation === true || plain.flagged_for_moderation === 1,
-        moderation_reason: plain.moderation_reason || null,
-        custom_feedback: plain.custom_feedback || null,
-        override_total_score: plain.override_total_score != null ? Number(plain.override_total_score) : null,
-        effective_feedback: plain.custom_feedback != null && String(plain.custom_feedback).trim().length > 0 ? String(plain.custom_feedback) : (plain.feedback != null ? String(plain.feedback) : ''),
-        effective_total_score: plain.override_total_score != null ? Number(plain.override_total_score) : Number(plain.total_score),
-        feedback: plain.feedback != null ? String(plain.feedback) : '',
-        estimated_cost_usd: plain.estimated_cost_usd != null ? Number(plain.estimated_cost_usd) : null,
-        prompt_tokens: plain.prompt_tokens != null ? Number(plain.prompt_tokens) : null,
-        completion_tokens: plain.completion_tokens != null ? Number(plain.completion_tokens) : null,
-        total_tokens: plain.total_tokens != null ? Number(plain.total_tokens) : null
-      };
-    });
+    const parsedResults = rowsOf(result).map(mapResultRow);
     
     res.json({
       success: true,
       results: parsedResults
-    });
-  } catch (error) {
+	});
+	} catch (error) {
     console.error('Get results error:', error);
     res.status(500).json({ error: 'Failed to fetch results' });
+	}
+});
+
+router.get('/review-queue', requireAuth, requireRoles(['lecturer', 'management']), async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT
+        mr.*,
+        a.filename,
+        a.file_path,
+        a.uploaded_at,
+        b.name as folder_name,
+        ${rubricNameSelect} as rubric_name,
+        r.total_points as max_points,
+        m.flagged_for_moderation,
+        m.moderation_reason,
+        m.custom_feedback,
+        m.override_total_score,
+        ${reviewStatusSelect} as review_status,
+        m.updated_by_user_id as moderation_updated_by,
+        m.updated_at as moderation_updated_at,
+        reviewer.name as moderation_updated_by_name,
+        reviewer.email as moderation_updated_by_email
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      LEFT JOIN batches b ON a.batch_id = b.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+      LEFT JOIN users reviewer ON reviewer.id = m.updated_by_user_id
+      WHERE mr.user_id = ?
+      ORDER BY
+        CASE
+          WHEN COALESCE(m.flagged_for_moderation, 0) = 1 THEN 0
+          WHEN COALESCE(mr.needs_review, 0) = 1 THEN 1
+          WHEN COALESCE(mr.has_low_criterion_confidence, 0) = 1 THEN 2
+          ELSE 3
+        END,
+        mr.marked_at DESC`,
+      [req.user.id]
+    );
+
+    const parsed = rowsOf(result).map(mapResultRow);
+    const queue = parsed.filter((item) => item.review_status === 'queued');
+    const summary = {
+      totalQueued: queue.length,
+      flagged: queue.filter((item) => item.flagged_for_moderation).length,
+      aiSuggested: queue.filter((item) => item.needs_review).length,
+      lowConfidence: queue.filter((item) => item.has_low_criterion_confidence).length,
+      reviewed: parsed.filter((item) => item.review_status === 'reviewed').length
+    };
+
+    res.json({
+      success: true,
+      summary,
+      results: queue
+    });
+  } catch (error) {
+    console.error('Review queue error:', error);
+    res.status(500).json({ error: 'Failed to fetch review queue' });
   }
 });
 
@@ -696,11 +800,11 @@ router.get('/:id', requireAuth, async (req, res) => {
         mr.*,
         a.filename,
         a.uploaded_at,
-        r.name as rubric_name,
+        ${rubricNameSelect} as rubric_name,
         r.criteria as rubric_criteria
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
       WHERE mr.id = ? AND mr.user_id = ?
     `, [id, req.user.id]);
 
@@ -728,11 +832,11 @@ router.get('/assignment/:assignment_id', requireAuth, async (req, res) => {
         mr.*,
         a.filename,
         a.uploaded_at,
-        r.name as rubric_name,
+        ${rubricNameSelect} as rubric_name,
         r.criteria as rubric_criteria
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
       WHERE mr.assignment_id = ? AND mr.user_id = ?
       ORDER BY mr.marked_at DESC
     `, [assignment_id, req.user.id]);
@@ -757,11 +861,11 @@ router.get('/rubric/:rubric_id', requireAuth, async (req, res) => {
         mr.*,
         a.filename,
         a.uploaded_at,
-        r.name as rubric_name,
+        ${rubricNameSelect} as rubric_name,
         r.criteria as rubric_criteria
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
       WHERE mr.rubric_id = ? AND mr.user_id = ?
       ORDER BY mr.marked_at DESC
     `, [rubric_id, req.user.id]);
@@ -784,14 +888,14 @@ router.get('/export/csv', requireAuth, async (req, res) => {
         mr.id,
         mr.student_name,
         a.filename,
-        r.name as rubric_name,
+        ${rubricNameSelect} as rubric_name,
         mr.total_score,
         mr.scores,
         mr.feedback,
         mr.marked_at
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
       WHERE mr.user_id = ?
       ORDER BY mr.marked_at DESC
     `, [req.user.id]);
@@ -910,11 +1014,11 @@ router.get('/download/all', requireAuth, requireFeature('download_results'), asy
         mr.*,
         a.filename,
         a.uploaded_at,
-        r.name as rubric_name,
+        ${rubricNameSelect} as rubric_name,
         r.criteria as rubric_criteria
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
       WHERE mr.user_id = $1
       ORDER BY mr.marked_at DESC
     `, [req.user.id]);
@@ -1006,7 +1110,7 @@ router.get('/download/csv', requireAuth, requireFeature('download_results'), asy
         mr.id,
         mr.student_name,
         a.filename,
-        r.name as rubric_name,
+        ${rubricNameSelect} as rubric_name,
         mr.total_score,
         mr.scores,
         mr.feedback,
@@ -1014,7 +1118,7 @@ router.get('/download/csv', requireAuth, requireFeature('download_results'), asy
         r.total_points as max_points
       FROM marking_results mr
       JOIN assignments a ON mr.assignment_id = a.id
-      JOIN rubrics r ON mr.rubric_id = r.id
+      LEFT JOIN rubrics r ON mr.rubric_id = r.id
       WHERE mr.user_id = $1
       ORDER BY mr.marked_at DESC
     `, [req.user.id]);

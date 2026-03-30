@@ -112,6 +112,7 @@ router.post('/register', authLimiter, [
       console.log('⚠️  Verification URL (email not sent):', verificationUrl);
     }
 
+    const exposeVerificationUrl = !emailSent || process.env.NODE_ENV !== 'production';
     res.status(201).json({
       message: emailSent 
         ? 'Registration successful! Please check your email to verify your account.'
@@ -126,7 +127,7 @@ router.post('/register', authLimiter, [
         email_verified: false
       },
       requiresVerification: true,
-      verificationUrl: verificationUrl // Include verification URL if email wasn't sent or in dev mode
+      verificationUrl: exposeVerificationUrl ? verificationUrl : undefined
     });
   } catch (error) {
     console.error('Registration error:', error);

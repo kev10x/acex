@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileQuestion, Loader2, Send, Award, ArrowLeft } from 'lucide-react';
+import { FileQuestion, Loader2, Send, Award } from 'lucide-react';
 import { assessmentsAPI } from '../services/api';
 import type { GeneratedAssessment } from '../services/api';
 

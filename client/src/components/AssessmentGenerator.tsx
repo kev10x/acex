@@ -46,7 +46,6 @@ const AssessmentGenerator: React.FC = () => {
   const [savedRubricId, setSavedRubricId] = useState<number | null>(null);
   const [savedRubricName, setSavedRubricName] = useState<string | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
-  const [publishedCode, setPublishedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<'text' | 'moodle' | 'scorm' | null>(null);
   const [stats, setStats] = useState<any>(null);
@@ -153,7 +152,6 @@ const AssessmentGenerator: React.FC = () => {
         setSavedRubricId(response.data.saved_rubric_id ?? null);
         setSavedRubricName(response.data.saved_rubric_name ?? null);
         setPublishedLink(null);
-        setPublishedCode(null);
       } else {
         setError(response.data.error || 'Failed to generate assessment');
       }
@@ -660,7 +658,6 @@ const AssessmentGenerator: React.FC = () => {
                         const base = path.startsWith('/tools') ? '/tools' : (path.split('/').filter(Boolean)[0] ? '/' + path.split('/').filter(Boolean)[0] : '');
                         const link = `${window.location.origin}${base}/take-assessment?code=${res.data.code}`;
                         setPublishedLink(link);
-                        setPublishedCode(res.data.code);
                         loadPublished();
                       }
                     } catch (e: any) {

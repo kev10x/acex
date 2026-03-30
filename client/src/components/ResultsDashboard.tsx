@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save } from 'lucide-react';
 import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './resultsReview';
 
 type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
@@ -18,6 +19,13 @@ function formatCostUsdToZar(usd: number | string | null | undefined): string {
   if (!Number.isFinite(n)) return '—';
   const zar = n * USD_TO_ZAR;
   return `R ${zar.toFixed(2)}`;
+}
+
+function formatModeratorLabel(result: MarkingResult): string | null {
+  if (result.moderation_updated_by_name) return result.moderation_updated_by_name;
+  if (result.moderation_updated_by_email) return result.moderation_updated_by_email;
+  if (result.moderation_updated_by != null) return `User #${result.moderation_updated_by}`;
+  return null;
 }
 
 const ResultsDashboard: React.FC = () => {
@@ -41,6 +49,14 @@ const ResultsDashboard: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [reviewMode, setReviewMode] = useState<ReviewMode>('all');
+  const [reviewQueueSummary, setReviewQueueSummary] = useState({
+    totalQueued: 0,
+    flagged: 0,
+    aiSuggested: 0,
+    lowConfidence: 0,
+    reviewed: 0
+  });
   const [feedbackVideoStatus, setFeedbackVideoStatus] = useState<'idle' | 'generating' | 'completed' | 'failed'>('idle');
   const [feedbackVideoProgress, setFeedbackVideoProgress] = useState(0);
   const [feedbackVideoError, setFeedbackVideoError] = useState<string | null>(null);
@@ -59,10 +75,6 @@ const ResultsDashboard: React.FC = () => {
   const [hourInterval, setHourInterval] = useState<string>('');
   const [groupBy, setGroupBy] = useState<GroupByOption>(isStudent ? 'folder' : 'none');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    fetchData();
-  }, []);
 
   useEffect(() => {
     if (isStudent) setGroupBy('folder');
@@ -93,7 +105,7 @@ const ResultsDashboard: React.FC = () => {
     );
   }, [selectedResult]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       if (isStudent) {
@@ -102,17 +114,26 @@ const ResultsDashboard: React.FC = () => {
         setStats(null);
         setRubrics([]);
         setAnalytics(null);
+        setReviewQueueSummary({
+          totalQueued: 0,
+          flagged: 0,
+          aiSuggested: 0,
+          lowConfidence: 0,
+          reviewed: 0
+        });
         return;
       }
-      const [resultsRes, statsRes, rubricsRes, analyticsRes] = await Promise.all([
+      const [resultsRes, statsRes, rubricsRes, analyticsRes, reviewQueueRes] = await Promise.all([
         resultsAPI.getResults(),
         resultsAPI.getStats(),
         rubricsAPI.getRubrics(),
-        resultsAPI.getAnalyticsOverview().catch(() => null)
+        resultsAPI.getAnalyticsOverview().catch(() => null),
+        resultsAPI.getReviewQueue().catch(() => null)
       ]);
       setAllResults(resultsRes.data.results);
       setStats(statsRes.data.stats);
       setRubrics(rubricsRes.data.rubrics);
+      setReviewQueueSummary(reviewQueueRes?.data?.summary || summarizeReviewQueue(resultsRes.data.results));
       if (analyticsRes?.data?.overview) {
         setAnalytics(analyticsRes.data.overview);
       }
@@ -121,28 +142,15 @@ const ResultsDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isStudent]);
 
-  const _handleExportCSV = async () => {
-    try {
-      const response = await resultsAPI.exportCSV();
-      const blob = new Blob([response.data], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'marking_results.csv';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to export CSV');
-    }
-  };
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Filter and group results
   const filteredAndGroupedResults = useMemo(() => {
-    let filtered = allResults;
+    let filtered = filterResultsByReviewMode(allResults, reviewMode);
 
     // Filter by rubric
     if (selectedRubric !== 'all') {
@@ -207,7 +215,7 @@ const ResultsDashboard: React.FC = () => {
     }
 
     return { grouped: false, data: filtered };
-  }, [allResults, selectedRubric, dateFrom, dateTo, hourInterval, groupBy]);
+  }, [allResults, reviewMode, selectedRubric, dateFrom, dateTo, hourInterval, groupBy]);
 
   // Initialize expanded groups when groupBy changes
   useEffect(() => {
@@ -244,6 +252,7 @@ const ResultsDashboard: React.FC = () => {
   };
 
   const clearFilters = () => {
+    setReviewMode('all');
     setSelectedRubric('all');
     setDateFrom('');
     setDateTo('');
@@ -276,7 +285,15 @@ const ResultsDashboard: React.FC = () => {
         flagged: nextFlag,
         moderation_reason: moderationReason || result.moderation_reason || undefined
       });
-      applyResultPatch(result.id, { flagged_for_moderation: nextFlag, moderation_reason: moderationReason || result.moderation_reason || null });
+      applyResultPatch(result.id, {
+        flagged_for_moderation: nextFlag,
+        moderation_reason: moderationReason || result.moderation_reason || null,
+        moderation_updated_by: user?.id ?? null,
+        moderation_updated_by_name: user?.name || user?.email || null,
+        moderation_updated_by_email: user?.email || null,
+        moderation_updated_at: new Date().toISOString()
+      });
+      fetchData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update moderation flag');
     }
@@ -296,9 +313,14 @@ const ResultsDashboard: React.FC = () => {
         custom_feedback: customFeedback.trim() || null,
         override_total_score: overrideVal,
         moderation_reason: moderationReason.trim() || null,
+        moderation_updated_by: user?.id ?? null,
+        moderation_updated_by_name: user?.name || user?.email || null,
+        moderation_updated_by_email: user?.email || null,
+        moderation_updated_at: new Date().toISOString(),
         effective_feedback: customFeedback.trim() || selectedResult.feedback,
         effective_total_score: overrideVal == null ? selectedResult.total_score : overrideVal
       });
+      fetchData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save lecturer override');
     } finally {
@@ -784,10 +806,50 @@ const ResultsDashboard: React.FC = () => {
         </div>
       )}
 
+      {!isStudent && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="text-sm font-medium text-amber-700">Queued For Review</div>
+            <div className="mt-1 text-2xl font-bold text-amber-900">{reviewQueueSummary.totalQueued}</div>
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="text-sm font-medium text-red-700">Lecturer Flagged</div>
+            <div className="mt-1 text-2xl font-bold text-red-900">{reviewQueueSummary.flagged}</div>
+          </div>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="text-sm font-medium text-yellow-700">AI Suggested Review</div>
+            <div className="mt-1 text-2xl font-bold text-yellow-900">{reviewQueueSummary.aiSuggested}</div>
+          </div>
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="text-sm font-medium text-orange-700">Low Criterion Confidence</div>
+            <div className="mt-1 text-2xl font-bold text-orange-900">{reviewQueueSummary.lowConfidence}</div>
+          </div>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="text-sm font-medium text-green-700">Reviewed</div>
+            <div className="mt-1 text-2xl font-bold text-green-900">{reviewQueueSummary.reviewed}</div>
+          </div>
+        </div>
+      )}
+
       {/* Filters and Grouping */}
       {!isStudent && <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <div className="flex flex-wrap items-end gap-4 mb-4">
+            <div className="min-w-[180px]">
+              <label htmlFor="reviewMode" className="block text-sm font-medium text-gray-700 mb-1">
+                Review Workflow
+              </label>
+              <select
+                id="reviewMode"
+                value={reviewMode}
+                onChange={(e) => setReviewMode(e.target.value as ReviewMode)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              >
+                <option value="all">All Results</option>
+                <option value="queue">Review Queue</option>
+                <option value="reviewed">Reviewed Results</option>
+              </select>
+            </div>
             <div className="flex-1 min-w-[200px]">
               <label htmlFor="rubricFilter" className="block text-sm font-medium text-gray-700 mb-1">
                 Filter by Rubric
@@ -884,7 +946,7 @@ const ResultsDashboard: React.FC = () => {
               </select>
             </div>
 
-            {(selectedRubric !== 'all' || dateFrom || dateTo || hourInterval) && (
+            {(reviewMode !== 'all' || selectedRubric !== 'all' || dateFrom || dateTo || hourInterval) && (
               <button
                 onClick={clearFilters}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
@@ -932,6 +994,11 @@ const ResultsDashboard: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Student/Assignment
                       </th>
+                      {!isStudent && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Review Status
+                        </th>
+                      )}
                       {groupBy !== 'rubric' && (
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Rubric
@@ -967,8 +1034,8 @@ const ResultsDashboard: React.FC = () => {
                         key={result.id || `result-${index}`} 
                         className={`hover:bg-gray-50 ${result.needs_review ? 'bg-red-50 border-l-4 border-red-400' : ''}`}
                       >
-                        <td className="px-6 py-4 max-w-xs">
-                          <div>
+	                        <td className="px-6 py-4 max-w-xs">
+	                          <div>
                             <div className="flex items-start space-x-2 flex-wrap">
                               <div className="text-sm font-medium text-gray-900 break-words min-w-0 flex-1">
                                 {result.student_name || 'Unnamed Student'}
@@ -996,14 +1063,37 @@ const ResultsDashboard: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <div className="text-sm text-gray-500 break-words mt-1">
-                              {result.filename}
-                            </div>
-                          </div>
-                        </td>
-                        {groupBy !== 'rubric' && (
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {result.rubric_name}
+	                            <div className="text-sm text-gray-500 break-words mt-1">
+	                              {result.filename}
+	                            </div>
+	                          </div>
+	                        </td>
+                          {!isStudent && (
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  result.review_status === 'reviewed'
+                                    ? 'bg-green-100 text-green-800'
+                                    : result.flagged_for_moderation
+                                    ? 'bg-red-100 text-red-800'
+                                    : result.needs_review || result.has_low_criterion_confidence
+                                    ? 'bg-yellow-100 text-yellow-800'
+                                    : 'bg-gray-100 text-gray-700'
+                                }`}
+                              >
+                                {result.review_status === 'reviewed'
+                                  ? 'Reviewed'
+                                  : result.flagged_for_moderation
+                                  ? 'Flagged'
+                                  : result.needs_review || result.has_low_criterion_confidence
+                                  ? 'Queued'
+                                  : 'Normal'}
+                              </span>
+                            </td>
+                          )}
+	                        {groupBy !== 'rubric' && (
+	                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+	                            {result.rubric_name}
                           </td>
                         )}
                         {groupBy !== 'folder' && (
@@ -1389,6 +1479,13 @@ const ResultsDashboard: React.FC = () => {
                           placeholder="Reason for moderation or override"
                         />
                       </div>
+                      {(selectedResult.moderation_updated_at || selectedResult.moderation_updated_by_name || selectedResult.moderation_updated_by_email) && (
+                        <div className="rounded-md bg-white/80 border border-amber-200 px-3 py-2 text-sm text-gray-700">
+                          <span className="font-medium text-gray-900">Last review update:</span>{' '}
+                          {formatModeratorLabel(selectedResult) || 'Unknown reviewer'}
+                          {selectedResult.moderation_updated_at ? ` on ${formatDate(selectedResult.moderation_updated_at)}` : ''}
+                        </div>
+                      )}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Custom lecturer feedback</label>
                         <textarea

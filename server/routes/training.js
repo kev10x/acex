@@ -6,11 +6,25 @@ const router = require('express').Router();
 const trainingExporter = require('../services/trainingDataExporter');
 const fs = require('fs').promises;
 const path = require('path');
+const { requireAuth, requireRoles } = require('../middleware/auth');
+
+const TRAINING_ROUTE_GUARD = [requireAuth, requireRoles(['lecturer', 'management'])];
+
+function getUserExportDir(userId) {
+  return trainingExporter.getExportDir(userId);
+}
+
+async function resolveUserFilePath(userId, filename) {
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    throw new Error('Invalid filename');
+  }
+  return path.join(getUserExportDir(userId), filename);
+}
 
 // Get training data statistics
-router.get('/stats', async (req, res) => {
+router.get('/stats', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
-    const stats = await trainingExporter.getStatistics();
+    const stats = await trainingExporter.getStatistics(req.user.id);
     res.json({
       success: true,
       statistics: stats
@@ -25,7 +39,7 @@ router.get('/stats', async (req, res) => {
 });
 
 // Export training data to JSON
-router.post('/export/json', async (req, res) => {
+router.post('/export/json', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
     const {
       includeText = true,
@@ -37,6 +51,7 @@ router.post('/export/json', async (req, res) => {
     } = req.body;
 
     const result = await trainingExporter.exportToJSON({
+      userId: req.user.id,
       includeText,
       onlyCurrentVersions,
       minScoreCount,
@@ -58,7 +73,7 @@ router.post('/export/json', async (req, res) => {
 });
 
 // Export training data for OpenAI fine-tuning (JSONL format)
-router.post('/export/openai', async (req, res) => {
+router.post('/export/openai', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
     const {
       onlyCurrentVersions = true,
@@ -68,6 +83,7 @@ router.post('/export/openai', async (req, res) => {
     } = req.body;
 
     const result = await trainingExporter.exportToJSONL('openai', {
+      userId: req.user.id,
       onlyCurrentVersions,
       minScoreCount,
       strictnessLevels: strictnessLevels ? (Array.isArray(strictnessLevels) ? strictnessLevels : [strictnessLevels]) : null,
@@ -88,7 +104,7 @@ router.post('/export/openai', async (req, res) => {
 });
 
 // Export training data for Anthropic fine-tuning (JSONL format)
-router.post('/export/anthropic', async (req, res) => {
+router.post('/export/anthropic', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
     const {
       onlyCurrentVersions = true,
@@ -98,6 +114,7 @@ router.post('/export/anthropic', async (req, res) => {
     } = req.body;
 
     const result = await trainingExporter.exportToJSONL('anthropic', {
+      userId: req.user.id,
       onlyCurrentVersions,
       minScoreCount,
       strictnessLevels: strictnessLevels ? (Array.isArray(strictnessLevels) ? strictnessLevels : [strictnessLevels]) : null,
@@ -118,9 +135,9 @@ router.post('/export/anthropic', async (req, res) => {
 });
 
 // List exported training files
-router.get('/files', async (req, res) => {
+router.get('/files', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
-    const exportDir = path.join(__dirname, '../../training_data');
+    const exportDir = getUserExportDir(req.user.id);
     
     try {
       await fs.access(exportDir);
@@ -164,14 +181,13 @@ router.get('/files', async (req, res) => {
 });
 
 // Download a training file
-router.get('/download/:filename', async (req, res) => {
+router.get('/download/:filename', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
     const { filename } = req.params;
-    const exportDir = path.join(__dirname, '../../training_data');
-    const filePath = path.join(exportDir, filename);
-
-    // Security: prevent directory traversal
-    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    let filePath;
+    try {
+      filePath = await resolveUserFilePath(req.user.id, filename);
+    } catch (_error) {
       return res.status(400).json({
         success: false,
         error: 'Invalid filename'
@@ -198,14 +214,13 @@ router.get('/download/:filename', async (req, res) => {
 });
 
 // Delete a training file
-router.delete('/files/:filename', async (req, res) => {
+router.delete('/files/:filename', ...TRAINING_ROUTE_GUARD, async (req, res) => {
   try {
     const { filename } = req.params;
-    const exportDir = path.join(__dirname, '../../training_data');
-    const filePath = path.join(exportDir, filename);
-
-    // Security: prevent directory traversal
-    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    let filePath;
+    try {
+      filePath = await resolveUserFilePath(req.user.id, filename);
+    } catch (_error) {
       return res.status(400).json({
         success: false,
         error: 'Invalid filename'

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Loader, FileText, ClipboardCheck, Download } from 'lucide-react';
-import { uploadAPI } from '../services/api';
+import { mcqAPI, uploadAPI } from '../services/api';
 
 interface MCQAnswerKey {
   [questionNumber: string]: string; // e.g., { "1": "A", "2": "B", ... }
@@ -102,23 +102,12 @@ const MCQInterface: React.FC = () => {
     setSuccess(null);
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001/api'}/mcq/process`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          answer_key: answerKey,
-          assignment_ids: selectedForms,
-          student_names: selectedForms.map(id => studentNames[id] || null)
-        }),
+      const response = await mcqAPI.process({
+        answer_key: answerKey,
+        assignment_ids: selectedForms,
+        student_names: selectedForms.map(id => studentNames[id] || null)
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to process MCQ forms');
-      }
+      const data = response.data;
 
       setResults(data.results);
       setShowResults(true);
@@ -129,7 +118,7 @@ const MCQInterface: React.FC = () => {
       setStudentNames({});
       
     } catch (err: any) {
-      setError(err.message || 'Failed to process MCQ forms');
+      setError(err.response?.data?.error || err.message || 'Failed to process MCQ forms');
     } finally {
       setLoading(false);
     }

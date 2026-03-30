@@ -3,6 +3,7 @@ const fs = require('fs');
 const OpenAI = require('openai');
 const { query } = require('../database/connection');
 const { extractTextFromPDF } = require('../services/pdfOCR');
+const { requireAuth, requireRoles } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -136,7 +137,7 @@ Important:
 /**
  * Process MCQ forms
  */
-router.post('/process', async (req, res) => {
+router.post('/process', requireAuth, requireRoles(['lecturer', 'management']), async (req, res) => {
   try {
     const { answer_key, assignment_ids, student_names } = req.body;
 
@@ -169,8 +170,8 @@ router.post('/process', async (req, res) => {
       try {
         // Get assignment details
         const assignmentResult = await query(
-          'SELECT * FROM assignments WHERE id = ?',
-          [assignmentId]
+          'SELECT * FROM assignments WHERE id = ? AND user_id = ?',
+          [assignmentId, req.user.id]
         );
 
         let assignment;
@@ -239,8 +240,8 @@ router.post('/process', async (req, res) => {
         const feedback = `MCQ Results: ${correct} correct out of ${total} questions (${percentage.toFixed(1)}%)`;
         
         await query(
-          `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, marked_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, marked_at, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             assignmentId,
             rubricId,
@@ -248,7 +249,8 @@ router.post('/process', async (req, res) => {
             JSON.stringify(scores),
             feedback,
             score,
-            new Date().toISOString()
+            new Date().toISOString(),
+            req.user.id
           ]
         );
 

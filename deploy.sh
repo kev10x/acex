@@ -176,7 +176,7 @@ elif [ ! -f ".env" ]; then
     echo -e "${YELLOW}⚠ Creating basic .env file...${NC}"
     cat > .env << EOF
 # Database
-DATABASE_URL=sqlite:./database.sqlite
+DATABASE_URL=mysql://user:password@localhost:3306/markmate
 
 # Server
 PORT=3001

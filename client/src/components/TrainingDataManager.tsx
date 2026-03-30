@@ -1,25 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Trash2, FileText, Database, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
-
-interface TrainingStats {
-  total_results: number;
-  unique_assignments: number;
-  unique_rubrics: number;
-  unique_strictness_levels: number;
-  unique_providers: number;
-  avg_score: number;
-  min_score: number;
-  max_score: number;
-}
-
-interface TrainingFile {
-  filename: string;
-  size: number;
-  size_mb: string;
-  created: string;
-  modified: string;
-  format: 'json' | 'jsonl' | 'unknown';
-}
+import { trainingAPI, TrainingFile, TrainingStats } from '../services/api';
 
 const TrainingDataManager: React.FC = () => {
   const [stats, setStats] = useState<TrainingStats | null>(null);
@@ -41,8 +22,8 @@ const TrainingDataManager: React.FC = () => {
 
   const loadStats = async () => {
     try {
-      const response = await fetch('/api/training/stats');
-      const data = await response.json();
+      const response = await trainingAPI.getStats();
+      const data = response.data;
       if (data.success) {
         setStats(data.statistics);
       }
@@ -53,8 +34,8 @@ const TrainingDataManager: React.FC = () => {
 
   const loadFiles = async () => {
     try {
-      const response = await fetch('/api/training/files');
-      const data = await response.json();
+      const response = await trainingAPI.getFiles();
+      const data = response.data;
       if (data.success) {
         setFiles(data.files);
       }
@@ -68,19 +49,14 @@ const TrainingDataManager: React.FC = () => {
     setMessage(null);
 
     try {
-      const response = await fetch(`/api/training/export/${format}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          includeText,
-          onlyCurrentVersions,
-          minScoreCount,
-          strictnessLevels: selectedStrictness.length > 0 ? selectedStrictness : null,
-          providers: selectedProviders.length > 0 ? selectedProviders : null
-        })
+      const response = await trainingAPI.exportData(format, {
+        includeText,
+        onlyCurrentVersions,
+        minScoreCount,
+        strictnessLevels: selectedStrictness.length > 0 ? selectedStrictness : null,
+        providers: selectedProviders.length > 0 ? selectedProviders : null
       });
-
-      const data = await response.json();
+      const data = response.data;
 
       if (data.success) {
         setMessage({
@@ -104,19 +80,32 @@ const TrainingDataManager: React.FC = () => {
     }
   };
 
-  const downloadFile = (filename: string) => {
-    window.open(`/api/training/download/${filename}`, '_blank');
+  const downloadFile = async (filename: string) => {
+    try {
+      const response = await trainingAPI.downloadFile(filename);
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.error || error.message || 'Download failed'
+      });
+    }
   };
 
   const deleteFile = async (filename: string) => {
     if (!window.confirm(`Delete ${filename}?`)) return;
 
     try {
-      const response = await fetch(`/api/training/files/${filename}`, {
-        method: 'DELETE'
-      });
-
-      const data = await response.json();
+      const response = await trainingAPI.deleteFile(filename);
+      const data = response.data;
 
       if (data.success) {
         setMessage({

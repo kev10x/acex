@@ -1,26 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { Upload, FileText, BarChart3, Wand2, Edit3, ClipboardCheck, Folder, Brain, Sparkles, LogOut, User, Shield, ChevronDown, Award, PenLine, Presentation } from 'lucide-react';
-import FileUpload from './components/FileUpload';
-import RubricManager from './components/RubricManager';
-import MarkingInterface from './components/MarkingInterface';
-import ManualMarkingInterface from './components/ManualMarkingInterface';
-import ResultsDashboard from './components/ResultsDashboard';
-import RubricGenerator from './components/RubricGenerator';
-import MCQInterface from './components/MCQInterface';
-import BatchManager from './components/BatchManager';
-import TrainingDataManager from './components/TrainingDataManager';
-import AssessmentGenerator from './components/AssessmentGenerator';
-import TakeAssessment from './components/TakeAssessment';
-import ContentGenerator from './components/ContentGenerator';
-import TakeContent from './components/TakeContent';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
-import AdminDashboard from './components/AdminDashboard';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+
+const FileUpload = lazy(() => import('./components/FileUpload'));
+const RubricManager = lazy(() => import('./components/RubricManager'));
+const MarkingInterface = lazy(() => import('./components/MarkingInterface'));
+const ManualMarkingInterface = lazy(() => import('./components/ManualMarkingInterface'));
+const ResultsDashboard = lazy(() => import('./components/ResultsDashboard'));
+const RubricGenerator = lazy(() => import('./components/RubricGenerator'));
+const MCQInterface = lazy(() => import('./components/MCQInterface'));
+const BatchManager = lazy(() => import('./components/BatchManager'));
+const TrainingDataManager = lazy(() => import('./components/TrainingDataManager'));
+const AssessmentGenerator = lazy(() => import('./components/AssessmentGenerator'));
+const TakeAssessment = lazy(() => import('./components/TakeAssessment'));
+const ContentGenerator = lazy(() => import('./components/ContentGenerator'));
+const TakeContent = lazy(() => import('./components/TakeContent'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 
 type TabType = 'upload' | 'rubrics' | 'generator' | 'marking' | 'manual-marking' | 'results' | 'mcq' | 'batches' | 'training' | 'assessments' | 'content' | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
+const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content'],
+  student: ['mcq', 'results']
+};
+
+function TabLoadingFallback() {
+  return (
+    <div className="min-h-[16rem] flex items-center justify-center rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mx-auto"></div>
+        <p className="mt-3 text-sm text-gray-600">Loading workspace...</p>
+      </div>
+    </div>
+  );
+}
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('marking');
@@ -30,12 +47,7 @@ function AppContent() {
   const normalizedRole: AppRole = (user?.role === 'admin'
     ? 'management'
     : (user?.role as AppRole) || 'lecturer');
-  const roleTabAccess: Record<AppRole, TabType[]> = {
-    management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'admin'],
-    lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content'],
-    student: ['mcq', 'results']
-  };
-  const canAccessTab = (tab: TabType) => roleTabAccess[normalizedRole].includes(tab);
+  const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
 
   // Check if we're on the verification page
   useEffect(() => {
@@ -53,8 +65,8 @@ function AppContent() {
   }, [openDropdown]);
 
   useEffect(() => {
-    if (user && !canAccessTab(activeTab)) {
-      setActiveTab(roleTabAccess[normalizedRole][0] || 'results');
+    if (user && !ROLE_TAB_ACCESS[normalizedRole].includes(activeTab)) {
+      setActiveTab(ROLE_TAB_ACCESS[normalizedRole][0] || 'results');
     }
   }, [activeTab, normalizedRole, user]);
 
@@ -78,10 +90,18 @@ function AppContent() {
 
   // Take-assessment / take-content routes: no auth required, render student view first
   if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
-    return <TakeAssessment />;
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <TakeAssessment />
+      </Suspense>
+    );
   }
   if (typeof window !== 'undefined' && window.location.pathname.includes('take-content')) {
-    return <TakeContent />;
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <TakeContent />
+      </Suspense>
+    );
   }
 
   // Show loading state
@@ -265,18 +285,20 @@ function AppContent() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
-        {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
-        {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
-        {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
-        {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
-        {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
-        {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
-        {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
-        {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
-        {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
-        {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
-        {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
+        <Suspense fallback={<TabLoadingFallback />}>
+          {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
+          {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
+          {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
+          {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
+          {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
+          {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
+          {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
+          {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
+          {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
+          {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
+          {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+          {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
+        </Suspense>
       </main>
     </div>
   );

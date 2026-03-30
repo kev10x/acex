@@ -2,8 +2,8 @@ import axios from 'axios';
 
 // Use /tools/api in production when app is at /tools, or localhost for development.
 // Must match server API path so feedback-video and other /results routes resolve correctly.
-const API_BASE_URL = process.env.REACT_APP_API_URL ||
-  (process.env.NODE_ENV === 'production' ? '/tools/api' : 'http://localhost:3001/api');
+const API_BASE_URL = import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:3001/api' : '/tools/api');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -161,11 +161,17 @@ export interface MarkingResult {
   language_errors?: LanguageError[]; // Array of grammar, spelling, and reference errors
   flagged_for_moderation?: boolean;
   moderation_reason?: string | null;
+  moderation_updated_by?: number | null;
+  moderation_updated_by_name?: string | null;
+  moderation_updated_by_email?: string | null;
+  moderation_updated_at?: string | null;
   custom_feedback?: string | null;
   override_total_score?: number | null;
   effective_feedback?: string;
   effective_total_score?: number;
   folder_name?: string | null;
+  review_status?: 'none' | 'queued' | 'reviewed';
+  review_reasons?: string[];
 }
 
 export interface Organisation {
@@ -266,6 +272,7 @@ export const markingAPI = {
 // Results API
 export const resultsAPI = {
   getResults: () => api.get('/results'),
+  getReviewQueue: () => api.get('/results/review-queue'),
   getResult: (id: number) => api.get(`/results/${id}`),
   getResultsByAssignment: (assignmentId: number) =>
     api.get(`/results/assignment/${assignmentId}`),
@@ -293,6 +300,22 @@ export const resultsAPI = {
     api.put(`/results/${id}/lecturer-override`, data),
 };
 
+export interface SystemHealthCheck {
+  ok: boolean;
+  [key: string]: any;
+}
+
+export interface SystemHealthResponse {
+  success: boolean;
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  warnings: string[];
+  checks: Record<string, SystemHealthCheck>;
+}
+
+export const systemAPI = {
+  getHealth: () => api.get<SystemHealthResponse>('/system/health'),
+};
+
 // Reports API
 export const reportsAPI = {
   generatePDF: (resultId: number) => 
@@ -301,6 +324,54 @@ export const reportsAPI = {
     api.post('/reports/pdf/batch', { resultIds }, { responseType: 'blob' }),
   listReports: () => api.get('/reports/list'),
   cleanupReports: (maxAge?: number) => api.post('/reports/cleanup', { maxAge }),
+};
+
+// Training API
+export interface TrainingStats {
+  total_results: number;
+  unique_assignments: number;
+  unique_rubrics: number;
+  unique_strictness_levels: number;
+  unique_providers: number;
+  avg_score: number;
+  min_score: number;
+  max_score: number;
+}
+
+export interface TrainingFile {
+  filename: string;
+  size: number;
+  size_mb: string;
+  created: string;
+  modified: string;
+  format: 'json' | 'jsonl' | 'unknown';
+}
+
+export const trainingAPI = {
+  getStats: () => api.get('/training/stats'),
+  getFiles: () => api.get('/training/files'),
+  exportData: (
+    format: 'json' | 'openai' | 'anthropic',
+    data: {
+      includeText?: boolean;
+      onlyCurrentVersions?: boolean;
+      minScoreCount?: number;
+      strictnessLevels?: string[] | null;
+      providers?: string[] | null;
+    }
+  ) => api.post(`/training/export/${format}`, data),
+  downloadFile: (filename: string) =>
+    api.get(`/training/download/${encodeURIComponent(filename)}`, { responseType: 'blob' }),
+  deleteFile: (filename: string) => api.delete(`/training/files/${encodeURIComponent(filename)}`),
+};
+
+// MCQ API
+export const mcqAPI = {
+  process: (data: {
+    answer_key: Record<string, string>;
+    assignment_ids: number[];
+    student_names: (string | null)[];
+  }) => api.post('/mcq/process', data),
 };
 
 // Rubric Generator API

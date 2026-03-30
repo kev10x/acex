@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI, Organisation } from '../services/api';
+import { authAPI, Organisation, systemAPI, SystemHealthResponse } from '../services/api';
 import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video } from 'lucide-react';
 
 export interface UserFeatures {
@@ -35,12 +35,13 @@ const AdminDashboard: React.FC = () => {
   const { token, user } = useAuth();
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [activeTab, setActiveTab] = useState<'pending' | 'all'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'system'>('pending');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [newOrganisationName, setNewOrganisationName] = useState('');
+  const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
 
   useEffect(() => {
     console.log('AdminDashboard useEffect triggered:', { 
@@ -80,10 +81,11 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all, orgs] = await Promise.all([
+      const [pending, all, orgs, health] = await Promise.all([
         authAPI.getPendingUsers(token),
         authAPI.getAllUsers(token),
-        authAPI.getOrganisations(token)
+        authAPI.getOrganisations(token),
+        systemAPI.getHealth().catch(() => null)
       ]);
       console.log('Users loaded successfully:', { 
         pendingCount: pending?.length || 0, 
@@ -94,6 +96,7 @@ const AdminDashboard: React.FC = () => {
       setPendingUsers(Array.isArray(pending) ? pending : []);
       setAllUsers(Array.isArray(all) ? all : []);
       setOrganisations(Array.isArray(orgs) ? orgs : []);
+      setSystemHealth(health?.data || null);
     } catch (err: any) {
       console.error('Error loading users:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to load users';
@@ -285,7 +288,7 @@ const AdminDashboard: React.FC = () => {
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
         <p className="text-gray-600">Manage user registrations and permissions</p>
         {/* Debug info - remove in production */}
-        {process.env.NODE_ENV === 'development' && (
+        {import.meta.env.DEV && (
           <div className="mt-2 text-xs text-gray-500">
             Debug: Loading={loading.toString()}, Error={error || 'none'}, 
             Pending={pendingUsers.length}, All={allUsers.length}, 
@@ -338,6 +341,16 @@ const AdminDashboard: React.FC = () => {
           >
             All Users ({allUsers.length})
           </button>
+          <button
+            onClick={() => setActiveTab('system')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'system'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            System Health
+          </button>
         </nav>
       </div>
 
@@ -363,6 +376,55 @@ const AdminDashboard: React.FC = () => {
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading users...</p>
+        </div>
+      ) : activeTab === 'system' ? (
+        <div className="space-y-4">
+          {!systemHealth ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-yellow-800">System health is unavailable right now.</p>
+            </div>
+          ) : (
+            <>
+              <div className={`rounded-lg border p-4 ${
+                systemHealth.status === 'healthy'
+                  ? 'bg-green-50 border-green-200'
+                  : systemHealth.status === 'degraded'
+                  ? 'bg-yellow-50 border-yellow-200'
+                  : 'bg-red-50 border-red-200'
+              }`}>
+                <h3 className="text-lg font-semibold text-gray-900">Overall Status: {systemHealth.status}</h3>
+                {systemHealth.warnings.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-sm text-gray-700">
+                    {systemHealth.warnings.map((warning) => (
+                      <li key={warning}>- {warning}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(systemHealth.checks).map(([key, value]) => (
+                  <div key={key} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-gray-800 capitalize">{key.replace(/_/g, ' ')}</h4>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${value.ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                        {value.ok ? 'Ready' : 'Needs attention'}
+                      </span>
+                    </div>
+                    <div className="space-y-1 text-sm text-gray-600">
+                      {Object.entries(value)
+                        .filter(([childKey]) => childKey !== 'ok')
+                        .map(([childKey, childValue]) => (
+                          <div key={childKey}>
+                            <span className="font-medium text-gray-700">{childKey.replace(/_/g, ' ')}:</span>{' '}
+                            <span>{String(childValue)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       ) : activeTab === 'pending' ? (
         <div>

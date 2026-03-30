@@ -176,7 +176,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     const normalizedType = ['rubric', 'answer_key'].includes(rubric_type) ? rubric_type : 'rubric';
 
     const result = await query(
-      'UPDATE rubrics SET name = ?, criteria = ?, total_points = ?, rubric_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      'UPDATE rubrics SET name = ?, criteria = ?, total_points = ?, rubric_type = ? WHERE id = ? AND user_id = ?',
       [name, JSON.stringify(criteria), total_points, normalizedType, id, req.user.id]
     );
     
