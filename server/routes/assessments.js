@@ -551,7 +551,7 @@ router.get('/published', requireAuth, async (req, res) => {
 /**
  * Delete one of the current user's published assessments.
  */
-router.delete('/published/:id', requireAuth, async (req, res) => {
+router.delete(['/published/:id', '/:id'], requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) {

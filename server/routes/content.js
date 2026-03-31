@@ -224,7 +224,7 @@ router.get('/my', requireAuth, async (req, res) => {
 /**
  * Delete one of the current user's published content items.
  */
-router.delete('/my/:id', requireAuth, async (req, res) => {
+router.delete(['/my/:id', '/:id'], requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) {
