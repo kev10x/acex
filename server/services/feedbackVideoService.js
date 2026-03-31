@@ -62,10 +62,14 @@ function buildFeedbackVideoPromptSegments(feedbackText, rubricName, totalScore, 
 async function createVideoJob(prompt, options = {}) {
   const defaultSeconds = process.env.SORA_VIDEO_SECONDS || '8';
   const { model = 'sora-2', seconds = defaultSeconds, size = '1280x720' } = options;
+  const allowedSeconds = new Set(['4', '8', '12']);
+  const requestedSeconds = String(seconds);
+  const fallbackSeconds = allowedSeconds.has(String(defaultSeconds)) ? String(defaultSeconds) : '8';
+  const safeSeconds = allowedSeconds.has(requestedSeconds) ? requestedSeconds : fallbackSeconds;
   const form = new FormData();
   form.append('prompt', prompt);
   form.append('model', model);
-  form.append('seconds', String(seconds));
+  form.append('seconds', safeSeconds);
   form.append('size', size);
 
   const res = await fetch(OPENAI_VIDEO_BASE, {
