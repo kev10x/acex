@@ -362,7 +362,7 @@ function AppContent() {
         </div>
       </header>
 
-      <nav className="bg-white border-b border-gray-200">
+      <nav className="sticky top-0 z-30 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {availableWorkspaces.map((workspace) => {
@@ -416,10 +416,10 @@ function AppContent() {
                       <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
-                        className={`inline-flex items-center rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                        className={`inline-flex items-center rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
                           isActive
-                            ? 'bg-primary-600 text-white shadow-sm'
-                            : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                            ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
                         }`}
                       >
                         <Icon className="mr-2 h-4 w-4" />
