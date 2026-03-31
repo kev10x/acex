@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen } from 'lucide-react';
+import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2 } from 'lucide-react';
 import { contentAPI, rubricsAPI, GeneratedContent } from '../services/api';
 
 const LEVEL_OPTIONS = [
@@ -27,6 +27,7 @@ const ContentGenerator: React.FC = () => {
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -124,6 +125,20 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
+  const handleDeleteContent = async (id: number, title: string) => {
+    if (!window.confirm(`Delete published content "${title || id}"? This cannot be undone.`)) return;
+    setDeletingContentId(id);
+    setError(null);
+    try {
+      await contentAPI.deleteMy(id);
+      await loadMyContent();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to delete content');
+    } finally {
+      setDeletingContentId(null);
+    }
+  };
+
   const basePath = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
 
   return (
@@ -147,16 +162,26 @@ const ContentGenerator: React.FC = () => {
                   <li key={item.id} className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
                     <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
-                    <button
-                      type="button"
-                      onClick={() => navigator.clipboard.writeText(link)}
-                      className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
-                    >
-                      Copy link
-                    </button>
-                  </li>
-                );
-              })}
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(link)}
+                    className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+                  >
+                    Copy link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteContent(item.id, item.title)}
+                    disabled={deletingContentId === item.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    title="Delete published content"
+                  >
+                    {deletingContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    Delete
+                  </button>
+                </li>
+              );
+            })}
             </ul>
           </div>
         )}

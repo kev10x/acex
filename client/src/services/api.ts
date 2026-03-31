@@ -600,6 +600,8 @@ export const assessmentsAPI = {
     api.post('/assessments/export/scorm', { assessment }, { responseType: 'blob' }),
   /** List current user's published assessments (for reusability). */
   getPublished: () => api.get('/assessments/published'),
+  /** Delete one published assessment owned by current user. */
+  deletePublished: (id: number) => api.delete(`/assessments/published/${id}`),
 };
 
 // Content generator API
@@ -637,6 +639,7 @@ export const contentAPI = {
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean }) =>
     api.post('/content/publish', data),
   getMy: () => api.get('/content/my'),
+  deleteMy: (id: number) => api.delete(`/content/my/${id}`),
   getByCode: (code: string) => api.get(`/content/take/${code}`),
   submitQuiz: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/content/submit-quiz', data),

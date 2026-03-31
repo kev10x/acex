@@ -549,6 +549,51 @@ router.get('/published', requireAuth, async (req, res) => {
 });
 
 /**
+ * Delete one of the current user's published assessments.
+ */
+router.delete('/published/:id', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid assessment id' });
+    }
+
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    const existing = isMySQL
+      ? await query('SELECT id, batch_id FROM published_assessments WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('SELECT id, batch_id FROM published_assessments WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const existingRows = existing.rows || existing;
+    const row = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+    if (!row) {
+      return res.status(404).json({ error: 'Published assessment not found' });
+    }
+
+    const deleted = isMySQL
+      ? await query('DELETE FROM published_assessments WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('DELETE FROM published_assessments WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
+    if (!affected) {
+      return res.status(404).json({ error: 'Published assessment not found' });
+    }
+
+    if (row.batch_id) {
+      try {
+        if (isMySQL) {
+          await query('DELETE FROM batches WHERE id = ? AND user_id = ?', [row.batch_id, req.user.id]);
+        } else {
+          await query('DELETE FROM batches WHERE id = $1 AND user_id = $2', [row.batch_id, req.user.id]);
+        }
+      } catch (_) {}
+    }
+
+    res.json({ success: true, message: 'Published assessment deleted' });
+  } catch (error) {
+    console.error('Published assessment delete error:', error);
+    res.status(500).json({ error: 'Failed to delete published assessment' });
+  }
+});
+
+/**
  * Get statistics about available assignment data for assessment generation
  */
 router.get('/stats', async (req, res) => {

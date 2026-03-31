@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
-import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X } from 'lucide-react';
+import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2 } from 'lucide-react';
 import { assessmentsAPI, rubricsAPI, GeneratedAssessment } from '../services/api';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
@@ -51,6 +51,7 @@ const AssessmentGenerator: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string }[]>([]);
+  const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
 
   useEffect(() => {
     loadStats();
@@ -267,6 +268,20 @@ const AssessmentGenerator: React.FC = () => {
     }
   };
 
+  const handleDeletePublished = async (id: number, title: string) => {
+    if (!window.confirm(`Delete published assessment "${title || id}"? This cannot be undone.`)) return;
+    setDeletingPublishedId(id);
+    setError(null);
+    try {
+      await assessmentsAPI.deletePublished(id);
+      await loadPublished();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to delete published assessment');
+    } finally {
+      setDeletingPublishedId(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-6">
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
@@ -292,6 +307,16 @@ const AssessmentGenerator: React.FC = () => {
                     className="px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
                   >
                     Copy link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletePublished(item.id, item.title)}
+                    disabled={deletingPublishedId === item.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    title="Delete published assessment"
+                  >
+                    {deletingPublishedId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    Delete
                   </button>
                 </li>
               ))}

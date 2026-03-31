@@ -222,6 +222,60 @@ router.get('/my', requireAuth, async (req, res) => {
 });
 
 /**
+ * Delete one of the current user's published content items.
+ */
+router.delete('/my/:id', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid content id' });
+    }
+
+    const existing = isMySQL()
+      ? await query(
+          `SELECT pc.id, cv.file_path
+           FROM published_content pc
+           LEFT JOIN content_videos cv ON cv.published_content_id = pc.id
+           WHERE pc.id = ? AND pc.user_id = ?`,
+          [id, req.user.id]
+        )
+      : await query(
+          `SELECT pc.id, cv.file_path
+           FROM published_content pc
+           LEFT JOIN content_videos cv ON cv.published_content_id = pc.id
+           WHERE pc.id = $1 AND pc.user_id = $2`,
+          [id, req.user.id]
+        );
+    const existingRows = Array.isArray(existing) ? existing : (existing.rows || []);
+    const row = existingRows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Published content not found' });
+    }
+
+    const deleted = isMySQL()
+      ? await query('DELETE FROM published_content WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('DELETE FROM published_content WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
+    if (!affected) {
+      return res.status(404).json({ error: 'Published content not found' });
+    }
+
+    if (row.file_path) {
+      try {
+        if (fsSync.existsSync(row.file_path)) {
+          await fs.unlink(row.file_path);
+        }
+      } catch (_) {}
+    }
+
+    res.json({ success: true, message: 'Published content deleted' });
+  } catch (error) {
+    console.error('Content delete error:', error);
+    res.status(500).json({ error: 'Failed to delete published content' });
+  }
+});
+
+/**
  * Get content by code (public) for students. Strips answer key from quiz.
  */
 router.get('/take/:code', async (req, res) => {
