@@ -259,6 +259,7 @@ const initDatabase = async () => {
           id INT AUTO_INCREMENT PRIMARY KEY,
           published_content_id INT NOT NULL,
           openai_video_id VARCHAR(255) NOT NULL,
+          openai_video_ids TEXT NULL,
           status VARCHAR(50) DEFAULT 'queued',
           file_path TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -750,6 +751,13 @@ const initDatabase = async () => {
         if ((videoIdsCheck.rows?.[0]?.count || videoIdsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE feedback_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
         }
+        const contentVideoIdsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'content_videos' AND column_name = 'openai_video_ids'
+        `);
+        if ((contentVideoIdsCheck.rows?.[0]?.count || contentVideoIdsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -953,6 +961,7 @@ const initDatabase = async () => {
           id SERIAL PRIMARY KEY,
           published_content_id INTEGER NOT NULL REFERENCES published_content(id) ON DELETE CASCADE,
           openai_video_id VARCHAR(255) NOT NULL,
+          openai_video_ids TEXT NULL,
           status VARCHAR(50) DEFAULT 'queued',
           file_path TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1373,6 +1382,13 @@ const initDatabase = async () => {
         `);
         if ((videoIdsCheck.rows?.[0]?.count || videoIdsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE feedback_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
+        }
+        const contentVideoIdsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'content_videos' AND column_name = 'openai_video_ids'
+        `);
+        if ((contentVideoIdsCheck.rows?.[0]?.count || contentVideoIdsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

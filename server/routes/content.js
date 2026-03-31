@@ -7,6 +7,7 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const multer = require('multer');
 const { query } = require('../database/connection');
 const { requireAuth, requireFeature } = require('../middleware/auth');
@@ -15,6 +16,40 @@ const feedbackVideoService = require('../services/feedbackVideoService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
+const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
+const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos');
+
+function parseClampedInt(value, fallback, min, max) {
+  const parsed = parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function normalizeClipSeconds(value, fallback = 12) {
+  const parsed = parseInt(String(value ?? ''), 10);
+  if (parsed === 4 || parsed === 8 || parsed === 12) return parsed;
+  return fallback;
+}
+
+function buildContentVideoPromptSegments(contentTitle, numSegments = 3) {
+  const safeTitle = String(contentTitle || '').slice(0, 120);
+  const base =
+    'Wide shot of a friendly educator in a modern classroom or office, speaking warmly to camera. Soft lighting. No real people or copyrighted characters. Suitable for all ages.';
+  if (numSegments <= 1) {
+    return [
+      `${base} The educator introduces the lesson "${safeTitle}" and gives a welcoming overview.`
+    ];
+  }
+  const segments = [
+    `${base} The educator introduces the lesson "${safeTitle}" and explains what students will learn.`,
+    `${base} The educator explains the key ideas from "${safeTitle}" clearly and confidently.`,
+    `${base} The educator summarizes "${safeTitle}" and gives encouraging closing guidance for students.`
+  ];
+  while (segments.length < numSegments) {
+    segments.push(`${base} The educator continues explaining "${safeTitle}" in a calm, structured way.`);
+  }
+  return segments.slice(0, numSegments);
+}
 
 function generateCode() {
   return crypto.randomBytes(6).toString('base64url').slice(0, 8);
@@ -105,9 +140,33 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
     let videoJobId = null;
     if (include_video && process.env.OPENAI_API_KEY) {
       try {
-        const prompt = `Wide shot of a friendly educator in a modern classroom or office, speaking warmly to camera. Soft lighting. Explaining the course: "${(content.title || '').slice(0, 100)}". No real people or copyrighted characters. Suitable for all ages.`;
-        const { id } = await feedbackVideoService.createVideoJob(prompt, { seconds: process.env.SORA_VIDEO_SECONDS || '6' });
-        videoJobId = id;
+        const model = process.env.SORA_MODEL || 'sora-2';
+        const clips = parseClampedInt(
+          process.env.SORA_CONTENT_VIDEO_CLIPS || process.env.SORA_VIDEO_CLIPS || '1',
+          1,
+          1,
+          5
+        );
+        const secondsPerClip = normalizeClipSeconds(
+          process.env.SORA_CONTENT_VIDEO_SECONDS_PER_CLIP ||
+            process.env.SORA_VIDEO_SECONDS_PER_CLIP ||
+            process.env.SORA_CONTENT_VIDEO_SECONDS ||
+            process.env.SORA_VIDEO_SECONDS ||
+            '12',
+          12
+        );
+        const prompts = buildContentVideoPromptSegments(content.title, clips);
+        const jobs = await Promise.all(
+          prompts.map((prompt) =>
+            feedbackVideoService.createVideoJob(prompt, {
+              model,
+              seconds: String(secondsPerClip),
+              size: '1280x720'
+            })
+          )
+        );
+        videoJobId = jobs[0]?.id || null;
+        const videoIdsJson = JSON.stringify(jobs.map((job) => job.id).filter(Boolean));
         const ins = isMySQL()
           ? await query('SELECT id FROM published_content WHERE code = ?', [code])
           : await query('SELECT id FROM published_content WHERE code = $1', [code]);
@@ -116,13 +175,13 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
           const contentId = row.id;
           if (isMySQL()) {
             await query(
-              'INSERT INTO content_videos (published_content_id, openai_video_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE openai_video_id = VALUES(openai_video_id), status = VALUES(status)',
-              [contentId, videoJobId, 'queued']
+              'INSERT INTO content_videos (published_content_id, openai_video_id, openai_video_ids, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE openai_video_id = VALUES(openai_video_id), openai_video_ids = VALUES(openai_video_ids), status = VALUES(status)',
+              [contentId, videoJobId, videoIdsJson, 'queued']
             );
           } else {
             await query(
-              'INSERT INTO content_videos (published_content_id, openai_video_id, status) VALUES ($1, $2, $3) ON CONFLICT (published_content_id) DO UPDATE SET openai_video_id = $2, status = $3',
-              [contentId, videoJobId, 'queued']
+              'INSERT INTO content_videos (published_content_id, openai_video_id, openai_video_ids, status) VALUES ($1, $2, $3, $4) ON CONFLICT (published_content_id) DO UPDATE SET openai_video_id = $2, openai_video_ids = $3, status = $4',
+              [contentId, videoJobId, videoIdsJson, 'queued']
             );
           }
         }
@@ -181,8 +240,8 @@ router.get('/take/:code', async (req, res) => {
       });
     }
     const videoRow = isMySQL()
-      ? await query('SELECT openai_video_id, status, file_path FROM content_videos WHERE published_content_id = (SELECT id FROM published_content WHERE code = ? LIMIT 1)', [code])
-      : await query('SELECT cv.openai_video_id, cv.status, cv.file_path FROM content_videos cv JOIN published_content pc ON pc.id = cv.published_content_id WHERE pc.code = $1', [code]);
+      ? await query('SELECT openai_video_id, openai_video_ids, status, file_path FROM content_videos WHERE published_content_id = (SELECT id FROM published_content WHERE code = ? LIMIT 1)', [code])
+      : await query('SELECT cv.openai_video_id, cv.openai_video_ids, cv.status, cv.file_path FROM content_videos cv JOIN published_content pc ON pc.id = cv.published_content_id WHERE pc.code = $1', [code]);
     const vr = Array.isArray(videoRow) ? videoRow[0] : (videoRow.rows && videoRow.rows[0]);
     const video = vr ? { status: vr.status, file_path: vr.file_path } : null;
     res.json({ success: true, content, video });
@@ -314,18 +373,86 @@ router.get('/video-status/:code', async (req, res) => {
     const pcRow = Array.isArray(pc) ? pc[0] : (pc.rows && pc.rows[0]);
     if (!pcRow) return res.status(404).json({ error: 'Not found' });
     const cv = isMySQL()
-      ? await query('SELECT openai_video_id, status, file_path FROM content_videos WHERE published_content_id = ?', [pcRow.id])
-      : await query('SELECT openai_video_id, status, file_path FROM content_videos WHERE published_content_id = $1', [pcRow.id]);
+      ? await query('SELECT openai_video_id, openai_video_ids, status, file_path FROM content_videos WHERE published_content_id = ?', [pcRow.id])
+      : await query('SELECT openai_video_id, openai_video_ids, status, file_path FROM content_videos WHERE published_content_id = $1', [pcRow.id]);
     const cvRow = Array.isArray(cv) ? cv[0] : (cv.rows && cv.rows[0]);
     if (!cvRow) return res.json({ status: null, video_url: null });
     if (cvRow.status === 'completed' && cvRow.file_path) {
-      const base = process.env.API_PUBLIC_BASE || '/api';
-      return res.json({ status: 'completed', video_url: `${base}/content/video/${code}/content` });
+      return res.json({ status: 'completed', video_url: `${API_BASE}/content/video/${code}/content` });
     }
+
+    let videoIds = [];
+    try {
+      if (cvRow.openai_video_ids) {
+        videoIds = typeof cvRow.openai_video_ids === 'string'
+          ? JSON.parse(cvRow.openai_video_ids)
+          : cvRow.openai_video_ids;
+      }
+    } catch (_) {}
+
+    if (Array.isArray(videoIds) && videoIds.length > 1) {
+      const statuses = await Promise.all(videoIds.map((id) => feedbackVideoService.getVideoStatus(id)));
+      const failed = statuses.find((s) => s.status === 'failed');
+      if (failed) {
+        if (isMySQL()) {
+          await query('UPDATE content_videos SET status = ?, openai_video_ids = ? WHERE published_content_id = ?', ['failed', null, pcRow.id]);
+        } else {
+          await query('UPDATE content_videos SET status = $1, openai_video_ids = $2 WHERE published_content_id = $3', ['failed', null, pcRow.id]);
+        }
+        return res.json({ status: 'failed', error: failed.error || 'One or more clips failed' });
+      }
+
+      const allDone = statuses.every((s) => s.status === 'completed');
+      if (!allDone) {
+        const progress = Math.round((statuses.filter((s) => s.status === 'completed').length / statuses.length) * 100);
+        return res.json({ status: 'in_progress', progress });
+      }
+
+      const filePath = path.join(CONTENT_VIDEOS_DIR, `${pcRow.id}.mp4`);
+      const tempDir = path.join(CONTENT_VIDEOS_DIR, 'temp', String(pcRow.id));
+      const tempPaths = [];
+      try {
+        if (!fsSync.existsSync(tempDir)) fsSync.mkdirSync(tempDir, { recursive: true });
+        if (!fsSync.existsSync(CONTENT_VIDEOS_DIR)) fsSync.mkdirSync(CONTENT_VIDEOS_DIR, { recursive: true });
+        for (let i = 0; i < videoIds.length; i++) {
+          const buf = await feedbackVideoService.getVideoContent(videoIds[i]);
+          const clipPath = path.join(tempDir, `clip-${i}.mp4`);
+          fsSync.writeFileSync(clipPath, buf);
+          tempPaths.push(clipPath);
+        }
+        await feedbackVideoService.stitchVideos(tempPaths, filePath);
+      } catch (stitchErr) {
+        if (isMySQL()) {
+          await query('UPDATE content_videos SET status = ? WHERE published_content_id = ?', ['failed', pcRow.id]);
+        } else {
+          await query('UPDATE content_videos SET status = $1 WHERE published_content_id = $2', ['failed', pcRow.id]);
+        }
+        return res.json({ status: 'failed', error: stitchErr.message || 'Failed to stitch clips. Ensure ffmpeg is installed.' });
+      } finally {
+        for (const clipPath of tempPaths) {
+          try {
+            if (fsSync.existsSync(clipPath)) fsSync.unlinkSync(clipPath);
+          } catch (_) {}
+        }
+        try {
+          if (fsSync.existsSync(tempDir)) fsSync.rmdirSync(tempDir);
+        } catch (_) {}
+      }
+
+      if (isMySQL()) {
+        await query('UPDATE content_videos SET status = ?, file_path = ?, openai_video_ids = ? WHERE published_content_id = ?', ['completed', filePath, null, pcRow.id]);
+      } else {
+        await query('UPDATE content_videos SET status = $1, file_path = $2, openai_video_ids = $3 WHERE published_content_id = $4', ['completed', filePath, null, pcRow.id]);
+      }
+      return res.json({ status: 'completed', video_url: `${API_BASE}/content/video/${code}/content` });
+    }
+
     const { status, progress, error } = await feedbackVideoService.getVideoStatus(cvRow.openai_video_id);
     if (status === 'completed') {
-      const uploadsDir = path.join(__dirname, '../uploads');
-      const filePath = path.join(uploadsDir, `content-video-${pcRow.id}.mp4`);
+      const filePath = path.join(CONTENT_VIDEOS_DIR, `${pcRow.id}.mp4`);
+      if (!fsSync.existsSync(CONTENT_VIDEOS_DIR)) {
+        fsSync.mkdirSync(CONTENT_VIDEOS_DIR, { recursive: true });
+      }
       const buffer = await feedbackVideoService.getVideoContent(cvRow.openai_video_id);
       await fs.writeFile(filePath, buffer);
       if (isMySQL()) {
@@ -333,8 +460,7 @@ router.get('/video-status/:code', async (req, res) => {
       } else {
         await query('UPDATE content_videos SET status = $1, file_path = $2 WHERE published_content_id = $3', ['completed', filePath, pcRow.id]);
       }
-      const apiBase = process.env.API_PUBLIC_BASE || '/api';
-      return res.json({ status: 'completed', video_url: `${apiBase}/content/video/${code}/content` });
+      return res.json({ status: 'completed', video_url: `${API_BASE}/content/video/${code}/content` });
     }
     res.json({ status: status || cvRow.status, progress, error });
   } catch (error) {
@@ -359,8 +485,7 @@ router.get('/video/:code/content', async (req, res) => {
       : await query('SELECT file_path FROM content_videos WHERE published_content_id = $1 AND status = $2', [pcRow.id, 'completed']);
     const cvRow = Array.isArray(cv) ? cv[0] : (cv.rows && cv.rows[0]);
     if (!cvRow || !cvRow.file_path) return res.status(404).end();
-    const fs = require('fs');
-    if (!fs.existsSync(cvRow.file_path)) return res.status(404).end();
+    if (!fsSync.existsSync(cvRow.file_path)) return res.status(404).end();
     res.setHeader('Content-Type', 'video/mp4');
     res.sendFile(path.resolve(cvRow.file_path));
   } catch (error) {

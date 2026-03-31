@@ -18,6 +18,7 @@ const TakeContent: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ total_score: number; feedback?: string; scores?: any[] } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoBlobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -31,16 +32,23 @@ const TakeContent: React.FC = () => {
 
   useEffect(() => {
     if (!code || step !== 'content') return;
+    setVideoUrl(null);
+    const loadVideoBlob = async () => {
+      const videoRes = await contentAPI.getVideoContent(code);
+      const blobUrl = URL.createObjectURL(videoRes.data as Blob);
+      if (videoBlobUrlRef.current) {
+        URL.revokeObjectURL(videoBlobUrlRef.current);
+      }
+      videoBlobUrlRef.current = blobUrl;
+      setVideoUrl(blobUrl);
+    };
     const poll = async () => {
       try {
         const res = await contentAPI.getVideoStatus(code);
         const st = res.data.status;
-        const url = res.data.video_url;
         setVideoStatus(st || null);
-        if (url) {
-          setVideoUrl(url.startsWith('http') ? url : `${window.location.origin}${url}`);
-        }
-        if (st === 'completed' && url) {
+        if (st === 'completed') {
+          await loadVideoBlob();
           if (pollRef.current) {
             clearInterval(pollRef.current);
             pollRef.current = null;
@@ -52,6 +60,10 @@ const TakeContent: React.FC = () => {
     pollRef.current = setInterval(poll, 15000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (videoBlobUrlRef.current) {
+        URL.revokeObjectURL(videoBlobUrlRef.current);
+        videoBlobUrlRef.current = null;
+      }
     };
   }, [code, step]);
 

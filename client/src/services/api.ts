@@ -641,6 +641,7 @@ export const contentAPI = {
   submitQuiz: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/content/submit-quiz', data),
   getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),
+  getVideoContent: (code: string) => api.get(`/content/video/${code}/content`, { responseType: 'blob' }),
   exportPptx: (content: GeneratedContent) =>
     api.post('/content/export/pptx', { content }, { responseType: 'blob' }),
   exportLectureNotes: (content: GeneratedContent) =>
