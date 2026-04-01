@@ -613,6 +613,14 @@ export interface ContentSection {
   /** One short supporting line for slides. */
   support?: string;
   body: string;
+  visuals?: ContentVisual[];
+}
+export interface ContentVisual {
+  kind: 'image' | 'illustration';
+  title?: string;
+  alt_text?: string;
+  prompt?: string;
+  image_url?: string;
 }
 export interface ContentQuizQuestion {
   number: number;
@@ -627,6 +635,43 @@ export interface GeneratedContent {
   instructions?: string;
   sections: ContentSection[];
   quiz?: { questions: ContentQuizQuestion[]; total_points?: number };
+  template_id?: string;
+  template_name?: string;
+  theme?: {
+    font_family?: string;
+    bg_color?: string;
+    surface_color?: string;
+    heading_color?: string;
+    text_color?: string;
+    accent_color?: string;
+  };
+}
+export interface ContentTemplate {
+  id: string;
+  name: string;
+  theme: {
+    font_family?: string;
+    bg_color?: string;
+    surface_color?: string;
+    heading_color?: string;
+    text_color?: string;
+    accent_color?: string;
+  };
+}
+export interface ContentPlannerJob {
+  id: number;
+  topics: string;
+  level?: string | null;
+  num_sections: number;
+  template_id?: string | null;
+  rubric_id?: number | null;
+  scheduled_for: string;
+  status: 'scheduled' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  error_message?: string | null;
+  published_content_id?: number | null;
+  published_code?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 export const contentAPI = {
   generate: (data: {
@@ -635,6 +680,7 @@ export const contentAPI = {
     num_sections?: number;
     rubric_id?: number;
     rubric_context?: string;
+    template_id?: string;
   }) => api.post('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean }) =>
     api.post('/content/publish', data),
@@ -649,11 +695,36 @@ export const contentAPI = {
     api.post('/content/export/pptx', { content }, { responseType: 'blob' }),
   exportLectureNotes: (content: GeneratedContent) =>
     api.post('/content/export/lecture-notes', { content }, { responseType: 'blob' }),
+  exportScorm: (content: GeneratedContent) =>
+    api.post('/content/export/scorm', { content }, { responseType: 'blob' }),
+  getTemplates: () => api.get<{ success: boolean; templates: ContentTemplate[] }>('/content/templates'),
   uploadTemplate: (file: File) => {
     const form = new FormData();
     form.append('template', file);
     return api.post('/content/template', form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
+  schedulePlanner: (data: {
+    topics: string;
+    level?: string;
+    num_sections?: number;
+    rubric_id?: number;
+    rubric_context?: string;
+    template_id?: string;
+    scheduled_for: string;
+  }) => api.post('/content/planner/schedule', data),
+  getPlannerJobs: () => api.get<{ success: boolean; jobs: ContentPlannerJob[] }>('/content/planner/jobs'),
+  cancelPlannerJob: (id: number) => api.post(`/content/planner/${id}/cancel`),
+  saveProgress: (data: {
+    code: string;
+    student_name: string;
+    current_section?: number;
+    checkpoint_answers?: Record<number, string>;
+    progress?: any;
+    completed?: boolean;
+    score?: number | null;
+  }) => api.post('/content/progress', data),
+  getProgress: (code: string, studentName: string) =>
+    api.get(`/content/progress/${code}`, { params: { student_name: studentName } }),
 };
 
 // Authentication API

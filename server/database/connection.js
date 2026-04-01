@@ -255,6 +255,29 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS content_planner_jobs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          topics TEXT NOT NULL,
+          level VARCHAR(120) NULL,
+          num_sections INT DEFAULT 5,
+          template_id VARCHAR(60) DEFAULT 'classroom',
+          rubric_id INT NULL,
+          rubric_context TEXT NULL,
+          scheduled_for TIMESTAMP NOT NULL,
+          status VARCHAR(50) DEFAULT 'scheduled',
+          error_message TEXT NULL,
+          generated_content_json LONGTEXT NULL,
+          published_content_id INT NULL,
+          published_code VARCHAR(32) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE SET NULL,
+          FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_videos (
           id INT AUTO_INCREMENT PRIMARY KEY,
           published_content_id INT NOT NULL,
@@ -265,6 +288,22 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE CASCADE,
           UNIQUE(published_content_id)
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS content_progress (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          published_content_id INT NOT NULL,
+          student_name VARCHAR(255) NOT NULL,
+          current_section INT DEFAULT 0,
+          checkpoint_answers_json LONGTEXT NULL,
+          completed TINYINT(1) DEFAULT 0,
+          score DECIMAL(6,2) DEFAULT NULL,
+          progress_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_content_progress (published_content_id, student_name),
+          FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE CASCADE
         )
       `);
       await query(`
@@ -957,6 +996,26 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS content_planner_jobs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          topics TEXT NOT NULL,
+          level VARCHAR(120) NULL,
+          num_sections INTEGER DEFAULT 5,
+          template_id VARCHAR(60) DEFAULT 'classroom',
+          rubric_id INTEGER NULL REFERENCES rubrics(id) ON DELETE SET NULL,
+          rubric_context TEXT NULL,
+          scheduled_for TIMESTAMP NOT NULL,
+          status VARCHAR(50) DEFAULT 'scheduled',
+          error_message TEXT NULL,
+          generated_content_json TEXT NULL,
+          published_content_id INTEGER NULL REFERENCES published_content(id) ON DELETE SET NULL,
+          published_code VARCHAR(32) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_videos (
           id SERIAL PRIMARY KEY,
           published_content_id INTEGER NOT NULL REFERENCES published_content(id) ON DELETE CASCADE,
@@ -966,6 +1025,21 @@ const initDatabase = async () => {
           file_path TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(published_content_id)
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS content_progress (
+          id SERIAL PRIMARY KEY,
+          published_content_id INTEGER NOT NULL REFERENCES published_content(id) ON DELETE CASCADE,
+          student_name VARCHAR(255) NOT NULL,
+          current_section INTEGER DEFAULT 0,
+          checkpoint_answers_json TEXT NULL,
+          completed BOOLEAN DEFAULT FALSE,
+          score DECIMAL(6,2) DEFAULT NULL,
+          progress_json TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (published_content_id, student_name)
         )
       `);
       await query(`

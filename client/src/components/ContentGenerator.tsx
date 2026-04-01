@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2 } from 'lucide-react';
-import { contentAPI, rubricsAPI, GeneratedContent } from '../services/api';
+import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock } from 'lucide-react';
+import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate } from '../services/api';
 
 const LEVEL_OPTIONS = [
   { value: '', label: 'Any level' },
@@ -20,12 +20,18 @@ const ContentGenerator: React.FC = () => {
   const [rubricId, setRubricId] = useState<number | null>(null);
   const [includeVideo, setIncludeVideo] = useState(false);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const [templateId, setTemplateId] = useState('classroom');
+  const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
+  const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +39,8 @@ const ContentGenerator: React.FC = () => {
   useEffect(() => {
     loadRubrics();
     loadMyContent();
+    loadPlannerJobs();
+    loadTemplates();
   }, []);
 
   const loadRubrics = async () => {
@@ -48,6 +56,35 @@ const ContentGenerator: React.FC = () => {
       if (res.data.success) setMyContent(res.data.items || []);
     } catch (_) {}
   };
+
+  const loadPlannerJobs = async () => {
+    try {
+      const res = await contentAPI.getPlannerJobs();
+      if (res.data.success) setPlannerJobs(res.data.jobs || []);
+    } catch (_) {}
+  };
+  const loadTemplates = async () => {
+    try {
+      const res = await contentAPI.getTemplates();
+      if (res.data.success) {
+        const list = res.data.templates || [];
+        setTemplates(list);
+        if (list.length > 0 && !list.find((t) => t.id === templateId)) {
+          setTemplateId(list[0].id);
+        }
+      }
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    const activeJobs = plannerJobs.some((job) => job.status === 'scheduled' || job.status === 'processing');
+    if (!activeJobs) return;
+    const timer = setInterval(() => {
+      loadPlannerJobs();
+      loadMyContent();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [plannerJobs]);
 
   const handleGenerate = async () => {
     const topicsTrim = topics.trim();
@@ -67,6 +104,7 @@ const ContentGenerator: React.FC = () => {
         level: level || undefined,
         num_sections: numSections,
         rubric_id: rubricId || undefined,
+        template_id: templateId || undefined,
       });
       if (res.data.success && res.data.content) {
         setGeneratedContent(res.data.content);
@@ -122,6 +160,72 @@ const ContentGenerator: React.FC = () => {
       }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to publish');
+    }
+  };
+
+  const handleExportScorm = async () => {
+    if (!generatedContent) return;
+    setExporting('scorm');
+    setError(null);
+    try {
+      const res = await contentAPI.exportScorm(generatedContent);
+      const blob = res.data as Blob;
+      const filename = `${(generatedContent.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_scorm.zip`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to export SCORM');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleSchedulePlanner = async () => {
+    const topicsTrim = topics.trim();
+    if (!topicsTrim) {
+      setError('Please enter topics to cover before scheduling.');
+      return;
+    }
+    if (!scheduledFor) {
+      setError('Please choose a planner date and time.');
+      return;
+    }
+    setError(null);
+    setIsScheduling(true);
+    try {
+      const scheduledIso = new Date(scheduledFor).toISOString();
+      await contentAPI.schedulePlanner({
+        topics: topicsTrim,
+        level: level || undefined,
+        num_sections: numSections,
+        rubric_id: rubricId || undefined,
+        template_id: templateId || undefined,
+        scheduled_for: scheduledIso,
+      });
+      await loadPlannerJobs();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to schedule planner content');
+    } finally {
+      setIsScheduling(false);
+    }
+  };
+
+  const handleCancelPlannerJob = async (id: number) => {
+    setCancellingPlannerJobId(id);
+    setError(null);
+    try {
+      await contentAPI.cancelPlannerJob(id);
+      await loadPlannerJobs();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to cancel planner job');
+    } finally {
+      setCancellingPlannerJobId(null);
     }
   };
 
@@ -186,6 +290,60 @@ const ContentGenerator: React.FC = () => {
           </div>
         )}
 
+        {plannerJobs.length > 0 && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="text-sm font-semibold text-blue-900 mb-2">Planner queue</h3>
+            <ul className="space-y-2">
+              {plannerJobs.map((job) => {
+                const link = job.published_code
+                  ? `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${job.published_code}`
+                  : null;
+                const statusColor =
+                  job.status === 'completed' ? 'text-green-700' :
+                  job.status === 'failed' ? 'text-red-700' :
+                  job.status === 'cancelled' ? 'text-gray-700' :
+                  'text-blue-700';
+                return (
+                  <li key={job.id} className="text-sm text-gray-700 border border-blue-100 rounded p-2 bg-white">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-medium truncate max-w-[380px]" title={job.topics}>{job.topics}</span>
+                      <span className={`text-xs font-semibold uppercase ${statusColor}`}>{job.status}</span>
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      Planned for: {new Date(job.scheduled_for).toLocaleString()}
+                    </div>
+                    {job.error_message && <div className="text-xs text-red-700 mt-1">{job.error_message}</div>}
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {link && (
+                        <>
+                          <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-xs bg-white" />
+                          <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(link)}
+                            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                          >
+                            Copy link
+                          </button>
+                        </>
+                      )}
+                      {job.status === 'scheduled' && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelPlannerJob(job.id)}
+                          disabled={cancellingPlannerJobId === job.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+                        >
+                          {cancellingPlannerJobId === job.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Cancel'}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
         )}
@@ -224,6 +382,18 @@ const ContentGenerator: React.FC = () => {
                 onChange={(e) => setNumSections(parseInt(e.target.value, 10) || 5)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Template / theme</label>
+              <select
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+              >
+                {(templates.length > 0 ? templates : [{ id: 'classroom', name: 'Classroom Fresh', theme: {} }]).map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div>
@@ -274,14 +444,33 @@ const ContentGenerator: React.FC = () => {
               )}
             </div>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
-          >
-            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-            Generate content
-          </button>
+          <div className="flex flex-wrap items-end gap-3">
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+            >
+              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              Generate content
+            </button>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-700">Planner time</label>
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(e) => setScheduledFor(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+            </div>
+            <button
+              onClick={handleSchedulePlanner}
+              disabled={isScheduling}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isScheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
+              Schedule planner generation
+            </button>
+          </div>
         </div>
       </div>
 
@@ -305,6 +494,14 @@ const ContentGenerator: React.FC = () => {
               >
                 {exporting === 'lecture-notes' ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />}
                 Lecture notes
+              </button>
+              <button
+                onClick={handleExportScorm}
+                disabled={!!exporting}
+                className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {exporting === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
+                SCORM package
               </button>
               <button
                 onClick={() => handlePublish(false)}
@@ -346,6 +543,25 @@ const ContentGenerator: React.FC = () => {
                 <h3 className="font-semibold text-gray-800 mb-1">{sec.heading || sec.title || 'Section'}</h3>
                 {sec.support && <p className="text-gray-600 text-sm mb-2">{sec.support}</p>}
                 <p className="text-gray-700 whitespace-pre-wrap text-sm">{sec.body}</p>
+                {Array.isArray(sec.visuals) && sec.visuals.length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {sec.visuals.map((visual: any, visualIdx: number) => (
+                      <div key={visualIdx} className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                        {visual.image_url && (
+                          <img
+                            src={visual.image_url}
+                            alt={visual.alt_text || visual.title || `${visual.kind || 'visual'} for section ${i + 1}`}
+                            className="w-full h-36 object-cover"
+                          />
+                        )}
+                        <div className="p-2">
+                          <div className="text-xs font-semibold text-gray-700 uppercase">{visual.kind || 'visual'}</div>
+                          {visual.title && <div className="text-sm text-gray-800">{visual.title}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {generatedContent.quiz && generatedContent.quiz.questions && generatedContent.quiz.questions.length > 0 && (

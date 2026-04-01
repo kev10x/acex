@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const { initDatabase } = require('./database/connection');
 const { startOpenAIBatchPolling } = require('./services/openaiBatchMarkingService');
+const { startContentPlannerPolling } = require('./services/contentPlannerService');
 require('dotenv').config();
 
 const app = express();
@@ -90,6 +91,7 @@ const startServer = async () => {
   try {
     await initDatabase();
     startOpenAIBatchPolling();
+    startContentPlannerPolling();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

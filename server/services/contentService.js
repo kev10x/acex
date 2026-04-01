@@ -2,9 +2,48 @@
  * Content generation and export: AI-generated course content, PPTX, lecture notes.
  */
 
+const crypto = require('crypto');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
+const CONTENT_TEMPLATES = {
+  classroom: {
+    id: 'classroom',
+    name: 'Classroom Fresh',
+    theme: {
+      font_family: "'Trebuchet MS', 'Segoe UI', sans-serif",
+      bg_color: '#F8FAFC',
+      surface_color: '#FFFFFF',
+      heading_color: '#0F766E',
+      text_color: '#0F172A',
+      accent_color: '#14B8A6',
+    },
+  },
+  corporate: {
+    id: 'corporate',
+    name: 'Corporate Crisp',
+    theme: {
+      font_family: "'Calibri', 'Segoe UI', sans-serif",
+      bg_color: '#F3F4F6',
+      surface_color: '#FFFFFF',
+      heading_color: '#1D4ED8',
+      text_color: '#111827',
+      accent_color: '#2563EB',
+    },
+  },
+  playful: {
+    id: 'playful',
+    name: 'Playful Bright',
+    theme: {
+      font_family: "'Verdana', 'Segoe UI', sans-serif",
+      bg_color: '#FFF7ED',
+      surface_color: '#FFFFFF',
+      heading_color: '#C2410C',
+      text_color: '#431407',
+      accent_color: '#FB923C',
+    },
+  },
+};
 
 /**
  * Generate course content (sections + optional quiz) using AI.
@@ -12,11 +51,11 @@ const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
  * @returns {Promise<{ title, instructions, sections: [{ title, body }], quiz?: { questions } }>}
  */
 async function generateContentWithAI(opts) {
-  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '' } = opts;
+  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom' } = opts;
   const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
   const compactTopics = String(topics || '').trim().slice(0, 1200);
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
-  const prompt = `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text—no long bullet lists or text-heavy slides.
+  const prompt = `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text-no long bullet lists or text-heavy slides.
 
 TOPICS TO COVER (create clear sections that teach these):
 ${compactTopics}
@@ -26,19 +65,40 @@ ${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` 
 Generate a structured course with exactly ${numSections} sections. For each section provide:
 - heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
 - support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
-- body: Full explanation for lecture notes and detailed reading (2–4 short paragraphs). Use \\n for paragraph breaks.
+- body: Full explanation for lecture notes and detailed reading (2-4 short paragraphs). Use \\n for paragraph breaks.
+- visuals: exactly 2 visual descriptors:
+  1) kind = "illustration" (diagram-style)
+  2) kind = "image" (scene/photo-style)
+  Each visual must include:
+  - title: short caption
+  - alt_text: accessibility description
+  - prompt: concise generation prompt
 
-Include one optional short knowledge-check quiz at the end (3–5 multiple choice questions with correct_answer and options).
+Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
 
 Respond with a JSON object only (no markdown), in this exact format:
 {
   "title": "${suggestedTitle || 'Course Title'}",
-  "instructions": "Brief instructions for the learner (1–2 sentences).",
+  "instructions": "Brief instructions for the learner (1-2 sentences).",
   "sections": [
     {
       "heading": "One complete sentence stating this slide's main idea.",
       "support": "One short supporting line or key takeaway.",
-      "body": "Full explanation for notes and reading. Use \\n for paragraph breaks."
+      "body": "Full explanation for notes and reading. Use \\n for paragraph breaks.",
+      "visuals": [
+        {
+          "kind": "illustration",
+          "title": "Diagram caption",
+          "alt_text": "Accessible description of illustration",
+          "prompt": "Prompt text for illustration generation"
+        },
+        {
+          "kind": "image",
+          "title": "Photo/scene caption",
+          "alt_text": "Accessible description of image",
+          "prompt": "Prompt text for image generation"
+        }
+      ]
     }
   ],
   "quiz": {
@@ -56,7 +116,7 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. Quiz questions must have options and correct_answer.`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. Include exactly one illustration and one image descriptor in visuals for every section. Quiz questions must have options and correct_answer.`;
 
   const completion = await aiService.createCompletionWithRetry({
     provider: config.provider,
@@ -101,7 +161,122 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
   if (!data.title || !data.sections || !Array.isArray(data.sections)) {
     throw new Error('Invalid content structure: need title and sections array');
   }
-  return data;
+  return normalizeGeneratedContent(data, templateId);
+}
+
+function stableColorFromText(seed) {
+  const hex = crypto.createHash('md5').update(String(seed || 'content')).digest('hex');
+  return {
+    primary: hex.slice(0, 6),
+    secondary: hex.slice(6, 12),
+    accent: hex.slice(12, 18),
+  };
+}
+
+function escapeSvgText(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function toDataUriSvg(svg) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
+  const palette = stableColorFromText(`${sectionTitle}-${kind}-${ordinal}`);
+  const label = kind === 'illustration' ? 'Illustration' : 'Image';
+  const title = `${label}: ${sectionTitle}`.slice(0, 120);
+  const altText = kind === 'illustration'
+    ? `Diagram style illustration for: ${sectionTitle}`
+    : `Visual scene for: ${sectionTitle}`;
+  const prompt = kind === 'illustration'
+    ? `Create a clean educational diagram illustrating: ${sectionTitle}`
+    : `Create an educational scene image representing: ${sectionTitle}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#${palette.primary}"/>
+      <stop offset="100%" stop-color="#${palette.secondary}"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#g)"/>
+  <rect x="64" y="64" width="1152" height="592" rx="24" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.45)"/>
+  <text x="100" y="190" font-family="Segoe UI, Arial, sans-serif" font-size="44" fill="#FFFFFF" font-weight="700">${escapeSvgText(label)}</text>
+  <text x="100" y="260" font-family="Segoe UI, Arial, sans-serif" font-size="34" fill="#FFFFFF">${escapeSvgText(sectionTitle).slice(0, 72)}</text>
+  <circle cx="1080" cy="180" r="74" fill="#${palette.accent}" opacity="0.65"/>
+  <rect x="100" y="330" width="680" height="26" rx="13" fill="rgba(255,255,255,0.65)"/>
+  <rect x="100" y="375" width="900" height="18" rx="9" fill="rgba(255,255,255,0.48)"/>
+  <rect x="100" y="410" width="760" height="18" rx="9" fill="rgba(255,255,255,0.48)"/>
+</svg>`;
+
+  return {
+    kind,
+    title,
+    alt_text: altText,
+    prompt,
+    image_url: toDataUriSvg(svg),
+  };
+}
+
+function normalizeSectionVisuals(sectionTitle, visuals) {
+  const incoming = Array.isArray(visuals) ? visuals : [];
+  const normalized = incoming
+    .filter((v) => v && typeof v === 'object')
+    .map((v, index) => {
+      const kind = String(v.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
+      const fallback = createFallbackVisual(sectionTitle, kind, index + 1);
+      return {
+        kind,
+        title: String(v.title || fallback.title).slice(0, 160),
+        alt_text: String(v.alt_text || fallback.alt_text).slice(0, 260),
+        prompt: String(v.prompt || fallback.prompt).slice(0, 360),
+        image_url: typeof v.image_url === 'string' && v.image_url.trim()
+          ? v.image_url
+          : fallback.image_url,
+      };
+    });
+
+  const hasIllustration = normalized.some((v) => v.kind === 'illustration');
+  const hasImage = normalized.some((v) => v.kind === 'image');
+  if (!hasIllustration) normalized.unshift(createFallbackVisual(sectionTitle, 'illustration', 1));
+  if (!hasImage) normalized.push(createFallbackVisual(sectionTitle, 'image', 2));
+  return normalized.slice(0, 4);
+}
+
+function getTemplateById(templateId) {
+  const key = String(templateId || 'classroom').trim().toLowerCase();
+  return CONTENT_TEMPLATES[key] || CONTENT_TEMPLATES.classroom;
+}
+
+function applyTemplateToContent(content, templateId = 'classroom') {
+  const template = getTemplateById(templateId);
+  return {
+    ...content,
+    template_id: template.id,
+    template_name: template.name,
+    theme: { ...template.theme },
+  };
+}
+
+function normalizeGeneratedContent(content, templateId = 'classroom') {
+  const sections = Array.isArray(content.sections) ? content.sections : [];
+  const normalizedSections = sections.map((section, index) => {
+    const heading = String(section.heading || section.title || `Section ${index + 1}`).trim();
+    return {
+      ...section,
+      heading,
+      visuals: normalizeSectionVisuals(heading, section.visuals),
+    };
+  });
+
+  const withSections = {
+    ...content,
+    sections: normalizedSections,
+  };
+  const selectedTemplateId = content?.template_id || templateId || 'classroom';
+  return applyTemplateToContent(withSections, selectedTemplateId);
 }
 
 // Normalize section for assertion-evidence: support both legacy (title, body) and new (heading, support, body)
@@ -177,7 +352,7 @@ async function buildPptx(content) {
     qSlide.background = { color: THEME.light };
     qSlide.addShape(pptx.ShapeType.rect, { x: m, y: m, w: contentW, h: h - 2 * m, fill: { color: 'FFFFFF' }, line: { type: 'none' }, shadow: SHADOW() });
     qSlide.addText('Knowledge check', { x: m + 0.2, y: m + 0.2, w: contentW - 0.4, h: 0.55, ...TXT({ fontSize: 26, bold: true, color: THEME.primary }) });
-    const quizLines = content.quiz.questions.map((q, idx) => `${idx + 1}. ${(q.question || '').slice(0, 65)}${(q.question || '').length > 65 ? '…' : ''}`).join('\n');
+    const quizLines = content.quiz.questions.map((q, idx) => `${idx + 1}. ${(q.question || '').slice(0, 65)}${(q.question || '').length > 65 ? '...' : ''}`).join('\n');
     qSlide.addText(quizLines, { x: m + 0.4, y: m + 0.9, w: contentW - 0.8, h: 3.5, ...TXT({ fontSize: 14, color: THEME.dark }) });
   }
 
@@ -258,6 +433,10 @@ function escapeHtml(text) {
 
 module.exports = {
   generateContentWithAI,
+  normalizeGeneratedContent,
+  applyTemplateToContent,
+  getTemplateById,
+  CONTENT_TEMPLATES,
   buildPptx,
   buildLectureNotesHtml,
 };

@@ -13,6 +13,8 @@ const { query } = require('../database/connection');
 const { requireAuth, requireFeature } = require('../middleware/auth');
 const contentService = require('../services/contentService');
 const feedbackVideoService = require('../services/feedbackVideoService');
+const { runContentPlannerCycle } = require('../services/contentPlannerService');
+const { buildContentScormPackage } = require('../services/contentExport');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -55,6 +57,12 @@ function generateCode() {
   return crypto.randomBytes(6).toString('base64url').slice(0, 8);
 }
 
+function toSafeIsoDateTime(value) {
+  const dt = new Date(String(value || ''));
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
 const templateDir = path.join(__dirname, '../uploads/content-templates');
 try {
   require('fs').mkdirSync(templateDir, { recursive: true });
@@ -77,7 +85,7 @@ const uploadTemplate = multer({
  */
 router.post('/generate', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
-    const { topics, level, num_sections = 5, rubric_id, rubric_context, include_video } = req.body;
+    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom' } = req.body;
     if (!topics || !String(topics).trim()) {
       return res.status(400).json({ error: 'topics is required' });
     }
@@ -97,12 +105,22 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       level: level || '',
       numSections: Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), 20),
       rubricContext,
+      templateId: template_id,
     });
     res.json({ success: true, content });
   } catch (error) {
     console.error('Content generate error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate content' });
   }
+});
+
+router.get('/templates', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  const templates = Object.values(contentService.CONTENT_TEMPLATES || {}).map((t) => ({
+    id: t.id,
+    name: t.name,
+    theme: t.theme,
+  }));
+  res.json({ success: true, templates });
 });
 
 /**
@@ -114,6 +132,7 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
     if (!content || !content.title) {
       return res.status(400).json({ error: 'content with title is required' });
     }
+    const normalizedContent = contentService.normalizeGeneratedContent(content);
     let code;
     for (let i = 0; i < 5; i++) {
       code = generateCode();
@@ -121,12 +140,12 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
         if (isMySQL()) {
           await query(
             'INSERT INTO published_content (code, title, content_json, rubric_id, user_id) VALUES (?, ?, ?, ?, ?)',
-            [code, content.title, JSON.stringify(content), rubric_id || null, req.user.id]
+            [code, normalizedContent.title, JSON.stringify(normalizedContent), rubric_id || null, req.user.id]
           );
         } else {
           await query(
             'INSERT INTO published_content (code, title, content_json, rubric_id, user_id) VALUES ($1, $2, $3, $4, $5)',
-            [code, content.title, JSON.stringify(content), rubric_id || null, req.user.id]
+            [code, normalizedContent.title, JSON.stringify(normalizedContent), rubric_id || null, req.user.id]
           );
         }
         break;
@@ -155,7 +174,7 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
             '12',
           12
         );
-        const prompts = buildContentVideoPromptSegments(content.title, clips);
+        const prompts = buildContentVideoPromptSegments(normalizedContent.title, clips);
         const jobs = await Promise.all(
           prompts.map((prompt) =>
             feedbackVideoService.createVideoJob(prompt, {
@@ -218,6 +237,187 @@ router.get('/my', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Content list error:', error);
     res.status(500).json({ error: 'Failed to list content' });
+  }
+});
+
+/**
+ * Schedule planner-based content generation and publishing.
+ */
+router.post('/planner/schedule', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const {
+      topics,
+      level,
+      num_sections = 5,
+      rubric_id,
+      rubric_context,
+      template_id = 'classroom',
+      scheduled_for,
+    } = req.body || {};
+
+    const cleanedTopics = String(topics || '').trim();
+    if (!cleanedTopics) {
+      return res.status(400).json({ error: 'topics is required' });
+    }
+    const scheduleTime = toSafeIsoDateTime(scheduled_for);
+    if (!scheduleTime) {
+      return res.status(400).json({ error: 'scheduled_for must be a valid datetime' });
+    }
+    if (scheduleTime.getTime() < Date.now() - 60 * 1000) {
+      return res.status(400).json({ error: 'scheduled_for must be now or a future datetime' });
+    }
+
+    const maxSections = Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), 20);
+    const dbScheduled = scheduleTime.toISOString().slice(0, 19).replace('T', ' ');
+
+    let insert;
+    try {
+      if (isMySQL()) {
+        insert = await query(
+          `INSERT INTO content_planner_jobs
+            (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, scheduled_for, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [req.user.id, cleanedTopics, level || null, maxSections, template_id || 'classroom', rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+        );
+      } else {
+        insert = await query(
+          `INSERT INTO content_planner_jobs
+            (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, scheduled_for, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id`,
+          [req.user.id, cleanedTopics, level || null, maxSections, template_id || 'classroom', rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+        );
+      }
+    } catch (insertErr) {
+      const msg = String(insertErr?.message || '').toLowerCase();
+      const columnMissing = msg.includes('template_id') && (msg.includes('unknown column') || msg.includes('does not exist'));
+      if (!columnMissing) throw insertErr;
+      if (isMySQL()) {
+        insert = await query(
+          `INSERT INTO content_planner_jobs
+            (user_id, topics, level, num_sections, rubric_id, rubric_context, scheduled_for, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [req.user.id, cleanedTopics, level || null, maxSections, rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+        );
+      } else {
+        insert = await query(
+          `INSERT INTO content_planner_jobs
+            (user_id, topics, level, num_sections, rubric_id, rubric_context, scheduled_for, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id`,
+          [req.user.id, cleanedTopics, level || null, maxSections, rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+        );
+      }
+    }
+    const id = insert?.insertId ?? insert?.lastID ?? insert?.rows?.[0]?.id ?? null;
+    runContentPlannerCycle().catch((err) => {
+      console.error('Planner cycle kick-off failed:', err);
+    });
+
+    res.json({
+      success: true,
+      job: {
+        id,
+        status: 'scheduled',
+        scheduled_for: scheduleTime.toISOString(),
+        topics: cleanedTopics,
+        level: level || null,
+        num_sections: maxSections,
+        template_id: template_id || 'classroom',
+      },
+    });
+  } catch (error) {
+    console.error('Schedule content planner error:', error);
+    res.status(500).json({ error: 'Failed to schedule planner content' });
+  }
+});
+
+/**
+ * List current user's planner jobs.
+ */
+router.get('/planner/jobs', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    let q;
+    try {
+      q = isMySQL()
+        ? await query(
+            `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                    template_id, published_content_id, published_code, created_at, updated_at
+             FROM content_planner_jobs
+             WHERE user_id = ?
+             ORDER BY created_at DESC
+             LIMIT 200`,
+            [req.user.id]
+          )
+        : await query(
+            `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                    template_id, published_content_id, published_code, created_at, updated_at
+             FROM content_planner_jobs
+             WHERE user_id = $1
+             ORDER BY created_at DESC
+             LIMIT 200`,
+            [req.user.id]
+          );
+    } catch (selectErr) {
+      const msg = String(selectErr?.message || '').toLowerCase();
+      const columnMissing = msg.includes('template_id') && (msg.includes('unknown column') || msg.includes('does not exist'));
+      if (!columnMissing) throw selectErr;
+      q = isMySQL()
+        ? await query(
+            `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                    published_content_id, published_code, created_at, updated_at
+             FROM content_planner_jobs
+             WHERE user_id = ?
+             ORDER BY created_at DESC
+             LIMIT 200`,
+            [req.user.id]
+          )
+        : await query(
+            `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                    published_content_id, published_code, created_at, updated_at
+             FROM content_planner_jobs
+             WHERE user_id = $1
+             ORDER BY created_at DESC
+             LIMIT 200`,
+            [req.user.id]
+          );
+    }
+    const rows = Array.isArray(q) ? q : (q.rows || []);
+    res.json({ success: true, jobs: rows });
+  } catch (error) {
+    console.error('List content planner jobs error:', error);
+    res.status(500).json({ error: 'Failed to fetch planner jobs' });
+  }
+});
+
+/**
+ * Cancel a scheduled planner job (before processing starts).
+ */
+router.post('/planner/:id/cancel', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid planner job id' });
+    }
+
+    const existing = isMySQL()
+      ? await query('SELECT id, status FROM content_planner_jobs WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('SELECT id, status FROM content_planner_jobs WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const row = Array.isArray(existing) ? existing[0] : (existing.rows && existing.rows[0]);
+    if (!row) return res.status(404).json({ error: 'Planner job not found' });
+    if (row.status !== 'scheduled') {
+      return res.status(400).json({ error: 'Only scheduled jobs can be cancelled' });
+    }
+
+    if (isMySQL()) {
+      await query('UPDATE content_planner_jobs SET status = ?, updated_at = NOW() WHERE id = ? AND user_id = ?', ['cancelled', id, req.user.id]);
+    } else {
+      await query('UPDATE content_planner_jobs SET status = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3', ['cancelled', id, req.user.id]);
+    }
+    res.json({ success: true, message: 'Planner job cancelled' });
+  } catch (error) {
+    console.error('Cancel content planner job error:', error);
+    res.status(500).json({ error: 'Failed to cancel planner job' });
   }
 });
 
@@ -286,7 +486,8 @@ router.get('/take/:code', async (req, res) => {
       : await query('SELECT content_json, title FROM published_content WHERE code = $1', [code]);
     const row = Array.isArray(q) ? q[0] : (q.rows && q.rows[0]);
     if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
-    const content = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+    const content = contentService.normalizeGeneratedContent(parsedContent || {});
     if (content.quiz && content.quiz.questions) {
       content.quiz.questions = content.quiz.questions.map((q) => {
         const { correct_answer, ...rest } = q;
@@ -349,6 +550,33 @@ router.post('/submit-quiz', async (req, res) => {
     };
     const { generateMarking } = require('./mark');
     const markingResult = await generateMarking(scriptText, rubricData, 'assignment', null, null, 'strict', null, null);
+    const answerPayload = JSON.stringify(Array.isArray(answers) ? answers : []);
+    if (isMySQL()) {
+      await query(
+        `INSERT INTO content_progress
+         (published_content_id, student_name, current_section, checkpoint_answers_json, completed, score, progress_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           checkpoint_answers_json = VALUES(checkpoint_answers_json),
+           completed = VALUES(completed),
+           score = VALUES(score),
+           progress_json = VALUES(progress_json)`,
+        [pub.id, String(student_name).trim(), 9999, answerPayload, 1, Number(markingResult.total_score || 0), answerPayload]
+      );
+    } else {
+      await query(
+        `INSERT INTO content_progress
+         (published_content_id, student_name, current_section, checkpoint_answers_json, completed, score, progress_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (published_content_id, student_name) DO UPDATE
+         SET checkpoint_answers_json = EXCLUDED.checkpoint_answers_json,
+             completed = EXCLUDED.completed,
+             score = EXCLUDED.score,
+             progress_json = EXCLUDED.progress_json,
+             updated_at = NOW()`,
+        [pub.id, String(student_name).trim(), 9999, answerPayload, true, Number(markingResult.total_score || 0), answerPayload]
+      );
+    }
     res.json({
       success: true,
       result: {
@@ -360,6 +588,111 @@ router.post('/submit-quiz', async (req, res) => {
   } catch (error) {
     console.error('Content submit-quiz error:', error);
     res.status(500).json({ error: 'Failed to mark quiz' });
+  }
+});
+
+/**
+ * Save learner progress/checkpoint state for content.
+ */
+router.post('/progress', async (req, res) => {
+  try {
+    const { code, student_name, current_section = 0, checkpoint_answers = null, progress = null, completed = false, score = null } = req.body || {};
+    if (!code || !student_name) {
+      return res.status(400).json({ error: 'code and student_name are required' });
+    }
+    const pubQ = isMySQL()
+      ? await query('SELECT id FROM published_content WHERE code = ?', [code])
+      : await query('SELECT id FROM published_content WHERE code = $1', [code]);
+    const pub = Array.isArray(pubQ) ? pubQ[0] : (pubQ.rows && pubQ.rows[0]);
+    if (!pub) return res.status(404).json({ error: 'Content not found or link expired' });
+    const student = String(student_name).trim().slice(0, 255);
+    const section = Number.isFinite(Number(current_section)) ? Number(current_section) : 0;
+    const checkpointJson = checkpoint_answers != null ? JSON.stringify(checkpoint_answers) : null;
+    const progressJson = progress != null ? JSON.stringify(progress) : null;
+    const numericScore = score == null ? null : Number(score);
+
+    if (isMySQL()) {
+      await query(
+        `INSERT INTO content_progress
+         (published_content_id, student_name, current_section, checkpoint_answers_json, completed, score, progress_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          current_section = VALUES(current_section),
+          checkpoint_answers_json = COALESCE(VALUES(checkpoint_answers_json), checkpoint_answers_json),
+          completed = VALUES(completed),
+          score = COALESCE(VALUES(score), score),
+          progress_json = COALESCE(VALUES(progress_json), progress_json)`,
+        [pub.id, student, section, checkpointJson, completed ? 1 : 0, Number.isFinite(numericScore) ? numericScore : null, progressJson]
+      );
+    } else {
+      await query(
+        `INSERT INTO content_progress
+         (published_content_id, student_name, current_section, checkpoint_answers_json, completed, score, progress_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (published_content_id, student_name) DO UPDATE
+         SET current_section = EXCLUDED.current_section,
+             checkpoint_answers_json = COALESCE(EXCLUDED.checkpoint_answers_json, content_progress.checkpoint_answers_json),
+             completed = EXCLUDED.completed,
+             score = COALESCE(EXCLUDED.score, content_progress.score),
+             progress_json = COALESCE(EXCLUDED.progress_json, content_progress.progress_json),
+             updated_at = NOW()`,
+        [pub.id, student, section, checkpointJson, !!completed, Number.isFinite(numericScore) ? numericScore : null, progressJson]
+      );
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Content progress save error:', error);
+    res.status(500).json({ error: 'Failed to save content progress' });
+  }
+});
+
+/**
+ * Load learner progress/checkpoint state for content.
+ */
+router.get('/progress/:code', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const studentName = String(req.query.student_name || '').trim();
+    if (!studentName) return res.status(400).json({ error: 'student_name query is required' });
+
+    const q = isMySQL()
+      ? await query(
+          `SELECT cp.current_section, cp.checkpoint_answers_json, cp.completed, cp.score, cp.progress_json
+           FROM content_progress cp
+           JOIN published_content pc ON pc.id = cp.published_content_id
+           WHERE pc.code = ? AND cp.student_name = ?
+           LIMIT 1`,
+          [code, studentName]
+        )
+      : await query(
+          `SELECT cp.current_section, cp.checkpoint_answers_json, cp.completed, cp.score, cp.progress_json
+           FROM content_progress cp
+           JOIN published_content pc ON pc.id = cp.published_content_id
+           WHERE pc.code = $1 AND cp.student_name = $2
+           LIMIT 1`,
+          [code, studentName]
+        );
+    const row = Array.isArray(q) ? q[0] : (q.rows && q.rows[0]);
+    if (!row) return res.json({ success: true, progress: null });
+
+    let checkpointAnswers = null;
+    let progress = null;
+    try { checkpointAnswers = row.checkpoint_answers_json ? JSON.parse(row.checkpoint_answers_json) : null; } catch (_) {}
+    try { progress = row.progress_json ? JSON.parse(row.progress_json) : null; } catch (_) {}
+
+    res.json({
+      success: true,
+      progress: {
+        current_section: Number(row.current_section || 0),
+        checkpoint_answers: checkpointAnswers,
+        completed: !!row.completed,
+        score: row.score == null ? null : Number(row.score),
+        progress,
+      },
+    });
+  } catch (error) {
+    console.error('Content progress load error:', error);
+    res.status(500).json({ error: 'Failed to load content progress' });
   }
 });
 
@@ -396,6 +729,25 @@ router.post('/export/lecture-notes', requireAuth, requireFeature('content_creati
   } catch (error) {
     console.error('Content lecture notes export error:', error);
     res.status(500).json({ error: 'Failed to export lecture notes' });
+  }
+});
+
+/**
+ * Export content as SCORM 1.2 package ZIP (includes sections, visuals, checkpoint, SCORM runtime updates).
+ */
+router.post('/export/scorm', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ error: 'content is required' });
+    const normalized = contentService.normalizeGeneratedContent(content);
+    const zipBuffer = await buildContentScormPackage(normalized);
+    const filename = `${(normalized.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_scorm.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(zipBuffer);
+  } catch (error) {
+    console.error('Content SCORM export error:', error);
+    res.status(500).json({ error: 'Failed to export SCORM package' });
   }
 });
 

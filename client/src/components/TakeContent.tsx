@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Loader2, Send, Award, Video } from 'lucide-react';
+import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2 } from 'lucide-react';
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 
@@ -13,12 +13,36 @@ const TakeContent: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [studentName, setStudentName] = useState('');
   const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
+  const [currentSection, setCurrentSection] = useState(0);
+  const [visitedSections, setVisitedSections] = useState<number[]>([]);
   const [step, setStep] = useState<Step>('code');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ total_score: number; feedback?: string; scores?: any[] } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoBlobUrlRef = useRef<string | null>(null);
+  const progressSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedProgressKeyRef = useRef<string>('');
+
+  const sections = content?.sections || [];
+  const sectionCount = sections.length;
+  const questions = content?.quiz?.questions || [];
+  const hasQuiz = questions.length > 0;
+  const checkpointIndex = sectionCount;
+  const maxContentIndex = Math.max(0, sectionCount - 1);
+  const isCheckpointView = hasQuiz && currentSection >= checkpointIndex;
+  const currentSectionViewed = currentSection < sectionCount ? visitedSections.includes(currentSection) : true;
+
+  const getContiguousViewedIndex = () => {
+    if (sectionCount === 0) return -1;
+    const visited = new Set(visitedSections);
+    let idx = -1;
+    while (visited.has(idx + 1)) idx += 1;
+    return idx;
+  };
+  const contiguousViewedIndex = getContiguousViewedIndex();
+  const maxUnlockedSection = Math.min(sectionCount - 1, Math.max(0, contiguousViewedIndex + 1));
+  const checkpointUnlocked = sectionCount === 0 || contiguousViewedIndex >= sectionCount - 1;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -36,9 +60,7 @@ const TakeContent: React.FC = () => {
     const loadVideoBlob = async () => {
       const videoRes = await contentAPI.getVideoContent(code);
       const blobUrl = URL.createObjectURL(videoRes.data as Blob);
-      if (videoBlobUrlRef.current) {
-        URL.revokeObjectURL(videoBlobUrlRef.current);
-      }
+      if (videoBlobUrlRef.current) URL.revokeObjectURL(videoBlobUrlRef.current);
       videoBlobUrlRef.current = blobUrl;
       setVideoUrl(blobUrl);
     };
@@ -73,8 +95,13 @@ const TakeContent: React.FC = () => {
     try {
       const res = await contentAPI.getByCode(c);
       if (res.data.success && res.data.content) {
-        setContent(res.data.content);
+        const loaded = res.data.content as GeneratedContent;
+        setContent(loaded);
+        setCurrentSection(0);
+        setVisitedSections((loaded.sections || []).length > 0 ? [0] : []);
         setStep('content');
+        setResult(null);
+        loadedProgressKeyRef.current = '';
       } else {
         setError('Content not found or link expired.');
       }
@@ -100,6 +127,120 @@ const TakeContent: React.FC = () => {
     setQuizAnswers((prev) => ({ ...prev, [questionNumber]: value }));
   };
 
+  const markSectionVisited = (index: number) => {
+    if (index < 0 || index >= sectionCount) return;
+    setVisitedSections((prev) => (prev.includes(index) ? prev : [...prev, index]));
+  };
+
+  const canOpenSection = (index: number) => {
+    if (index < 0 || index >= sectionCount) return false;
+    return index <= maxUnlockedSection;
+  };
+
+  const handleOpenSection = (index: number) => {
+    if (!canOpenSection(index)) return;
+    setCurrentSection(index);
+  };
+
+  const goToPrevious = () => {
+    setCurrentSection((prev) => Math.max(0, prev - 1));
+  };
+
+  const goToNext = () => {
+    if (!currentSectionViewed && currentSection < sectionCount) return;
+    if (hasQuiz) {
+      setCurrentSection((prev) => {
+        const next = Math.min(checkpointIndex, prev + 1);
+        if (next < sectionCount) markSectionVisited(next);
+        return next;
+      });
+      return;
+    }
+    setCurrentSection((prev) => {
+      const next = Math.min(maxContentIndex, prev + 1);
+      markSectionVisited(next);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (step !== 'content') return;
+    if (currentSection < sectionCount) {
+      const timer = setTimeout(() => {
+        markSectionVisited(currentSection);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentSection, sectionCount, step]);
+
+  useEffect(() => {
+    if (!code || !studentName.trim() || step !== 'content') return;
+    const key = `${code}::${studentName.trim().toLowerCase()}`;
+    if (loadedProgressKeyRef.current === key) return;
+
+    const loadProgress = async () => {
+      try {
+        const res = await contentAPI.getProgress(code, studentName.trim());
+        const saved = res.data?.progress;
+        if (!saved) {
+          loadedProgressKeyRef.current = key;
+          return;
+        }
+        if (saved.checkpoint_answers && typeof saved.checkpoint_answers === 'object') {
+          setQuizAnswers(saved.checkpoint_answers);
+        }
+        const savedProgress = saved.progress || {};
+        const savedVisitedRaw = Array.isArray(savedProgress.visited_sections) ? savedProgress.visited_sections : [];
+        const cleanedVisited = savedVisitedRaw
+          .map((n: any) => Number(n))
+          .filter((n: number) => Number.isFinite(n) && n >= 0 && n < sectionCount);
+        if (cleanedVisited.length > 0) setVisitedSections(cleanedVisited);
+
+        const candidateSection = Number(saved.current_section || 0);
+        if (Number.isFinite(candidateSection)) {
+          const maxIndex = hasQuiz ? checkpointIndex : maxContentIndex;
+          setCurrentSection(Math.min(Math.max(candidateSection, 0), Math.max(0, maxIndex)));
+        }
+      } catch (_) {
+        // ignore restore errors
+      } finally {
+        loadedProgressKeyRef.current = key;
+      }
+    };
+
+    loadProgress();
+  }, [code, studentName, step, sectionCount, hasQuiz, checkpointIndex, maxContentIndex]);
+
+  useEffect(() => {
+    if (!code || !studentName.trim() || step !== 'content') return;
+    if (progressSaveRef.current) clearTimeout(progressSaveRef.current);
+    progressSaveRef.current = setTimeout(async () => {
+      try {
+        const payload = {
+          code,
+          student_name: studentName.trim(),
+          current_section: currentSection,
+          checkpoint_answers: quizAnswers,
+          completed: !!result,
+          score: result ? Number(result.total_score || 0) : null,
+          progress: {
+            visited_sections: visitedSections,
+            answered_count: Object.keys(quizAnswers).length,
+            section_count: sectionCount,
+            at_checkpoint: isCheckpointView,
+          },
+        };
+        await contentAPI.saveProgress(payload);
+      } catch (_) {
+        // ignore save errors
+      }
+    }, 700);
+
+    return () => {
+      if (progressSaveRef.current) clearTimeout(progressSaveRef.current);
+    };
+  }, [code, studentName, step, currentSection, quizAnswers, visitedSections, sectionCount, isCheckpointView, result]);
+
   const handleSubmitQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentName.trim()) {
@@ -120,6 +261,17 @@ const TakeContent: React.FC = () => {
         answers: answersList,
       });
       if (res.data.success && res.data.result) {
+        try {
+          await contentAPI.saveProgress({
+            code,
+            student_name: studentName.trim(),
+            current_section: checkpointIndex,
+            checkpoint_answers: quizAnswers,
+            completed: true,
+            score: Number(res.data.result.total_score ?? 0),
+            progress: { submitted: true, visited_sections: visitedSections },
+          });
+        } catch (_) {}
         setResult({
           total_score: res.data.result.total_score ?? 0,
           feedback: res.data.result.feedback,
@@ -135,8 +287,9 @@ const TakeContent: React.FC = () => {
     }
   };
 
-  const questions = content?.quiz?.questions || [];
-  const hasQuiz = questions.length > 0;
+  const visitedCount = visitedSections.length + (isCheckpointView ? 1 : 0);
+  const totalTrackable = Math.max(1, sectionCount + (hasQuiz ? 1 : 0));
+  const progressPercent = Math.round((Math.min(visitedCount, totalTrackable) / totalTrackable) * 100);
 
   if (step === 'result' && result) {
     return (
@@ -149,9 +302,7 @@ const TakeContent: React.FC = () => {
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
             <div className="text-3xl font-bold text-green-700">Score: {result.total_score}</div>
           </div>
-          {result.feedback && (
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg text-gray-700 whitespace-pre-wrap">{result.feedback}</div>
-          )}
+          {result.feedback && <div className="mb-6 p-4 bg-gray-50 rounded-lg text-gray-700 whitespace-pre-wrap">{result.feedback}</div>}
           {result.scores && result.scores.length > 0 && (
             <div className="mb-6">
               <h2 className="text-sm font-semibold text-gray-700 mb-2">Breakdown</h2>
@@ -178,14 +329,13 @@ const TakeContent: React.FC = () => {
             <BookOpen className="w-8 h-8 text-teal-600" />
             <h1 className="text-xl font-bold text-gray-900">View course content</h1>
           </div>
-          <p className="text-gray-600 text-sm mb-4">Enter the code your teacher gave you to open the content and any quiz.</p>
+          <p className="text-gray-600 text-sm mb-4">Enter the code your teacher gave you to open the content and checkpoint.</p>
           {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
-          {loading && (
+          {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
             </div>
-          )}
-          {!loading && (
+          ) : (
             <form onSubmit={handleEnterCode} className="space-y-4">
               <input
                 type="text"
@@ -194,9 +344,7 @@ const TakeContent: React.FC = () => {
                 placeholder="Content code"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
               />
-              <button type="submit" className="w-full py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-                Open content
-              </button>
+              <button type="submit" className="w-full py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">Open content</button>
             </form>
           )}
         </div>
@@ -204,119 +352,217 @@ const TakeContent: React.FC = () => {
     );
   }
 
+  const activeSection = !isCheckpointView && sectionCount > 0 ? sections[Math.min(Math.max(currentSection, 0), maxContentIndex)] : null;
+
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-3xl mx-auto">
+    <div
+      className="min-h-screen py-8 px-4"
+      style={{
+        background: content?.theme?.bg_color || '#F9FAFB',
+        color: content?.theme?.text_color || '#111827',
+        fontFamily: content?.theme?.font_family || undefined,
+      }}
+    >
+      <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="p-6 border-b border-gray-200">
-            <h1 className="text-2xl font-bold text-gray-900">{content?.title}</h1>
-            {content?.instructions && (
-              <p className="mt-2 text-gray-600 text-sm">{content.instructions}</p>
-            )}
+            <h1 className="text-2xl font-bold" style={{ color: content?.theme?.heading_color || '#111827' }}>{content?.title}</h1>
+            {content?.instructions && <p className="mt-2 text-sm" style={{ color: content?.theme?.text_color || '#4B5563' }}>{content.instructions}</p>}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your name (for save/resume)</label>
+                <input
+                  type="text"
+                  value={studentName}
+                  onChange={(e) => setStudentName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  placeholder="Full name"
+                />
+              </div>
+              <div className="flex flex-col justify-end">
+                <div className="text-xs text-gray-600 mb-1">Progress: {progressPercent}%</div>
+                <div className="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
+                  <div className="h-full bg-teal-500" style={{ width: `${progressPercent}%` }} />
+                </div>
+              </div>
+            </div>
           </div>
 
           {videoStatus && (
             <div className="p-6 border-b border-gray-200 bg-gray-50">
-              <h2 className="flex items-center gap-2 font-semibold text-gray-800 mb-2">
-                <Video className="w-5 h-5" /> Video
-              </h2>
+              <h2 className="flex items-center gap-2 font-semibold text-gray-800 mb-2"><Video className="w-5 h-5" /> Video</h2>
               {videoUrl ? (
-                <video controls className="w-full rounded-lg" src={videoUrl}>
-                  Your browser does not support the video tag.
-                </video>
+                <video controls className="w-full rounded-lg" src={videoUrl}>Your browser does not support the video tag.</video>
               ) : (
                 <p className="text-sm text-gray-600">
-                  {videoStatus === 'queued' || videoStatus === 'in_progress'
-                    ? 'Video is being generated…'
-                    : videoStatus === 'failed'
-                    ? 'Video could not be generated.'
-                    : 'Loading…'}
+                  {videoStatus === 'queued' || videoStatus === 'in_progress' ? 'Video is being generated...' : videoStatus === 'failed' ? 'Video could not be generated.' : 'Loading...'}
                 </p>
               )}
             </div>
           )}
 
-          <div className="p-6 space-y-10">
-            {(content?.sections || []).map((sec, i) => {
-              const assertion = (sec as any).heading || sec.title || 'Section';
-              const support = (sec as any).support ? String((sec as any).support).trim() : '';
-              const body = sec.body || '';
-              return (
-                <section key={i} className="max-w-[65ch]">
-                  <h2 className="text-xl font-semibold text-gray-900 leading-snug mb-2">{assertion}</h2>
-                  {support && <p className="text-gray-600 text-base mb-3">{support}</p>}
-                  <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">{body}</div>
-                </section>
-              );
-            })}
-          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6">
+              <aside className="bg-gray-50 border border-gray-200 rounded-lg p-3 h-fit">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Lesson Navigation</h3>
+                <ul className="space-y-1">
+                  {sections.map((sec, idx) => {
+                    const viewed = visitedSections.includes(idx);
+                    const locked = !canOpenSection(idx);
+                    const active = !isCheckpointView && currentSection === idx;
+                    return (
+                      <li key={idx}>
+                        <button
+                          type="button"
+                          disabled={locked}
+                          onClick={() => handleOpenSection(idx)}
+                          className={`w-full text-left px-2 py-2 rounded-md text-sm flex items-center justify-between gap-2 ${
+                            active ? 'bg-teal-100 text-teal-900' : locked ? 'bg-gray-100 text-gray-400' : 'hover:bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          <span className="truncate">{idx + 1}. {(sec as any).heading || sec.title || `Section ${idx + 1}`}</span>
+                          {viewed ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" /> : locked ? <Lock className="w-4 h-4 shrink-0" /> : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {hasQuiz && (
+                    <li>
+                      <button
+                        type="button"
+                        disabled={!checkpointUnlocked}
+                        onClick={() => checkpointUnlocked && setCurrentSection(checkpointIndex)}
+                        className={`w-full text-left px-2 py-2 rounded-md text-sm flex items-center justify-between gap-2 ${
+                          isCheckpointView ? 'bg-amber-100 text-amber-900' : checkpointUnlocked ? 'hover:bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-400'
+                        }`}
+                      >
+                        <span>Knowledge checkpoint</span>
+                        {!checkpointUnlocked ? <Lock className="w-4 h-4 shrink-0" /> : null}
+                      </button>
+                    </li>
+                  )}
+                </ul>
+              </aside>
 
-          {hasQuiz && (
-            <div className="p-6 border-t border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Knowledge check</h2>
-              <p className="text-sm text-gray-600 mb-4">Marking happens when you submit. Enter your name and answers below.</p>
-              {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
-              {step === 'submitting' && (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
-                </div>
-              )}
-              {step !== 'submitting' && (
-                <form onSubmit={handleSubmitQuiz} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Your name</label>
-                    <input
-                      type="text"
-                      value={studentName}
-                      onChange={(e) => setStudentName(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                      placeholder="Full name"
-                    />
+              <div>
+            {!isCheckpointView && activeSection && (
+              <section className="max-w-[65ch]">
+                <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Section {Math.min(currentSection + 1, sectionCount)} of {sectionCount}</div>
+                <h2 className="text-xl font-semibold leading-snug mb-2" style={{ color: content?.theme?.heading_color || '#111827' }}>
+                  {(activeSection as any).heading || activeSection.title || 'Section'}
+                </h2>
+                {(activeSection as any).support && (
+                  <p className="text-base mb-3" style={{ color: content?.theme?.text_color || '#4B5563' }}>{String((activeSection as any).support).trim()}</p>
+                )}
+                <div className="whitespace-pre-wrap leading-relaxed" style={{ color: content?.theme?.text_color || '#374151' }}>{activeSection.body || ''}</div>
+
+                {Array.isArray((activeSection as any).visuals) && (activeSection as any).visuals.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                    {(activeSection as any).visuals.map((visual: any, visualIdx: number) => (
+                      <figure key={visualIdx} className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                        {visual.image_url && (
+                          <img
+                            src={visual.image_url}
+                            alt={visual.alt_text || visual.title || `${visual.kind || 'visual'}`}
+                            className="w-full h-40 object-cover"
+                          />
+                        )}
+                        <figcaption className="p-3">
+                          <div className="text-xs uppercase font-semibold text-teal-700">{visual.kind || 'visual'}</div>
+                          {visual.title && <div className="text-sm text-gray-800 mt-1">{visual.title}</div>}
+                        </figcaption>
+                      </figure>
+                    ))}
                   </div>
-                  {questions.map((q, idx) => (
-                    <div key={idx} className="p-4 bg-white rounded-lg border border-gray-200">
-                      <p className="font-medium text-gray-800 mb-2">
-                        {q.number}. {q.question}
-                        {q.points != null && <span className="text-gray-500 text-sm ml-1">({q.points} pts)</span>}
-                      </p>
-                      {q.options && q.options.length > 0 ? (
-                        <div className="space-y-2">
-                          {q.options.map((opt, i) => {
-                            const letter = String.fromCharCode(65 + i);
-                            return (
-                              <label key={i} className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`q-${q.number}`}
-                                  value={letter}
-                                  checked={(quizAnswers[q.number] ?? '') === letter}
-                                  onChange={() => setQuizAnswer(q.number, letter)}
-                                  className="text-teal-600 border-gray-300 focus:ring-teal-500"
-                                />
-                                <span className="text-gray-700">{opt}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <textarea
-                          value={quizAnswers[q.number] ?? ''}
-                          onChange={(e) => setQuizAnswer(q.number, e.target.value)}
-                          rows={3}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                          placeholder="Your answer"
-                        />
-                      )}
-                    </div>
-                  ))}
-                  <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-                    <Send className="w-4 h-4" />
-                    Submit quiz
+                )}
+
+                <div className="mt-6 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={goToPrevious}
+                    disabled={currentSection <= 0}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40"
+                  >
+                    Previous
                   </button>
-                </form>
-              )}
+                  <button
+                    type="button"
+                    onClick={goToNext}
+                    disabled={(!hasQuiz && currentSection >= maxContentIndex) || (!currentSectionViewed && currentSection < sectionCount)}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40"
+                  >
+                    {!currentSectionViewed && currentSection < sectionCount
+                      ? 'View this section to continue'
+                      : hasQuiz && currentSection >= maxContentIndex
+                      ? 'Go to checkpoint'
+                      : 'Next section'}
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {isCheckpointView && hasQuiz && (
+              <div className="max-w-[65ch]">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Knowledge checkpoint</h2>
+                <p className="text-sm text-gray-600 mb-4">Complete this checkpoint to finish the lesson.</p>
+                {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+
+                {step === 'submitting' ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmitQuiz} className="space-y-4">
+                    {questions.map((q, idx) => (
+                      <div key={idx} className="p-4 bg-white rounded-lg border border-gray-200">
+                        <p className="font-medium text-gray-800 mb-2">
+                          {q.number}. {q.question}
+                          {q.points != null && <span className="text-gray-500 text-sm ml-1">({q.points} pts)</span>}
+                        </p>
+                        {q.options && q.options.length > 0 ? (
+                          <div className="space-y-2">
+                            {q.options.map((opt, i) => {
+                              const letter = String.fromCharCode(65 + i);
+                              return (
+                                <label key={i} className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name={`q-${q.number}`}
+                                    value={letter}
+                                    checked={(quizAnswers[q.number] ?? '') === letter}
+                                    onChange={() => setQuizAnswer(q.number, letter)}
+                                    className="text-teal-600 border-gray-300 focus:ring-teal-500"
+                                  />
+                                  <span className="text-gray-700">{opt}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <textarea
+                            value={quizAnswers[q.number] ?? ''}
+                            onChange={(e) => setQuizAnswer(q.number, e.target.value)}
+                            rows={3}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                            placeholder="Your answer"
+                          />
+                        )}
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between">
+                      <button type="button" onClick={goToPrevious} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700">Back to content</button>
+                      <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                        <Send className="w-4 h-4" />
+                        Submit checkpoint
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>
