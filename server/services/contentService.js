@@ -118,50 +118,58 @@ Respond with a JSON object only (no markdown), in this exact format:
 
 Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. Include exactly one illustration and one image descriptor in visuals for every section. Quiz questions must have options and correct_answer.`;
 
-  const completion = await aiService.createCompletionWithRetry({
-    provider: config.provider,
-    model: config.model,
-    messages: [
-      { role: 'system', content: 'You are an expert educator. Respond only with valid JSON, no markdown.' },
-      { role: 'user', content: prompt },
-    ],
-    temperature: config.temperature,
-    maxTokens: config.maxTokens,
-  });
+  const messages = [
+    { role: 'system', content: 'You are an expert educator. Respond only with valid JSON, no markdown.' },
+    { role: 'user', content: prompt },
+  ];
+  const fallbackModel = process.env.CONTENT_GENERATION_FALLBACK_MODEL || 'gpt-4o-mini';
+  const modelsToTry = [config.model, fallbackModel].filter((m, i, arr) => !!m && arr.indexOf(m) === i);
+  let completion = null;
+  let raw = '';
+  let lastReason = '';
 
-  let raw = completion.content || completion.choices?.[0]?.message?.content || '';
+  for (const model of modelsToTry) {
+    completion = await aiService.createCompletionWithRetry({
+      provider: config.provider,
+      model,
+      messages,
+      temperature: config.temperature,
+      maxTokens: config.maxTokens,
+    });
+    raw = completion.content || completion.choices?.[0]?.message?.content || '';
   if (Array.isArray(raw)) {
     raw = raw.filter((p) => p && p.type === 'text' && p.text).map((p) => p.text).join('');
   } else if (raw != null && typeof raw !== 'string') {
     raw = String(raw);
   }
-  let jsonStr = (raw || '').trim();
-  if (jsonStr.startsWith('```json')) jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  else if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    let jsonStr = (raw || '').trim();
+    if (jsonStr.startsWith('```json')) jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    else if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
 
-  if (!jsonStr || jsonStr.length < 10) {
-    const usage = completion.usage || {};
-    const reason = usage.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens
-      ? 'The model may have used all output tokens for reasoning and returned no text. Try a non-reasoning model (e.g. gpt-4o) or increase max_tokens.'
-      : 'The API returned no or empty content.';
-    throw new Error(`Content generation failed: ${reason}`);
-  }
+    if (!jsonStr || jsonStr.length < 10) {
+      const usage = completion.usage || {};
+      const reason = usage.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens
+        ? 'The model used output budget on reasoning and returned no visible content.'
+        : 'The API returned no or empty content.';
+      lastReason = reason;
+      console.warn(`Content generation empty response with model ${model}.`, { usage });
+      continue;
+    }
 
-  let data;
-  try {
-    data = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    const snippet = jsonStr.length > 200 ? `${jsonStr.slice(0, 100)}...${jsonStr.slice(-100)}` : jsonStr;
-    console.error('Content JSON parse error. Snippet:', snippet);
-    throw new Error(
-      'Content generation returned invalid JSON. The response may be truncated (try fewer sections or a higher max_tokens) or the model may be a reasoning model that did not output JSON.'
-    );
+    try {
+      const data = JSON.parse(jsonStr);
+      if (!data.title || !data.sections || !Array.isArray(data.sections)) {
+        lastReason = 'Invalid content structure: need title and sections array';
+        continue;
+      }
+      return normalizeGeneratedContent(data, templateId);
+    } catch (parseErr) {
+      const snippet = jsonStr.length > 200 ? `${jsonStr.slice(0, 100)}...${jsonStr.slice(-100)}` : jsonStr;
+      console.error(`Content JSON parse error with model ${model}. Snippet:`, snippet);
+      lastReason = 'Content generation returned invalid JSON';
+    }
   }
-
-  if (!data.title || !data.sections || !Array.isArray(data.sections)) {
-    throw new Error('Invalid content structure: need title and sections array');
-  }
-  return normalizeGeneratedContent(data, templateId);
+  throw new Error(`Content generation failed: ${lastReason || 'no valid content from any configured model'}`);
 }
 
 function stableColorFromText(seed) {

@@ -116,8 +116,12 @@ class AIService {
       usage: {
         prompt_tokens: completion.usage?.prompt_tokens,
         completion_tokens: completion.usage?.completion_tokens,
-        total_tokens: completion.usage?.total_tokens
+        total_tokens: completion.usage?.total_tokens,
+        reasoning_tokens: completion.usage?.reasoning_tokens,
+        prompt_tokens_details: completion.usage?.prompt_tokens_details,
+        completion_tokens_details: completion.usage?.completion_tokens_details
       },
+      choices: completion.choices,
       provider: 'openai'
     };
   }
