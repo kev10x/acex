@@ -98,6 +98,86 @@ function parseAssessmentSubmissionResult(row) {
   };
 }
 
+function normalizeContentToText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part) return '';
+        if (typeof part === 'string') return part;
+        if (typeof part.text === 'string') return part.text;
+        if (typeof part.value === 'string') return part.value;
+        return '';
+      })
+      .join('');
+  }
+  if (content && typeof content.text === 'string') return content.text;
+  return '';
+}
+
+function extractTextFromCompletion(completion) {
+  const candidates = [];
+
+  if (completion) {
+    candidates.push(normalizeContentToText(completion.content));
+    candidates.push(normalizeContentToText(completion.output_text));
+
+    if (Array.isArray(completion.choices)) {
+      for (const choice of completion.choices) {
+        candidates.push(normalizeContentToText(choice?.message?.content));
+        candidates.push(normalizeContentToText(choice?.text));
+      }
+    }
+  }
+
+  return candidates
+    .map((c) => (c == null ? '' : String(c)).trim())
+    .find((c) => c.length > 0) || '';
+}
+
+function extractLikelyJSON(rawText) {
+  let cleaned = String(rawText || '').trim();
+  if (!cleaned) return '';
+
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  return cleaned.trim();
+}
+
+function parseAssessmentJSONFromCompletion(completion) {
+  const responseText = extractTextFromCompletion(completion);
+  const finishReason = completion?.choices?.[0]?.finish_reason;
+
+  if (!responseText) {
+    if (finishReason === 'length') {
+      throw new Error('AI response was truncated before JSON output (finish_reason=length). Increase maxTokens for assessment generation.');
+    }
+    throw new Error('AI returned an empty response.');
+  }
+
+  const cleanResponse = extractLikelyJSON(responseText);
+  if (!cleanResponse) {
+    throw new Error('AI returned text, but no JSON object could be extracted.');
+  }
+
+  try {
+    return JSON.parse(cleanResponse);
+  } catch (parseError) {
+    const preview = cleanResponse.slice(0, 500);
+    throw new Error(`Failed to parse AI response as JSON (${parseError.message}). Preview: ${preview}`);
+  }
+}
+
 /**
  * Generate a new assessment based on existing assignment data in the database
  * This uses stored assignment text, rubrics, and marking patterns to create new assessments
@@ -382,21 +462,13 @@ IMPORTANT:
 
     let assessmentData;
     try {
-      const response = completion.content || completion.choices?.[0]?.message?.content || '';
-      let cleanResponse = response.trim();
-      
-      // Remove markdown code blocks if present
-      if (cleanResponse.startsWith('```json')) {
-        cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
-      
-      assessmentData = JSON.parse(cleanResponse);
+      assessmentData = parseAssessmentJSONFromCompletion(completion);
     } catch (parseError) {
       console.error('JSON parsing error:', parseError);
-      console.error('AI Response:', completion.content || completion.choices?.[0]?.message?.content);
-      throw new Error('Failed to parse AI response as JSON');
+      console.error('AI usage:', completion?.usage);
+      console.error('AI finish_reason:', completion?.choices?.[0]?.finish_reason);
+      console.error('AI Response preview:', extractTextFromCompletion(completion).slice(0, 1000));
+      throw parseError;
     }
 
     // Validate response structure

@@ -9,6 +9,7 @@
     "client": "cd client && npm start",
     "build": "cd client && npm run build",
     "start": "node server/index.js",
+    "deploy:annotation-video": "node scripts/deploy-annotation-video-feedback.js",
     "test:server": "node --test --test-concurrency=1 --test-isolation=none server/**/*.test.js",
     "setup": "node setup.js && npm install && cd client && npm install",
     "demo": "node demo-data.js",

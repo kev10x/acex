@@ -9,6 +9,16 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+function parseTrustProxy(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim().toLowerCase();
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  const asNum = Number(raw);
+  if (Number.isFinite(asNum)) return asNum;
+  return value;
+}
+
 // Middleware
 // Robust CORS: allow multiple frontend origins via CLIENT_URL or CLIENT_URLS (comma-separated)
 const defaultOrigins = [
@@ -36,6 +46,14 @@ const corsOptions = {
   allowedHeaders: ['Content-Type','Authorization'],
   exposedHeaders: ['Content-Disposition']
 };
+
+const trustProxySetting = parseTrustProxy(process.env.TRUST_PROXY);
+if (trustProxySetting != null) {
+  app.set('trust proxy', trustProxySetting);
+} else if (process.env.NODE_ENV === 'production') {
+  // Production deployments commonly sit behind Nginx/Cloudflare/ELB and send X-Forwarded-For.
+  app.set('trust proxy', 1);
+}
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
