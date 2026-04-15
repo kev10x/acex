@@ -162,6 +162,7 @@ export interface MarkingScore {
   criterion_name: string;
   points_awarded: number;
   max_points: number;
+  rubric_basis?: string; // which rubric descriptor/level drove this score
   feedback: string;
   confidence?: number; // 0-100 confidence level for this criterion
 }

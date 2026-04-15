@@ -1627,6 +1627,14 @@ const ResultsDashboard: React.FC = () => {
                               </div>
                             </div>
                           </div>
+                          {score.rubric_basis && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-1">Rubric Basis</p>
+                              <p className="text-sm text-indigo-900 bg-indigo-50 rounded px-3 py-2 whitespace-pre-wrap break-words leading-relaxed border border-indigo-100">
+                                {score.rubric_basis}
+                              </p>
+                            </div>
+                          )}
                           {score.feedback && (
                             <div className="mt-3 pt-3 border-t border-gray-100">
                             <p className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed">

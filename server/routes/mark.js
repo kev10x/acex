@@ -1208,6 +1208,7 @@ FEEDBACK DEPTH AND DETAIL REQUIREMENTS (HIGHEST PRIORITY):
 - Provide EXTENSIVE feedback ${isMemo ? 'for each QUESTION' : 'for each CRITERION'} - aim for 3-5 sentences minimum ${isMemo ? 'per question' : 'per criterion'}, more for complex ${isMemo ? 'questions' : 'criteria'}
 - Be THOROUGH and COMPREHENSIVE - cover all aspects of the work, not just surface-level observations
 - Include SPECIFIC EXAMPLES from the student's work - quote or reference specific parts when providing feedback
+- REFERENCE THE RUBRIC: In the feedback narrative, explicitly state which rubric requirement or descriptor was applied and how the student's work measured against it (e.g. "The rubric requires X — your work did/did not demonstrate this because..."). The separate "rubric_basis" field gives the structured citation; the feedback narrative should weave this in conversationally.
 - Explain the "WHY" behind every point - don't just state what's wrong/right, explain WHY it matters
 - Provide ACTIONABLE GUIDANCE - tell students exactly what to do to improve, not just what's wrong
 - Include LEARNING OPPORTUNITIES - connect feedback to broader learning objectives and concepts
@@ -1323,6 +1324,7 @@ JSON format (return ONLY this, no other text):
       "criterion_name": "name",
       "points_awarded": number,
       "max_points": number,
+      "rubric_basis": "Explicit citation of the specific rubric descriptor(s) or performance level(s) used to determine this score. Quote or paraphrase the key rubric language and state how the student's work matched or fell short of it. Example: 'The rubric requires a fully referenced literature review with critical analysis (5 pts). The student provided sources but without critical engagement — awarded 2/5 based on the partial-completion descriptor.' Be specific: name the exact rubric requirement that was applied and the gap or achievement that drove the score.",
       "feedback": "EXTENSIVE, DETAILED feedback (minimum 3-5 sentences, more for complex criteria) written as if you are a real teacher speaking directly to the student. Use 'you' and 'your' - write as you would speak. This is the PRIMARY focus - be THOROUGH and COMPREHENSIVE. Include: (1) Specific examples from the student's work - quote or reference specific parts, (2) What was done well with detailed explanation, (3) What needs improvement with specific examples, (4) WHY it matters (learning context), (5) HOW to improve (actionable steps), (6) Connections to other parts of the work or broader concepts. When answers are wrong, state this clearly and explain WHY in detail. Include specific praise for strengths before pointing out areas needing improvement. Write in a conversational, human tone throughout. Prioritize depth and detail over brevity.",
       "confidence": number (0-100, where 100 = very confident, 0 = very uncertain)
     }
