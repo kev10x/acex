@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock } from 'lucide-react';
 import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate } from '../services/api';
+import MermaidDiagram from './MermaidDiagram';
 
 const LEVEL_OPTIONS = [
   { value: '', label: 'Any level' },
@@ -537,31 +538,58 @@ const ContentGenerator: React.FC = () => {
           {generatedContent.instructions && (
             <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">{generatedContent.instructions}</div>
           )}
-          <div className="space-y-4">
-            {(generatedContent.sections || []).map((sec: any, i: number) => (
-              <div key={i} className="border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-800 mb-1">{sec.heading || sec.title || 'Section'}</h3>
-                {sec.support && <p className="text-gray-600 text-sm mb-2">{sec.support}</p>}
-                <p className="text-gray-700 whitespace-pre-wrap text-sm">{sec.body}</p>
-                {Array.isArray(sec.visuals) && sec.visuals.length > 0 && (
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {sec.visuals.map((visual: any, visualIdx: number) => (
-                      <div key={visualIdx} className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                        {visual.image_url && (
-                          <img
-                            src={visual.image_url}
-                            alt={visual.alt_text || visual.title || `${visual.kind || 'visual'} for section ${i + 1}`}
-                            className="w-full h-36 object-cover"
-                          />
-                        )}
-                        <div className="p-2">
-                          <div className="text-xs font-semibold text-gray-700 uppercase">{visual.kind || 'visual'}</div>
-                          {visual.title && <div className="text-sm text-gray-800">{visual.title}</div>}
-                        </div>
+          {(() => {
+            // Pre-compute global figure numbers across all sections
+            let figureCounter = 0;
+            const sections = generatedContent.sections || [];
+            const sectionFigures: { visual: any; figNum: number }[][] = sections.map((sec: any) =>
+              (Array.isArray(sec.visuals) ? sec.visuals : []).map((v: any) => ({ visual: v, figNum: ++figureCounter }))
+            );
+            return (
+          <div className="space-y-6">
+            {sections.map((sec: any, i: number) => (
+              <div key={i} className="border border-gray-200 rounded-lg p-5">
+                <h3 className="font-semibold text-gray-800 mb-1 text-base">{sec.heading || sec.title || 'Section'}</h3>
+                {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
+
+                {/* Illustration figure — shown before body text */}
+                {sectionFigures[i].filter(({ visual }) => visual.kind === 'illustration').map(({ visual, figNum }) => (
+                  <figure key={figNum} className="my-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                    {visual.mermaid_code ? (
+                      <div className="p-4 bg-gray-50">
+                        <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
                       </div>
-                    ))}
-                  </div>
-                )}
+                    ) : visual.image_url ? (
+                      <img
+                        src={visual.image_url}
+                        alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                        className="w-full object-contain max-h-64"
+                      />
+                    ) : null}
+                    <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
+                      <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
+                    </figcaption>
+                  </figure>
+                ))}
+
+                {/* Body text */}
+                <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">{sec.body}</p>
+
+                {/* Image figure — shown after body text */}
+                {sectionFigures[i].filter(({ visual }) => visual.kind !== 'illustration').map(({ visual, figNum }) => (
+                  visual.image_url && !visual.image_url.startsWith('data:') ? (
+                    <figure key={figNum} className="mt-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                      <img
+                        src={visual.image_url}
+                        alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                        className="w-full object-cover max-h-48"
+                      />
+                      <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
+                        <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
+                      </figcaption>
+                    </figure>
+                  ) : null
+                ))}
               </div>
             ))}
             {generatedContent.quiz && generatedContent.quiz.questions && generatedContent.quiz.questions.length > 0 && (
@@ -575,6 +603,8 @@ const ContentGenerator: React.FC = () => {
               </div>
             )}
           </div>
+            );
+          })()}
         </div>
       )}
 

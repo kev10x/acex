@@ -100,13 +100,14 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
         rubricContext = `Rubric: ${row.name}. Criteria: ${Array.isArray(crit) ? crit.map((c) => c.name).join(', ') : ''}`;
       }
     }
-    const content = await contentService.generateContentWithAI({
+    let content = await contentService.generateContentWithAI({
       topics: String(topics).trim(),
       level: level || '',
       numSections: Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), 20),
       rubricContext,
       templateId: template_id,
     });
+    content = await contentService.enrichContentWithImages(content);
     res.json({ success: true, content });
   } catch (error) {
     console.error('Content generate error:', error);

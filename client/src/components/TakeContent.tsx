@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2 } from 'lucide-react';
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
+import MermaidDiagram from './MermaidDiagram';
 
 type Step = 'code' | 'content' | 'submitting' | 'result';
 
@@ -454,27 +455,43 @@ const TakeContent: React.FC = () => {
                 {(activeSection as any).support && (
                   <p className="text-base mb-3" style={{ color: content?.theme?.text_color || '#4B5563' }}>{String((activeSection as any).support).trim()}</p>
                 )}
-                <div className="whitespace-pre-wrap leading-relaxed" style={{ color: content?.theme?.text_color || '#374151' }}>{activeSection.body || ''}</div>
+                {/* Illustration figure — shown before body text */}
+                {(() => {
+                  const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];
+                  // Global figure offset: sum of visuals in all sections before this one
+                  const figOffset = sections.slice(0, currentSection).reduce((acc: number, s: any) => acc + (Array.isArray((s as any).visuals) ? (s as any).visuals.length : 0), 0);
+                  const illustrations = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind === 'illustration');
+                  const images = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind !== 'illustration');
+                  return (
+                    <>
+                      {illustrations.map(({ visual, figNum }) => (
+                        <figure key={figNum} className="my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                          {visual.mermaid_code ? (
+                            <div className="p-4 bg-gray-50">
+                              <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
+                            </div>
+                          ) : visual.image_url && !visual.image_url.startsWith('data:') ? (
+                            <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-64" />
+                          ) : null}
+                          <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
+                            <span className="font-semibold">Figure {figNum}:</span> {visual.title}
+                          </figcaption>
+                        </figure>
+                      ))}
 
-                {Array.isArray((activeSection as any).visuals) && (activeSection as any).visuals.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                    {(activeSection as any).visuals.map((visual: any, visualIdx: number) => (
-                      <figure key={visualIdx} className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                        {visual.image_url && (
-                          <img
-                            src={visual.image_url}
-                            alt={visual.alt_text || visual.title || `${visual.kind || 'visual'}`}
-                            className="w-full h-40 object-cover"
-                          />
-                        )}
-                        <figcaption className="p-3">
-                          <div className="text-xs uppercase font-semibold text-teal-700">{visual.kind || 'visual'}</div>
-                          {visual.title && <div className="text-sm text-gray-800 mt-1">{visual.title}</div>}
-                        </figcaption>
-                      </figure>
-                    ))}
-                  </div>
-                )}
+                      <div className="whitespace-pre-wrap leading-relaxed" style={{ color: content?.theme?.text_color || '#374151' }}>{activeSection.body || ''}</div>
+
+                      {images.filter(({ visual }) => visual.image_url && !visual.image_url.startsWith('data:')).map(({ visual, figNum }) => (
+                        <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                          <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-cover max-h-48" />
+                          <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
+                            <span className="font-semibold">Figure {figNum}:</span> {visual.title}
+                          </figcaption>
+                        </figure>
+                      ))}
+                    </>
+                  );
+                })()}
 
                 <div className="mt-6 flex items-center justify-between gap-2">
                   <button

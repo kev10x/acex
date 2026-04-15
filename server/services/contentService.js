@@ -6,6 +6,70 @@ const crypto = require('crypto');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
+const OpenAI = require('openai');
+
+const IMAGE_MODEL = 'gpt-image-1';
+const IMAGE_SIZE = '1024x1024';
+
+let _openai = null;
+function getOpenAIClient() {
+  if (!_openai && process.env.OPENAI_API_KEY) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+
+/**
+ * Generate a DALL-E image for a single visual prompt.
+ * Returns a base64 data URI, or null on failure (non-fatal).
+ */
+async function generateImageForVisual(prompt) {
+  const client = getOpenAIClient();
+  if (!client) return null;
+  try {
+    const safePrompt = `Educational illustration for a course slide. ${String(prompt || '').slice(0, 900)}. Clean, professional, suitable for all ages. No text overlays.`;
+    const response = await client.images.generate({
+      model: IMAGE_MODEL,
+      prompt: safePrompt,
+      n: 1,
+      size: IMAGE_SIZE,
+      response_format: 'b64_json',
+    });
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) return null;
+    return `data:image/png;base64,${b64}`;
+  } catch (err) {
+    console.warn('Image generation failed (non-fatal):', err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * After content generation, fill in image_url for every `image` visual using DALL-E.
+ * Runs in parallel per section, non-fatal (skips on error).
+ */
+async function enrichContentWithImages(content) {
+  const sections = content?.sections;
+  if (!Array.isArray(sections)) return content;
+
+  const enrichedSections = await Promise.all(
+    sections.map(async (section) => {
+      const visuals = Array.isArray(section.visuals) ? section.visuals : [];
+      const enrichedVisuals = await Promise.all(
+        visuals.map(async (visual) => {
+          if (visual.kind !== 'image' || (visual.image_url && !visual.image_url.startsWith('data:image/svg'))) {
+            return visual; // already has a real URL, or is an illustration — skip
+          }
+          const url = await generateImageForVisual(visual.prompt);
+          return url ? { ...visual, image_url: url } : visual;
+        })
+      );
+      return { ...section, visuals: enrichedVisuals };
+    })
+  );
+
+  return { ...content, sections: enrichedSections };
+}
 const CONTENT_TEMPLATES = {
   classroom: {
     id: 'classroom',
@@ -67,12 +131,13 @@ Generate a structured course with exactly ${numSections} sections. For each sect
 - support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
 - body: Full explanation for lecture notes and detailed reading (2-4 short paragraphs). Use \\n for paragraph breaks.
 - visuals: exactly 2 visual descriptors:
-  1) kind = "illustration" (diagram-style)
-  2) kind = "image" (scene/photo-style)
+  1) kind = "illustration" — a diagram, flowchart, or architecture diagram relevant to the section. MUST include mermaid_code: a valid Mermaid.js diagram string (graph TD, flowchart LR, sequenceDiagram, classDiagram, etc.). Keep it concise (max 20 nodes). Use real topic-specific content, not generic placeholders.
+  2) kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.
   Each visual must include:
-  - title: short caption
+  - title: short caption (used as "Figure N: caption")
   - alt_text: accessibility description
   - prompt: concise generation prompt
+  - mermaid_code (illustration only): valid Mermaid.js syntax, e.g. "graph TD\n  A[Start] --> B[Step]\n  B --> C[End]"
 
 Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
 
@@ -88,9 +153,10 @@ Respond with a JSON object only (no markdown), in this exact format:
       "visuals": [
         {
           "kind": "illustration",
-          "title": "Diagram caption",
-          "alt_text": "Accessible description of illustration",
-          "prompt": "Prompt text for illustration generation"
+          "title": "Diagram caption (used as figure label)",
+          "alt_text": "Accessible description of the diagram",
+          "prompt": "Prompt text for illustration generation",
+          "mermaid_code": "graph TD\n  A[Concept A] --> B[Concept B]\n  B --> C[Outcome]"
         },
         {
           "kind": "image",
@@ -240,6 +306,9 @@ function normalizeSectionVisuals(sectionTitle, visuals) {
         title: String(v.title || fallback.title).slice(0, 160),
         alt_text: String(v.alt_text || fallback.alt_text).slice(0, 260),
         prompt: String(v.prompt || fallback.prompt).slice(0, 360),
+        mermaid_code: kind === 'illustration' && typeof v.mermaid_code === 'string' && v.mermaid_code.trim()
+          ? v.mermaid_code.trim()
+          : undefined,
         image_url: typeof v.image_url === 'string' && v.image_url.trim()
           ? v.image_url
           : fallback.image_url,
@@ -441,6 +510,7 @@ function escapeHtml(text) {
 
 module.exports = {
   generateContentWithAI,
+  enrichContentWithImages,
   normalizeGeneratedContent,
   applyTemplateToContent,
   getTemplateById,

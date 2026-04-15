@@ -13,6 +13,7 @@
     "@types/react-dropzone": "^4.2.2",
     "axios": "^1.12.2",
     "lucide-react": "^0.548.0",
+    "mermaid": "^11.14.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-dropzone": "^14.3.8",
@@ -39,8 +40,8 @@
     ]
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.1.0",
     "@tailwindcss/forms": "^0.5.10",
+    "@vitejs/plugin-react": "^5.1.0",
     "autoprefixer": "^10.4.21",
     "jsdom": "^27.0.0",
     "postcss": "^8.5.6",
