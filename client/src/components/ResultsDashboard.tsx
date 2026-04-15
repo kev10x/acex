@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save } from 'lucide-react';
-import { resultsAPI, reportsAPI, rubricsAPI, MarkingResult, Rubric } from '../services/api';
+import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save, RefreshCw } from 'lucide-react';
+import { resultsAPI, reportsAPI, rubricsAPI, markingAPI, MarkingResult, Rubric } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './resultsReview';
 
@@ -67,6 +67,16 @@ const ResultsDashboard: React.FC = () => {
   const [savingModeration, setSavingModeration] = useState(false);
   const feedbackVideoPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const feedbackVideoBlobUrlRef = React.useRef<string | null>(null);
+  const [remarkPanelOpen, setRemarkPanelOpen] = useState(false);
+  const [remarkOptions, setRemarkOptions] = useState<{
+    assessment_type: string;
+    level: string;
+    provider: string;
+    strictness_level: string;
+    mark_as_image: boolean;
+  }>({ assessment_type: 'assignment', level: 'undergraduate', provider: 'openai', strictness_level: 'strict', mark_as_image: false });
+  const [remarking, setRemarking] = useState(false);
+  const [remarkError, setRemarkError] = useState<string | null>(null);
   
   // Filtering and grouping state
   const [selectedRubric, setSelectedRubric] = useState<string>('all');
@@ -103,6 +113,15 @@ const ResultsDashboard: React.FC = () => {
         ? String(selectedResult.override_total_score)
         : ''
     );
+    setRemarkPanelOpen(false);
+    setRemarkError(null);
+    if (selectedResult) {
+      setRemarkOptions(prev => ({
+        ...prev,
+        provider: (selectedResult as any).provider || prev.provider,
+        strictness_level: (selectedResult as any).strictness_level || prev.strictness_level,
+      }));
+    }
   }, [selectedResult]);
 
   const fetchData = useCallback(async () => {
@@ -518,6 +537,33 @@ const ResultsDashboard: React.FC = () => {
     } catch (err: any) {
       setFeedbackVideoStatus('failed');
       setFeedbackVideoError(err.response?.data?.error || err.message || 'Failed to start video');
+    }
+  };
+
+  const handleRemark = async () => {
+    if (!selectedResult) return;
+    setRemarking(true);
+    setRemarkError(null);
+    try {
+      const res = await markingAPI.markSingle({
+        assignment_id: selectedResult.assignment_id,
+        rubric_id: selectedResult.rubric_id,
+        student_name: selectedResult.student_name,
+        assessment_type: remarkOptions.assessment_type as any,
+        level: remarkOptions.level as any,
+        provider: remarkOptions.provider as any,
+        strictness_level: remarkOptions.strictness_level as any,
+        mark_as_image: remarkOptions.mark_as_image,
+      });
+      const newResult: MarkingResult = res.data.result || res.data;
+      // Replace old result in list and update selectedResult
+      setAllResults(prev => prev.map(r => r.assignment_id === selectedResult.assignment_id ? newResult : r));
+      setSelectedResult(newResult);
+      setRemarkPanelOpen(false);
+    } catch (err: any) {
+      setRemarkError(err.response?.data?.error || err.message || 'Re-marking failed. Please try again.');
+    } finally {
+      setRemarking(false);
     }
   };
 
@@ -1535,6 +1581,103 @@ const ResultsDashboard: React.FC = () => {
                         </button>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Re-mark section */}
+                {canModerate && (
+                  <div className="mt-6 bg-emerald-50 rounded-lg p-6 border-l-4 border-emerald-500">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center">
+                        <RefreshCw className="w-5 h-5 text-emerald-600 mr-2" />
+                        <h4 className="text-lg font-semibold text-gray-900">Re-mark Document</h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setRemarkPanelOpen(o => !o); setRemarkError(null); }}
+                        className="text-sm text-emerald-700 font-medium hover:text-emerald-900"
+                      >
+                        {remarkPanelOpen ? 'Cancel' : 'Configure & re-mark'}
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-3">Run AI marking again on this document, optionally with different settings. A new version will be saved and this result will be updated.</p>
+                    {remarkPanelOpen && (
+                      <div className="space-y-4 mt-4 border-t border-emerald-200 pt-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Assessment type</label>
+                            <select
+                              value={remarkOptions.assessment_type}
+                              onChange={e => setRemarkOptions(o => ({ ...o, assessment_type: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            >
+                              <option value="assignment">Assignment</option>
+                              <option value="test">Test / Quiz</option>
+                              <option value="treatise">Treatise / Dissertation</option>
+                              <option value="thesis">Thesis</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Level</label>
+                            <select
+                              value={remarkOptions.level}
+                              onChange={e => setRemarkOptions(o => ({ ...o, level: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            >
+                              <option value="primary_school">Primary school</option>
+                              <option value="high_school">High school</option>
+                              <option value="undergraduate">Undergraduate</option>
+                              <option value="postgraduate">Postgraduate</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">AI provider</label>
+                            <select
+                              value={remarkOptions.provider}
+                              onChange={e => setRemarkOptions(o => ({ ...o, provider: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            >
+                              <option value="openai">OpenAI</option>
+                              <option value="anthropic">Anthropic (Claude)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Strictness</label>
+                            <select
+                              value={remarkOptions.strictness_level}
+                              onChange={e => setRemarkOptions(o => ({ ...o, strictness_level: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            >
+                              <option value="very_strict">Very strict</option>
+                              <option value="strict">Strict</option>
+                              <option value="moderate">Moderate</option>
+                              <option value="lenient">Lenient</option>
+                            </select>
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={remarkOptions.mark_as_image}
+                            onChange={e => setRemarkOptions(o => ({ ...o, mark_as_image: e.target.checked }))}
+                            className="rounded border-gray-300"
+                          />
+                          Mark as image (use Vision API for scanned / handwritten submissions)
+                        </label>
+                        {remarkError && (
+                          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{remarkError}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleRemark}
+                          disabled={remarking}
+                          className="inline-flex items-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-4 h-4 mr-2 ${remarking ? 'animate-spin' : ''}`} />
+                          {remarking ? 'Re-marking…' : 'Re-mark now'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
