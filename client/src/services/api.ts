@@ -682,6 +682,8 @@ export const contentAPI = {
     rubric_id?: number;
     rubric_context?: string;
     template_id?: string;
+    include_diagrams?: boolean;
+    include_images?: boolean;
   }) => api.post('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean }) =>
     api.post('/content/publish', data),

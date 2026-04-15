@@ -85,7 +85,7 @@ const uploadTemplate = multer({
  */
 router.post('/generate', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
-    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom' } = req.body;
+    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true } = req.body;
     if (!topics || !String(topics).trim()) {
       return res.status(400).json({ error: 'topics is required' });
     }
@@ -106,8 +106,12 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       numSections: Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), 20),
       rubricContext,
       templateId: template_id,
+      includeDiagrams: include_diagrams !== false,
+      includeImages: include_images !== false,
     });
-    content = await contentService.enrichContentWithImages(content);
+    if (include_images !== false) {
+      content = await contentService.enrichContentWithImages(content);
+    }
     res.json({ success: true, content });
   } catch (error) {
     console.error('Content generate error:', error);

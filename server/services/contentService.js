@@ -115,7 +115,7 @@ const CONTENT_TEMPLATES = {
  * @returns {Promise<{ title, instructions, sections: [{ title, body }], quiz?: { questions } }>}
  */
 async function generateContentWithAI(opts) {
-  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom' } = opts;
+  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', includeDiagrams = true, includeImages = true } = opts;
   const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
   const compactTopics = String(topics || '').trim().slice(0, 1200);
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
@@ -130,14 +130,10 @@ Generate a structured course with exactly ${numSections} sections. For each sect
 - heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
 - support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
 - body: Full explanation for lecture notes and detailed reading (2-4 short paragraphs). Use \\n for paragraph breaks.
-- visuals: exactly 2 visual descriptors:
-  1) kind = "illustration" — a diagram, flowchart, or architecture diagram relevant to the section. MUST include mermaid_code: a valid Mermaid.js diagram string (graph TD, flowchart LR, sequenceDiagram, classDiagram, etc.). Keep it concise (max 20 nodes). Use real topic-specific content, not generic placeholders.
-  2) kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.
-  Each visual must include:
-  - title: short caption (used as "Figure N: caption")
-  - alt_text: accessibility description
-  - prompt: concise generation prompt
-  - mermaid_code (illustration only): valid Mermaid.js syntax, e.g. "graph TD\n  A[Start] --> B[Step]\n  B --> C[End]"
+${(includeDiagrams || includeImages) ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
+  - kind = "illustration" — a diagram, flowchart, or architecture diagram relevant to the section. MUST include mermaid_code: a valid Mermaid.js diagram string (graph TD, flowchart LR, sequenceDiagram, classDiagram, etc.). Keep it concise (max 20 nodes). Use real topic-specific content, not generic placeholders.` : ''}${includeImages ? `
+  - kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.` : ''}
+  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.${includeDiagrams ? '\n  mermaid_code (illustration only): valid Mermaid.js syntax.' : ''}` : `- visuals: omit entirely — do not include a visuals field in any section.`}
 
 Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
 
@@ -150,21 +146,21 @@ Respond with a JSON object only (no markdown), in this exact format:
       "heading": "One complete sentence stating this slide's main idea.",
       "support": "One short supporting line or key takeaway.",
       "body": "Full explanation for notes and reading. Use \\n for paragraph breaks.",
-      "visuals": [
+      ${(includeDiagrams || includeImages) ? `"visuals": [${includeDiagrams ? `
         {
           "kind": "illustration",
           "title": "Diagram caption (used as figure label)",
           "alt_text": "Accessible description of the diagram",
           "prompt": "Prompt text for illustration generation",
-          "mermaid_code": "graph TD\n  A[Concept A] --> B[Concept B]\n  B --> C[Outcome]"
-        },
+          "mermaid_code": "graph TD\\n  A[Concept A] --> B[Concept B]\\n  B --> C[Outcome]"
+        }` : ''}${includeDiagrams && includeImages ? ',' : ''}${includeImages ? `
         {
           "kind": "image",
           "title": "Photo/scene caption",
           "alt_text": "Accessible description of image",
           "prompt": "Prompt text for image generation"
-        }
-      ]
+        }` : ''}
+      ]` : '"visuals": []'}
     }
   ],
   "quiz": {

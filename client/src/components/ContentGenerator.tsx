@@ -20,6 +20,8 @@ const ContentGenerator: React.FC = () => {
   const [numSections, setNumSections] = useState(5);
   const [rubricId, setRubricId] = useState<number | null>(null);
   const [includeVideo, setIncludeVideo] = useState(false);
+  const [includeDiagrams, setIncludeDiagrams] = useState(true);
+  const [includeImages, setIncludeImages] = useState(true);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState('classroom');
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
@@ -106,6 +108,8 @@ const ContentGenerator: React.FC = () => {
         num_sections: numSections,
         rubric_id: rubricId || undefined,
         template_id: templateId || undefined,
+        include_diagrams: includeDiagrams,
+        include_images: includeImages,
       });
       if (res.data.success && res.data.content) {
         setGeneratedContent(res.data.content);
@@ -411,6 +415,24 @@ const ContentGenerator: React.FC = () => {
             </select>
           </div>
           <div className="flex flex-wrap gap-4 items-center">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeDiagrams}
+                onChange={(e) => setIncludeDiagrams(e.target.checked)}
+                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+              />
+              <span className="text-sm text-gray-700">Include diagrams</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeImages}
+                onChange={(e) => setIncludeImages(e.target.checked)}
+                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+              />
+              <span className="text-sm text-gray-700">Include images <span className="text-gray-400 text-xs">(AI-generated, adds time)</span></span>
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
