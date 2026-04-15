@@ -617,7 +617,14 @@ Your task:
 3. For each criterion: name = question/section label from document; max_points = exact marks for that question/part; description = what that question assesses and marking levels (use document wording where present).
 4. Set total_points to the document's stated total or the sum of all criterion max_points.
 
-CRITICAL: One grading item per question/part. Sum of criterion max_points MUST equal total_points. Give a breakdown by question, not by abstract criteria.
+FALLBACK — if the document contains NO explicit mark allocations, questions, or numbered sections:
+- Identify the main topics, themes, or sections covered in the document.
+- Create one criterion per major topic/section (aim for 4–8 criteria).
+- Distribute marks across criteria out of a total of 100 points, weighting by the depth/importance of each topic as implied by the document.
+- Use descriptive criterion names that reflect the topic (e.g. "Research Background", "Methodology", "Key Findings").
+- Set total_points to 100.
+
+CRITICAL: NEVER return an empty criteria array. Sum of criterion max_points MUST equal total_points. Give a breakdown by question or topic — not by abstract generic criteria.
 
 Respond with a JSON object in this exact format:
 {
@@ -625,11 +632,11 @@ Respond with a JSON object in this exact format:
   "criteria": [
     {
       "name": "Question 1",
-      "max_points": <exact marks from document>,
-      "description": "What this question assesses and marking levels, using document wording where available"
+      "max_points": <exact marks from document, or distributed marks out of 100>,
+      "description": "What this question/topic assesses and marking levels, using document wording where available"
     }
   ],
-  "total_points": <document total or sum of criteria>
+  "total_points": <document total, or 100 if no marks found>
 }
 `;
 
@@ -666,14 +673,18 @@ Respond with a JSON object in this exact format:
       if (!rubricData.name || !rubricData.criteria || !Array.isArray(rubricData.criteria)) {
         throw new Error('Invalid response structure: missing name or criteria array');
       }
-      
-      if (!rubricData.total_points || typeof rubricData.total_points !== 'number') {
+
+      if (rubricData.criteria.length === 0) {
+        throw new Error('The AI returned no criteria for the rubric. The document may be too long or unclear. Try again.');
+      }
+
+      if (rubricData.total_points === undefined || rubricData.total_points === null || typeof rubricData.total_points !== 'number') {
         throw new Error('Invalid response structure: missing or invalid total_points');
       }
 
       // Validate each criterion
       for (const criterion of rubricData.criteria) {
-        if (!criterion.name || !criterion.max_points || !criterion.description) {
+        if (!criterion.name || criterion.max_points === undefined || criterion.max_points === null || !criterion.description) {
           throw new Error('Invalid criterion structure: missing name, max_points, or description');
         }
       }
