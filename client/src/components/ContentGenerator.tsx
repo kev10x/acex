@@ -212,6 +212,8 @@ const ContentGenerator: React.FC = () => {
         rubric_id: rubricId || undefined,
         template_id: templateId || undefined,
         scheduled_for: scheduledIso,
+        include_diagrams: includeDiagrams,
+        include_images: includeImages,
       });
       await loadPlannerJobs();
     } catch (e: any) {

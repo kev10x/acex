@@ -224,7 +224,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
         lastReason = 'Invalid content structure: need title and sections array';
         continue;
       }
-      return normalizeGeneratedContent(data, templateId);
+      return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages });
     } catch (parseErr) {
       const snippet = jsonStr.length > 200 ? `${jsonStr.slice(0, 100)}...${jsonStr.slice(-100)}` : jsonStr;
       console.error(`Content JSON parse error with model ${model}. Snippet:`, snippet);
@@ -290,10 +290,16 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
   };
 }
 
-function normalizeSectionVisuals(sectionTitle, visuals) {
+function normalizeSectionVisuals(sectionTitle, visuals, { includeDiagrams = true, includeImages = true } = {}) {
   const incoming = Array.isArray(visuals) ? visuals : [];
   const normalized = incoming
-    .filter((v) => v && typeof v === 'object')
+    .filter((v) => {
+      if (!v || typeof v !== 'object') return false;
+      const kind = String(v.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
+      if (kind === 'illustration' && !includeDiagrams) return false;
+      if (kind === 'image' && !includeImages) return false;
+      return true;
+    })
     .map((v, index) => {
       const kind = String(v.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
       const fallback = createFallbackVisual(sectionTitle, kind, index + 1);
@@ -311,10 +317,13 @@ function normalizeSectionVisuals(sectionTitle, visuals) {
       };
     });
 
-  const hasIllustration = normalized.some((v) => v.kind === 'illustration');
-  const hasImage = normalized.some((v) => v.kind === 'image');
-  if (!hasIllustration) normalized.unshift(createFallbackVisual(sectionTitle, 'illustration', 1));
-  if (!hasImage) normalized.push(createFallbackVisual(sectionTitle, 'image', 2));
+  // Only add fallbacks for types that are enabled and not already present
+  if (includeDiagrams && !normalized.some((v) => v.kind === 'illustration')) {
+    normalized.unshift(createFallbackVisual(sectionTitle, 'illustration', 1));
+  }
+  if (includeImages && !normalized.some((v) => v.kind === 'image')) {
+    normalized.push(createFallbackVisual(sectionTitle, 'image', 2));
+  }
   return normalized.slice(0, 4);
 }
 
@@ -333,14 +342,14 @@ function applyTemplateToContent(content, templateId = 'classroom') {
   };
 }
 
-function normalizeGeneratedContent(content, templateId = 'classroom') {
+function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true } = {}) {
   const sections = Array.isArray(content.sections) ? content.sections : [];
   const normalizedSections = sections.map((section, index) => {
     const heading = String(section.heading || section.title || `Section ${index + 1}`).trim();
     return {
       ...section,
       heading,
-      visuals: normalizeSectionVisuals(heading, section.visuals),
+      visuals: normalizeSectionVisuals(heading, section.visuals, { includeDiagrams, includeImages }),
     };
   });
 

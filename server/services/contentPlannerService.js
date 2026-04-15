@@ -111,14 +111,22 @@ async function processPlannerJob(job) {
     }
   }
 
-  const generated = await contentService.generateContentWithAI({
+  const includeDiagrams = job.include_diagrams !== false && job.include_diagrams !== 0;
+  const includeImages = job.include_images !== false && job.include_images !== 0;
+
+  let generated = await contentService.generateContentWithAI({
     topics: String(job.topics || '').trim(),
     level: String(job.level || ''),
     numSections,
     rubricContext,
     templateId: String(job.template_id || 'classroom'),
+    includeDiagrams,
+    includeImages,
   });
-  const normalizedContent = contentService.normalizeGeneratedContent(generated);
+  if (includeImages) {
+    generated = await contentService.enrichContentWithImages(generated);
+  }
+  const normalizedContent = contentService.normalizeGeneratedContent(generated, job.template_id || 'classroom', { includeDiagrams, includeImages });
   const published = await publishGeneratedContent(job.user_id, job.rubric_id, normalizedContent);
 
   await updatePlannerJobStatus(job.id, 'completed', {

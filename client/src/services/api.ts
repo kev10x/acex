@@ -714,6 +714,8 @@ export const contentAPI = {
     rubric_context?: string;
     template_id?: string;
     scheduled_for: string;
+    include_diagrams?: boolean;
+    include_images?: boolean;
   }) => api.post('/content/planner/schedule', data),
   getPlannerJobs: () => api.get<{ success: boolean; jobs: ContentPlannerJob[] }>('/content/planner/jobs'),
   cancelPlannerJob: (id: number) => api.post(`/content/planner/${id}/cancel`),

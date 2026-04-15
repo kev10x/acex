@@ -447,7 +447,7 @@ const TakeContent: React.FC = () => {
 
               <div>
             {!isCheckpointView && activeSection && (
-              <section className="max-w-[65ch]">
+              <section className="w-full min-w-0">
                 <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Section {Math.min(currentSection + 1, sectionCount)} of {sectionCount}</div>
                 <h2 className="text-xl font-semibold leading-snug mb-2" style={{ color: content?.theme?.heading_color || '#111827' }}>
                   {(activeSection as any).heading || activeSection.title || 'Section'}
