@@ -655,7 +655,7 @@ Respond with a JSON object in this exact format:
         }
       ],
       temperature: config.temperature,
-      maxTokens: Math.min(config.maxTokens, 2200),
+      maxTokens: Math.min(config.maxTokens, 6000),
       user: 'anonymous'
     });
 
