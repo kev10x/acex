@@ -63,6 +63,15 @@ function toSafeIsoDateTime(value) {
   return dt;
 }
 
+function parseJsonSafe(value, fallback = null) {
+  try {
+    if (value == null) return fallback;
+    return typeof value === 'string' ? JSON.parse(value) : value;
+  } catch (_) {
+    return fallback;
+  }
+}
+
 const templateDir = path.join(__dirname, '../uploads/content-templates');
 try {
   require('fs').mkdirSync(templateDir, { recursive: true });
@@ -242,6 +251,141 @@ router.get('/my', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Content list error:', error);
     res.status(500).json({ error: 'Failed to list content' });
+  }
+});
+
+/**
+ * Store generated content history item for current user.
+ */
+router.post('/history', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const { content, input } = req.body || {};
+    if (!content || !content.title) {
+      return res.status(400).json({ error: 'content with title is required' });
+    }
+
+    const title = String(content.title || 'Untitled content').slice(0, 500);
+    const normalized = contentService.normalizeGeneratedContent(content);
+    let inserted;
+    if (isMySQL()) {
+      inserted = await query(
+        `INSERT INTO content_generation_history (user_id, title, generated_content_json, input_json)
+         VALUES (?, ?, ?, ?)`,
+        [req.user.id, title, JSON.stringify(normalized), input ? JSON.stringify(input) : null]
+      );
+      const id = inserted.insertId ?? inserted.lastID;
+      const rowResult = await query(
+        'SELECT id, title, generated_content_json, input_json, created_at FROM content_generation_history WHERE id = ? AND user_id = ?',
+        [id, req.user.id]
+      );
+      const row = Array.isArray(rowResult) ? rowResult[0] : (rowResult.rows && rowResult.rows[0]);
+      return res.json({
+        success: true,
+        item: {
+          id: row.id,
+          title: row.title,
+          content: parseJsonSafe(row.generated_content_json, null),
+          input: parseJsonSafe(row.input_json, null),
+          created_at: row.created_at,
+        }
+      });
+    }
+
+    inserted = await query(
+      `INSERT INTO content_generation_history (user_id, title, generated_content_json, input_json)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, title, generated_content_json, input_json, created_at`,
+      [req.user.id, title, JSON.stringify(normalized), input ? JSON.stringify(input) : null]
+    );
+    const row = inserted.rows?.[0] || inserted?.[0];
+    return res.json({
+      success: true,
+      item: {
+        id: row.id,
+        title: row.title,
+        content: parseJsonSafe(row.generated_content_json, null),
+        input: parseJsonSafe(row.input_json, null),
+        created_at: row.created_at,
+      }
+    });
+  } catch (error) {
+    console.error('Save content history error:', error);
+    res.status(500).json({ error: 'Failed to save content history' });
+  }
+});
+
+/**
+ * List generated content history for current user.
+ */
+router.get('/history', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const q = isMySQL()
+      ? await query(
+          `SELECT id, title, generated_content_json, input_json, created_at
+           FROM content_generation_history
+           WHERE user_id = ?
+           ORDER BY created_at DESC
+           LIMIT 100`,
+          [req.user.id]
+        )
+      : await query(
+          `SELECT id, title, generated_content_json, input_json, created_at
+           FROM content_generation_history
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 100`,
+          [req.user.id]
+        );
+    const rows = Array.isArray(q) ? q : (q.rows || []);
+    const items = rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      content: parseJsonSafe(row.generated_content_json, null),
+      input: parseJsonSafe(row.input_json, null),
+      created_at: row.created_at,
+    }));
+    res.json({ success: true, items });
+  } catch (error) {
+    console.error('List content history error:', error);
+    res.status(500).json({ error: 'Failed to fetch content history' });
+  }
+});
+
+/**
+ * Delete one content history item for current user.
+ */
+router.delete('/history/:id', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid history id' });
+    }
+    const deleted = isMySQL()
+      ? await query('DELETE FROM content_generation_history WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('DELETE FROM content_generation_history WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
+    if (!affected) return res.status(404).json({ error: 'History item not found' });
+    res.json({ success: true, message: 'History item removed' });
+  } catch (error) {
+    console.error('Delete content history error:', error);
+    res.status(500).json({ error: 'Failed to delete history item' });
+  }
+});
+
+/**
+ * Clear all content history items for current user.
+ */
+router.delete('/history', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    if (isMySQL()) {
+      await query('DELETE FROM content_generation_history WHERE user_id = ?', [req.user.id]);
+    } else {
+      await query('DELETE FROM content_generation_history WHERE user_id = $1', [req.user.id]);
+    }
+    res.json({ success: true, message: 'History cleared' });
+  } catch (error) {
+    console.error('Clear content history error:', error);
+    res.status(500).json({ error: 'Failed to clear history' });
   }
 });
 

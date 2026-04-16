@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
-import { assessmentsAPI, rubricsAPI, GeneratedAssessment } from '../services/api';
+import { assessmentsAPI, rubricsAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem } from '../services/api';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -25,28 +25,7 @@ const LEVEL_OPTIONS = [
   { value: 'Undergraduate', label: 'Undergraduate' },
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
-
-const ASSESSMENT_HISTORY_KEY = 'assessment_generator_history_v1';
-const MAX_HISTORY_ITEMS = 20;
-
-type AssessmentHistoryItem = {
-  id: string;
-  created_at: string;
-  generated_assessment: GeneratedAssessment;
-  use_custom_topics: boolean;
-  custom_topics_text: string;
-  level: string;
-  topic: string;
-  difficulty_level: 'beginner' | 'moderate' | 'advanced';
-  question_count: number;
-  assessment_type: 'assignment' | 'exam' | 'quiz' | 'essay';
-  question_type_mode: 'mix' | 'custom';
-  selected_question_types: QuestionTypeOption[];
-  selected_rubric_id: number | null;
-  selected_rubric: any | null;
-  saved_rubric_id: number | null;
-  saved_rubric_name: string | null;
-};
+const LEGACY_ASSESSMENT_HISTORY_KEY = 'assessment_generator_history_v1';
 
 const AssessmentGenerator: React.FC = () => {
   const [useCustomTopics, setUseCustomTopics] = useState(false);
@@ -74,7 +53,8 @@ const AssessmentGenerator: React.FC = () => {
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string }[]>([]);
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
-  const [history, setHistory] = useState<AssessmentHistoryItem[]>([]);
+  const [history, setHistory] = useState<ApiAssessmentHistoryItem[]>([]);
+  const [isMigratingHistory, setIsMigratingHistory] = useState(false);
 
   useEffect(() => {
     loadStats();
@@ -83,72 +63,119 @@ const AssessmentGenerator: React.FC = () => {
     loadHistory();
   }, []);
 
-  const loadHistory = () => {
+  const loadHistory = async () => {
     try {
-      const raw = localStorage.getItem(ASSESSMENT_HISTORY_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
-      setHistory(parsed.filter((item) => item && item.generated_assessment && item.created_at));
+      const res = await assessmentsAPI.getHistory();
+      if (res.data.success) setHistory(res.data.items || []);
+    } catch (_) {
+      setHistory([]);
+    }
+  };
+
+  const addToHistory = async (assessment: GeneratedAssessment, nextSavedRubricId: number | null, nextSavedRubricName: string | null, nextSelectedRubric: any | null) => {
+    try {
+      await assessmentsAPI.saveHistory({
+        assessment,
+        input: {
+          use_custom_topics: useCustomTopics,
+          custom_topics_text: customTopicsText,
+          level,
+          topic,
+          difficulty_level: difficultyLevel,
+          question_count: questionCount,
+          assessment_type: assessmentType,
+          question_type_mode: questionTypeMode,
+          selected_question_types: selectedQuestionTypes,
+          selected_rubric_id: selectedRubricId,
+          selected_rubric: nextSelectedRubric,
+          saved_rubric_id: nextSavedRubricId,
+          saved_rubric_name: nextSavedRubricName,
+        }
+      });
+      await loadHistory();
     } catch (_) {}
   };
 
-  const persistHistory = (items: AssessmentHistoryItem[]) => {
-    setHistory(items);
-    try {
-      localStorage.setItem(ASSESSMENT_HISTORY_KEY, JSON.stringify(items));
-    } catch (_) {}
-  };
-
-  const addToHistory = (assessment: GeneratedAssessment, nextSavedRubricId: number | null, nextSavedRubricName: string | null, nextSelectedRubric: any | null) => {
-    const next: AssessmentHistoryItem = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-      created_at: new Date().toISOString(),
-      generated_assessment: assessment,
-      use_custom_topics: useCustomTopics,
-      custom_topics_text: customTopicsText,
-      level,
-      topic,
-      difficulty_level: difficultyLevel,
-      question_count: questionCount,
-      assessment_type: assessmentType,
-      question_type_mode: questionTypeMode,
-      selected_question_types: selectedQuestionTypes,
-      selected_rubric_id: selectedRubricId,
-      selected_rubric: nextSelectedRubric,
-      saved_rubric_id: nextSavedRubricId,
-      saved_rubric_name: nextSavedRubricName,
-    };
-    const deduped = history.filter((item) => item.generated_assessment?.title !== assessment.title);
-    persistHistory([next, ...deduped].slice(0, MAX_HISTORY_ITEMS));
-  };
-
-  const loadFromHistory = (item: AssessmentHistoryItem) => {
-    setUseCustomTopics(!!item.use_custom_topics);
-    setCustomTopicsText(item.custom_topics_text || '');
+  const loadFromHistory = (item: ApiAssessmentHistoryItem) => {
+    const input = item.input || {};
+    setUseCustomTopics(!!input.use_custom_topics);
+    setCustomTopicsText(input.custom_topics_text || '');
     setCustomTopicsFile(null);
-    setLevel(item.level || '');
-    setTopic(item.topic || '');
-    setDifficultyLevel(item.difficulty_level || 'moderate');
-    setQuestionCount(item.question_count || 5);
-    setAssessmentType(item.assessment_type || 'assignment');
-    setQuestionTypeMode(item.question_type_mode || 'mix');
-    setSelectedQuestionTypes(Array.isArray(item.selected_question_types) ? item.selected_question_types : ['mcq', 'short_answer']);
-    setSelectedRubricId(item.selected_rubric_id || null);
-    setSelectedRubric(item.selected_rubric || null);
-    setGeneratedAssessment(item.generated_assessment);
-    setSavedRubricId(item.saved_rubric_id || null);
-    setSavedRubricName(item.saved_rubric_name || null);
+    setLevel(input.level || '');
+    setTopic(input.topic || '');
+    setDifficultyLevel(input.difficulty_level || 'moderate');
+    setQuestionCount(input.question_count || 5);
+    setAssessmentType(input.assessment_type || 'assignment');
+    setQuestionTypeMode(input.question_type_mode || 'mix');
+    setSelectedQuestionTypes(Array.isArray(input.selected_question_types) ? input.selected_question_types : ['mcq', 'short_answer']);
+    setSelectedRubricId(input.selected_rubric_id || null);
+    setSelectedRubric(input.selected_rubric || null);
+    setGeneratedAssessment(item.assessment);
+    setSavedRubricId(input.saved_rubric_id || null);
+    setSavedRubricName(input.saved_rubric_name || null);
     setPublishedLink(null);
     setError(null);
   };
 
-  const removeHistoryItem = (id: string) => {
-    persistHistory(history.filter((item) => item.id !== id));
+  const removeHistoryItem = async (id: number) => {
+    try {
+      await assessmentsAPI.deleteHistoryItem(id);
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to remove history item');
+    }
   };
 
-  const clearHistory = () => {
-    persistHistory([]);
+  const clearHistory = async () => {
+    try {
+      await assessmentsAPI.clearHistory();
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to clear history');
+    }
+  };
+
+  const migrateLegacyHistory = async () => {
+    setError(null);
+    setIsMigratingHistory(true);
+    try {
+      const raw = localStorage.getItem(LEGACY_ASSESSMENT_HISTORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const legacyItems = Array.isArray(parsed) ? parsed : [];
+      const validItems = legacyItems.filter((item: any) => item && item.generated_assessment && item.generated_assessment.title);
+      if (validItems.length === 0) {
+        setError('No legacy local assessment history found to migrate.');
+        return;
+      }
+
+      for (const item of validItems) {
+        await assessmentsAPI.saveHistory({
+          assessment: item.generated_assessment,
+          input: {
+            use_custom_topics: !!item.use_custom_topics,
+            custom_topics_text: item.custom_topics_text || '',
+            level: item.level || '',
+            topic: item.topic || '',
+            difficulty_level: item.difficulty_level || 'moderate',
+            question_count: item.question_count || 5,
+            assessment_type: item.assessment_type || 'assignment',
+            question_type_mode: item.question_type_mode || 'mix',
+            selected_question_types: Array.isArray(item.selected_question_types) ? item.selected_question_types : ['mcq', 'short_answer'],
+            selected_rubric_id: item.selected_rubric_id || null,
+            selected_rubric: item.selected_rubric || null,
+            saved_rubric_id: item.saved_rubric_id || null,
+            saved_rubric_name: item.saved_rubric_name || null,
+          }
+        });
+      }
+
+      localStorage.removeItem(LEGACY_ASSESSMENT_HISTORY_KEY);
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to migrate legacy history');
+    } finally {
+      setIsMigratingHistory(false);
+    }
   };
 
   const loadPublished = async () => {
@@ -247,7 +274,7 @@ const AssessmentGenerator: React.FC = () => {
         const nextSavedRubricName = response.data.saved_rubric_name ?? null;
         setSavedRubricId(nextSavedRubricId);
         setSavedRubricName(nextSavedRubricName);
-        addToHistory(response.data.assessment, nextSavedRubricId, nextSavedRubricName, responseRubric);
+        await addToHistory(response.data.assessment, nextSavedRubricId, nextSavedRubricName, responseRubric);
         setPublishedLink(null);
       } else {
         setError(response.data.error || 'Failed to generate assessment');
@@ -420,26 +447,39 @@ const AssessmentGenerator: React.FC = () => {
           </div>
         )}
 
-        {history.length > 0 && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
-                <History className="w-4 h-4" />
-                Assessment generator history
-              </h3>
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+              <History className="w-4 h-4" />
+              Assessment generator history
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={migrateLegacyHistory}
+                disabled={isMigratingHistory}
+                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isMigratingHistory ? 'Migrating...' : 'Migrate local history'}
+              </button>
               <button
                 type="button"
                 onClick={clearHistory}
-                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800"
+                disabled={history.length === 0}
+                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
               >
                 Clear all
               </button>
             </div>
+          </div>
+          {history.length === 0 ? (
+            <p className="text-sm text-amber-900">No history yet. Generate an assessment and it will appear here.</p>
+          ) : (
             <ul className="space-y-2">
               {history.map((item) => (
                 <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
-                  <span className="font-medium truncate max-w-[260px]" title={item.generated_assessment?.title || ''}>
-                    {item.generated_assessment?.title || item.topic || 'Untitled assessment'}
+                  <span className="font-medium truncate max-w-[260px]" title={item.assessment?.title || ''}>
+                    {item.assessment?.title || item.title || 'Untitled assessment'}
                   </span>
                   <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
                   <button
@@ -460,8 +500,8 @@ const AssessmentGenerator: React.FC = () => {
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
 
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">

@@ -8,6 +8,7 @@ const { buildMoodleXml, buildScormPackage } = require('../services/assessmentExp
 const { runOpenAIBatchPollingCycle } = require('../services/openaiBatchMarkingService');
 
 const router = express.Router();
+const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 
 const ASSESSMENT_CONTEXT_LIMITS = {
   assignmentPreview: 320,
@@ -152,6 +153,15 @@ function extractLikelyJSON(rawText) {
   }
 
   return cleaned.trim();
+}
+
+function parseJsonSafe(value, fallback = null) {
+  try {
+    if (value == null) return fallback;
+    return typeof value === 'string' ? JSON.parse(value) : value;
+  } catch (_) {
+    return fallback;
+  }
 }
 
 function parseAssessmentJSONFromCompletion(completion) {
@@ -617,6 +627,142 @@ router.get('/published', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Published assessments list error:', error);
     res.status(500).json({ error: 'Failed to list published assessments' });
+  }
+});
+
+/**
+ * Store generated assessment history item for current user.
+ */
+router.post('/history', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
+  try {
+    const { assessment, input } = req.body || {};
+    if (!assessment || !assessment.title || !Array.isArray(assessment.questions)) {
+      return res.status(400).json({ error: 'assessment with title and questions array is required' });
+    }
+
+    const title = String(assessment.title || 'Untitled assessment').slice(0, 500);
+    if (isMySQLDb()) {
+      const inserted = await query(
+        `INSERT INTO assessment_generation_history (user_id, title, generated_assessment_json, input_json)
+         VALUES (?, ?, ?, ?)`,
+        [req.user.id, title, JSON.stringify(assessment), input ? JSON.stringify(input) : null]
+      );
+      const id = inserted.insertId ?? inserted.lastID;
+      const rowResult = await query(
+        `SELECT id, title, generated_assessment_json, input_json, created_at
+         FROM assessment_generation_history
+         WHERE id = ? AND user_id = ?`,
+        [id, req.user.id]
+      );
+      const row = Array.isArray(rowResult) ? rowResult[0] : (rowResult.rows && rowResult.rows[0]);
+      return res.json({
+        success: true,
+        item: {
+          id: row.id,
+          title: row.title,
+          assessment: parseJsonSafe(row.generated_assessment_json, null),
+          input: parseJsonSafe(row.input_json, null),
+          created_at: row.created_at,
+        }
+      });
+    }
+
+    const inserted = await query(
+      `INSERT INTO assessment_generation_history (user_id, title, generated_assessment_json, input_json)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, title, generated_assessment_json, input_json, created_at`,
+      [req.user.id, title, JSON.stringify(assessment), input ? JSON.stringify(input) : null]
+    );
+    const row = inserted.rows?.[0] || inserted?.[0];
+    return res.json({
+      success: true,
+      item: {
+        id: row.id,
+        title: row.title,
+        assessment: parseJsonSafe(row.generated_assessment_json, null),
+        input: parseJsonSafe(row.input_json, null),
+        created_at: row.created_at,
+      }
+    });
+  } catch (error) {
+    console.error('Save assessment history error:', error);
+    res.status(500).json({ error: 'Failed to save assessment history' });
+  }
+});
+
+/**
+ * List generated assessment history for current user.
+ */
+router.get('/history', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
+  try {
+    const result = isMySQLDb()
+      ? await query(
+          `SELECT id, title, generated_assessment_json, input_json, created_at
+           FROM assessment_generation_history
+           WHERE user_id = ?
+           ORDER BY created_at DESC
+           LIMIT 100`,
+          [req.user.id]
+        )
+      : await query(
+          `SELECT id, title, generated_assessment_json, input_json, created_at
+           FROM assessment_generation_history
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 100`,
+          [req.user.id]
+        );
+    const rows = result.rows || result || [];
+    const list = Array.isArray(rows) ? rows : [rows];
+    const items = list.map((row) => ({
+      id: row.id,
+      title: row.title,
+      assessment: parseJsonSafe(row.generated_assessment_json, null),
+      input: parseJsonSafe(row.input_json, null),
+      created_at: row.created_at,
+    }));
+    res.json({ success: true, items });
+  } catch (error) {
+    console.error('Assessment history list error:', error);
+    res.status(500).json({ error: 'Failed to fetch assessment history' });
+  }
+});
+
+/**
+ * Delete one generated assessment history item for current user.
+ */
+router.delete('/history/:id', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid history id' });
+    }
+    const deleted = isMySQLDb()
+      ? await query('DELETE FROM assessment_generation_history WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('DELETE FROM assessment_generation_history WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
+    if (!affected) return res.status(404).json({ error: 'History item not found' });
+    res.json({ success: true, message: 'History item removed' });
+  } catch (error) {
+    console.error('Delete assessment history error:', error);
+    res.status(500).json({ error: 'Failed to delete history item' });
+  }
+});
+
+/**
+ * Clear all generated assessment history items for current user.
+ */
+router.delete('/history', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
+  try {
+    if (isMySQLDb()) {
+      await query('DELETE FROM assessment_generation_history WHERE user_id = ?', [req.user.id]);
+    } else {
+      await query('DELETE FROM assessment_generation_history WHERE user_id = $1', [req.user.id]);
+    }
+    res.json({ success: true, message: 'History cleared' });
+  } catch (error) {
+    console.error('Clear assessment history error:', error);
+    res.status(500).json({ error: 'Failed to clear history' });
   }
 });
 

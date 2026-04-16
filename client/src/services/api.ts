@@ -557,6 +557,14 @@ export interface PublishedAssessmentItem {
   batch_id?: number | null;
 }
 
+export interface AssessmentHistoryItem {
+  id: number;
+  title: string;
+  assessment: GeneratedAssessment;
+  input?: any;
+  created_at: string;
+}
+
 export interface AssessmentSubmissionResult {
   total_score: number;
   feedback?: string;
@@ -603,6 +611,11 @@ export const assessmentsAPI = {
   getPublished: () => api.get('/assessments/published'),
   /** Delete one published assessment owned by current user. */
   deletePublished: (id: number) => api.delete(`/assessments/published/${id}`),
+  saveHistory: (data: { assessment: GeneratedAssessment; input?: any }) =>
+    api.post<{ success: boolean; item: AssessmentHistoryItem }>('/assessments/history', data),
+  getHistory: () => api.get<{ success: boolean; items: AssessmentHistoryItem[] }>('/assessments/history'),
+  deleteHistoryItem: (id: number) => api.delete(`/assessments/history/${id}`),
+  clearHistory: () => api.delete('/assessments/history'),
 };
 
 // Content generator API
@@ -658,6 +671,13 @@ export interface ContentTemplate {
     text_color?: string;
     accent_color?: string;
   };
+}
+export interface ContentHistoryItem {
+  id: number;
+  title: string;
+  content: GeneratedContent;
+  input?: any;
+  created_at: string;
 }
 export interface ContentPlannerJob {
   id: number;
@@ -719,6 +739,11 @@ export const contentAPI = {
   }) => api.post('/content/planner/schedule', data),
   getPlannerJobs: () => api.get<{ success: boolean; jobs: ContentPlannerJob[] }>('/content/planner/jobs'),
   cancelPlannerJob: (id: number) => api.post(`/content/planner/${id}/cancel`),
+  saveHistory: (data: { content: GeneratedContent; input?: any }) =>
+    api.post<{ success: boolean; item: ContentHistoryItem }>('/content/history', data),
+  getHistory: () => api.get<{ success: boolean; items: ContentHistoryItem[] }>('/content/history'),
+  deleteHistoryItem: (id: number) => api.delete(`/content/history/${id}`),
+  clearHistory: () => api.delete('/content/history'),
   saveProgress: (data: {
     code: string;
     student_name: string;

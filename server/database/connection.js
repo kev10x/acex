@@ -255,6 +255,28 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS content_generation_history (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          title VARCHAR(500) NOT NULL,
+          generated_content_json LONGTEXT NOT NULL,
+          input_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_generation_history (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          title VARCHAR(500) NOT NULL,
+          generated_assessment_json LONGTEXT NOT NULL,
+          input_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_planner_jobs (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
@@ -992,6 +1014,26 @@ const initDatabase = async () => {
           content_json TEXT NOT NULL,
           rubric_id INTEGER NULL REFERENCES rubrics(id) ON DELETE SET NULL,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS content_generation_history (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title VARCHAR(500) NOT NULL,
+          generated_content_json TEXT NOT NULL,
+          input_json TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_generation_history (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title VARCHAR(500) NOT NULL,
+          generated_assessment_json TEXT NOT NULL,
+          input_json TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);

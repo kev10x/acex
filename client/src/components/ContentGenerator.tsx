@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History } from 'lucide-react';
-import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate } from '../services/api';
+import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 
 const LEVEL_OPTIONS = [
@@ -13,23 +13,7 @@ const LEVEL_OPTIONS = [
   { value: 'Undergraduate', label: 'Undergraduate' },
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
-
-const CONTENT_HISTORY_KEY = 'content_generator_history_v1';
-const MAX_HISTORY_ITEMS = 20;
-
-type ContentHistoryItem = {
-  id: string;
-  created_at: string;
-  topics: string;
-  level: string;
-  num_sections: number;
-  rubric_id: number | null;
-  template_id: string;
-  include_diagrams: boolean;
-  include_images: boolean;
-  include_video: boolean;
-  content: GeneratedContent;
-};
+const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -49,12 +33,13 @@ const ContentGenerator: React.FC = () => {
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
-  const [history, setHistory] = useState<ContentHistoryItem[]>([]);
+  const [history, setHistory] = useState<ApiContentHistoryItem[]>([]);
   const [scheduledFor, setScheduledFor] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
   const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
+  const [isMigratingHistory, setIsMigratingHistory] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number }[][]>(() => {
@@ -73,61 +58,103 @@ const ContentGenerator: React.FC = () => {
     loadHistory();
   }, []);
 
-  const loadHistory = () => {
+  const loadHistory = async () => {
     try {
-      const raw = localStorage.getItem(CONTENT_HISTORY_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
-      setHistory(parsed.filter((item) => item && item.content && item.created_at));
+      const res = await contentAPI.getHistory();
+      if (res.data.success) setHistory(res.data.items || []);
+    } catch (_) {
+      setHistory([]);
+    }
+  };
+
+  const addToHistory = async (content: GeneratedContent) => {
+    try {
+      await contentAPI.saveHistory({
+        content,
+        input: {
+          topics: topics.trim(),
+          level,
+          num_sections: numSections,
+          rubric_id: rubricId,
+          template_id: templateId,
+          include_diagrams: includeDiagrams,
+          include_images: includeImages,
+          include_video: includeVideo,
+        }
+      });
+      await loadHistory();
     } catch (_) {}
   };
 
-  const persistHistory = (items: ContentHistoryItem[]) => {
-    setHistory(items);
-    try {
-      localStorage.setItem(CONTENT_HISTORY_KEY, JSON.stringify(items));
-    } catch (_) {}
-  };
-
-  const addToHistory = (content: GeneratedContent) => {
-    const next: ContentHistoryItem = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-      created_at: new Date().toISOString(),
-      topics: topics.trim(),
-      level,
-      num_sections: numSections,
-      rubric_id: rubricId,
-      template_id: templateId,
-      include_diagrams: includeDiagrams,
-      include_images: includeImages,
-      include_video: includeVideo,
-      content,
-    };
-    const deduped = history.filter((item) => item.content?.title !== content.title);
-    persistHistory([next, ...deduped].slice(0, MAX_HISTORY_ITEMS));
-  };
-
-  const loadFromHistory = (item: ContentHistoryItem) => {
-    setTopics(item.topics || '');
-    setLevel(item.level || '');
-    setNumSections(item.num_sections || 5);
-    setRubricId(item.rubric_id || null);
-    setTemplateId(item.template_id || 'classroom');
-    setIncludeDiagrams(item.include_diagrams !== false);
-    setIncludeImages(item.include_images !== false);
-    setIncludeVideo(!!item.include_video);
+  const loadFromHistory = (item: ApiContentHistoryItem) => {
+    const input = item.input || {};
+    setTopics(input.topics || '');
+    setLevel(input.level || '');
+    setNumSections(input.num_sections || 5);
+    setRubricId(input.rubric_id || null);
+    setTemplateId(input.template_id || 'classroom');
+    setIncludeDiagrams(input.include_diagrams !== false);
+    setIncludeImages(input.include_images !== false);
+    setIncludeVideo(!!input.include_video);
     setGeneratedContent(item.content);
     setPublishedLink(null);
     setError(null);
   };
 
-  const removeHistoryItem = (id: string) => {
-    persistHistory(history.filter((item) => item.id !== id));
+  const removeHistoryItem = async (id: number) => {
+    try {
+      await contentAPI.deleteHistoryItem(id);
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to remove history item');
+    }
   };
 
-  const clearHistory = () => {
-    persistHistory([]);
+  const clearHistory = async () => {
+    try {
+      await contentAPI.clearHistory();
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to clear history');
+    }
+  };
+
+  const migrateLegacyHistory = async () => {
+    setError(null);
+    setIsMigratingHistory(true);
+    try {
+      const raw = localStorage.getItem(LEGACY_CONTENT_HISTORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const legacyItems = Array.isArray(parsed) ? parsed : [];
+      const validItems = legacyItems.filter((item: any) => item && item.content && item.content.title);
+      if (validItems.length === 0) {
+        setError('No legacy local content history found to migrate.');
+        return;
+      }
+
+      for (const item of validItems) {
+        await contentAPI.saveHistory({
+          content: item.content,
+          input: {
+            topics: item.topics || '',
+            level: item.level || '',
+            num_sections: item.num_sections || 5,
+            rubric_id: item.rubric_id || null,
+            template_id: item.template_id || 'classroom',
+            include_diagrams: item.include_diagrams !== false,
+            include_images: item.include_images !== false,
+            include_video: !!item.include_video,
+          }
+        });
+      }
+
+      localStorage.removeItem(LEGACY_CONTENT_HISTORY_KEY);
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to migrate legacy history');
+    } finally {
+      setIsMigratingHistory(false);
+    }
   };
 
   const loadRubrics = async () => {
@@ -197,7 +224,7 @@ const ContentGenerator: React.FC = () => {
       });
       if (res.data.success && res.data.content) {
         setGeneratedContent(res.data.content);
-        addToHistory(res.data.content);
+        await addToHistory(res.data.content);
       } else {
         setError('Failed to generate content');
       }
@@ -382,26 +409,39 @@ const ContentGenerator: React.FC = () => {
           </div>
         )}
 
-        {history.length > 0 && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
-                <History className="w-4 h-4" />
-                Content generator history
-              </h3>
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+              <History className="w-4 h-4" />
+              Content generator history
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={migrateLegacyHistory}
+                disabled={isMigratingHistory}
+                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isMigratingHistory ? 'Migrating...' : 'Migrate local history'}
+              </button>
               <button
                 type="button"
                 onClick={clearHistory}
-                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800"
+                disabled={history.length === 0}
+                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
               >
                 Clear all
               </button>
             </div>
+          </div>
+          {history.length === 0 ? (
+            <p className="text-sm text-amber-900">No history yet. Generate content and it will appear here.</p>
+          ) : (
             <ul className="space-y-2">
               {history.map((item) => (
                 <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
                   <span className="font-medium truncate max-w-[260px]" title={item.content?.title || ''}>
-                    {item.content?.title || item.topics || 'Untitled content'}
+                    {item.content?.title || item.title || 'Untitled content'}
                   </span>
                   <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
                   <button
@@ -422,8 +462,8 @@ const ContentGenerator: React.FC = () => {
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
 
         {plannerJobs.length > 0 && (
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
