@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock } from 'lucide-react';
+import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History } from 'lucide-react';
 import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 
@@ -13,6 +13,23 @@ const LEVEL_OPTIONS = [
   { value: 'Undergraduate', label: 'Undergraduate' },
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
+
+const CONTENT_HISTORY_KEY = 'content_generator_history_v1';
+const MAX_HISTORY_ITEMS = 20;
+
+type ContentHistoryItem = {
+  id: string;
+  created_at: string;
+  topics: string;
+  level: string;
+  num_sections: number;
+  rubric_id: number | null;
+  template_id: string;
+  include_diagrams: boolean;
+  include_images: boolean;
+  include_video: boolean;
+  content: GeneratedContent;
+};
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -32,6 +49,7 @@ const ContentGenerator: React.FC = () => {
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
+  const [history, setHistory] = useState<ContentHistoryItem[]>([]);
   const [scheduledFor, setScheduledFor] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
   const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
@@ -52,7 +70,65 @@ const ContentGenerator: React.FC = () => {
     loadMyContent();
     loadPlannerJobs();
     loadTemplates();
+    loadHistory();
   }, []);
+
+  const loadHistory = () => {
+    try {
+      const raw = localStorage.getItem(CONTENT_HISTORY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      setHistory(parsed.filter((item) => item && item.content && item.created_at));
+    } catch (_) {}
+  };
+
+  const persistHistory = (items: ContentHistoryItem[]) => {
+    setHistory(items);
+    try {
+      localStorage.setItem(CONTENT_HISTORY_KEY, JSON.stringify(items));
+    } catch (_) {}
+  };
+
+  const addToHistory = (content: GeneratedContent) => {
+    const next: ContentHistoryItem = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      created_at: new Date().toISOString(),
+      topics: topics.trim(),
+      level,
+      num_sections: numSections,
+      rubric_id: rubricId,
+      template_id: templateId,
+      include_diagrams: includeDiagrams,
+      include_images: includeImages,
+      include_video: includeVideo,
+      content,
+    };
+    const deduped = history.filter((item) => item.content?.title !== content.title);
+    persistHistory([next, ...deduped].slice(0, MAX_HISTORY_ITEMS));
+  };
+
+  const loadFromHistory = (item: ContentHistoryItem) => {
+    setTopics(item.topics || '');
+    setLevel(item.level || '');
+    setNumSections(item.num_sections || 5);
+    setRubricId(item.rubric_id || null);
+    setTemplateId(item.template_id || 'classroom');
+    setIncludeDiagrams(item.include_diagrams !== false);
+    setIncludeImages(item.include_images !== false);
+    setIncludeVideo(!!item.include_video);
+    setGeneratedContent(item.content);
+    setPublishedLink(null);
+    setError(null);
+  };
+
+  const removeHistoryItem = (id: string) => {
+    persistHistory(history.filter((item) => item.id !== id));
+  };
+
+  const clearHistory = () => {
+    persistHistory([]);
+  };
 
   const loadRubrics = async () => {
     try {
@@ -121,6 +197,7 @@ const ContentGenerator: React.FC = () => {
       });
       if (res.data.success && res.data.content) {
         setGeneratedContent(res.data.content);
+        addToHistory(res.data.content);
       } else {
         setError('Failed to generate content');
       }
@@ -301,6 +378,49 @@ const ContentGenerator: React.FC = () => {
                 </li>
               );
             })}
+            </ul>
+          </div>
+        )}
+
+        {history.length > 0 && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+                <History className="w-4 h-4" />
+                Content generator history
+              </h3>
+              <button
+                type="button"
+                onClick={clearHistory}
+                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800"
+              >
+                Clear all
+              </button>
+            </div>
+            <ul className="space-y-2">
+              {history.map((item) => (
+                <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
+                  <span className="font-medium truncate max-w-[260px]" title={item.content?.title || ''}>
+                    {item.content?.title || item.topics || 'Untitled content'}
+                  </span>
+                  <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
+                  <button
+                    type="button"
+                    onClick={() => loadFromHistory(item)}
+                    className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                  >
+                    Load
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeHistoryItem(item.id)}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Remove
+                  </button>
+                </li>
+              ))}
             </ul>
           </div>
         )}

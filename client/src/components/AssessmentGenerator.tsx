@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
-import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2 } from 'lucide-react';
+import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
 import { assessmentsAPI, rubricsAPI, GeneratedAssessment } from '../services/api';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
@@ -25,6 +25,28 @@ const LEVEL_OPTIONS = [
   { value: 'Undergraduate', label: 'Undergraduate' },
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
+
+const ASSESSMENT_HISTORY_KEY = 'assessment_generator_history_v1';
+const MAX_HISTORY_ITEMS = 20;
+
+type AssessmentHistoryItem = {
+  id: string;
+  created_at: string;
+  generated_assessment: GeneratedAssessment;
+  use_custom_topics: boolean;
+  custom_topics_text: string;
+  level: string;
+  topic: string;
+  difficulty_level: 'beginner' | 'moderate' | 'advanced';
+  question_count: number;
+  assessment_type: 'assignment' | 'exam' | 'quiz' | 'essay';
+  question_type_mode: 'mix' | 'custom';
+  selected_question_types: QuestionTypeOption[];
+  selected_rubric_id: number | null;
+  selected_rubric: any | null;
+  saved_rubric_id: number | null;
+  saved_rubric_name: string | null;
+};
 
 const AssessmentGenerator: React.FC = () => {
   const [useCustomTopics, setUseCustomTopics] = useState(false);
@@ -52,12 +74,82 @@ const AssessmentGenerator: React.FC = () => {
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string }[]>([]);
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
+  const [history, setHistory] = useState<AssessmentHistoryItem[]>([]);
 
   useEffect(() => {
     loadStats();
     loadRubrics();
     loadPublished();
+    loadHistory();
   }, []);
+
+  const loadHistory = () => {
+    try {
+      const raw = localStorage.getItem(ASSESSMENT_HISTORY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      setHistory(parsed.filter((item) => item && item.generated_assessment && item.created_at));
+    } catch (_) {}
+  };
+
+  const persistHistory = (items: AssessmentHistoryItem[]) => {
+    setHistory(items);
+    try {
+      localStorage.setItem(ASSESSMENT_HISTORY_KEY, JSON.stringify(items));
+    } catch (_) {}
+  };
+
+  const addToHistory = (assessment: GeneratedAssessment, nextSavedRubricId: number | null, nextSavedRubricName: string | null, nextSelectedRubric: any | null) => {
+    const next: AssessmentHistoryItem = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      created_at: new Date().toISOString(),
+      generated_assessment: assessment,
+      use_custom_topics: useCustomTopics,
+      custom_topics_text: customTopicsText,
+      level,
+      topic,
+      difficulty_level: difficultyLevel,
+      question_count: questionCount,
+      assessment_type: assessmentType,
+      question_type_mode: questionTypeMode,
+      selected_question_types: selectedQuestionTypes,
+      selected_rubric_id: selectedRubricId,
+      selected_rubric: nextSelectedRubric,
+      saved_rubric_id: nextSavedRubricId,
+      saved_rubric_name: nextSavedRubricName,
+    };
+    const deduped = history.filter((item) => item.generated_assessment?.title !== assessment.title);
+    persistHistory([next, ...deduped].slice(0, MAX_HISTORY_ITEMS));
+  };
+
+  const loadFromHistory = (item: AssessmentHistoryItem) => {
+    setUseCustomTopics(!!item.use_custom_topics);
+    setCustomTopicsText(item.custom_topics_text || '');
+    setCustomTopicsFile(null);
+    setLevel(item.level || '');
+    setTopic(item.topic || '');
+    setDifficultyLevel(item.difficulty_level || 'moderate');
+    setQuestionCount(item.question_count || 5);
+    setAssessmentType(item.assessment_type || 'assignment');
+    setQuestionTypeMode(item.question_type_mode || 'mix');
+    setSelectedQuestionTypes(Array.isArray(item.selected_question_types) ? item.selected_question_types : ['mcq', 'short_answer']);
+    setSelectedRubricId(item.selected_rubric_id || null);
+    setSelectedRubric(item.selected_rubric || null);
+    setGeneratedAssessment(item.generated_assessment);
+    setSavedRubricId(item.saved_rubric_id || null);
+    setSavedRubricName(item.saved_rubric_name || null);
+    setPublishedLink(null);
+    setError(null);
+  };
+
+  const removeHistoryItem = (id: string) => {
+    persistHistory(history.filter((item) => item.id !== id));
+  };
+
+  const clearHistory = () => {
+    persistHistory([]);
+  };
 
   const loadPublished = async () => {
     try {
@@ -147,11 +239,15 @@ const AssessmentGenerator: React.FC = () => {
 
       if (response.data.success) {
         setGeneratedAssessment(response.data.assessment);
-        if (response.data.rubric) {
-          setSelectedRubric(response.data.rubric);
+        const responseRubric = response.data.rubric || selectedRubric || null;
+        if (responseRubric) {
+          setSelectedRubric(responseRubric);
         }
-        setSavedRubricId(response.data.saved_rubric_id ?? null);
-        setSavedRubricName(response.data.saved_rubric_name ?? null);
+        const nextSavedRubricId = response.data.saved_rubric_id ?? null;
+        const nextSavedRubricName = response.data.saved_rubric_name ?? null;
+        setSavedRubricId(nextSavedRubricId);
+        setSavedRubricName(nextSavedRubricName);
+        addToHistory(response.data.assessment, nextSavedRubricId, nextSavedRubricName, responseRubric);
         setPublishedLink(null);
       } else {
         setError(response.data.error || 'Failed to generate assessment');
@@ -317,6 +413,49 @@ const AssessmentGenerator: React.FC = () => {
                   >
                     {deletingPublishedId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                     Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {history.length > 0 && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+                <History className="w-4 h-4" />
+                Assessment generator history
+              </h3>
+              <button
+                type="button"
+                onClick={clearHistory}
+                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800"
+              >
+                Clear all
+              </button>
+            </div>
+            <ul className="space-y-2">
+              {history.map((item) => (
+                <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
+                  <span className="font-medium truncate max-w-[260px]" title={item.generated_assessment?.title || ''}>
+                    {item.generated_assessment?.title || item.topic || 'Untitled assessment'}
+                  </span>
+                  <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
+                  <button
+                    type="button"
+                    onClick={() => loadFromHistory(item)}
+                    className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                  >
+                    Load
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeHistoryItem(item.id)}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Remove
                   </button>
                 </li>
               ))}
