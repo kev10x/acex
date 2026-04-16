@@ -159,20 +159,65 @@ const extractFirstJsonObject = (text) => {
   return source.slice(start);
 };
 
-const normalizeJsonCandidate = (value) => String(value || '')
+const normalizeJsonCandidate = (value) => String(value || ‘’)
   .trim()
-  .replace(/^```(?:json)?\s*/i, '')
-  .replace(/\s*```$/i, '')
-  .replace(/^\uFEFF/, '')
-  .replace(/[“”]/g, '"')
-  .replace(/[‘’]/g, "'");
+  .replace(/^```(?:json)?\s*/i, ‘’)
+  .replace(/\s*```$/i, ‘’)
+  .replace(/^\uFEFF/, ‘’)
+  .replace(/[“”]/g, ‘”’)
+  .replace(/[‘’]/g, “’”);
 
-const repairJsonCandidate = (value) => normalizeJsonCandidate(value)
-  .replace(/":\s*\\"/g, '": "')
-  .replace(/\\"(\s*[,}\]])/g, '"$1')
-  .replace(/,\s*([}\]])/g, '$1')
-  .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
-  .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3');
+// Escape literal control characters (bare newlines, tabs, CRs) and unescaped double-quotes
+// inside JSON string values.  The AI sometimes emits multi-line feedback or inline citations
+// like “Smith (2019)” without escaping the inner quotes, which causes
+// “Expected ‘,’ or ‘}’” parse errors mid-string.
+const sanitizeJsonControlChars = (str) => {
+  let out = ‘’;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (inStr) {
+      if (esc) { out += ch; esc = false; }
+      else if (ch === ‘\\’) { out += ch; esc = true; }
+      else if (ch === ‘”’) {
+        // Determine whether this “ ends the string or is an unescaped quote inside it.
+        // Peek ahead (skip whitespace) and check the next structural character.
+        // A legitimate string terminator is followed by ‘:’, ‘,’, ‘}’, ‘]’, or end-of-input.
+        let j = i + 1;
+        while (j < str.length && (str[j] === ‘ ‘ || str[j] === ‘\t’)) j++;
+        const next = str[j] !== undefined ? str[j] : ‘’;
+        if (next === ‘’ || next === ‘:’ || next === ‘,’ || next === ‘}’ || next === ‘]’) {
+          // Looks like end of string
+          out += ch;
+          inStr = false;
+        } else {
+          // Looks like an unescaped quote inside the string value — escape it
+          out += ‘\\”’;
+        }
+      }
+      else if (ch === ‘\n’) { out += ‘\\n’; }
+      else if (ch === ‘\r’) { out += ‘\\r’; }
+      else if (ch === ‘\t’) { out += ‘\\t’; }
+      else { out += ch; }
+    } else {
+      if (ch === ‘”’) inStr = true;
+      out += ch;
+    }
+  }
+  return out;
+};
+
+const repairJsonCandidate = (value) => {
+  const normalized = normalizeJsonCandidate(value);
+  const sanitized = sanitizeJsonControlChars(normalized);
+  return sanitized
+    .replace(/”:\s*\\”/g, ‘”: “’)
+    .replace(/\\”(\s*[,}\]])/g, ‘”$1’)
+    .replace(/,\s*([}\]])/g, ‘$1’)
+    .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, ‘$1”$2”$3’)
+    .replace(/([{,]\s*)’([^’]+?)’(\s*:)/g, ‘$1”$2”$3’);
+};
 
 const parseAiJsonResponse = (rawResponse) => {
   const extracted = extractFirstJsonObject(rawResponse);
@@ -627,18 +672,17 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     
     console.log('Simple criteria:', JSON.stringify(simpleCriteria, null, 2));
     
-    // Respect TPM limits by constraining prompt size
+    // Use model context window size to determine how much text we can include.
     // Rough token estimate: 1 token ≈ 4 chars
     const estimateTokens = (text) => Math.ceil((text?.length || 0) / 4);
-    // Different TPM limits for different providers
-    // OpenAI: ~30K TPM, Anthropic: ~100K TPM (more lenient)
-    const tpmLimit = selectedProvider === 'anthropic' ? 100000 : 30000;
+    // GPT-5.2 has a 128K-token context window; Claude Haiku/Sonnet has 200K.
+    const contextWindowTokens = selectedProvider === 'anthropic' ? 200000 : 128000;
     // Reserve room for completion tokens and system overhead (~1000 tokens)
     const requestMaxTokens = Math.min(config.maxTokens, 16000);
-    const promptBudgetTokens = Math.max(1000, tpmLimit - requestMaxTokens - 1000);
-    const maxPromptCharsByTPM = promptBudgetTokens * 4;
+    const promptBudgetTokens = Math.max(1000, contextWindowTokens - requestMaxTokens - 1000);
+    const maxPromptCharsByContextWindow = promptBudgetTokens * 4;
 
-    const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByTPM);
+    const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByContextWindow);
     const truncatedText = imageBased
       ? `The submission is provided as ${assignmentImages.length} page image(s) below (in order). Assess the work from these images—including any handwritten or typed content—and apply the rubric. Handwriting may be messy or partially legible; assess the content and ideas, and be fair about legibility. Return only the JSON.`
       : (assignmentText.length > maxAllowedChars

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock } from 'lucide-react';
 import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
@@ -38,6 +38,14 @@ const ContentGenerator: React.FC = () => {
   const [exporting, setExporting] = useState<string | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const sectionFigures = useMemo<{ visual: any; figNum: number }[][]>(() => {
+    const sections = generatedContent?.sections || [];
+    let counter = 0;
+    return sections.map((sec: any) =>
+      (Array.isArray(sec.visuals) ? sec.visuals : []).map((v: any) => ({ visual: v, figNum: ++counter }))
+    );
+  }, [generatedContent?.sections]);
 
   useEffect(() => {
     loadRubrics();
@@ -563,12 +571,7 @@ const ContentGenerator: React.FC = () => {
             <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">{generatedContent.instructions}</div>
           )}
           {(() => {
-            // Pre-compute global figure numbers across all sections
-            let figureCounter = 0;
             const sections = generatedContent.sections || [];
-            const sectionFigures: { visual: any; figNum: number }[][] = sections.map((sec: any) =>
-              (Array.isArray(sec.visuals) ? sec.visuals : []).map((v: any) => ({ visual: v, figNum: ++figureCounter }))
-            );
             return (
           <div className="space-y-6">
             {sections.map((sec: any, i: number) => (

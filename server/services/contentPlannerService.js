@@ -164,15 +164,15 @@ async function runContentPlannerCycle() {
   cycleInProgress = true;
   try {
     const jobs = await claimDueJobs();
-    for (const job of jobs) {
-      try {
-        await processPlannerJob(job);
-      } catch (error) {
-        await updatePlannerJobStatus(job.id, 'failed', {
-          error_message: String(error?.message || 'Planner job failed').slice(0, 2000),
-        });
-      }
-    }
+    await Promise.all(
+      jobs.map((job) =>
+        processPlannerJob(job).catch(async (error) => {
+          await updatePlannerJobStatus(job.id, 'failed', {
+            error_message: String(error?.message || 'Planner job failed').slice(0, 2000),
+          });
+        })
+      )
+    );
   } finally {
     cycleInProgress = false;
   }

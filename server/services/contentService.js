@@ -6,25 +6,13 @@ const crypto = require('crypto');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
-const OpenAI = require('openai');
 
 const IMAGE_MODEL = 'gpt-image-1';
 const IMAGE_SIZE = '1024x1024';
+const IMAGE_CONCURRENCY = 3;
 
-let _openai = null;
-function getOpenAIClient() {
-  if (!_openai && process.env.OPENAI_API_KEY) {
-    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return _openai;
-}
-
-/**
- * Generate a DALL-E image for a single visual prompt.
- * Returns a base64 data URI, or null on failure (non-fatal).
- */
 async function generateImageForVisual(prompt) {
-  const client = getOpenAIClient();
+  const client = aiService.openai;
   if (!client) return null;
   try {
     const safePrompt = `Educational illustration for a course slide. ${String(prompt || '').slice(0, 900)}. Clean, professional, suitable for all ages. No text overlays.`;
@@ -52,21 +40,34 @@ async function enrichContentWithImages(content) {
   const sections = content?.sections;
   if (!Array.isArray(sections)) return content;
 
-  const enrichedSections = await Promise.all(
-    sections.map(async (section) => {
-      const visuals = Array.isArray(section.visuals) ? section.visuals : [];
-      const enrichedVisuals = await Promise.all(
-        visuals.map(async (visual) => {
-          if (visual.kind !== 'image' || (visual.image_url && !visual.image_url.startsWith('data:image/svg'))) {
-            return visual; // already has a real URL, or is an illustration — skip
-          }
-          const url = await generateImageForVisual(visual.prompt);
-          return url ? { ...visual, image_url: url } : visual;
-        })
-      );
-      return { ...section, visuals: enrichedVisuals };
-    })
-  );
+  // Collect all image visuals that need generation, cap concurrent DALL-E calls.
+  const tasks = [];
+  sections.forEach((section, si) => {
+    (section.visuals || []).forEach((visual, vi) => {
+      if (visual.kind === 'image' && !(visual.image_url && !visual.image_url.startsWith('data:image/svg'))) {
+        tasks.push({ si, vi, prompt: visual.prompt });
+      }
+    });
+  });
+
+  const results = new Map();
+  for (let i = 0; i < tasks.length; i += IMAGE_CONCURRENCY) {
+    const batch = tasks.slice(i, i + IMAGE_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (task) => {
+        const url = await generateImageForVisual(task.prompt);
+        if (url) results.set(`${task.si}:${task.vi}`, url);
+      })
+    );
+  }
+
+  const enrichedSections = sections.map((section, si) => {
+    const visuals = (section.visuals || []).map((visual, vi) => {
+      const url = results.get(`${si}:${vi}`);
+      return url ? { ...visual, image_url: url } : visual;
+    });
+    return { ...section, visuals };
+  });
 
   return { ...content, sections: enrichedSections };
 }
@@ -381,7 +382,11 @@ const SHADOW = () => ({ type: 'outer', blur: 6, offset: 2, color: '000000', opac
 const TXT = (opts) => ({ fontSize: 18, bold: false, align: 'left', valign: 'top', wrap: true, breakLine: true, margin: 0, ...opts });
 
 /**
- * Build a PowerPoint buffer: 16:9, assertion per slide, one visual per slide, two alternating layouts.
+ * Build a PowerPoint buffer: 16:9, one section per slide.
+ * Deliberately unstyled (no background colours, no decorative shapes) so the
+ * presenter can apply their own PowerPoint theme.  Each slide has a title text
+ * box, bullet-point body text, and — when an image is available — the image in
+ * a right-hand column.
  */
 async function buildPptx(content) {
   const pptx = new PptxGenJS();
@@ -391,51 +396,103 @@ async function buildPptx(content) {
   pptx.subject = title;
   pptx.layout = 'LAYOUT_16x9';
 
-  const m = 0.5;
-  const w = 10;
-  const h = 5.625;
+  const m = 0.5;        // margin (inches)
+  const w = 10;         // slide width
+  const h = 5.625;      // slide height
   const contentW = w - 2 * m;
+  const TITLE_H = 0.9;
+  const BODY_Y = m + TITLE_H + 0.1;
+  const BODY_H = h - BODY_Y - m;
 
-  // Title slide
+  // --- Title slide ---
   const s0 = pptx.addSlide();
-  s0.background = { color: THEME.primary };
-  s0.addText(title, { x: m, y: 1.6, w: contentW, h: 1.4, ...TXT({ fontSize: 36, bold: true, color: THEME.accent, align: 'center', valign: 'middle' }) });
+  s0.addText(title, {
+    x: m, y: 1.6, w: contentW, h: 1.5,
+    fontSize: 36, bold: true, align: 'center', valign: 'middle', wrap: true
+  });
   if (content.instructions) {
-    s0.addText(content.instructions, { x: m, y: 3.1, w: contentW, h: 1, ...TXT({ fontSize: 14, color: THEME.secondary, align: 'center' }) });
+    s0.addText(content.instructions, {
+      x: m, y: 3.3, w: contentW, h: 0.9,
+      fontSize: 14, align: 'center', wrap: true
+    });
   }
-  s0.addShape(pptx.ShapeType.rect, { x: m, y: 4.5, w: contentW, h: 0.12, fill: { color: THEME.accent }, line: { type: 'none' } });
 
-  // Content slides: alternate layout so no two consecutive are the same
+  // --- Content slides ---
   const sections = content.sections || [];
   for (let i = 0; i < sections.length; i++) {
-    const assertion = getSectionAssertion(sections[i]);
-    const support = getSectionSupport(sections[i]);
-    const slide = pptx.addSlide();
-    slide.background = { color: THEME.light };
+    const sec = sections[i];
+    const heading = getSectionAssertion(sec);
+    const body = getSectionBody(sec) || getSectionSupport(sec);
 
-    if (i % 2 === 0) {
-      // Layout A: left accent bar + text, right visual block
-      slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.08, h, fill: { color: THEME.primary }, line: { type: 'none' } });
-      slide.addText(assertion, { x: m + 0.1, y: m, w: contentW - 2.2, h: 1.4, ...TXT({ fontSize: 22, bold: true, color: THEME.dark }) });
-      if (support) slide.addText(support, { x: m + 0.1, y: m + 1.5, w: contentW - 2.2, h: 2, ...TXT({ fontSize: 14, color: THEME.dark }) });
-      slide.addShape(pptx.ShapeType.rect, { x: w - 2.4, y: m, w: 1.9, h: h - 2 * m, fill: { color: THEME.secondary }, line: { type: 'none' }, shadow: SHADOW() });
+    const imageVisual = (sec.visuals || []).find(v => v.image_url && String(v.image_url).trim());
+    const mermaidVisual = (sec.visuals || []).find(v => v.mermaid_code && String(v.mermaid_code).trim());
+
+    const slide = pptx.addSlide();
+
+    // Title
+    slide.addText(heading, {
+      x: m, y: m, w: contentW, h: TITLE_H,
+      fontSize: 24, bold: true, valign: 'middle', wrap: true
+    });
+
+    // Body paragraphs as bullets (up to 6, capped at 220 chars each)
+    const paras = body.split(/\n+/).map(p => p.trim()).filter(Boolean).slice(0, 6);
+    const bulletText = paras.map(p => p.length > 220 ? p.slice(0, 217) + '\u2026' : p).join('\n');
+
+    if (imageVisual) {
+      // Two-column: bullets left (~55 %), image right (~42 %)
+      const textW = contentW * 0.55;
+      const imgX = m + textW + 0.2;
+      const imgW = contentW - textW - 0.2;
+
+      slide.addText(bulletText, {
+        x: m, y: BODY_Y, w: textW, h: BODY_H,
+        fontSize: 14, valign: 'top', wrap: true,
+        bullet: { type: 'bullet', indent: 10 }
+      });
+
+      const imgUrl = imageVisual.image_url;
+      const imgSpec = imgUrl.startsWith('data:') ? { data: imgUrl } : { url: imgUrl };
+      slide.addImage({
+        ...imgSpec,
+        x: imgX, y: BODY_Y, w: imgW, h: BODY_H - 0.3,
+        sizing: { type: 'contain', w: imgW, h: BODY_H - 0.3 }
+      });
+      if (imageVisual.title) {
+        slide.addText(imageVisual.title, {
+          x: imgX, y: BODY_Y + BODY_H - 0.3, w: imgW, h: 0.28,
+          fontSize: 9, align: 'center', italic: true, wrap: true
+        });
+      }
     } else {
-      // Layout B: card with top accent strip
-      slide.addShape(pptx.ShapeType.rect, { x: m, y: m, w: contentW, h: h - 2 * m, fill: { color: 'FFFFFF' }, line: { type: 'none' }, shadow: SHADOW() });
-      slide.addShape(pptx.ShapeType.rect, { x: m, y: m, w: contentW, h: 0.3, fill: { color: THEME.primary }, line: { type: 'none' } });
-      slide.addText(assertion, { x: m + 0.2, y: m + 0.45, w: contentW - 0.4, h: 1.3, ...TXT({ fontSize: 22, bold: true, color: THEME.dark }) });
-      if (support) slide.addText(support, { x: m + 0.2, y: m + 1.85, w: contentW - 0.4, h: 2.2, ...TXT({ fontSize: 14, color: THEME.dark }) });
+      slide.addText(bulletText, {
+        x: m, y: BODY_Y, w: contentW, h: BODY_H - (mermaidVisual ? 0.4 : 0),
+        fontSize: 14, valign: 'top', wrap: true,
+        bullet: { type: 'bullet', indent: 10 }
+      });
+      if (mermaidVisual) {
+        slide.addText(`[Diagram: ${mermaidVisual.title || 'see interactive version'}]`, {
+          x: m, y: h - m - 0.35, w: contentW, h: 0.32,
+          fontSize: 10, italic: true, valign: 'middle', wrap: true
+        });
+      }
     }
   }
 
-  // Quiz slide
+  // --- Quiz slide ---
   if (content.quiz && content.quiz.questions && content.quiz.questions.length > 0) {
     const qSlide = pptx.addSlide();
-    qSlide.background = { color: THEME.light };
-    qSlide.addShape(pptx.ShapeType.rect, { x: m, y: m, w: contentW, h: h - 2 * m, fill: { color: 'FFFFFF' }, line: { type: 'none' }, shadow: SHADOW() });
-    qSlide.addText('Knowledge check', { x: m + 0.2, y: m + 0.2, w: contentW - 0.4, h: 0.55, ...TXT({ fontSize: 26, bold: true, color: THEME.primary }) });
-    const quizLines = content.quiz.questions.map((q, idx) => `${idx + 1}. ${(q.question || '').slice(0, 65)}${(q.question || '').length > 65 ? '...' : ''}`).join('\n');
-    qSlide.addText(quizLines, { x: m + 0.4, y: m + 0.9, w: contentW - 0.8, h: 3.5, ...TXT({ fontSize: 14, color: THEME.dark }) });
+    qSlide.addText('Knowledge Check', {
+      x: m, y: m, w: contentW, h: TITLE_H,
+      fontSize: 24, bold: true, valign: 'middle', wrap: true
+    });
+    const quizText = content.quiz.questions
+      .map((q, idx) => `${idx + 1}. ${q.question || ''}`)
+      .join('\n');
+    qSlide.addText(quizText, {
+      x: m, y: BODY_Y, w: contentW, h: BODY_H,
+      fontSize: 14, valign: 'top', wrap: true
+    });
   }
 
   return pptx.write({ outputType: 'nodebuffer' });

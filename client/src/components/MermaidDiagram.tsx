@@ -10,8 +10,6 @@ mermaid.initialize({
   sequence: { actorMargin: 50 },
 });
 
-let idCounter = 0;
-
 interface MermaidDiagramProps {
   code: string;
   className?: string;
@@ -20,18 +18,22 @@ interface MermaidDiagramProps {
 const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className = '' }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const idRef = useRef(`mermaid-${++idCounter}`);
+  // Assign a stable ID once on mount using a lazy initializer so StrictMode
+  // double-invocation doesn't consume two counter slots for a single instance.
+  const idRef = useRef<string | null>(null);
+  if (idRef.current === null) {
+    idRef.current = `mermaid-${crypto.randomUUID().slice(0, 8)}`;
+  }
 
   useEffect(() => {
     if (!containerRef.current || !code?.trim()) return;
     setError(null);
-    const id = idRef.current;
+    const id = idRef.current!;
 
     mermaid.render(id, code.trim())
       .then(({ svg }) => {
         if (containerRef.current) {
           containerRef.current.innerHTML = svg;
-          // Make SVG responsive
           const svgEl = containerRef.current.querySelector('svg');
           if (svgEl) {
             svgEl.removeAttribute('height');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2 } from 'lucide-react';
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
@@ -27,6 +27,10 @@ const TakeContent: React.FC = () => {
 
   const sections = content?.sections || [];
   const sectionCount = sections.length;
+  const figOffset = useMemo(
+    () => sections.slice(0, currentSection).reduce((acc: number, s: any) => acc + (Array.isArray(s.visuals) ? s.visuals.length : 0), 0),
+    [currentSection, sections]
+  );
   const questions = content?.quiz?.questions || [];
   const hasQuiz = questions.length > 0;
   const checkpointIndex = sectionCount;
@@ -455,11 +459,8 @@ const TakeContent: React.FC = () => {
                 {(activeSection as any).support && (
                   <p className="text-base mb-3" style={{ color: content?.theme?.text_color || '#4B5563' }}>{String((activeSection as any).support).trim()}</p>
                 )}
-                {/* Illustration figure — shown before body text */}
                 {(() => {
                   const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];
-                  // Global figure offset: sum of visuals in all sections before this one
-                  const figOffset = sections.slice(0, currentSection).reduce((acc: number, s: any) => acc + (Array.isArray((s as any).visuals) ? (s as any).visuals.length : 0), 0);
                   const illustrations = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind === 'illustration');
                   const images = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind !== 'illustration');
                   return (
