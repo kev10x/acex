@@ -169,8 +169,8 @@ const normalizeJsonCandidate = (value) => String(value || ‘’)
 
 // Escape literal control characters (bare newlines, tabs, CRs) and unescaped double-quotes
 // inside JSON string values.  The AI sometimes emits multi-line feedback or inline citations
-// like “Smith (2019)” without escaping the inner quotes, which causes
-// “Expected ‘,’ or ‘}’” parse errors mid-string.
+// like Smith (2019) without escaping the inner quotes, which causes
+// “Expected , or } after property value” parse errors mid-string.
 const sanitizeJsonControlChars = (str) => {
   let out = ‘’;
   let inStr = false;
@@ -181,9 +181,9 @@ const sanitizeJsonControlChars = (str) => {
       if (esc) { out += ch; esc = false; }
       else if (ch === ‘\\’) { out += ch; esc = true; }
       else if (ch === ‘”’) {
-        // Determine whether this “ ends the string or is an unescaped quote inside it.
+        // Determine whether this quote ends the string or is an unescaped quote inside it.
         // Peek ahead (skip whitespace) and check the next structural character.
-        // A legitimate string terminator is followed by ‘:’, ‘,’, ‘}’, ‘]’, or end-of-input.
+        // A legitimate string terminator is followed by :  ,  }  ]  or end-of-input.
         let j = i + 1;
         while (j < str.length && (str[j] === ‘ ‘ || str[j] === ‘\t’)) j++;
         const next = str[j] !== undefined ? str[j] : ‘’;
@@ -192,7 +192,7 @@ const sanitizeJsonControlChars = (str) => {
           out += ch;
           inStr = false;
         } else {
-          // Looks like an unescaped quote inside the string value — escape it
+          // Looks like an unescaped quote inside the string value - escape it
           out += ‘\\”’;
         }
       }
