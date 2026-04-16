@@ -679,6 +679,32 @@ export interface ContentHistoryItem {
   input?: any;
   created_at: string;
 }
+
+export interface LearningModuleItem {
+  id: number;
+  module_id: number;
+  item_type: 'content' | 'assessment';
+  item_id: number;
+  title: string;
+  code: string;
+  position: number;
+  created_at: string;
+}
+
+export interface LearningModuleStudent {
+  id: number;
+  name: string;
+  email: string;
+  created_at: string;
+}
+
+export interface LearningModule {
+  id: number;
+  name: string;
+  created_at: string;
+  items: LearningModuleItem[];
+  students: LearningModuleStudent[];
+}
 export interface ContentPlannerJob {
   id: number;
   topics: string;
@@ -755,6 +781,20 @@ export const contentAPI = {
   }) => api.post('/content/progress', data),
   getProgress: (code: string, studentName: string) =>
     api.get(`/content/progress/${code}`, { params: { student_name: studentName } }),
+};
+
+export const modulesAPI = {
+  list: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules'),
+  listAvailableStudents: () => api.get<{ success: boolean; students: { id: number; name: string; email: string }[] }>('/modules/students/available'),
+  create: (name: string) => api.post<{ success: boolean; module: LearningModule }>('/modules', { name }),
+  update: (id: number, name: string) => api.put(`/modules/${id}`, { name }),
+  remove: (id: number) => api.delete(`/modules/${id}`),
+  addItem: (moduleId: number, itemType: 'content' | 'assessment', itemId: number) =>
+    api.post(`/modules/${moduleId}/items`, { item_type: itemType, item_id: itemId }),
+  removeItem: (moduleId: number, moduleItemId: number) => api.delete(`/modules/${moduleId}/items/${moduleItemId}`),
+  reorderItems: (moduleId: number, itemIds: number[]) => api.put(`/modules/${moduleId}/reorder`, { item_ids: itemIds }),
+  addStudent: (moduleId: number, studentUserId: number) => api.post(`/modules/${moduleId}/students`, { student_user_id: studentUserId }),
+  removeStudent: (moduleId: number, studentUserId: number) => api.delete(`/modules/${moduleId}/students/${studentUserId}`),
 };
 
 // Authentication API

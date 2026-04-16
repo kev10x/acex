@@ -78,6 +78,7 @@ apiRouter.use('/training', require('./routes/training'));
 apiRouter.use('/local-models', require('./routes/local-models'));
 apiRouter.use('/assessments', require('./routes/assessments'));
 apiRouter.use('/content', require('./routes/content'));
+apiRouter.use('/modules', require('./routes/modules'));
 apiRouter.use('/system', require('./routes/system'));
 apiRouter.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });

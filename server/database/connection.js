@@ -255,6 +255,42 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS modules (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS module_items (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          module_id INT NOT NULL,
+          item_type VARCHAR(32) NOT NULL,
+          item_id INT NOT NULL,
+          snapshot_title VARCHAR(500) NULL,
+          snapshot_code VARCHAR(64) NULL,
+          position INT DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_module_item (module_id, item_type, item_id),
+          KEY idx_module_items_order (module_id, position),
+          FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS module_students (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          module_id INT NOT NULL,
+          student_user_id INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_module_student (module_id, student_user_id),
+          KEY idx_module_students_module (module_id),
+          FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
+          FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_generation_history (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
@@ -1017,6 +1053,38 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS modules (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS module_items (
+          id SERIAL PRIMARY KEY,
+          module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+          item_type VARCHAR(32) NOT NULL,
+          item_id INTEGER NOT NULL,
+          snapshot_title VARCHAR(500) NULL,
+          snapshot_code VARCHAR(64) NULL,
+          position INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (module_id, item_type, item_id)
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_module_items_order ON module_items(module_id, position)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS module_students (
+          id SERIAL PRIMARY KEY,
+          module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+          student_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (module_id, student_user_id)
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_module_students_module ON module_students(module_id)`);
       await query(`
         CREATE TABLE IF NOT EXISTS content_generation_history (
           id SERIAL PRIMARY KEY,
