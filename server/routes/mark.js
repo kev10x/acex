@@ -164,8 +164,8 @@ const normalizeJsonCandidate = (value) => String(value || ‘’)
   .replace(/^```(?:json)?\s*/i, ‘’)
   .replace(/\s*```$/i, ‘’)
   .replace(/^\uFEFF/, ‘’)
-  .replace(/[“”]/g, ‘”’)
-  .replace(/[‘’]/g, “’”);
+  .replace(/[\u201C\u201D]/g, ‘”’)
+  .replace(/[\u2018\u2019]/g, “’”);
 
 // Escape literal control characters (bare newlines, tabs, CRs) and unescaped double-quotes
 // inside JSON string values.  The AI sometimes emits multi-line feedback or inline citations
