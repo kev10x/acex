@@ -291,6 +291,16 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS uploaded_ppt_templates (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          file_name VARCHAR(500) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_generation_history (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
@@ -1085,6 +1095,15 @@ const initDatabase = async () => {
         )
       `);
       await query(`CREATE INDEX IF NOT EXISTS idx_module_students_module ON module_students(module_id)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS uploaded_ppt_templates (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          file_name VARCHAR(500) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       await query(`
         CREATE TABLE IF NOT EXISTS content_generation_history (
           id SERIAL PRIMARY KEY,

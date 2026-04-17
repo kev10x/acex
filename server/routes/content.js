@@ -72,6 +72,33 @@ function parseJsonSafe(value, fallback = null) {
   }
 }
 
+async function getUploadedTemplateByToken(userId, templateToken) {
+  const token = String(templateToken || '');
+  const match = token.match(/^uploaded:(\d+)$/i);
+  if (!match) return null;
+  const templateId = Number(match[1]);
+  if (!Number.isFinite(templateId) || templateId <= 0) return null;
+  const q = isMySQL()
+    ? await query(
+        'SELECT id, name, file_name, created_at FROM uploaded_ppt_templates WHERE id = ? AND user_id = ?',
+        [templateId, userId]
+      )
+    : await query(
+        'SELECT id, name, file_name, created_at FROM uploaded_ppt_templates WHERE id = $1 AND user_id = $2',
+        [templateId, userId]
+      );
+  const row = Array.isArray(q) ? q[0] : (q.rows && q.rows[0]);
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    file_name: row.file_name,
+    created_at: row.created_at,
+    token: `uploaded:${row.id}`,
+    abs_path: path.join(templateDir, row.file_name),
+  };
+}
+
 const templateDir = path.join(__dirname, '../uploads/content-templates');
 try {
   require('fs').mkdirSync(templateDir, { recursive: true });
@@ -129,12 +156,36 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
 });
 
 router.get('/templates', requireAuth, requireFeature('content_creation'), async (req, res) => {
-  const templates = Object.values(contentService.CONTENT_TEMPLATES || {}).map((t) => ({
-    id: t.id,
-    name: t.name,
-    theme: t.theme,
-  }));
-  res.json({ success: true, templates });
+  try {
+    const builtIns = Object.values(contentService.CONTENT_TEMPLATES || {}).map((t) => ({
+      id: t.id,
+      name: t.name,
+      theme: t.theme,
+      kind: 'builtin',
+    }));
+    const uploadedQ = isMySQL()
+      ? await query(
+          'SELECT id, name, file_name, created_at FROM uploaded_ppt_templates WHERE user_id = ? ORDER BY created_at DESC',
+          [req.user.id]
+        )
+      : await query(
+          'SELECT id, name, file_name, created_at FROM uploaded_ppt_templates WHERE user_id = $1 ORDER BY created_at DESC',
+          [req.user.id]
+        );
+    const uploadedRows = Array.isArray(uploadedQ) ? uploadedQ : (uploadedQ.rows || []);
+    const uploaded = uploadedRows.map((row) => ({
+      id: `uploaded:${row.id}`,
+      name: `${row.name} (uploaded template)`,
+      theme: {},
+      kind: 'uploaded',
+      uploaded_template_id: row.id,
+      created_at: row.created_at,
+    }));
+    res.json({ success: true, templates: [...builtIns, ...uploaded] });
+  } catch (error) {
+    console.error('List templates error:', error);
+    res.status(500).json({ error: 'Failed to load templates' });
+  }
 });
 
 /**
@@ -852,7 +903,10 @@ router.post('/export/pptx', requireAuth, requireFeature('content_creation'), asy
   try {
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
-    const buffer = await contentService.buildPptx(content);
+    const uploadedTemplate = await getUploadedTemplateByToken(req.user.id, content?.template_id);
+    const buffer = await contentService.buildPptx(content, {
+      templatePath: uploadedTemplate?.abs_path || null,
+    });
     const filename = `${(content.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pptx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -907,12 +961,37 @@ router.post('/template', requireAuth, requireFeature('content_creation'), (req, 
   uploadTemplate(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Template upload failed' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    res.json({
-      success: true,
-      template_path: req.file.filename,
-      original_name: req.file.originalname,
-      message: 'Template stored. It will be used for slide styling when supported.',
-    });
+    try {
+      const baseName = String(req.file.originalname || 'Template').replace(/\.[^.]+$/, '').slice(0, 255) || 'Template';
+      let inserted;
+      if (isMySQL()) {
+        inserted = await query(
+          'INSERT INTO uploaded_ppt_templates (user_id, name, file_name) VALUES (?, ?, ?)',
+          [req.user.id, baseName, req.file.filename]
+        );
+      } else {
+        inserted = await query(
+          'INSERT INTO uploaded_ppt_templates (user_id, name, file_name) VALUES ($1, $2, $3) RETURNING id',
+          [req.user.id, baseName, req.file.filename]
+        );
+      }
+      const templateId = inserted?.insertId ?? inserted?.lastID ?? inserted?.rows?.[0]?.id ?? null;
+      res.json({
+        success: true,
+        template: {
+          id: `uploaded:${templateId}`,
+          name: `${baseName} (uploaded template)`,
+          kind: 'uploaded',
+          theme: {},
+        },
+        template_path: req.file.filename,
+        original_name: req.file.originalname,
+        message: 'Template stored. It can now be selected and used when exporting PPTX.',
+      });
+    } catch (dbError) {
+      console.error('Template metadata save error:', dbError);
+      res.status(500).json({ error: 'Template upload succeeded, but metadata save failed' });
+    }
   });
 });
 

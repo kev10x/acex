@@ -159,49 +159,49 @@ const extractFirstJsonObject = (text) => {
   return source.slice(start);
 };
 
-const normalizeJsonCandidate = (value) => String(value || ‘’)
+const normalizeJsonCandidate = (value) => String(value || '')
   .trim()
-  .replace(/^```(?:json)?\s*/i, ‘’)
-  .replace(/\s*```$/i, ‘’)
-  .replace(/^\uFEFF/, ‘’)
-  .replace(/[\u201C\u201D]/g, ‘”’)
-  .replace(/[\u2018\u2019]/g, “’”);
+  .replace(/^\`\`\`(?:json)?\s*/i, '')
+  .replace(/\s*\`\`\`$/i, '')
+  .replace(/^\uFEFF/, '')
+  .replace(/[\u201C\u201D]/g, '"')
+  .replace(/[\u2018\u2019]/g, "'");
 
 // Escape literal control characters (bare newlines, tabs, CRs) and unescaped double-quotes
-// inside JSON string values.  The AI sometimes emits multi-line feedback or inline citations
+// inside JSON string values. The AI sometimes emits multi-line feedback or inline citations
 // like Smith (2019) without escaping the inner quotes, which causes
-// “Expected , or } after property value” parse errors mid-string.
+// "Expected , or } after property value" parse errors mid-string.
 const sanitizeJsonControlChars = (str) => {
-  let out = ‘’;
+  let out = '';
   let inStr = false;
   let esc = false;
   for (let i = 0; i < str.length; i++) {
     const ch = str[i];
     if (inStr) {
       if (esc) { out += ch; esc = false; }
-      else if (ch === ‘\\’) { out += ch; esc = true; }
-      else if (ch === ‘”’) {
+      else if (ch === '\\') { out += ch; esc = true; }
+      else if (ch === '"') {
         // Determine whether this quote ends the string or is an unescaped quote inside it.
         // Peek ahead (skip whitespace) and check the next structural character.
         // A legitimate string terminator is followed by :  ,  }  ]  or end-of-input.
         let j = i + 1;
-        while (j < str.length && (str[j] === ‘ ‘ || str[j] === ‘\t’)) j++;
-        const next = str[j] !== undefined ? str[j] : ‘’;
-        if (next === ‘’ || next === ‘:’ || next === ‘,’ || next === ‘}’ || next === ‘]’) {
+        while (j < str.length && (str[j] === ' ' || str[j] === '\t')) j++;
+        const next = str[j] !== undefined ? str[j] : '';
+        if (next === '' || next === ':' || next === ',' || next === '}' || next === ']') {
           // Looks like end of string
           out += ch;
           inStr = false;
         } else {
           // Looks like an unescaped quote inside the string value - escape it
-          out += ‘\\”’;
+          out += '\\"';
         }
       }
-      else if (ch === ‘\n’) { out += ‘\\n’; }
-      else if (ch === ‘\r’) { out += ‘\\r’; }
-      else if (ch === ‘\t’) { out += ‘\\t’; }
+      else if (ch === '\n') { out += '\\n'; }
+      else if (ch === '\r') { out += '\\r'; }
+      else if (ch === '\t') { out += '\\t'; }
       else { out += ch; }
     } else {
-      if (ch === ‘”’) inStr = true;
+      if (ch === '"') inStr = true;
       out += ch;
     }
   }
@@ -212,11 +212,11 @@ const repairJsonCandidate = (value) => {
   const normalized = normalizeJsonCandidate(value);
   const sanitized = sanitizeJsonControlChars(normalized);
   return sanitized
-    .replace(/”:\s*\\”/g, ‘”: “’)
-    .replace(/\\”(\s*[,}\]])/g, ‘”$1’)
-    .replace(/,\s*([}\]])/g, ‘$1’)
-    .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, ‘$1”$2”$3’)
-    .replace(/([{,]\s*)’([^’]+?)’(\s*:)/g, ‘$1”$2”$3’);
+    .replace(/":\s*\\"/g, '": "')
+    .replace(/\\"(\s*[,}\]])/g, '"$1')
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
+    .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3');
 };
 
 const parseAiJsonResponse = (rawResponse) => {
@@ -1441,244 +1441,34 @@ JSON format (return ONLY this, no other text):
       console.log(`   Estimated cost: $${totalCost.toFixed(6)}`);
       console.log(`   Cost per ${documentType}: $${totalCost.toFixed(4)}`);
     }
-    
-    // Try to parse the JSON response
+    // Parse and normalize response through shared pipeline.
+    // This keeps all JSON recovery/validation logic in one place.
     try {
-      // Clean up response - remove markdown code blocks if present
-      const rawTrimmed = response.trim();
-      if (!rawTrimmed) {
-        throw new Error('Response was empty after trimming');
-      }
-      const { cleanedText } = parseAiJsonResponse(response);
-      let cleanResponse = cleanedText;
-      
-      // Remove markdown code blocks (handle both single-line and multi-line)
-      // Match ```json ... ``` or ``` ... ```
-      cleanResponse = cleanResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-      
-      // Try to extract JSON from text that might have explanatory content
-      // Look for JSON object boundaries
-      const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanResponse = jsonMatch[0];
-      }
-      
-      // Remove any leading/trailing whitespace
-      cleanResponse = cleanResponse.trim();
-
-      // Fix malformed JSON: some models output \" for value delimiters instead of "
-      // e.g. "error_text": \"The Dire...\" instead of "error_text": "The Dire..."
-      cleanResponse = cleanResponse.replace(/":\s*\\"/g, '": "');
-      cleanResponse = cleanResponse.replace(/\\"(\s*[,}\]])/g, '"$1');
-
-      // Log the cleaned response for debugging (first 500 chars)
-      console.log('📄 Cleaned response preview:', cleanResponse.substring(0, 500));
-
-      let markingResult;
-      try {
-        markingResult = JSON.parse(cleanResponse);
-      } catch (firstParseError) {
-        // If still invalid, try stripping any remaining stray backslashes before quotes (risky but last resort)
-        const repaired = cleanResponse.replace(/([^\\])\\"([^"\\]|$)/g, (_, before, after) => before + '"' + after);
-        try {
-          markingResult = JSON.parse(repaired);
-        } catch (_) {
-          throw firstParseError;
-        }
-      }
-      
-      // Validate the response structure
-      if (!markingResult.scores || !Array.isArray(markingResult.scores)) {
-        throw new Error('Invalid response structure: missing scores array');
-      }
-      
-      if (!markingResult.overall_feedback || typeof markingResult.overall_feedback !== 'string') {
-        throw new Error('Invalid response structure: missing overall_feedback');
-      }
-      
-      if (typeof markingResult.total_score !== 'number') {
-        throw new Error('Invalid response structure: missing or invalid total_score');
-      }
-
-      // Process confidence scores - add defaults if missing (backward compatibility)
-      const confidenceThreshold = 70; // Flag assessments below this confidence
-      
-      // Ensure each score has a confidence value (default to 80 if missing)
-      markingResult.scores = markingResult.scores.map(score => ({
-        ...score,
-        confidence: typeof score.confidence === 'number' ? Math.max(0, Math.min(100, score.confidence)) : 80
-      }));
-      
-      // Calculate overall confidence if not provided (average of criterion confidences)
-      if (typeof markingResult.overall_confidence !== 'number') {
-        const avgConfidence = markingResult.scores.length > 0
-          ? markingResult.scores.reduce((sum, s) => sum + (s.confidence || 80), 0) / markingResult.scores.length
-          : 80;
-        markingResult.overall_confidence = Math.round(avgConfidence);
-      } else {
-        markingResult.overall_confidence = Math.max(0, Math.min(100, markingResult.overall_confidence));
-      }
-      
-      // Process corrections array - validate and ensure proper structure
-      if (!markingResult.corrections || !Array.isArray(markingResult.corrections)) {
-        markingResult.corrections = [];
-      } else {
-        // Validate each correction has required fields
-        markingResult.corrections = markingResult.corrections.filter(correction => {
-          return correction && 
-                 typeof correction.type === 'string' && 
-                 (correction.type === 'correction' || correction.type === 'suggestion') &&
-                 typeof correction.location === 'string' &&
-                 typeof correction.issue === 'string' &&
-                 typeof correction.correction === 'string';
-        });
-      }
-      
-      // Flag low confidence assessments
-      markingResult.needs_review = markingResult.overall_confidence < confidenceThreshold;
-      markingResult.confidence_level = markingResult.overall_confidence >= 80 
-        ? 'high' 
-        : markingResult.overall_confidence >= 60 
-        ? 'medium' 
-        : 'low';
-
-      // Handwriting recognition confidence (only for image-based / handwritten submissions)
-      if (imageBased) {
-        const raw = markingResult.handwriting_recognition_confidence;
-        markingResult.handwriting_recognition_confidence = typeof raw === 'number' && !Number.isNaN(raw)
-          ? Math.max(0, Math.min(100, Math.round(raw)))
-          : null;
-      } else {
-        markingResult.handwriting_recognition_confidence = null;
-      }
-      
-      // Calculate minimum criterion confidence for additional flagging
-      const minConfidence = Math.min(...markingResult.scores.map(s => s.confidence || 80));
-      markingResult.min_criterion_confidence = minConfidence;
-      markingResult.has_low_criterion_confidence = minConfidence < confidenceThreshold;
-
-      // Normalize scores for consistency
-      // Round scores to nearest 0.5 for better consistency, or whole numbers for integer rubrics
-      markingResult.scores = markingResult.scores.map(score => {
-        const maxPoints = score.max_points || 0;
-        let normalizedPoints = score.points_awarded || 0;
-        
-        // Determine rounding precision based on max points
-        // If max_points is a whole number and <= 10, round to nearest 0.5
-        // If max_points > 10 or is decimal, round to nearest 0.5
-        // If max_points is clearly an integer rubric (e.g., 5, 10, 20), round to nearest 0.5
-        if (maxPoints > 0 && Number.isInteger(maxPoints)) {
-          // Round to nearest 0.5 for consistency
-          normalizedPoints = Math.round(normalizedPoints * 2) / 2;
-        } else {
-          // For decimal max points, round to 1 decimal place
-          normalizedPoints = Math.round(normalizedPoints * 10) / 10;
-        }
-        
-        // Ensure points don't exceed max_points
-        normalizedPoints = Math.min(normalizedPoints, maxPoints);
-        // Ensure points are not negative
-        normalizedPoints = Math.max(0, normalizedPoints);
-        
-        return {
-          ...score,
-          points_awarded: normalizedPoints
-        };
+      return parseMarkingResponsePayload(response, {
+        selectedProvider,
+        usage: result?.usage || null,
+        imageBased
       });
-      
-      // Recalculate total score from normalized scores
-      const normalizedTotal = markingResult.scores.reduce((sum, score) => sum + (score.points_awarded || 0), 0);
-      markingResult.total_score = Math.round(normalizedTotal * 10) / 10; // Round to 1 decimal place
-      
-      // Normalize feedback formatting for consistency
-      markingResult.scores = markingResult.scores.map(score => {
-        if (score.feedback) {
-          // Remove excessive whitespace, normalize line breaks
-          let normalizedFeedback = score.feedback
-            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-            .replace(/\n\s*\n\s*\n/g, '\n\n') // Replace 3+ line breaks with 2
-            .trim();
-          
-          return {
-            ...score,
-            feedback: normalizedFeedback
-          };
-        }
-        return score;
-      });
-      
-      // Normalize overall feedback
-      if (markingResult.overall_feedback) {
-        markingResult.overall_feedback = markingResult.overall_feedback
-          .replace(/\s+/g, ' ')
-          .replace(/\n\s*\n\s*\n/g, '\n\n')
-          .trim();
-      }
-
-      if (result && result.usage) {
-        markingResult.usage = result.usage;
-        markingResult.estimated_cost_usd = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
-      }
-      return markingResult;
     } catch (parseError) {
-      console.error('❌ JSON parsing error:', parseError.message);
+      console.error('JSON parsing error:', parseError.message);
       console.error('Parse error stack:', parseError.stack);
       console.error('Raw AI Response (first 1000 chars):', response.substring(0, 1000));
       console.error('Raw AI Response length:', response.length);
-      
-      // Try the repair pipeline one more time before failing the whole marking run
-      try {
-        const { parsed: repairedMarkingResult, cleanedText } = parseAiJsonResponse(response);
-        console.log('ðŸ”„ Repaired JSON preview:', cleanedText.substring(0, 500));
-        console.log('âœ… Successfully repaired AI JSON response!');
-        if (result && result.usage) {
-          repairedMarkingResult.usage = result.usage;
-          repairedMarkingResult.estimated_cost_usd = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
-        }
-        if (repairedMarkingResult.scores && Array.isArray(repairedMarkingResult.scores)) {
-          return repairedMarkingResult;
-        }
 
-        // Find the first { and then find the matching closing }
-        const jsonStart = response.indexOf('{');
-        if (jsonStart !== -1) {
-          let braceCount = 0;
-          let jsonEnd = -1;
-          
-          // Find the matching closing brace
-          for (let i = jsonStart; i < response.length; i++) {
-            if (response[i] === '{') braceCount++;
-            if (response[i] === '}') {
-              braceCount--;
-              if (braceCount === 0) {
-                jsonEnd = i;
-                break;
-              }
-            }
-          }
-          
-          if (jsonEnd !== -1) {
-            const extractedJson = response.substring(jsonStart, jsonEnd + 1);
-            console.log('🔄 Attempting to extract JSON from response...');
-            console.log('Extracted JSON preview:', extractedJson.substring(0, 500));
-            
-            const markingResult = JSON.parse(extractedJson);
-            console.log('✅ Successfully parsed extracted JSON!');
-            if (result && result.usage) {
-              markingResult.usage = result.usage;
-              markingResult.estimated_cost_usd = aiConfig.estimateCost(result.usage.prompt_tokens, result.usage.completion_tokens, selectedProvider);
-            }
-            // Validate the extracted result
-            if (markingResult.scores && Array.isArray(markingResult.scores)) {
-              return markingResult;
-            }
-          }
+      const extractedJson = extractFirstJsonObject(response);
+      if (extractedJson && extractedJson !== response) {
+        try {
+          return parseMarkingResponsePayload(extractedJson, {
+            selectedProvider,
+            usage: result?.usage || null,
+            imageBased
+          });
+        } catch (extractError) {
+          console.error('Failed to parse extracted JSON candidate:', extractError.message);
         }
-      } catch (extractError) {
-        console.error('❌ Failed to extract JSON:', extractError.message);
       }
-      
-      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
+
+      throw new Error('Failed to parse AI response as JSON: ' + parseError.message);
     }
   } catch (error) {
     console.error(`❌ ${error.provider || 'AI'} API error:`, error);

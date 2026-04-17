@@ -3,9 +3,11 @@
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
+const yauzl = require('yauzl');
 
 const IMAGE_MODEL = 'gpt-image-1';
 const IMAGE_SIZE = '1024x1024';
@@ -334,6 +336,16 @@ function getTemplateById(templateId) {
 }
 
 function applyTemplateToContent(content, templateId = 'classroom') {
+  const templateToken = String(templateId || 'classroom').trim();
+  if (/^uploaded:\d+$/i.test(templateToken)) {
+    const fallback = CONTENT_TEMPLATES.classroom;
+    return {
+      ...content,
+      template_id: templateToken,
+      template_name: 'Uploaded template',
+      theme: { ...(content?.theme || fallback.theme || {}) },
+    };
+  }
   const template = getTemplateById(templateId);
   return {
     ...content,
@@ -376,6 +388,67 @@ function getSectionBody(sec) {
   return sec.body || '';
 }
 
+function readZipEntryText(zipPath, entryName) {
+  return new Promise((resolve, reject) => {
+    if (!zipPath || !fs.existsSync(zipPath)) return resolve(null);
+    yauzl.open(zipPath, { lazyEntries: true }, (openErr, zipfile) => {
+      if (openErr || !zipfile) return resolve(null);
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        try { zipfile.close(); } catch (_) {}
+        resolve(value);
+      };
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        if (entry.fileName !== entryName) {
+          zipfile.readEntry();
+          return;
+        }
+        zipfile.openReadStream(entry, (streamErr, stream) => {
+          if (streamErr || !stream) return finish(null);
+          const chunks = [];
+          stream.on('data', (d) => chunks.push(Buffer.from(d)));
+          stream.on('end', () => finish(Buffer.concat(chunks).toString('utf8')));
+          stream.on('error', () => finish(null));
+        });
+      });
+      zipfile.on('end', () => finish(null));
+      zipfile.on('error', () => finish(null));
+    });
+  });
+}
+
+function extractThemeColor(xml, tag, fallback) {
+  const rx = new RegExp(`<a:${tag}>[\\s\\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"`, 'i');
+  const match = String(xml || '').match(rx);
+  return match?.[1] ? `#${match[1].toUpperCase()}` : fallback;
+}
+
+function extractThemeFont(xml, sectionTag) {
+  const rx = new RegExp(`<a:${sectionTag}>[\\s\\S]*?<a:latin typeface="([^"]+)"`, 'i');
+  const match = String(xml || '').match(rx);
+  return match?.[1] ? `'${match[1]}'` : null;
+}
+
+async function extractTemplateTheme(templatePath) {
+  const xml = await readZipEntryText(templatePath, 'ppt/theme/theme1.xml');
+  if (!xml) return null;
+  const headingColor = extractThemeColor(xml, 'accent1', '#0F172A');
+  const textColor = extractThemeColor(xml, 'dk1', '#0F172A');
+  const accentColor = extractThemeColor(xml, 'accent2', '#2563EB');
+  const headFont = extractThemeFont(xml, 'majorFont');
+  const bodyFont = extractThemeFont(xml, 'minorFont');
+  return {
+    headingColor,
+    textColor,
+    accentColor,
+    headFont,
+    bodyFont,
+  };
+}
+
 // --- PPTX design: 16:9, one theme, factory opts (no reused objects). Every slide has a visual. ---
 const THEME = { primary: '028090', secondary: '00A896', accent: '02C39A', light: 'F0F9F8', dark: '023E4D' };
 const SHADOW = () => ({ type: 'outer', blur: 6, offset: 2, color: '000000', opacity: 0.15, angle: 135 });
@@ -388,9 +461,20 @@ const TXT = (opts) => ({ fontSize: 18, bold: false, align: 'left', valign: 'top'
  * box, bullet-point body text, and — when an image is available — the image in
  * a right-hand column.
  */
-async function buildPptx(content) {
+async function buildPptx(content, options = {}) {
   const pptx = new PptxGenJS();
   const title = content.title || 'Course Content';
+  const templateTheme = options?.templatePath ? await extractTemplateTheme(options.templatePath) : null;
+  const headingColor = (templateTheme?.headingColor || '').replace('#', '') || '1E293B';
+  const textColor = (templateTheme?.textColor || '').replace('#', '') || '111827';
+  const accentColor = (templateTheme?.accentColor || '').replace('#', '') || '2563EB';
+  if (templateTheme?.headFont || templateTheme?.bodyFont) {
+    pptx.theme = {
+      headFontFace: templateTheme?.headFont ? templateTheme.headFont.replace(/^'|'$/g, '') : 'Aptos Display',
+      bodyFontFace: templateTheme?.bodyFont ? templateTheme.bodyFont.replace(/^'|'$/g, '') : 'Aptos',
+      lang: 'en-US',
+    };
+  }
   pptx.title = title;
   pptx.author = 'MarkMate';
   pptx.subject = title;
@@ -408,12 +492,12 @@ async function buildPptx(content) {
   const s0 = pptx.addSlide();
   s0.addText(title, {
     x: m, y: 1.6, w: contentW, h: 1.5,
-    fontSize: 36, bold: true, align: 'center', valign: 'middle', wrap: true
+    fontSize: 36, bold: true, align: 'center', valign: 'middle', wrap: true, color: headingColor
   });
   if (content.instructions) {
     s0.addText(content.instructions, {
       x: m, y: 3.3, w: contentW, h: 0.9,
-      fontSize: 14, align: 'center', wrap: true
+      fontSize: 14, align: 'center', wrap: true, color: textColor
     });
   }
 
@@ -432,7 +516,7 @@ async function buildPptx(content) {
     // Title
     slide.addText(heading, {
       x: m, y: m, w: contentW, h: TITLE_H,
-      fontSize: 24, bold: true, valign: 'middle', wrap: true
+      fontSize: 24, bold: true, valign: 'middle', wrap: true, color: headingColor
     });
 
     // Body paragraphs as bullets (up to 6, capped at 220 chars each)
@@ -447,7 +531,7 @@ async function buildPptx(content) {
 
       slide.addText(bulletText, {
         x: m, y: BODY_Y, w: textW, h: BODY_H,
-        fontSize: 14, valign: 'top', wrap: true,
+        fontSize: 14, valign: 'top', wrap: true, color: textColor,
         bullet: { type: 'bullet', indent: 10 }
       });
 
@@ -461,19 +545,19 @@ async function buildPptx(content) {
       if (imageVisual.title) {
         slide.addText(imageVisual.title, {
           x: imgX, y: BODY_Y + BODY_H - 0.3, w: imgW, h: 0.28,
-          fontSize: 9, align: 'center', italic: true, wrap: true
+          fontSize: 9, align: 'center', italic: true, wrap: true, color: accentColor
         });
       }
     } else {
       slide.addText(bulletText, {
         x: m, y: BODY_Y, w: contentW, h: BODY_H - (mermaidVisual ? 0.4 : 0),
-        fontSize: 14, valign: 'top', wrap: true,
+        fontSize: 14, valign: 'top', wrap: true, color: textColor,
         bullet: { type: 'bullet', indent: 10 }
       });
       if (mermaidVisual) {
         slide.addText(`[Diagram: ${mermaidVisual.title || 'see interactive version'}]`, {
           x: m, y: h - m - 0.35, w: contentW, h: 0.32,
-          fontSize: 10, italic: true, valign: 'middle', wrap: true
+          fontSize: 10, italic: true, valign: 'middle', wrap: true, color: accentColor
         });
       }
     }
@@ -484,14 +568,14 @@ async function buildPptx(content) {
     const qSlide = pptx.addSlide();
     qSlide.addText('Knowledge Check', {
       x: m, y: m, w: contentW, h: TITLE_H,
-      fontSize: 24, bold: true, valign: 'middle', wrap: true
+      fontSize: 24, bold: true, valign: 'middle', wrap: true, color: headingColor
     });
     const quizText = content.quiz.questions
       .map((q, idx) => `${idx + 1}. ${q.question || ''}`)
       .join('\n');
     qSlide.addText(quizText, {
       x: m, y: BODY_Y, w: contentW, h: BODY_H,
-      fontSize: 14, valign: 'top', wrap: true
+      fontSize: 14, valign: 'top', wrap: true, color: textColor
     });
   }
 

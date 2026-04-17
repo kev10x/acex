@@ -211,15 +211,21 @@ const ContentGenerator: React.FC = () => {
     setIsGenerating(true);
     setGeneratedContent(null);
     try {
+      let effectiveTemplateId = templateId;
       if (templateFile) {
-        await contentAPI.uploadTemplate(templateFile);
+        const uploadRes = await contentAPI.uploadTemplate(templateFile);
+        const uploadedId = uploadRes?.data?.template?.id;
+        if (uploadedId) {
+          effectiveTemplateId = uploadedId;
+          setTemplateId(uploadedId);
+        }
       }
       const res = await contentAPI.generate({
         topics: topicsTrim,
         level: level || undefined,
         num_sections: numSections,
         rubric_id: rubricId || undefined,
-        template_id: templateId || undefined,
+        template_id: effectiveTemplateId || undefined,
         include_diagrams: includeDiagrams,
         include_images: includeImages,
       });
@@ -302,6 +308,101 @@ const ContentGenerator: React.FC = () => {
     } finally {
       setExporting(null);
     }
+  };
+
+  const updateGeneratedContent = (updater: (current: GeneratedContent) => GeneratedContent) => {
+    setGeneratedContent((prev) => (prev ? updater(prev) : prev));
+  };
+
+  const updateSectionField = (sectionIndex: number, field: 'heading' | 'support' | 'body', value: string) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      sections[sectionIndex] = { ...section, [field]: value };
+      return { ...current, sections };
+    });
+  };
+
+  const addSection = () => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      sections.push({
+        heading: `New section ${sections.length + 1}`,
+        support: '',
+        body: '',
+        visuals: [],
+      } as any);
+      return { ...current, sections };
+    });
+  };
+
+  const removeSection = (sectionIndex: number) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      sections.splice(sectionIndex, 1);
+      return { ...current, sections };
+    });
+  };
+
+  const addCustomVisual = (sectionIndex: number, kind: 'illustration' | 'image') => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
+      visuals.push(
+        kind === 'illustration'
+          ? {
+              kind: 'illustration',
+              title: 'Custom diagram',
+              alt_text: 'Custom diagram',
+              prompt: '',
+              mermaid_code: 'graph TD\n  A[Start] --> B[Step]\n  B --> C[Outcome]',
+            }
+          : {
+              kind: 'image',
+              title: 'Custom image',
+              alt_text: 'Custom image',
+              prompt: '',
+              image_url: '',
+            }
+      );
+      sections[sectionIndex] = { ...section, visuals };
+      return { ...current, sections };
+    });
+  };
+
+  const updateVisualField = (sectionIndex: number, visualIndex: number, field: string, value: string) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
+      const visual = visuals[visualIndex] || {};
+      visuals[visualIndex] = { ...visual, [field]: value };
+      sections[sectionIndex] = { ...section, visuals };
+      return { ...current, sections };
+    });
+  };
+
+  const removeVisual = (sectionIndex: number, visualIndex: number) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
+      visuals.splice(visualIndex, 1);
+      sections[sectionIndex] = { ...section, visuals };
+      return { ...current, sections };
+    });
+  };
+
+  const uploadVisualImage = (sectionIndex: number, visualIndex: number, file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (!dataUrl) return;
+      updateVisualField(sectionIndex, visualIndex, 'image_url', dataUrl);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSchedulePlanner = async () => {
@@ -673,7 +774,7 @@ const ContentGenerator: React.FC = () => {
       {generatedContent && (
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-            <h2 className="text-xl font-bold text-gray-800">{generatedContent.title}</h2>
+            <h2 className="text-xl font-bold text-gray-800">Edit and preview content</h2>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => handleExport('pptx')}
@@ -715,6 +816,34 @@ const ContentGenerator: React.FC = () => {
               </button>
             </div>
           </div>
+          <div className="grid grid-cols-1 gap-3 mb-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
+              <input
+                value={generatedContent.title || ''}
+                onChange={(e) => updateGeneratedContent((current) => ({ ...current, title: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Instructions</label>
+              <textarea
+                value={generatedContent.instructions || ''}
+                onChange={(e) => updateGeneratedContent((current) => ({ ...current, instructions: e.target.value }))}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={addSection}
+                className="px-3 py-2 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+              >
+                Add section
+              </button>
+            </div>
+          </div>
           {publishedLink && (
             <div className="mb-4 p-4 bg-violet-50 border border-violet-200 rounded-lg">
               <div className="font-semibold text-violet-900 mb-1">Student link</div>
@@ -739,6 +868,107 @@ const ContentGenerator: React.FC = () => {
           <div className="space-y-6">
             {sections.map((sec: any, i: number) => (
               <div key={i} className="border border-gray-200 rounded-lg p-5">
+                <div className="grid grid-cols-1 gap-2 mb-3 bg-gray-50 border border-gray-200 rounded p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-gray-700">Section {i + 1} editor</span>
+                    <button
+                      type="button"
+                      onClick={() => removeSection(i)}
+                      className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                    >
+                      Remove section
+                    </button>
+                  </div>
+                  <input
+                    value={sec.heading || sec.title || ''}
+                    onChange={(e) => updateSectionField(i, 'heading', e.target.value)}
+                    placeholder="Section heading"
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                  <input
+                    value={sec.support || ''}
+                    onChange={(e) => updateSectionField(i, 'support', e.target.value)}
+                    placeholder="Support line"
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                  <textarea
+                    value={sec.body || ''}
+                    onChange={(e) => updateSectionField(i, 'body', e.target.value)}
+                    placeholder="Section body"
+                    rows={5}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addCustomVisual(i, 'illustration')}
+                      className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                    >
+                      Add custom diagram
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addCustomVisual(i, 'image')}
+                      className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      Add custom image
+                    </button>
+                  </div>
+                  {Array.isArray(sec.visuals) && sec.visuals.length > 0 && (
+                    <div className="space-y-2">
+                      {sec.visuals.map((visual: any, vIdx: number) => (
+                        <div key={`${i}-${vIdx}`} className="p-2 bg-white border border-gray-200 rounded text-xs">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-semibold text-gray-700 capitalize">{visual.kind || 'visual'}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeVisual(i, vIdx)}
+                              className="px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <input
+                            value={visual.title || ''}
+                            onChange={(e) => updateVisualField(i, vIdx, 'title', e.target.value)}
+                            placeholder="Caption title"
+                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                          />
+                          <input
+                            value={visual.alt_text || ''}
+                            onChange={(e) => updateVisualField(i, vIdx, 'alt_text', e.target.value)}
+                            placeholder="Alt text"
+                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                          />
+                          {visual.kind === 'illustration' ? (
+                            <textarea
+                              value={visual.mermaid_code || ''}
+                              onChange={(e) => updateVisualField(i, vIdx, 'mermaid_code', e.target.value)}
+                              placeholder="Mermaid diagram code"
+                              rows={4}
+                              className="w-full px-2 py-1 border border-gray-300 rounded font-mono"
+                            />
+                          ) : (
+                            <>
+                              <input
+                                value={visual.image_url || ''}
+                                onChange={(e) => updateVisualField(i, vIdx, 'image_url', e.target.value)}
+                                placeholder="Image URL or data URL"
+                                className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                              />
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => uploadVisualImage(i, vIdx, e.target.files?.[0] || null)}
+                                className="w-full"
+                              />
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <h3 className="font-semibold text-gray-800 mb-1 text-base">{sec.heading || sec.title || 'Section'}</h3>
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
 
@@ -767,7 +997,7 @@ const ContentGenerator: React.FC = () => {
 
                 {/* Image figure — shown after body text */}
                 {sectionFigures[i].filter(({ visual }) => visual.kind !== 'illustration').map(({ visual, figNum }) => (
-                  visual.image_url && !visual.image_url.startsWith('data:') ? (
+                  visual.image_url ? (
                     <figure key={figNum} className="mt-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
                       <img
                         src={visual.image_url}

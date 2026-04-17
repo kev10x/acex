@@ -13,6 +13,7 @@ const ModuleOrganizer: React.FC = () => {
   const [selectedItemKey, setSelectedItemKey] = useState('');
   const [availableStudents, setAvailableStudents] = useState<{ id: number; name: string; email: string }[]>([]);
   const [selectedStudentByModule, setSelectedStudentByModule] = useState<Record<number, string>>({});
+  const [dragItem, setDragItem] = useState<{ moduleId: number; itemId: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
@@ -168,6 +169,30 @@ const ModuleOrganizer: React.FC = () => {
     }
   };
 
+  const reorderByDragDrop = async (moduleId: number, draggedItemId: number, targetItemId: number) => {
+    const module = modules.find((m) => m.id === moduleId);
+    if (!module) return;
+    const ordered = [...module.items].sort((a, b) => (a.position - b.position) || (a.id - b.id));
+    const fromIndex = ordered.findIndex((i) => i.id === draggedItemId);
+    const toIndex = ordered.findIndex((i) => i.id === targetItemId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const next = [...ordered];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    const orderedIds = next.map((i) => i.id);
+    setWorking(`reorder-${moduleId}`);
+    setError(null);
+    try {
+      await modulesAPI.reorderItems(moduleId, orderedIds);
+      await loadAll();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to reorder module');
+    } finally {
+      setWorking(null);
+      setDragItem(null);
+    }
+  };
+
   return (
     <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
       <div className="flex items-center gap-2 mb-3">
@@ -306,7 +331,23 @@ const ModuleOrganizer: React.FC = () => {
                     .slice()
                     .sort((a, b) => (a.position - b.position) || (a.id - b.id))
                     .map((item, idx, arr) => (
-                      <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 border border-gray-200 rounded p-2">
+                      <li
+                        key={item.id}
+                        draggable
+                        onDragStart={() => setDragItem({ moduleId: module.id, itemId: item.id })}
+                        onDragOver={(e) => {
+                          if (dragItem?.moduleId === module.id && dragItem?.itemId !== item.id) {
+                            e.preventDefault();
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragItem && dragItem.moduleId === module.id) {
+                            void reorderByDragDrop(module.id, dragItem.itemId, item.id);
+                          }
+                        }}
+                        className="flex items-center gap-2 flex-wrap text-sm text-gray-700 border border-gray-200 rounded p-2 cursor-move"
+                      >
                         <span className="text-xs font-semibold text-indigo-700">#{idx + 1}</span>
                         <span className="text-xs uppercase bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">{item.item_type}</span>
                         <span className="font-medium truncate max-w-[280px]" title={item.title}>{item.title}</span>
@@ -342,6 +383,7 @@ const ModuleOrganizer: React.FC = () => {
                     ))}
                 </ul>
               )}
+              <p className="mt-2 text-[11px] text-gray-500">Tip: drag and drop items to reorder, or use arrows.</p>
             </div>
           ))}
         </div>
