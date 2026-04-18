@@ -1277,6 +1277,18 @@ const ContentGenerator: React.FC = () => {
                       >
                         Select
                       </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedVisualKey(figureKey);
+                          handleRegenerateVisual(i, visualIndex);
+                        }}
+                        disabled={regeneratingVisualKey === figureKey}
+                        className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold disabled:opacity-50"
+                      >
+                        {regeneratingVisualKey === figureKey ? 'Regenerating...' : 'Regenerate'}
+                      </button>
                     </figcaption>
                   </figure>
                 ))}
@@ -1285,7 +1297,7 @@ const ContentGenerator: React.FC = () => {
                 <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">{sec.body}</p>
 
                 {/* Image figure — shown after body text */}
-                {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, figureKey }) => (
+                {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
                   visual.image_url ? (
                     <figure
                       key={figNum}
@@ -1312,6 +1324,18 @@ const ContentGenerator: React.FC = () => {
                           className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
                         >
                           Select
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVisualKey(figureKey);
+                            handleRegenerateVisual(i, visualIndex);
+                          }}
+                          disabled={regeneratingVisualKey === figureKey}
+                          className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold disabled:opacity-50"
+                        >
+                          {regeneratingVisualKey === figureKey ? 'Regenerating...' : 'Regenerate'}
                         </button>
                       </figcaption>
                     </figure>
