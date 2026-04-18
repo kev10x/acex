@@ -593,6 +593,7 @@ export const assessmentsAPI = {
     use_existing_patterns?: boolean;
     topic?: string | null;
     question_types?: ('mcq' | 'essay' | 'short_answer' | 'mix_and_match' | 'mix')[];
+    content_id?: number;
   }) => api.post('/assessments/generate', data),
   getStats: () => api.get('/assessments/stats'),
   publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string }) =>
@@ -796,6 +797,7 @@ export const modulesAPI = {
   reorderItems: (moduleId: number, itemIds: number[]) => api.put(`/modules/${moduleId}/reorder`, { item_ids: itemIds }),
   addStudent: (moduleId: number, studentUserId: number) => api.post(`/modules/${moduleId}/students`, { student_user_id: studentUserId }),
   removeStudent: (moduleId: number, studentUserId: number) => api.delete(`/modules/${moduleId}/students/${studentUserId}`),
+  getStudentModules: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules/student'),
 };
 
 // ── Moodle integration API ─────────────────────────────────────

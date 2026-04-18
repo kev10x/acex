@@ -369,7 +369,8 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
   try {
     const {
       rubric_id,
-      custom_topics = null, // When set, topics come from this list; rubric_id is optional
+      content_id = null,
+      custom_topics = null, // When set, topics come from this list; rubric_id/content_id is optional
       level = null, // e.g. Grade 10, Undergraduate
       difficulty_level = 'moderate',
       question_count = 5,
@@ -380,14 +381,49 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
     } = req.body;
 
     const useCustomTopics = custom_topics && String(custom_topics).trim().length > 0;
-    if (!useCustomTopics && !rubric_id) {
-      return res.status(400).json({ error: 'Rubric ID or custom topic list is required' });
+    const useContentItem = content_id != null && Number(content_id) > 0;
+    if (!useCustomTopics && !rubric_id && !useContentItem) {
+      return res.status(400).json({ error: 'Rubric ID, content item, or custom topic list is required' });
     }
 
     let contextData = { assignments: [], rubrics: [], marking_patterns: [] };
     let selectedRubric = null;
     let rubricCriteria = null;
     let topicsFromRubric = '';
+
+    let selectedContentItem = null;
+    let selectedContentSummary = '';
+
+    if (useContentItem) {
+      const contentQuery = isMySQL()
+        ? 'SELECT id, title, content_json FROM published_content WHERE id = ? AND user_id = ? LIMIT 1'
+        : 'SELECT id, title, content_json FROM published_content WHERE id = $1 AND user_id = $2 LIMIT 1';
+      const contentRowsResult = await query(contentQuery, [content_id, req.user.id]);
+      const contentRows = Array.isArray(contentRowsResult) ? contentRowsResult : (contentRowsResult.rows || []);
+      if (contentRows.length === 0) {
+        return res.status(404).json({ error: 'Content item not found or not accessible' });
+      }
+      selectedContentItem = contentRows[0];
+
+      try {
+        const parsedContent = typeof selectedContentItem.content_json === 'string'
+          ? JSON.parse(selectedContentItem.content_json)
+          : selectedContentItem.content_json;
+
+        const sections = Array.isArray(parsedContent?.sections) ? parsedContent.sections : [];
+        selectedContentSummary = `Title: ${selectedContentItem.title || 'Untitled content'}\n`;
+        if (sections.length > 0) {
+          selectedContentSummary += '\nContent sections:\n';
+          sections.slice(0, 3).forEach((section, idx) => {
+            const heading = section.heading || section.title || `Section ${idx + 1}`;
+            const body = typeof section.body === 'string' ? section.body.replace(/\s+/g, ' ').trim().slice(0, ASSESSMENT_CONTEXT_LIMITS.assignmentPreview) : '';
+            selectedContentSummary += `- ${heading}: ${body}${body.length >= ASSESSMENT_CONTEXT_LIMITS.assignmentPreview ? '...' : ''}\n`;
+          });
+        }
+      } catch (_) {
+        selectedContentSummary = `Title: ${selectedContentItem.title || 'Untitled content'}`;
+      }
+    }
 
     if (!useCustomTopics) {
       // Get rubric and context when using a selected rubric
@@ -508,6 +544,17 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
       };
     }
 
+    if (!useCustomTopics && !rubric_id && useContentItem && selectedContentItem) {
+      const defaultTotal = Math.max(question_count * 10, 50);
+      selectedRubric = {
+        name: `Content item-based assessment: ${selectedContentItem.title || 'Selected content'}`.slice(0, 255),
+        total_points: defaultTotal,
+        rubric_type: 'content',
+        criteria: []
+      };
+      topicsFromRubric = selectedContentSummary.slice(0, ASSESSMENT_CONTEXT_LIMITS.topicSummary);
+    }
+
     // Normalize question_types: array of allowed types or "mix"
     const requestedTypes = Array.isArray(question_types)
       ? question_types.map((t) => String(t).toLowerCase().trim())
@@ -558,6 +605,10 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
           }
         });
       }
+    }
+
+    if (selectedContentItem) {
+      contextPrompt += `\n\nSOURCE CONTENT ITEM TO BASE THIS ASSESSMENT ON:\n${selectedContentSummary}\n`;
     }
 
     // Generate assessment using AI - based on the rubric and requested question types

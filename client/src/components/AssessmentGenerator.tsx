@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
-import { assessmentsAPI, rubricsAPI, modulesAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule } from '../services/api';
+import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule } from '../services/api';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -35,6 +35,8 @@ const AssessmentGenerator: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedRubricId, setSelectedRubricId] = useState<number | null>(null);
   const [selectedRubric, setSelectedRubric] = useState<any | null>(null);
+  const [myContentItems, setMyContentItems] = useState<any[]>([]);
+  const [selectedContentId, setSelectedContentId] = useState<number | null>(null);
   const [topic, setTopic] = useState('');
   const [difficultyLevel, setDifficultyLevel] = useState<'beginner' | 'moderate' | 'advanced'>('moderate');
   const [questionCount, setQuestionCount] = useState(5);
@@ -62,6 +64,7 @@ const AssessmentGenerator: React.FC = () => {
   useEffect(() => {
     loadStats();
     loadRubrics();
+    loadMyContent();
     loadModules();
     loadPublished();
     loadHistory();
@@ -92,6 +95,7 @@ const AssessmentGenerator: React.FC = () => {
           selected_question_types: selectedQuestionTypes,
           selected_rubric_id: selectedRubricId,
           selected_rubric: nextSelectedRubric,
+          selected_content_id: selectedContentId,
           saved_rubric_id: nextSavedRubricId,
           saved_rubric_name: nextSavedRubricName,
         }
@@ -114,6 +118,7 @@ const AssessmentGenerator: React.FC = () => {
     setSelectedQuestionTypes(Array.isArray(input.selected_question_types) ? input.selected_question_types : ['mcq', 'short_answer']);
     setSelectedRubricId(input.selected_rubric_id || null);
     setSelectedRubric(input.selected_rubric || null);
+    setSelectedContentId(input.selected_content_id || null);
     setGeneratedAssessment(item.assessment);
     setSavedRubricId(input.saved_rubric_id || null);
     setSavedRubricName(input.saved_rubric_name || null);
@@ -220,6 +225,17 @@ const AssessmentGenerator: React.FC = () => {
     }
   };
 
+  const loadMyContent = async () => {
+    try {
+      const response = await contentAPI.getMy();
+      if (response.data.success) {
+        setMyContentItems(response.data.items || []);
+      }
+    } catch (error) {
+      console.error('Failed to load content items:', error);
+    }
+  };
+
   const handleRubricChange = (rubricId: number | null) => {
     setSelectedRubricId(rubricId);
     if (rubricId !== null) {
@@ -241,8 +257,8 @@ const AssessmentGenerator: React.FC = () => {
 
   const handleGenerate = async () => {
     const hasCustomTopics = useCustomTopics && (customTopicsText.trim() || customTopicsFile);
-    if (!hasCustomTopics && !selectedRubricId) {
-      setError('Select a rubric/memo or use custom topics');
+    if (!hasCustomTopics && !selectedRubricId && !selectedContentId) {
+      setError('Select a rubric/memo, a content item, or use custom topics');
       return;
     }
     if (hasCustomTopics) {
@@ -274,6 +290,9 @@ const AssessmentGenerator: React.FC = () => {
         payload.custom_topics = await getCustomTopicsString();
       } else {
         payload.rubric_id = selectedRubricId;
+      }
+      if (selectedContentId) {
+        payload.content_id = selectedContentId;
       }
       const response = await assessmentsAPI.generate(payload);
 
@@ -683,6 +702,36 @@ const AssessmentGenerator: React.FC = () => {
             </>
           )}
 
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Base on existing content item <span className="text-gray-500">(optional)</span>
+            </label>
+            <select
+              value={selectedContentId || ''}
+              onChange={(e) => setSelectedContentId(e.target.value ? parseInt(e.target.value, 10) : null)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              <option value="">None</option>
+              {myContentItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title || item.code} ({item.sections?.length ?? 0} sections)
+                </option>
+              ))}
+            </select>
+            {selectedContentId && myContentItems.find((item) => item.id === selectedContentId) && (
+              <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
+                <div className="font-semibold mb-1">Selected content preview</div>
+                <div>{myContentItems.find((item) => item.id === selectedContentId)?.title}</div>
+                {myContentItems.find((item) => item.id === selectedContentId)?.sections?.slice(0, 2).map((section: any, idx: number) => (
+                  <div key={idx} className="mt-2">
+                    <div className="font-medium">{section.heading}</div>
+                    <div className="text-xs text-gray-600">{section.preview}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -797,7 +846,7 @@ const AssessmentGenerator: React.FC = () => {
             onClick={handleGenerate}
             disabled={
               isGenerating ||
-              (!useCustomTopics && !selectedRubricId) ||
+              (!useCustomTopics && !selectedRubricId && !selectedContentId) ||
               (questionTypeMode === 'custom' && selectedQuestionTypes.length === 0)
             }
             className="w-full bg-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"

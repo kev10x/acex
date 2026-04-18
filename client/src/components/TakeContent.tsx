@@ -9,6 +9,7 @@ type Step = 'code' | 'content' | 'submitting' | 'result';
 const TakeContent: React.FC = () => {
   const [code, setCode] = useState('');
   const [codeInput, setCodeInput] = useState('');
+  const [requestedSection, setRequestedSection] = useState<number | null>(null);
   const [content, setContent] = useState<GeneratedContent | null>(null);
   const [videoStatus, setVideoStatus] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -52,10 +53,14 @@ const TakeContent: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const q = params.get('code');
+    const sectionParam = params.get('section');
+    const parsedSection = sectionParam !== null ? Number(sectionParam) : null;
+    const initialSection = Number.isFinite(parsedSection) ? Math.max(0, parsedSection as number) : null;
+    setRequestedSection(initialSection);
     if (q && q.trim()) {
       setCode(q.trim());
       setCodeInput(q.trim());
-      loadContent(q.trim());
+      loadContent(q.trim(), initialSection);
     }
   }, []);
 
@@ -94,16 +99,22 @@ const TakeContent: React.FC = () => {
     };
   }, [code, step]);
 
-  const loadContent = async (c: string) => {
+  const loadContent = async (c: string, initialSection: number | null = requestedSection) => {
     setLoading(true);
     setError(null);
     try {
       const res = await contentAPI.getByCode(c);
       if (res.data.success && res.data.content) {
         const loaded = res.data.content as GeneratedContent;
+        const targetSection = initialSection !== null
+          ? Math.min(Math.max(initialSection, 0), Math.max(0, (loaded.sections || []).length - 1))
+          : 0;
+        const initialVisitedSections = (loaded.sections || []).length > 0
+          ? Array.from({ length: targetSection + 1 }, (_, index) => index)
+          : [];
         setContent(loaded);
-        setCurrentSection(0);
-        setVisitedSections((loaded.sections || []).length > 0 ? [0] : []);
+        setCurrentSection(targetSection);
+        setVisitedSections(initialVisitedSections);
         setStep('content');
         setResult(null);
         loadedProgressKeyRef.current = '';

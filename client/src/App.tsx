@@ -36,6 +36,7 @@ const ContentGenerator = lazy(() => import('./components/ContentGenerator'));
 const TakeContent = lazy(() => import('./components/TakeContent'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ModuleOrganizer = lazy(() => import('./components/ModuleOrganizer'));
+const StudentModules = lazy(() => import('./components/StudentModules'));
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 
 type TabType =
@@ -60,7 +61,7 @@ type IconType = typeof BarChart3;
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
   management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'modules', 'moodle', 'admin'],
   lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'modules', 'moodle'],
-  student: ['mcq', 'results']
+  student: ['modules', 'mcq', 'results']
 };
 
 const WORKSPACE_ORDER: WorkspaceType[] = ['marking', 'student', 'labs', 'admin'];
@@ -122,7 +123,7 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     icon: Presentation
   },
   modules: {
-    label: 'Manage Modules',
+    label: 'Learning Modules',
     description: 'Organise assessments and content into learning modules for students.',
     icon: Layers
   },
@@ -198,7 +199,9 @@ function WorkspaceShell({
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
-      {activeTab === 'modules' && canAccessTab('modules') && <ModuleOrganizer />}
+      {activeTab === 'modules' && canAccessTab('modules') && (
+        normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
+      )}
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
@@ -233,7 +236,7 @@ function AppContent() {
       ),
       student:
         normalizedRole === 'student'
-          ? (['results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+          ? (['modules', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
           : (['assessments', 'content', 'modules', 'moodle'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;

@@ -190,34 +190,14 @@ async function generateContentWithAI(opts) {
   const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
   const compactTopics = String(topics || '').trim().slice(0, 1200);
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
-  const prompt = `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text-no long bullet lists or text-heavy slides.
-
-TOPICS TO COVER (create clear sections that teach these):
-${compactTopics}
-${level ? `TARGET LEVEL/CATEGORY: ${level}.${level === 'ECD' || level === 'Foundation Phase' ? ' Use age-appropriate language, simple sentences, and concrete examples suitable for early childhood or foundation phase learners.' : ''}\n` : ''}
-${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` : ''}
-
-Generate a structured course with exactly ${numSections} sections. For each section provide:
-- heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
-- support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
-- body: Full explanation for lecture notes and detailed reading (2-4 short paragraphs). Use \\n for paragraph breaks.
-${(includeDiagrams || includeImages) ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
+  const visualsInstruction = (includeDiagrams || includeImages)
+    ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
   - kind = "illustration" — a diagram, flowchart, or architecture diagram relevant to the section. MUST include mermaid_code: a valid Mermaid.js diagram string (graph TD, flowchart LR, sequenceDiagram, classDiagram, etc.). Keep it concise (max 20 nodes). Use real topic-specific content, not generic placeholders.` : ''}${includeImages ? `
   - kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.` : ''}
-  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.${includeDiagrams ? '\n  mermaid_code (illustration only): valid Mermaid.js syntax.' : ''}` : `- visuals: omit entirely — do not include a visuals field in any section.`}
-
-Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
-
-Respond with a JSON object only (no markdown), in this exact format:
-{
-  "title": "${suggestedTitle || 'Course Title'}",
-  "instructions": "Brief instructions for the learner (1-2 sentences).",
-  "sections": [
-    {
-      "heading": "One complete sentence stating this slide's main idea.",
-      "support": "One short supporting line or key takeaway.",
-      "body": "Full explanation for notes and reading. Use \\n for paragraph breaks.",
-      ${(includeDiagrams || includeImages) ? `"visuals": [${includeDiagrams ? `
+  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.${includeDiagrams ? '\n  mermaid_code (illustration only): valid Mermaid.js syntax.' : ''}`
+    : `- visuals: omit entirely — do not include a visuals field in any section.`;
+  const visualsExample = (includeDiagrams || includeImages)
+    ? `"visuals": [${includeDiagrams ? `
         {
           "kind": "illustration",
           "title": "Diagram caption (used as figure label)",
@@ -231,7 +211,40 @@ Respond with a JSON object only (no markdown), in this exact format:
           "alt_text": "Accessible description of image",
           "prompt": "Prompt text for image generation"
         }` : ''}
-      ]` : '"visuals": []'}
+      ]`
+    : '"visuals": []';
+  const visualsRule = includeDiagrams && includeImages
+    ? 'Include exactly one illustration and one image descriptor in visuals for every section.'
+    : includeDiagrams
+      ? 'Include exactly one illustration descriptor in visuals for every section.'
+      : includeImages
+        ? 'Include exactly one image descriptor in visuals for every section.'
+        : 'Do not include a visuals field.';
+  const buildPrompt = ({ compact = false } = {}) => `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text-no long bullet lists or text-heavy slides.
+
+TOPICS TO COVER (create clear sections that teach these):
+${compactTopics}
+${level ? `TARGET LEVEL/CATEGORY: ${level}.${level === 'ECD' || level === 'Foundation Phase' ? ' Use age-appropriate language, simple sentences, and concrete examples suitable for early childhood or foundation phase learners.' : ''}\n` : ''}
+${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` : ''}
+
+Generate a structured course with exactly ${numSections} sections. For each section provide:
+- heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
+- support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
+- body: Full explanation for lecture notes and detailed reading (2-4 short paragraphs). Use \\n for paragraph breaks.
+${visualsInstruction}
+
+Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
+
+Respond with a JSON object only (no markdown), in this exact format:
+{
+  "title": "${suggestedTitle || 'Course Title'}",
+  "instructions": "Brief instructions for the learner (1-2 sentences).",
+  "sections": [
+    {
+      "heading": "One complete sentence stating this slide's main idea.",
+      "support": "One short supporting line or key takeaway.",
+      "body": "Full explanation for notes and reading. Use \\n for paragraph breaks.",
+      ${visualsExample}
     }
   ],
   "quiz": {
@@ -249,25 +262,56 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. Include exactly one illustration and one image descriptor in visuals for every section. Quiz questions must have options and correct_answer.`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. ${visualsRule} Quiz questions must have options and correct_answer.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
+  const prompt = buildPrompt();
 
   const messages = [
     { role: 'system', content: 'You are an expert educator. Respond only with valid JSON, no markdown.' },
     { role: 'user', content: prompt },
   ];
   const fallbackModel = process.env.CONTENT_GENERATION_FALLBACK_MODEL || 'gpt-4o-mini';
-  const modelsToTry = [config.model, fallbackModel].filter((m, i, arr) => !!m && arr.indexOf(m) === i);
+  const attemptConfigs = [
+    {
+      model: config.model,
+      maxTokens: config.maxTokens,
+      messages,
+      label: 'primary',
+    },
+    {
+      model: fallbackModel,
+      maxTokens: Math.max(config.maxTokens, 5200),
+      messages,
+      label: 'fallback',
+    },
+    {
+      model: fallbackModel,
+      maxTokens: Math.max(config.maxTokens, 5200),
+      messages: [
+        { role: 'system', content: 'You are an expert educator. Return only compact, valid JSON matching the requested schema.' },
+        { role: 'user', content: buildPrompt({ compact: true }) },
+      ],
+      label: 'compact-fallback',
+    },
+  ].filter((attempt, index, all) =>
+    Boolean(attempt.model) &&
+    all.findIndex((candidate) =>
+      candidate.model === attempt.model &&
+      candidate.maxTokens === attempt.maxTokens &&
+      JSON.stringify(candidate.messages) === JSON.stringify(attempt.messages)
+    ) === index
+  );
   let completion = null;
   let raw = '';
   let lastReason = '';
 
-  for (const model of modelsToTry) {
+  for (const attempt of attemptConfigs) {
+    const { model, maxTokens, messages: attemptMessages, label } = attempt;
     completion = await aiService.createCompletionWithRetry({
       provider: config.provider,
       model,
-      messages,
+      messages: attemptMessages,
       temperature: config.temperature,
-      maxTokens: config.maxTokens,
+      maxTokens,
     });
     raw = completion.content || completion.choices?.[0]?.message?.content || '';
   if (Array.isArray(raw)) {
@@ -312,11 +356,12 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
 
     if (!jsonStr || jsonStr.length < 10) {
       const usage = completion.usage || {};
+      const finishReason = completion.choices?.[0]?.finish_reason;
       const reason = usage.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens
         ? 'The model used output budget on reasoning and returned no visible content.'
         : 'The API returned no or empty content.';
       lastReason = reason;
-      console.warn(`Content generation empty response with model ${model}.`, { usage });
+      console.warn(`Content generation empty response with model ${model} (${label}).`, { finishReason, usage });
       continue;
     }
 

@@ -252,6 +252,55 @@ router.get('/students/available', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/student', requireAuth, async (req, res) => {
+  try {
+    const modulesQ = isMySQL()
+      ? await query(
+          `SELECT DISTINCT m.id, m.name, m.created_at
+           FROM modules m
+           INNER JOIN module_students ms ON ms.module_id = m.id
+           WHERE ms.student_user_id = ?
+           ORDER BY m.created_at DESC`,
+          [req.user.id]
+        )
+      : await query(
+          `SELECT DISTINCT m.id, m.name, m.created_at
+           FROM modules m
+           INNER JOIN module_students ms ON ms.module_id = m.id
+           WHERE ms.student_user_id = $1
+           ORDER BY m.created_at DESC`,
+          [req.user.id]
+        );
+    const modules = rowList(modulesQ);
+    if (modules.length === 0) return res.json({ success: true, modules: [] });
+
+    const itemsQ = isMySQL()
+      ? await query(
+          `SELECT mi.id, mi.module_id, mi.item_type, mi.item_id, mi.snapshot_title, mi.snapshot_code, mi.position, mi.section_index, mi.created_at
+           FROM module_items mi
+           INNER JOIN modules m ON m.id = mi.module_id
+           INNER JOIN module_students ms ON ms.module_id = m.id
+           WHERE ms.student_user_id = ?
+           ORDER BY mi.position ASC, mi.created_at ASC`,
+          [req.user.id]
+        )
+      : await query(
+          `SELECT mi.id, mi.module_id, mi.item_type, mi.item_id, mi.snapshot_title, mi.snapshot_code, mi.position, mi.section_index, mi.created_at
+           FROM module_items mi
+           INNER JOIN modules m ON m.id = mi.module_id
+           INNER JOIN module_students ms ON ms.module_id = m.id
+           WHERE ms.student_user_id = $1
+           ORDER BY mi.position ASC, mi.created_at ASC`,
+          [req.user.id]
+        );
+
+    res.json({ success: true, modules: groupModules(modules, rowList(itemsQ), []) });
+  } catch (error) {
+    console.error('List student modules error:', error);
+    res.status(500).json({ error: 'Failed to list student modules' });
+  }
+});
+
 router.post('/', requireAuth, async (req, res) => {
   try {
     const name = String(req.body?.name || '').trim();
