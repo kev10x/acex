@@ -213,7 +213,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('marking');
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('marking');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, impersonation, stopImpersonation } = useAuth();
 
   const normalizedRole: AppRole = user?.role === 'admin'
     ? 'management'
@@ -391,6 +391,25 @@ function AppContent() {
           </div>
         </div>
       </header>
+
+      {impersonation?.active && (
+        <div className="bg-amber-50 border-b border-amber-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2 text-sm text-amber-900">
+              <Shield className="h-4 w-4" />
+              <span>
+                Impersonating `{user?.name || user?.email}`. Admin session: {impersonation.admin_name || impersonation.admin_email}
+              </span>
+            </div>
+            <button
+              onClick={() => void stopImpersonation()}
+              className="inline-flex items-center justify-center rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+            >
+              Stop impersonating
+            </button>
+          </div>
+        </div>
+      )}
 
       <nav className="sticky top-0 z-30 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

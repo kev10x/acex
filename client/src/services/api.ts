@@ -651,6 +651,7 @@ export interface GeneratedContent {
   instructions?: string;
   sections: ContentSection[];
   quiz?: { questions: ContentQuizQuestion[]; total_points?: number };
+  tts_enabled?: boolean;
   template_id?: string;
   template_name?: string;
   theme?: {
@@ -781,6 +782,8 @@ export const contentAPI = {
   cancelPlannerJob: (id: number) => api.post(`/content/planner/${id}/cancel`),
   saveHistory: (data: { content: GeneratedContent; input?: any }) =>
     api.post<{ success: boolean; item: ContentHistoryItem }>('/content/history', data),
+  updateHistoryItem: (id: number, data: { content: GeneratedContent; input?: any }) =>
+    api.put<{ success: boolean; item: ContentHistoryItem }>(`/content/history/${id}`, data),
   getHistory: () => api.get<{ success: boolean; items: ContentHistoryItem[] }>('/content/history'),
   deleteHistoryItem: (id: number) => api.delete(`/content/history/${id}`),
   clearHistory: () => api.delete('/content/history'),
@@ -1011,6 +1014,13 @@ export const authAPI = {
   
   updateUserRole: async (token: string, userId: number, role: 'management' | 'lecturer' | 'student') => {
     const response = await api.put(`/auth/admin/users/${userId}/role`, { role }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  impersonateUser: async (token: string, userId: number) => {
+    const response = await api.post(`/auth/admin/users/${userId}/impersonate`, {}, {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;

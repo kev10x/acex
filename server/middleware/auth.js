@@ -57,18 +57,26 @@ const authenticateToken = async (req, res, next) => {
 
     const features = mergeFeatures(user.user_features, user.organisation_features);
 
-      req.user = {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: normalizeRole(user.role),
-        is_approved: user.is_approved,
-        organisation_id: user.organisation_id || null,
-        organisation_name: user.organisation_name || null,
-        department_id: user.department_id || null,
-        department_name: user.department_name || null,
-        features
-      };
+    req.user = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: normalizeRole(user.role),
+      is_approved: user.is_approved,
+      organisation_id: user.organisation_id || null,
+      organisation_name: user.organisation_name || null,
+      department_id: user.department_id || null,
+      department_name: user.department_name || null,
+      features,
+      impersonation: decoded.impersonatedBy
+        ? {
+            active: true,
+            impersonated_by: decoded.impersonatedBy,
+            impersonated_by_email: decoded.impersonatedByEmail || null,
+            impersonated_by_name: decoded.impersonatedByName || null
+          }
+        : null
+    };
 
     next();
   } catch (error) {
@@ -119,7 +127,15 @@ const optionalAuth = async (req, res, next) => {
           organisation_name: user.organisation_name || null,
           department_id: user.department_id || null,
           department_name: user.department_name || null,
-          features
+          features,
+          impersonation: decoded.impersonatedBy
+            ? {
+                active: true,
+                impersonated_by: decoded.impersonatedBy,
+                impersonated_by_email: decoded.impersonatedByEmail || null,
+                impersonated_by_name: decoded.impersonatedByName || null
+              }
+            : null
         };
       }
     }
@@ -132,8 +148,8 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // Generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+const generateToken = (userId, extras = {}) => {
+  return jwt.sign({ userId, ...extras }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
 // Middleware to require admin role

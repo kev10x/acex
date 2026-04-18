@@ -497,6 +497,79 @@ router.post('/history', requireAuth, requireFeature('content_creation'), async (
 });
 
 /**
+ * Update one generated content history item for current user.
+ */
+router.put('/history/:id', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid history id' });
+    }
+
+    const { content, input } = req.body || {};
+    if (!content || !content.title) {
+      return res.status(400).json({ error: 'content with title is required' });
+    }
+
+    const title = String(content.title || 'Untitled content').slice(0, 500);
+    const normalized = contentService.normalizeGeneratedContent(content);
+
+    if (isMySQL()) {
+      const updated = await query(
+        `UPDATE content_generation_history
+         SET title = ?, generated_content_json = ?, input_json = ?
+         WHERE id = ? AND user_id = ?`,
+        [title, JSON.stringify(normalized), input ? JSON.stringify(input) : null, id, req.user.id]
+      );
+      const affected = updated?.affectedRows ?? updated?.rowCount ?? updated?.changes ?? 0;
+      if (!affected) {
+        return res.status(404).json({ error: 'History item not found' });
+      }
+      const rowResult = await query(
+        'SELECT id, title, generated_content_json, input_json, created_at FROM content_generation_history WHERE id = ? AND user_id = ?',
+        [id, req.user.id]
+      );
+      const row = Array.isArray(rowResult) ? rowResult[0] : (rowResult.rows && rowResult.rows[0]);
+      return res.json({
+        success: true,
+        item: {
+          id: row.id,
+          title: row.title,
+          content: parseJsonSafe(row.generated_content_json, null),
+          input: parseJsonSafe(row.input_json, null),
+          created_at: row.created_at,
+        }
+      });
+    }
+
+    const updated = await query(
+      `UPDATE content_generation_history
+       SET title = $1, generated_content_json = $2, input_json = $3
+       WHERE id = $4 AND user_id = $5
+       RETURNING id, title, generated_content_json, input_json, created_at`,
+      [title, JSON.stringify(normalized), input ? JSON.stringify(input) : null, id, req.user.id]
+    );
+    const row = updated.rows?.[0] || updated?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'History item not found' });
+    }
+    return res.json({
+      success: true,
+      item: {
+        id: row.id,
+        title: row.title,
+        content: parseJsonSafe(row.generated_content_json, null),
+        input: parseJsonSafe(row.input_json, null),
+        created_at: row.created_at,
+      }
+    });
+  } catch (error) {
+    console.error('Update content history error:', error);
+    res.status(500).json({ error: 'Failed to update content history' });
+  }
+});
+
+/**
  * List generated content history for current user.
  */
 router.get('/history', requireAuth, requireFeature('content_creation'), async (req, res) => {

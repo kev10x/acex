@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, ExternalLink, Layers, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, ChevronDown, ChevronRight, ExternalLink, Layers, Loader2 } from 'lucide-react';
 import { modulesAPI } from '../services/api';
 import type { LearningModule, LearningModuleItem } from '../services/api';
 
@@ -25,11 +25,25 @@ function getItemLaunchPath(item: LearningModuleItem) {
   return `${getAppBasePath()}/take-assessment?code=${encodeURIComponent(item.code)}`;
 }
 
+function getContentParentTitle(item: LearningModuleItem) {
+  if (item.item_type !== 'content') return item.title;
+  if (item.section_index < 0) return item.title;
+  const [baseTitle] = String(item.title || '').split(' \u203a Page ');
+  return baseTitle?.trim() || item.title;
+}
+
+function getContentSectionLabel(item: LearningModuleItem) {
+  if (item.item_type !== 'content' || item.section_index < 0) return item.title;
+  const match = String(item.title || '').match(/: (.+)$/);
+  return match?.[1]?.trim() || `Topic ${item.section_index + 1}`;
+}
+
 export default function StudentModulePlayer() {
   const [moduleData, setModuleData] = useState<LearningModule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const moduleId = useMemo(() => {
     if (typeof window === 'undefined') return null;
@@ -91,6 +105,83 @@ export default function StudentModulePlayer() {
   const nextItem = selectedIndex >= 0 && moduleData && selectedIndex < moduleData.items.length - 1
     ? moduleData.items[selectedIndex + 1]
     : null;
+  const navigationGroups = useMemo(() => {
+    if (!moduleData) return [];
+
+    const groups: Array<{
+      key: string;
+      itemType: 'content' | 'assessment';
+      parentTitle: string;
+      parentItem: LearningModuleItem | null;
+      primaryItem: LearningModuleItem;
+      subItems: LearningModuleItem[];
+    }> = [];
+    const contentGroupMap = new Map<string, number>();
+
+    moduleData.items.forEach((item) => {
+      if (item.item_type !== 'content') {
+        groups.push({
+          key: `assessment:${item.id}`,
+          itemType: 'assessment',
+          parentTitle: item.title,
+          parentItem: item,
+          primaryItem: item,
+          subItems: [],
+        });
+        return;
+      }
+
+      const groupKey = `content:${item.item_id}:${item.code || item.id}`;
+      const existingIndex = contentGroupMap.get(groupKey);
+
+      if (existingIndex === undefined) {
+        groups.push({
+          key: groupKey,
+          itemType: 'content',
+          parentTitle: getContentParentTitle(item),
+          parentItem: item.section_index < 0 ? item : null,
+          primaryItem: item,
+          subItems: item.section_index >= 0 ? [item] : [],
+        });
+        contentGroupMap.set(groupKey, groups.length - 1);
+        return;
+      }
+
+      const group = groups[existingIndex];
+      if (item.section_index < 0) {
+        group.parentItem = item;
+        group.primaryItem = item;
+        group.parentTitle = item.title;
+      } else {
+        group.subItems.push(item);
+        if (!group.parentItem) {
+          group.primaryItem = group.subItems[0];
+          group.parentTitle = getContentParentTitle(item);
+        }
+      }
+    });
+
+    return groups.map((group) => ({
+      ...group,
+      subItems: [...group.subItems].sort((a, b) => (a.section_index - b.section_index) || (a.position - b.position) || (a.id - b.id)),
+    }));
+  }, [moduleData]);
+
+  useEffect(() => {
+    if (!navigationGroups.length) return;
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      navigationGroups.forEach((group) => {
+        if (!(group.key in next)) {
+          next[group.key] = group.itemType === 'content';
+        }
+        if (group.subItems.some((item) => item.id === selectedItemId)) {
+          next[group.key] = true;
+        }
+      });
+      return next;
+    });
+  }, [navigationGroups, selectedItemId]);
 
   const openSelectedItem = () => {
     if (!selectedItem) return;
@@ -107,6 +198,10 @@ export default function StudentModulePlayer() {
     params.set('module_id', String(item.module_id));
     params.set('item_id', String(item.id));
     window.history.replaceState({}, '', `${getAppBasePath()}/take-module?${params.toString()}`);
+  };
+
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
   const goBackToModules = () => {
@@ -143,7 +238,7 @@ export default function StudentModulePlayer() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col">
-      <aside className="order-1 lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 bg-white border-r border-slate-200 shadow-sm z-20">
+      <aside className="order-1 lg:fixed lg:inset-y-0 lg:left-0 lg:w-80 bg-white border-r border-slate-200 shadow-sm z-20">
         <div className="h-full overflow-y-auto p-5 space-y-5">
           <button
             type="button"
@@ -161,7 +256,7 @@ export default function StudentModulePlayer() {
             </div>
             <h1 className="mt-3 text-2xl font-bold text-slate-900">{moduleData.name}</h1>
             <p className="mt-2 text-sm text-slate-600">
-              {moduleData.items.length} unit{moduleData.items.length !== 1 ? 's' : ''} in this module.
+              {moduleData.items.length} learning item{moduleData.items.length !== 1 ? 's' : ''} in this module.
             </p>
           </div>
 
@@ -218,10 +313,99 @@ export default function StudentModulePlayer() {
               </button>
             )}
           </div>
+
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Module navigation</h2>
+            <div className="space-y-2">
+              {navigationGroups.map((group, index) => {
+                const isExpanded = !!expandedGroups[group.key];
+                const isActiveGroup = group.parentItem?.id === selectedItemId || group.subItems.some((item) => item.id === selectedItemId);
+                const canOpenParent = Boolean(getItemLaunchPath(group.primaryItem));
+                const hasSubUnits = group.subItems.length > 0;
+
+                return (
+                  <div
+                    key={group.key}
+                    className={`rounded-2xl border transition-colors ${
+                      isActiveGroup ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-stretch">
+                      <button
+                        type="button"
+                        onClick={() => updateSelection(group.parentItem || group.primaryItem)}
+                        disabled={!canOpenParent}
+                        className="flex-1 px-3 py-3 text-left rounded-l-2xl hover:bg-slate-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-slate-200 text-sm font-semibold text-slate-700 shrink-0">
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              {group.itemType === 'content' ? (
+                                <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
+                              ) : (
+                                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                              )}
+                              <span className="font-medium text-slate-900 truncate">{group.parentTitle}</span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                              <span>{group.itemType === 'content' ? 'Content' : 'Assessment'}</span>
+                              {group.itemType === 'content' && hasSubUnits && (
+                                <span>{group.subItems.length} topic{group.subItems.length !== 1 ? 's' : ''}</span>
+                              )}
+                              {!canOpenParent && <span>Not available</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                      {hasSubUnits && (
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.key)}
+                          className="px-3 rounded-r-2xl border-l border-slate-200 text-slate-600 hover:bg-slate-50"
+                          aria-label={isExpanded ? 'Collapse topics' : 'Expand topics'}
+                        >
+                          {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
+                    {hasSubUnits && isExpanded && (
+                      <div className="px-3 pb-3">
+                        <div className="ml-11 space-y-1 border-l border-emerald-200 pl-3">
+                          {group.subItems.map((subItem) => {
+                            const isActiveSubItem = subItem.id === selectedItemId;
+                            return (
+                              <button
+                                key={subItem.id}
+                                type="button"
+                                onClick={() => updateSelection(subItem)}
+                                className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                                  isActiveSubItem
+                                    ? 'bg-emerald-100 text-emerald-900'
+                                    : 'text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="font-medium">{getContentSectionLabel(subItem)}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  Topic {subItem.section_index + 1}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </aside>
 
-      <main className="order-2 px-4 py-4 lg:px-8 lg:py-6 lg:ml-72 lg:mr-80">
+      <main className="order-2 px-4 py-4 lg:px-8 lg:py-6 lg:ml-80">
         <div className="min-h-[calc(100vh-2rem)] rounded-[28px] border border-slate-200 bg-white shadow-sm">
           {selectedItem ? (
             <div className="h-full p-4 lg:p-8 space-y-6">
@@ -279,54 +463,6 @@ export default function StudentModulePlayer() {
           )}
         </div>
       </main>
-
-      <aside className="order-3 lg:fixed lg:inset-y-0 lg:right-0 lg:w-80 bg-white border-l border-slate-200 shadow-sm z-20">
-        <div className="h-full overflow-y-auto p-5">
-          <h2 className="text-sm font-semibold text-slate-700 mb-3">Unit navigation</h2>
-          <div className="space-y-2">
-            {moduleData.items.map((item, index) => {
-              const isActive = item.id === selectedItemId;
-              const canOpen = Boolean(getItemLaunchPath(item));
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => updateSelection(item)}
-                  className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${
-                    isActive
-                      ? 'border-emerald-300 bg-emerald-50'
-                      : 'border-slate-200 bg-white hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-slate-200 text-sm font-semibold text-slate-700 shrink-0">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        {item.item_type === 'content' ? (
-                          <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
-                        ) : (
-                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                        )}
-                        <span className="font-medium text-slate-900 truncate">{item.title}</span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        <span>{item.item_type === 'content' ? 'Content' : 'Assessment'}</span>
-                        {item.item_type === 'content' && item.section_index >= 0 && (
-                          <span>Section {item.section_index + 1}</span>
-                        )}
-                        {!canOpen && <span>Not available</span>}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </aside>
     </div>
   );
 }

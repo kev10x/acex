@@ -54,6 +54,23 @@ function normalizeFeatureFlags(features) {
   };
 }
 
+function buildAuthUserPayload(user, impersonation = null) {
+  const features = normalizeFeatureFlags(mergeFeatures(user.user_features, user.organisation_features));
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    account_type: user.account_type || 'individual',
+    organisation_name: user.organisation_name || null,
+    organisation_id: user.organisation_id || null,
+    department_id: user.department_id || null,
+    department_name: user.department_name || null,
+    role: normalizeRole(user.role),
+    features,
+    impersonation
+  };
+}
+
 // Register new user
 router.post('/register', authLimiter, [
   body('email').isEmail().normalizeEmail(),
@@ -240,21 +257,9 @@ router.post('/login', authLimiter, [
     // Generate token
     const token = generateToken(user.id);
 
-    const features = normalizeFeatureFlags(mergeFeatures(user.user_features, user.organisation_features));
     res.json({
       message: 'Login successful',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        account_type: user.account_type || 'individual',
-        organisation_name: user.organisation_name || null,
-        organisation_id: user.organisation_id || null,
-        department_id: user.department_id || null,
-        department_name: user.department_name || null,
-        role: normalizeRole(user.role),
-        features
-      },
+      user: buildAuthUserPayload(user),
       token
     });
   } catch (error) {
@@ -284,23 +289,13 @@ router.get('/me', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const features = normalizeFeatureFlags(mergeFeatures(user.user_features, user.organisation_features));
     res.json({
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
+        ...buildAuthUserPayload(user, req.user?.impersonation || null),
         created_at: user.created_at,
         last_login: user.last_login,
-        account_type: user.account_type || 'individual',
-        organisation_name: user.organisation_name || null,
-        organisation_id: user.organisation_id || null,
-        department_id: user.department_id || null,
-        department_name: user.department_name || null,
         email_verified: user.email_verified,
-        is_approved: user.is_approved,
-        role: normalizeRole(user.role),
-        features
+        is_approved: user.is_approved
       }
     });
   } catch (error) {
@@ -662,6 +657,68 @@ router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Get all users error:', error);
     res.status(500).json({ error: 'Failed to get users' });
+  }
+});
+
+router.post('/admin/users/:id/impersonate', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const targetId = Number(req.params.id);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+    if (targetId === req.user.id) {
+      return res.status(400).json({ error: 'You are already signed in as this user' });
+    }
+
+    const guard = await getManageableTargetUser(req.user, targetId);
+    if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
+    if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
+    if (normalizeRole(guard.target.role) === 'management') {
+      return res.status(403).json({ error: 'Management users cannot be impersonated' });
+    }
+
+    const result = await query(
+      `SELECT u.id, u.email, u.name, u.is_active, u.role, u.is_approved,
+              u.account_type, COALESCE(o.name, u.organisation_name) as organisation_name, u.organisation_id,
+              u.department_id, d.name as department_name, u.features as user_features, o.features as organisation_features
+       FROM users u
+       LEFT JOIN organisations o ON o.id = u.organisation_id
+       LEFT JOIN departments d ON d.id = u.department_id
+       WHERE u.id = $1`,
+      [targetId]
+    );
+    const targetUser = result.rows?.[0] || result?.[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (!targetUser.is_active) {
+      return res.status(400).json({ error: 'Cannot impersonate an inactive user' });
+    }
+    if (!targetUser.is_approved) {
+      return res.status(400).json({ error: 'Cannot impersonate an unapproved user' });
+    }
+
+    const impersonation = {
+      active: true,
+      impersonated_by: req.user.id,
+      impersonated_by_email: req.user.email,
+      impersonated_by_name: req.user.name || null
+    };
+    const token = generateToken(targetUser.id, {
+      impersonatedBy: req.user.id,
+      impersonatedByEmail: req.user.email,
+      impersonatedByName: req.user.name || null
+    });
+
+    res.json({
+      success: true,
+      message: `Now impersonating ${targetUser.name || targetUser.email}`,
+      token,
+      user: buildAuthUserPayload(targetUser, impersonation)
+    });
+  } catch (error) {
+    console.error('Impersonate user error:', error);
+    res.status(500).json({ error: 'Failed to impersonate user' });
   }
 });
 

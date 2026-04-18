@@ -64,7 +64,7 @@ const normalizeRole = (role?: string): UserRole => {
 };
 
 const AdminDashboard: React.FC = () => {
-  const { token, user } = useAuth();
+  const { token, user, impersonateUser } = useAuth();
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'performance' | 'system'>('pending');
@@ -228,6 +228,17 @@ const AdminDashboard: React.FC = () => {
       await loadUsers();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to delete user');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleImpersonate = async (userId: number) => {
+    setActionLoading(userId);
+    try {
+      await impersonateUser(userId);
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Failed to impersonate user');
     } finally {
       setActionLoading(null);
     }
@@ -1204,6 +1215,16 @@ const AdminDashboard: React.FC = () => {
                       )}
                       {userData.id !== user?.id && (
                         <>
+                          {normalizeRole(userData.role) !== 'management' && (
+                            <button
+                              onClick={() => handleImpersonate(userData.id)}
+                              disabled={actionLoading === userData.id}
+                              title="Impersonate user"
+                              className="px-2 py-1 rounded text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                            >
+                              Impersonate
+                            </button>
+                          )}
                           <button
                             onClick={() => handleLock(userData.id, userData.is_active === false)}
                             disabled={actionLoading === userData.id}

@@ -46,6 +46,7 @@ const TakeContent: React.FC = () => {
   const maxContentIndex = Math.max(0, sectionCount - 1);
   const isCheckpointView = hasQuiz && currentSection >= checkpointIndex;
   const currentSectionViewed = currentSection < sectionCount ? visitedSections.includes(currentSection) : true;
+  const ttsEnabled = content?.tts_enabled !== false;
 
   const getContiguousViewedIndex = () => {
     if (sectionCount === 0) return -1;
@@ -515,35 +516,39 @@ const TakeContent: React.FC = () => {
                 {(activeSection as any).support && (
                   <p className="text-base mb-3" style={{ color: content?.theme?.text_color || '#4B5563' }}>{String((activeSection as any).support).trim()}</p>
                 )}
-                <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePlaySectionAudio}
-                    disabled={audioLoading}
-                    className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
-                  >
-                    {audioLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
-                    {audioLoading ? 'Generating audio...' : 'Listen to this section'}
-                  </button>
-                  <select
-                    value={audioVoice}
-                    onChange={(e) => setAudioVoice(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                  >
-                    <option value="eve">Eve</option>
-                    <option value="ara">Ara</option>
-                    <option value="leo">Leo</option>
-                    <option value="rex">Rex</option>
-                    <option value="sal">Sal</option>
-                  </select>
-                </div>
-                {audioError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{audioError}</div>}
-                {audioUrl && (
-                  <div className="mb-4">
-                    <audio controls autoPlay className="w-full" src={audioUrl}>
-                      Your browser does not support audio playback.
-                    </audio>
-                  </div>
+                {ttsEnabled && (
+                  <>
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handlePlaySectionAudio}
+                        disabled={audioLoading}
+                        className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                      >
+                        {audioLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
+                        {audioLoading ? 'Generating audio...' : 'Listen to this section'}
+                      </button>
+                      <select
+                        value={audioVoice}
+                        onChange={(e) => setAudioVoice(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      >
+                        <option value="eve">Eve</option>
+                        <option value="ara">Ara</option>
+                        <option value="leo">Leo</option>
+                        <option value="rex">Rex</option>
+                        <option value="sal">Sal</option>
+                      </select>
+                    </div>
+                    {audioError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{audioError}</div>}
+                    {audioUrl && (
+                      <div className="mb-4">
+                        <audio controls autoPlay className="w-full" src={audioUrl}>
+                          Your browser does not support audio playback.
+                        </audio>
+                      </div>
+                    )}
+                  </>
                 )}
                 {(() => {
                   const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];

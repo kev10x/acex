@@ -23,6 +23,7 @@ const ContentGenerator: React.FC = () => {
   const [includeVideo, setIncludeVideo] = useState(false);
   const [includeDiagrams, setIncludeDiagrams] = useState(true);
   const [includeImages, setIncludeImages] = useState(true);
+  const [includeTextToSpeech, setIncludeTextToSpeech] = useState(true);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState('classroom');
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
@@ -43,6 +44,8 @@ const ContentGenerator: React.FC = () => {
   const [exporting, setExporting] = useState<string | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
+  const [activeHistoryId, setActiveHistoryId] = useState<number | null>(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,21 +75,33 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
+  const buildContentInput = () => ({
+    topics: topics.trim(),
+    level,
+    num_sections: numSections,
+    rubric_id: rubricId,
+    template_id: templateId,
+    include_diagrams: includeDiagrams,
+    include_images: includeImages,
+    include_video: includeVideo,
+    tts_enabled: includeTextToSpeech,
+  });
+
+  const withGenerationSettings = (content: GeneratedContent): GeneratedContent => ({
+    ...content,
+    tts_enabled: content.tts_enabled !== false && includeTextToSpeech,
+  });
+
   const addToHistory = async (content: GeneratedContent) => {
     try {
-      await contentAPI.saveHistory({
-        content,
-        input: {
-          topics: topics.trim(),
-          level,
-          num_sections: numSections,
-          rubric_id: rubricId,
-          template_id: templateId,
-          include_diagrams: includeDiagrams,
-          include_images: includeImages,
-          include_video: includeVideo,
-        }
+      const normalizedContent = withGenerationSettings(content);
+      const res = await contentAPI.saveHistory({
+        content: normalizedContent,
+        input: buildContentInput(),
       });
+      if (res.data?.item?.id) {
+        setActiveHistoryId(res.data.item.id);
+      }
       await loadHistory();
     } catch (_) {}
   };
@@ -101,9 +116,39 @@ const ContentGenerator: React.FC = () => {
     setIncludeDiagrams(input.include_diagrams !== false);
     setIncludeImages(input.include_images !== false);
     setIncludeVideo(!!input.include_video);
-    setGeneratedContent(item.content);
+    setIncludeTextToSpeech(input.tts_enabled !== false && item.content?.tts_enabled !== false);
+    setGeneratedContent({
+      ...item.content,
+      tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
+    });
+    setActiveHistoryId(item.id);
     setPublishedLink(null);
     setError(null);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!generatedContent) return;
+    setIsSavingDraft(true);
+    setError(null);
+    try {
+      const contentToSave = withGenerationSettings(generatedContent);
+      const payload = {
+        content: contentToSave,
+        input: buildContentInput(),
+      };
+      const res = activeHistoryId
+        ? await contentAPI.updateHistoryItem(activeHistoryId, payload)
+        : await contentAPI.saveHistory(payload);
+      if (res.data?.item) {
+        setActiveHistoryId(res.data.item.id);
+        setGeneratedContent(res.data.item.content);
+      }
+      await loadHistory();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to save content draft');
+    } finally {
+      setIsSavingDraft(false);
+    }
   };
 
   const removeHistoryItem = async (id: number) => {
@@ -149,6 +194,7 @@ const ContentGenerator: React.FC = () => {
             include_diagrams: item.include_diagrams !== false,
             include_images: item.include_images !== false,
             include_video: !!item.include_video,
+            tts_enabled: item.tts_enabled !== false,
           }
         });
       }
@@ -222,6 +268,7 @@ const ContentGenerator: React.FC = () => {
     }
     setError(null);
     setIsGenerating(true);
+    setActiveHistoryId(null);
     setGeneratedContent(null);
     try {
       let effectiveTemplateId = templateId;
@@ -243,8 +290,9 @@ const ContentGenerator: React.FC = () => {
         include_images: includeImages,
       });
       if (res.data.success && res.data.content) {
-        setGeneratedContent(res.data.content);
-        await addToHistory(res.data.content);
+        const contentWithSettings = withGenerationSettings(res.data.content);
+        setGeneratedContent(contentWithSettings);
+        await addToHistory(contentWithSettings);
       } else {
         setError('Failed to generate content');
       }
@@ -285,7 +333,7 @@ const ContentGenerator: React.FC = () => {
     setError(null);
     try {
       const payload: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string } = {
-        content: generatedContent,
+        content: withGenerationSettings(generatedContent),
         rubric_id: rubricId || undefined,
         include_video: withVideo,
       };
@@ -429,7 +477,7 @@ const ContentGenerator: React.FC = () => {
     if (!generatedContent) return;
     const section = generatedContent.sections?.[sectionIndex];
     const visual = section?.visuals?.[visualIndex];
-    if (!section || !visual) return;
+    if (!section || !visual || visual.kind !== 'image' || !String(visual.image_url || '').trim()) return;
 
     const key = `${sectionIndex}:${visualIndex}`;
     setRegeneratingVisualKey(key);
@@ -776,6 +824,19 @@ const ContentGenerator: React.FC = () => {
               <Video className="w-4 h-4 text-gray-500" />
               <span className="text-sm text-gray-700">Include AI video (Sora) when publishing</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeTextToSpeech}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setIncludeTextToSpeech(enabled);
+                  setGeneratedContent((prev) => (prev ? { ...prev, tts_enabled: enabled } : prev));
+                }}
+                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+              />
+              <span className="text-sm text-gray-700">Enable text-to-speech for students</span>
+            </label>
             <div className="flex items-center gap-2">
               <input
                 ref={fileInputRef}
@@ -835,6 +896,14 @@ const ContentGenerator: React.FC = () => {
           <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
             <h2 className="text-xl font-bold text-gray-800">Edit and preview content</h2>
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleSaveDraft}
+                disabled={isSavingDraft}
+                className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isSavingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {activeHistoryId ? 'Save changes' : 'Save draft'}
+              </button>
               <button
                 onClick={() => handleExport('pptx')}
                 disabled={!!exporting}
@@ -947,6 +1016,9 @@ const ContentGenerator: React.FC = () => {
           {generatedContent.instructions && (
             <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">{generatedContent.instructions}</div>
           )}
+          <div className="mb-4 text-xs text-gray-500">
+            Text-to-speech is {generatedContent.tts_enabled !== false ? 'enabled' : 'disabled'} for this content.
+          </div>
           {(() => {
             const sections = generatedContent.sections || [];
             return (
@@ -1006,14 +1078,16 @@ const ContentGenerator: React.FC = () => {
                           <div className="flex items-center justify-between mb-1">
                             <span className="font-semibold text-gray-700 capitalize">{visual.kind || 'visual'}</span>
                             <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleRegenerateVisual(i, vIdx)}
-                                disabled={regeneratingVisualKey === `${i}:${vIdx}`}
-                                className="px-2 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
-                              >
-                                {regeneratingVisualKey === `${i}:${vIdx}` ? 'Regenerating...' : 'Regenerate with Grok'}
-                              </button>
+                              {visual.kind === 'image' && String(visual.image_url || '').trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRegenerateVisual(i, vIdx)}
+                                  disabled={regeneratingVisualKey === `${i}:${vIdx}`}
+                                  className="px-2 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                                >
+                                  {regeneratingVisualKey === `${i}:${vIdx}` ? 'Regenerating image...' : 'Regenerate image'}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => removeVisual(i, vIdx)}
