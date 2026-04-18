@@ -14,6 +14,8 @@ const LEVEL_OPTIONS = [
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
+const hasVisualSource = (visual: any) =>
+  !!String(visual?.image_url || '').trim() || !!String(visual?.mermaid_code || '').trim();
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -523,10 +525,7 @@ const ContentGenerator: React.FC = () => {
     if (!generatedContent) return;
     const section = generatedContent.sections?.[sectionIndex];
     const visual = section?.visuals?.[visualIndex];
-    const canRegenerate = !!section && !!visual && (
-      (visual.kind === 'illustration') ||
-      (visual.kind === 'image' && String(visual.image_url || '').trim())
-    );
+    const canRegenerate = !!section && !!visual && hasVisualSource(visual);
     if (!canRegenerate) return;
 
     const key = `${sectionIndex}:${visualIndex}`;
@@ -1142,7 +1141,7 @@ const ContentGenerator: React.FC = () => {
                           <div className="flex items-center justify-between mb-1">
                             <span className="font-semibold text-gray-700 capitalize">{visual.kind || 'visual'}</span>
                             <div className="flex items-center gap-2">
-                              {(visual.kind === 'illustration' || (visual.kind === 'image' && String(visual.image_url || '').trim())) && (
+                              {hasVisualSource(visual) && (
                                 <button
                                   type="button"
                                   onClick={() => handleRegenerateVisual(i, vIdx)}
