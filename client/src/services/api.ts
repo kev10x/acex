@@ -798,6 +798,68 @@ export const modulesAPI = {
   removeStudent: (moduleId: number, studentUserId: number) => api.delete(`/modules/${moduleId}/students/${studentUserId}`),
 };
 
+// ── Moodle integration API ─────────────────────────────────────
+export interface MoodleConnection {
+  moodle_url: string;
+  site_name: string | null;
+  moodle_user_id: number | null;
+}
+
+export interface MoodleCourse {
+  id: number;
+  fullname: string;
+  shortname: string;
+  summary: string;
+}
+
+export interface MoodleAssignment {
+  id: number;
+  cmid: number;
+  name: string;
+  duedate: number;
+  nosubmissions: number;
+}
+
+export interface MoodleQuiz {
+  id: number;
+  coursemodule: number;
+  name: string;
+  intro: string;
+  timelimit: number;
+  sumgrades: number;
+}
+
+export interface MoodleUser {
+  id: number;
+  fullname: string;
+  email: string;
+  username: string;
+}
+
+export interface GradeEntry {
+  moodle_user_id: number;
+  grade: number;
+  feedback?: string;
+}
+
+export const moodleAPI = {
+  getSettings: () => api.get<{ success: boolean; connection: MoodleConnection | null }>('/moodle/settings'),
+  saveSettings: (data: { moodle_url: string; moodle_token: string }) =>
+    api.post<{ success: boolean; site_name: string; moodle_url: string; moodle_user_id: number | null }>('/moodle/settings', data),
+  deleteSettings: () => api.delete('/moodle/settings'),
+  getCourses: () => api.get<{ success: boolean; courses: MoodleCourse[] }>('/moodle/courses'),
+  getAssignments: (courseId: number) =>
+    api.get<{ success: boolean; assignments: MoodleAssignment[] }>(`/moodle/courses/${courseId}/assignments`),
+  getQuizzes: (courseId: number) =>
+    api.get<{ success: boolean; quizzes: MoodleQuiz[] }>(`/moodle/courses/${courseId}/quizzes`),
+  getCourseUsers: (courseId: number) =>
+    api.get<{ success: boolean; users: MoodleUser[] }>(`/moodle/courses/${courseId}/users`),
+  pushGrades: (data: { assignment_cmid: number; grades: GradeEntry[] }) =>
+    api.post<{ success: boolean; pushed: number }>('/moodle/grades/push', data),
+  importXml: (xml: string) =>
+    api.post<{ success: boolean; question_count: number; title: string; history_id: number }>('/moodle/import/xml', { xml }),
+};
+
 // Authentication API
 export const authAPI = {
   register: async (

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History } from 'lucide-react';
 import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
-import ModuleOrganizer from './ModuleOrganizer';
 
 const LEVEL_OPTIONS = [
   { value: '', label: 'Any level' },
@@ -476,8 +475,6 @@ const ContentGenerator: React.FC = () => {
         <p className="text-gray-600 mb-6">
           Create course content from topics: slide decks, lecture notes, and an interactive student view. Optionally add AI-generated video and upload a PowerPoint template for slides.
         </p>
-
-        <ModuleOrganizer />
 
         {myContent.length > 0 && (
           <div className="mb-6 p-4 bg-teal-50 border border-teal-200 rounded-lg">

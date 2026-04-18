@@ -550,97 +550,108 @@ const ModuleOrganizer: React.FC = () => {
                           {sortedItems.map((item, idx) => {
                             const isContent = item.item_type === 'content';
                             const si = item.section_index ?? -1;
+                            const prevType = idx > 0 ? sortedItems[idx - 1].item_type : null;
+                            const showGroupLabel = idx === 0 || item.item_type !== prevType;
 
                             return (
-                              <li
-                                key={item.id}
-                                draggable
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  setInternalDrag({ moduleId: module.id, itemId: item.id });
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                onDragOver={(e) => {
-                                  if (isDraggingFromLib) {
-                                    // Let the parent module card handle it
-                                    return;
-                                  }
-                                  if (internalDrag?.moduleId === module.id && internalDrag?.itemId !== item.id) {
+                              <React.Fragment key={item.id}>
+                                {showGroupLabel && (
+                                  <li className="px-2 py-1">
+                                    <div className="flex items-center gap-2 text-[10px] uppercase font-semibold tracking-wide text-gray-500">
+                                      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                        isContent ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'
+                                      }`}>
+                                        {isContent ? 'Content' : 'Assessments'}
+                                      </span>
+                                    </div>
+                                  </li>
+                                )}
+                                <li
+                                  draggable
+                                  onDragStart={(e) => {
+                                    e.stopPropagation();
+                                    setInternalDrag({ moduleId: module.id, itemId: item.id });
+                                    e.dataTransfer.effectAllowed = 'move';
+                                  }}
+                                  onDragOver={(e) => {
+                                    if (isDraggingFromLib) {
+                                      return;
+                                    }
+                                    if (internalDrag?.moduleId === module.id && internalDrag?.itemId !== item.id) {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      e.dataTransfer.dropEffect = 'move';
+                                    }
+                                  }}
+                                  onDrop={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    e.dataTransfer.dropEffect = 'move';
-                                  }
-                                }}
-                                onDrop={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
 
-                                  // Internal reorder
-                                  if (internalDrag && internalDrag.moduleId === module.id && internalDrag.itemId !== item.id) {
-                                    void reorderByDrop(module.id, internalDrag.itemId, item.id);
-                                    return;
-                                  }
+                                    if (internalDrag && internalDrag.moduleId === module.id && internalDrag.itemId !== item.id) {
+                                      void reorderByDrop(module.id, internalDrag.itemId, item.id);
+                                      return;
+                                    }
 
-                                  // Library drop landed on a module item — still add to module
-                                  const payload = decodeLibDrag(e);
-                                  if (payload) void handleLibraryDrop(module.id, payload);
-                                }}
-                                onDragEnd={() => setInternalDrag(null)}
-                                className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 group transition-colors ${
-                                  internalDrag?.moduleId === module.id && internalDrag?.itemId === item.id
-                                    ? 'opacity-40 bg-gray-100 border-gray-200'
-                                    : 'bg-gray-50 border-gray-200 hover:bg-white cursor-move'
-                                }`}
-                              >
-                                <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400 shrink-0" />
-                                <span className="text-xs font-bold text-gray-400 w-5 shrink-0 text-right tabular-nums">
-                                  {idx + 1}
-                                </span>
-                                <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded font-semibold shrink-0 ${
-                                  isContent
-                                    ? 'bg-indigo-100 text-indigo-700'
-                                    : 'bg-emerald-100 text-emerald-700'
-                                }`}>
-                                  {isContent ? 'content' : 'quiz'}
-                                </span>
-                                <span className="truncate flex-1 text-gray-800 text-sm" title={item.title}>
-                                  {item.title}
-                                </span>
-                                {si >= 0 && (
-                                  <span className="text-[10px] text-indigo-400 shrink-0 tabular-nums">
-                                    p.{si + 1}
+                                    const payload = decodeLibDrag(e);
+                                    if (payload) void handleLibraryDrop(module.id, payload);
+                                  }}
+                                  onDragEnd={() => setInternalDrag(null)}
+                                  className={`flex items-center gap-2 text-sm border rounded-lg px-3 py-2 group transition-colors ${
+                                    internalDrag?.moduleId === module.id && internalDrag?.itemId === item.id
+                                      ? 'opacity-40 bg-gray-100 border-gray-200'
+                                      : 'bg-gray-50 border-gray-200 hover:bg-white cursor-move'
+                                  }`}
+                                >
+                                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400 shrink-0" />
+                                  <span className="text-xs font-bold text-gray-400 w-5 shrink-0 text-right tabular-nums">
+                                    {idx + 1}
                                   </span>
-                                )}
-                                <div className="flex items-center gap-1 shrink-0 ml-auto">
-                                  <button
-                                    type="button"
-                                    onClick={() => moveItem(module.id, item.id, 'up')}
-                                    disabled={idx === 0 || !!working}
-                                    title="Move up"
-                                    className="p-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100"
-                                  >
-                                    <ArrowUp className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => moveItem(module.id, item.id, 'down')}
-                                    disabled={idx === sortedItems.length - 1 || !!working}
-                                    title="Move down"
-                                    className="p-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100"
-                                  >
-                                    <ArrowDown className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveItem(module.id, item.id)}
-                                    disabled={working === `rem-item-${item.id}`}
-                                    title="Remove from module"
-                                    className="p-1 rounded border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-30"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </li>
+                                  <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded font-semibold shrink-0 ${
+                                    isContent
+                                      ? 'bg-indigo-100 text-indigo-700'
+                                      : 'bg-emerald-100 text-emerald-700'
+                                  }`}>
+                                    {isContent ? 'Content' : 'Assessment'}
+                                  </span>
+                                  <span className="truncate flex-1 text-gray-800 text-sm" title={item.title}>
+                                    {item.title}
+                                  </span>
+                                  {si >= 0 && (
+                                    <span className="text-[10px] text-indigo-400 shrink-0 tabular-nums">
+                                      p.{si + 1}
+                                    </span>
+                                  )}
+                                  <div className="flex items-center gap-1 shrink-0 ml-auto">
+                                    <button
+                                      type="button"
+                                      onClick={() => moveItem(module.id, item.id, 'up')}
+                                      disabled={idx === 0 || !!working}
+                                      title="Move up"
+                                      className="p-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => moveItem(module.id, item.id, 'down')}
+                                      disabled={idx === sortedItems.length - 1 || !!working}
+                                      title="Move down"
+                                      className="p-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveItem(module.id, item.id)}
+                                      disabled={working === `rem-item-${item.id}`}
+                                      title="Remove from module"
+                                      className="p-1 rounded border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-30"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </li>
+                              </React.Fragment>
                             );
                           })}
                         </ul>

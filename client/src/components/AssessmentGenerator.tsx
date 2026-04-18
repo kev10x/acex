@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
 import { assessmentsAPI, rubricsAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem } from '../services/api';
-import ModuleOrganizer from './ModuleOrganizer';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -416,8 +415,6 @@ const AssessmentGenerator: React.FC = () => {
         <p className="text-gray-600 mb-6">
           Generate new assessments automatically based on your rubrics. The system creates questions that align with your rubric criteria, ensuring assessments match your marking standards.
         </p>
-
-        <ModuleOrganizer />
 
         {publishedList.length > 0 && (
           <div className="mb-6 p-4 bg-violet-50 border border-violet-200 rounded-lg">

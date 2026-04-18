@@ -3,11 +3,26 @@ import mermaid from 'mermaid';
 
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'neutral',
+  theme: 'base',
   fontFamily: 'system-ui, sans-serif',
   fontSize: 14,
-  flowchart: { curve: 'basis', padding: 20 },
-  sequence: { actorMargin: 50 },
+  themeVariables: {
+    primaryColor: '#047857',
+    secondaryColor: '#22c55e',
+    tertiaryColor: '#f8fafc',
+    primaryTextColor: '#0f172a',
+    secondaryTextColor: '#1f2937',
+    border1: '#059669',
+    border2: '#10b981',
+    lineColor: '#059669',
+    clusterBkg: '#ecfdf5',
+    clusterBorder: '#6ee7b7',
+    noteBkgColor: '#d1fae5',
+    noteTextColor: '#065f46',
+    edgeLabelBackground: '#ecfccb',
+  },
+  flowchart: { curve: 'basis', padding: 24, nodeSpacing: 60, rankSpacing: 60, useMaxWidth: true },
+  sequence: { actorMargin: 50, useMaxWidth: true },
 });
 
 interface MermaidDiagramProps {
@@ -55,7 +70,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className = '' })
     );
   }
 
-  return <div ref={containerRef} className={`mermaid-container overflow-auto ${className}`} />;
+  return <div ref={containerRef} className={`mermaid-container overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm ${className}`} />;
 };
 
 export default MermaidDiagram;
