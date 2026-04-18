@@ -3,10 +3,12 @@ import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2 } from 'lucid
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
+import { useAuth } from '../contexts/AuthContext';
 
 type Step = 'code' | 'content' | 'submitting' | 'result';
 
 const TakeContent: React.FC = () => {
+  const { user } = useAuth();
   const [code, setCode] = useState('');
   const [codeInput, setCodeInput] = useState('');
   const [requestedSection, setRequestedSection] = useState<number | null>(null);
@@ -25,6 +27,7 @@ const TakeContent: React.FC = () => {
   const videoBlobUrlRef = useRef<string | null>(null);
   const progressSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedProgressKeyRef = useRef<string>('');
+  const defaultStudentName = user?.name?.trim() || user?.email?.trim() || '';
 
   const sections = content?.sections || [];
   const sectionCount = sections.length;
@@ -63,6 +66,11 @@ const TakeContent: React.FC = () => {
       loadContent(q.trim(), initialSection);
     }
   }, []);
+
+  useEffect(() => {
+    if (!defaultStudentName || studentName.trim()) return;
+    setStudentName(defaultStudentName);
+  }, [defaultStudentName, studentName]);
 
   useEffect(() => {
     if (!code || step !== 'content') return;

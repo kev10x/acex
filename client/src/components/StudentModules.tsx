@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { modulesAPI } from '../services/api';
 import type { LearningModule, LearningModuleItem } from '../services/api';
-import { BookOpen, CheckCircle, Clock, Play, Users } from 'lucide-react';
+import { BookOpen, CheckCircle, Clock, Copy, ExternalLink, Play, Users } from 'lucide-react';
 
 export default function StudentModules() {
   const [modules, setModules] = useState<LearningModule[]>([]);
@@ -38,10 +38,34 @@ export default function StudentModules() {
     return `/take-assessment?code=${encodeURIComponent(item.code)}`;
   };
 
+  const getBasePath = () => {
+    if (typeof window === 'undefined') return '';
+    const path = window.location.pathname || '';
+    if (path.startsWith('/tools')) return '/tools';
+    const segments = path.split('/').filter(Boolean);
+    return segments[0] ? `/${segments[0]}` : '';
+  };
+
+  const getItemShareUrl = (item: LearningModuleItem) => {
+    const relativeUrl = getItemLaunchUrl(item);
+    if (!relativeUrl || typeof window === 'undefined') return null;
+    return `${window.location.origin}${getBasePath()}${relativeUrl}`;
+  };
+
   const handleLaunchItem = (item: LearningModuleItem) => {
     const url = getItemLaunchUrl(item);
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCopyItemUrl = async (item: LearningModuleItem) => {
+    const url = getItemShareUrl(item);
+    if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (error) {
+      console.error('Failed to copy item URL:', error);
+    }
   };
 
   const getFirstLaunchableItem = (module: LearningModule) =>
@@ -136,46 +160,72 @@ export default function StudentModules() {
                     </div>
                   )}
                   {module.items.map((item, index) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center justify-center w-8 h-8 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
-                          {index + 1}
-                        </span>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            {item.item_type === 'content' ? (
-                              <BookOpen className="w-4 h-4 text-blue-500" />
-                            ) : (
-                              <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    <div key={item.id} className="p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="flex items-center justify-center w-8 h-8 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium shrink-0">
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              {item.item_type === 'content' ? (
+                                <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
+                              ) : (
+                                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                              )}
+                              <span className="font-medium text-gray-900 truncate">{item.title}</span>
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                item.item_type === 'content'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                {item.item_type === 'content' ? 'Content' : 'Assessment'}
+                              </span>
+                            </div>
+                            {item.item_type === 'content' && (
+                              <p className="text-sm text-gray-500 mt-1">
+                                {item.section_index >= 0 ? `Section ${item.section_index + 1}` : 'Full lesson'}
+                              </p>
                             )}
-                            <span className="font-medium text-gray-900">{item.title}</span>
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              item.item_type === 'content'
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-emerald-100 text-emerald-700'
-                            }`}>
-                              {item.item_type === 'content' ? 'Content' : 'Assessment'}
-                            </span>
                           </div>
-                          {item.item_type === 'content' && (
-                            <p className="text-sm text-gray-500 mt-1">
-                              {item.section_index >= 0 ? `Section ${item.section_index + 1}` : 'Full lesson'}
-                            </p>
-                          )}
                         </div>
+                        <button
+                          onClick={() => handleLaunchItem(item)}
+                          disabled={!item.code}
+                          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shrink-0"
+                        >
+                          <Play className="w-4 h-4" />
+                          {item.item_type === 'content' ? 'Open Content' : 'Take Assessment'}
+                        </button>
                       </div>
 
-                      <button
-                        onClick={() => handleLaunchItem(item)}
-                        disabled={!item.code}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                      >
-                        <Play className="w-4 h-4" />
-                        {item.item_type === 'content' ? 'Open Content' : 'Take Assessment'}
-                      </button>
+                      {getItemShareUrl(item) && (
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <input
+                            readOnly
+                            value={getItemShareUrl(item) || ''}
+                            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-700"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyItemUrl(item)}
+                              className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              <Copy className="w-4 h-4" />
+                              Copy URL
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleLaunchItem(item)}
+                              className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              Open Link
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

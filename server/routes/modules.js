@@ -21,7 +21,9 @@ async function mysqlIndexExists(tableName, indexName) {
   try {
     if (isMySQL()) {
       try { await query('ALTER TABLE module_items ADD COLUMN section_index INT NOT NULL DEFAULT -1'); } catch (_) {}
-      try { await query('ALTER TABLE module_items DROP INDEX uniq_module_item'); } catch (_) {}
+      if (await mysqlIndexExists('module_items', 'uniq_module_item')) {
+        try { await query('ALTER TABLE module_items DROP INDEX uniq_module_item'); } catch (_) {}
+      }
       if (!(await mysqlIndexExists('module_items', 'uniq_module_item_v2'))) {
         try { await query('ALTER TABLE module_items ADD UNIQUE KEY uniq_module_item_v2 (module_id, item_type, item_id, section_index)'); } catch (_) {}
       }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Award, Clock3, FileQuestion, Loader2, Send } from 'lucide-react';
 import { assessmentsAPI } from '../services/api';
 import type { AssessmentSubmissionStatus, GeneratedAssessment } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type Step = 'code' | 'form' | 'submitting' | 'pending' | 'result';
 type DraggedMatch = {
@@ -60,6 +61,7 @@ const serializeMatchAnswer = (assignments: Array<number | null>) =>
     .join(', ');
 
 const TakeAssessment: React.FC = () => {
+  const { user } = useAuth();
   const [code, setCode] = useState('');
   const [codeInput, setCodeInput] = useState('');
   const [assessment, setAssessment] = useState<GeneratedAssessment | null>(null);
@@ -71,6 +73,7 @@ const TakeAssessment: React.FC = () => {
   const [submissionCode, setSubmissionCode] = useState<string | null>(null);
   const [submissionStatus, setSubmissionStatus] = useState<AssessmentSubmissionStatus | null>(null);
   const [draggedMatch, setDraggedMatch] = useState<DraggedMatch | null>(null);
+  const defaultStudentName = user?.name?.trim() || user?.email?.trim() || '';
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -131,6 +134,11 @@ const TakeAssessment: React.FC = () => {
       window.clearInterval(intervalId);
     };
   }, [step, submissionCode, studentName]);
+
+  useEffect(() => {
+    if (!defaultStudentName || studentName.trim()) return;
+    setStudentName(defaultStudentName);
+  }, [defaultStudentName, studentName]);
 
   const loadAssessment = async (assessmentCode: string, keepPendingStep = false) => {
     setLoading(true);
