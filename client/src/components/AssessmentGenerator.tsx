@@ -27,6 +27,8 @@ const LEVEL_OPTIONS = [
 ];
 const LEGACY_ASSESSMENT_HISTORY_KEY = 'assessment_generator_history_v1';
 const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const PUBLISHED_PAGE_SIZE = 8;
+const HISTORY_PAGE_SIZE = 8;
 
 const stripOptionPrefix = (option: string, optionIndex: number) => {
   const letter = OPTION_LETTERS[optionIndex] || String(optionIndex + 1);
@@ -68,6 +70,8 @@ const AssessmentGenerator: React.FC = () => {
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
   const [history, setHistory] = useState<ApiAssessmentHistoryItem[]>([]);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
+  const [publishedPage, setPublishedPage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
 
   useEffect(() => {
     loadStats();
@@ -77,6 +81,16 @@ const AssessmentGenerator: React.FC = () => {
     loadPublished();
     loadHistory();
   }, []);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(publishedList.length / PUBLISHED_PAGE_SIZE));
+    setPublishedPage((prev) => Math.min(prev, maxPage));
+  }, [publishedList.length]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
+    setHistoryPage((prev) => Math.min(prev, maxPage));
+  }, [history.length]);
 
   const loadHistory = async () => {
     try {
@@ -198,7 +212,10 @@ const AssessmentGenerator: React.FC = () => {
   const loadPublished = async () => {
     try {
       const res = await assessmentsAPI.getPublished();
-      if (res.data.success && res.data.items) setPublishedList(res.data.items);
+      if (res.data.success && res.data.items) {
+        setPublishedList(res.data.items);
+        setPublishedPage(1);
+      }
     } catch (_) {}
   };
 
@@ -445,6 +462,11 @@ const AssessmentGenerator: React.FC = () => {
     }
   };
 
+  const publishedPageCount = Math.max(1, Math.ceil(publishedList.length / PUBLISHED_PAGE_SIZE));
+  const historyPageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
+  const publishedPageItems = publishedList.slice((publishedPage - 1) * PUBLISHED_PAGE_SIZE, publishedPage * PUBLISHED_PAGE_SIZE);
+  const historyPageItems = history.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
+
   return (
     <div className="max-w-6xl mx-auto p-6">
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
@@ -464,8 +486,9 @@ const AssessmentGenerator: React.FC = () => {
             {publishedList.length === 0 ? (
               <p className="text-sm text-violet-900">No published assessments yet.</p>
             ) : (
-              <ul className="space-y-2">
-                {publishedList.map((item) => (
+              <>
+                <ul className="space-y-2">
+                {publishedPageItems.map((item) => (
                   <li key={item.id} className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
                     <input readOnly value={item.link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
@@ -488,7 +511,33 @@ const AssessmentGenerator: React.FC = () => {
                     </button>
                   </li>
                 ))}
-              </ul>
+                </ul>
+                {publishedPageCount > 1 && (
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs text-violet-900">
+                    <span>
+                      Page {publishedPage} of {publishedPageCount}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPublishedPage((prev) => Math.max(1, prev - 1))}
+                        disabled={publishedPage === 1}
+                        className="px-2 py-1 bg-white border border-violet-200 rounded hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPublishedPage((prev) => Math.min(publishedPageCount, prev + 1))}
+                        disabled={publishedPage === publishedPageCount}
+                        className="px-2 py-1 bg-white border border-violet-200 rounded hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </details>
@@ -520,8 +569,9 @@ const AssessmentGenerator: React.FC = () => {
             {history.length === 0 ? (
               <p className="text-sm text-amber-900">No history yet. Generate an assessment and it will appear here.</p>
             ) : (
-              <ul className="space-y-2">
-                {history.map((item) => (
+              <>
+                <ul className="space-y-2">
+                {historyPageItems.map((item) => (
                   <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
                     <span className="font-medium truncate max-w-[260px]" title={item.assessment?.title || ''}>
                       {item.assessment?.title || item.title || 'Untitled assessment'}
@@ -544,7 +594,33 @@ const AssessmentGenerator: React.FC = () => {
                     </button>
                   </li>
                 ))}
-              </ul>
+                </ul>
+                {historyPageCount > 1 && (
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs text-amber-900">
+                    <span>
+                      Page {historyPage} of {historyPageCount}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                        disabled={historyPage === 1}
+                        className="px-2 py-1 bg-white border border-amber-200 rounded hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPage((prev) => Math.min(historyPageCount, prev + 1))}
+                        disabled={historyPage === historyPageCount}
+                        className="px-2 py-1 bg-white border border-amber-200 rounded hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </details>

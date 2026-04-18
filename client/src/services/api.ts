@@ -682,6 +682,15 @@ export interface ContentHistoryItem {
   input?: any;
   created_at: string;
 }
+export interface PublishedContentItem {
+  id: number;
+  code: string;
+  title: string;
+  sections?: Array<{ index: number; heading: string; preview: string }>;
+  content?: GeneratedContent;
+  rubric_id?: number | null;
+  created_at: string;
+}
 
 export interface LearningModuleItem {
   id: number;
@@ -737,7 +746,10 @@ export const contentAPI = {
   }) => api.post('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
     api.post('/content/publish', data),
-  getMy: () => api.get('/content/my'),
+  getMy: () => api.get<{ success: boolean; items: PublishedContentItem[] }>('/content/my'),
+  getMyItem: (id: number) => api.get<{ success: boolean; item: PublishedContentItem }>(`/content/my/${id}`),
+  updateMy: (id: number, data: { content: GeneratedContent; rubric_id?: number | null }) =>
+    api.put<{ success: boolean; item: PublishedContentItem }>(`/content/my/${id}`, data),
   deleteMy: (id: number) => api.delete(`/content/my/${id}`),
   getByCode: (code: string) => api.get(`/content/take/${code}`),
   regenerateVisual: (data: {

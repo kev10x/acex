@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 
 const LEVEL_OPTIONS = [
@@ -32,7 +32,7 @@ const ContentGenerator: React.FC = () => {
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
-  const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
+  const [myContent, setMyContent] = useState<PublishedContentItem[]>([]);
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
   const [history, setHistory] = useState<ApiContentHistoryItem[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
@@ -45,7 +45,10 @@ const ContentGenerator: React.FC = () => {
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState<number | null>(null);
+  const [activePublishedContentId, setActivePublishedContentId] = useState<number | null>(null);
+  const [activePublishedContentCode, setActivePublishedContentCode] = useState<string | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [loadingPublishedContentId, setLoadingPublishedContentId] = useState<number | null>(null);
   const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -122,8 +125,35 @@ const ContentGenerator: React.FC = () => {
       tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
     });
     setActiveHistoryId(item.id);
+    setActivePublishedContentId(null);
+    setActivePublishedContentCode(null);
     setPublishedLink(null);
     setError(null);
+  };
+
+  const handleEditPublishedContent = async (id: number) => {
+    setLoadingPublishedContentId(id);
+    setError(null);
+    try {
+      const res = await contentAPI.getMyItem(id);
+      const item = res.data?.item;
+      if (!item?.content) {
+        throw new Error('Published content could not be loaded');
+      }
+      setGeneratedContent(item.content);
+      setRubricId(item.rubric_id ?? null);
+      setIncludeTextToSpeech(item.content.tts_enabled !== false);
+      setActivePublishedContentId(item.id);
+      setActivePublishedContentCode(item.code);
+      setActiveHistoryId(null);
+      const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+      setPublishedLink(`${window.location.origin}${base}/take-content?code=${item.code}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to load published content');
+    } finally {
+      setLoadingPublishedContentId(null);
+    }
   };
 
   const handleSaveDraft = async () => {
@@ -132,20 +162,34 @@ const ContentGenerator: React.FC = () => {
     setError(null);
     try {
       const contentToSave = withGenerationSettings(generatedContent);
-      const payload = {
-        content: contentToSave,
-        input: buildContentInput(),
-      };
-      const res = activeHistoryId
-        ? await contentAPI.updateHistoryItem(activeHistoryId, payload)
-        : await contentAPI.saveHistory(payload);
-      if (res.data?.item) {
-        setActiveHistoryId(res.data.item.id);
-        setGeneratedContent(res.data.item.content);
+      if (activePublishedContentId) {
+        const res = await contentAPI.updateMy(activePublishedContentId, {
+          content: contentToSave,
+          rubric_id: rubricId ?? null,
+        });
+        if (res.data?.item?.content) {
+          setGeneratedContent(res.data.item.content);
+          setActivePublishedContentCode(res.data.item.code);
+          const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+          setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
+          await loadMyContent();
+        }
+      } else {
+        const payload = {
+          content: contentToSave,
+          input: buildContentInput(),
+        };
+        const res = activeHistoryId
+          ? await contentAPI.updateHistoryItem(activeHistoryId, payload)
+          : await contentAPI.saveHistory(payload);
+        if (res.data?.item?.content) {
+          setActiveHistoryId(res.data.item.id);
+          setGeneratedContent(res.data.item.content);
+          await loadHistory();
+        }
       }
-      await loadHistory();
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Failed to save content draft');
+      setError(e.response?.data?.error || e.message || (activePublishedContentId ? 'Failed to save published content' : 'Failed to save content draft'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -269,6 +313,8 @@ const ContentGenerator: React.FC = () => {
     setError(null);
     setIsGenerating(true);
     setActiveHistoryId(null);
+    setActivePublishedContentId(null);
+    setActivePublishedContentCode(null);
     setGeneratedContent(null);
     try {
       let effectiveTemplateId = templateId;
@@ -477,7 +523,11 @@ const ContentGenerator: React.FC = () => {
     if (!generatedContent) return;
     const section = generatedContent.sections?.[sectionIndex];
     const visual = section?.visuals?.[visualIndex];
-    if (!section || !visual || visual.kind !== 'image' || !String(visual.image_url || '').trim()) return;
+    const canRegenerate = !!section && !!visual && (
+      (visual.kind === 'illustration') ||
+      (visual.kind === 'image' && String(visual.image_url || '').trim())
+    );
+    if (!canRegenerate) return;
 
     const key = `${sectionIndex}:${visualIndex}`;
     setRegeneratingVisualKey(key);
@@ -601,6 +651,15 @@ const ContentGenerator: React.FC = () => {
                         className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
                       >
                         Copy link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEditPublishedContent(item.id)}
+                        disabled={loadingPublishedContentId === item.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        {loadingPublishedContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -902,7 +961,7 @@ const ContentGenerator: React.FC = () => {
                 className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
               >
                 {isSavingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {activeHistoryId ? 'Save changes' : 'Save draft'}
+                {activePublishedContentId ? 'Save published content' : activeHistoryId ? 'Save changes' : 'Save draft'}
               </button>
               <button
                 onClick={() => handleExport('pptx')}
@@ -1016,6 +1075,11 @@ const ContentGenerator: React.FC = () => {
           {generatedContent.instructions && (
             <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">{generatedContent.instructions}</div>
           )}
+          {activePublishedContentId && (
+            <div className="mb-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-800">
+              Editing published content{activePublishedContentCode ? ` (${activePublishedContentCode})` : ''}. Use `Save published content` to update the existing student-facing item.
+            </div>
+          )}
           <div className="mb-4 text-xs text-gray-500">
             Text-to-speech is {generatedContent.tts_enabled !== false ? 'enabled' : 'disabled'} for this content.
           </div>
@@ -1078,14 +1142,14 @@ const ContentGenerator: React.FC = () => {
                           <div className="flex items-center justify-between mb-1">
                             <span className="font-semibold text-gray-700 capitalize">{visual.kind || 'visual'}</span>
                             <div className="flex items-center gap-2">
-                              {visual.kind === 'image' && String(visual.image_url || '').trim() && (
+                              {(visual.kind === 'illustration' || (visual.kind === 'image' && String(visual.image_url || '').trim())) && (
                                 <button
                                   type="button"
                                   onClick={() => handleRegenerateVisual(i, vIdx)}
                                   disabled={regeneratingVisualKey === `${i}:${vIdx}`}
                                   className="px-2 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
                                 >
-                                  {regeneratingVisualKey === `${i}:${vIdx}` ? 'Regenerating image...' : 'Regenerate image'}
+                                  {regeneratingVisualKey === `${i}:${vIdx}` ? 'Regenerating visual...' : 'Regenerate visual'}
                                 </button>
                               )}
                               <button

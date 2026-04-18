@@ -37,6 +37,7 @@ interface LibDrag {
 }
 
 const LIB_DRAG_TYPE = 'application/markmate-drag';
+const ASSESSMENT_LIBRARY_PAGE_SIZE = 10;
 
 function getAppBasePath() {
   if (typeof window === 'undefined') return '';
@@ -73,6 +74,7 @@ const ModuleOrganizer: React.FC = () => {
   const [expandedContent, setExpandedContent] = useState<Set<number>>(new Set());
   const [studentByModule, setStudentByModule] = useState<Record<number, string>>({});
   const [previewTarget, setPreviewTarget] = useState<{ title: string; src: string } | null>(null);
+  const [assessmentPage, setAssessmentPage] = useState(1);
 
   // Drag state
   const [isDraggingFromLib, setIsDraggingFromLib] = useState(false);
@@ -264,6 +266,16 @@ const ModuleOrganizer: React.FC = () => {
   const filteredAssessments = assessmentLib.filter(
     (a) => !lc || a.title.toLowerCase().includes(lc)
   );
+  const assessmentPageCount = Math.max(1, Math.ceil(filteredAssessments.length / ASSESSMENT_LIBRARY_PAGE_SIZE));
+  const paginatedAssessments = filteredAssessments.slice(
+    (assessmentPage - 1) * ASSESSMENT_LIBRARY_PAGE_SIZE,
+    assessmentPage * ASSESSMENT_LIBRARY_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filteredAssessments.length / ASSESSMENT_LIBRARY_PAGE_SIZE));
+    setAssessmentPage((prev) => Math.min(prev, maxPage));
+  }, [filteredAssessments.length]);
 
   const resetLibDrag = () => { setIsDraggingFromLib(false); setDropTarget(null); };
 
@@ -316,7 +328,10 @@ const ModuleOrganizer: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 value={libSearch}
-                onChange={(e) => setLibSearch(e.target.value)}
+                onChange={(e) => {
+                  setLibSearch(e.target.value);
+                  setAssessmentPage(1);
+                }}
                 placeholder="Filter..."
                 className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
               />
@@ -458,8 +473,9 @@ const ModuleOrganizer: React.FC = () => {
             {filteredAssessments.length === 0 ? (
               <p className="text-xs text-gray-400 px-1">No published assessments yet.</p>
             ) : (
-              <div className="space-y-0.5">
-                {filteredAssessments.map((item) => (
+              <>
+                <div className="space-y-0.5">
+                {paginatedAssessments.map((item) => (
                   <div
                     key={item.id}
                     draggable
@@ -488,7 +504,33 @@ const ModuleOrganizer: React.FC = () => {
                     <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
                   </div>
                 ))}
-              </div>
+                </div>
+                {assessmentPageCount > 1 && (
+                  <div className="mt-3 flex items-center justify-between gap-2 px-1 text-[11px] text-gray-500">
+                    <span>
+                      Page {assessmentPage} of {assessmentPageCount}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAssessmentPage((prev) => Math.max(1, prev - 1))}
+                        disabled={assessmentPage === 1}
+                        className="px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssessmentPage((prev) => Math.min(assessmentPageCount, prev + 1))}
+                        disabled={assessmentPage === assessmentPageCount}
+                        className="px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

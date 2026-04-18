@@ -437,6 +437,115 @@ router.get('/my', requireAuth, async (req, res) => {
 });
 
 /**
+ * Get one of the current user's published content items for editing.
+ */
+router.get('/my/:id', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid content id' });
+    }
+
+    const q = isMySQL()
+      ? await query(
+          'SELECT id, code, title, content_json, rubric_id, created_at FROM published_content WHERE id = ? AND user_id = ?',
+          [id, req.user.id]
+        )
+      : await query(
+          'SELECT id, code, title, content_json, rubric_id, created_at FROM published_content WHERE id = $1 AND user_id = $2',
+          [id, req.user.id]
+        );
+    const row = rowList(q)[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Published content not found' });
+    }
+
+    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+    const content = contentService.normalizeGeneratedContent(parsedContent || {});
+    res.json({
+      success: true,
+      item: {
+        id: row.id,
+        code: row.code,
+        title: row.title,
+        rubric_id: row.rubric_id ?? null,
+        content,
+        created_at: row.created_at,
+      }
+    });
+  } catch (error) {
+    console.error('Content get-my-item error:', error);
+    res.status(500).json({ error: 'Failed to load published content' });
+  }
+});
+
+/**
+ * Update one of the current user's published content items.
+ */
+router.put('/my/:id', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid content id' });
+    }
+
+    const { content, rubric_id } = req.body || {};
+    if (!content || !content.title) {
+      return res.status(400).json({ error: 'content with title is required' });
+    }
+
+    const normalizedContent = contentService.normalizeGeneratedContent(content);
+    const title = String(normalizedContent.title || 'Untitled content').slice(0, 500);
+    let updated;
+
+    if (isMySQL()) {
+      updated = await query(
+        'UPDATE published_content SET title = ?, content_json = ?, rubric_id = ? WHERE id = ? AND user_id = ?',
+        [title, JSON.stringify(normalizedContent), rubric_id ?? null, id, req.user.id]
+      );
+    } else {
+      updated = await query(
+        'UPDATE published_content SET title = $1, content_json = $2, rubric_id = $3 WHERE id = $4 AND user_id = $5',
+        [title, JSON.stringify(normalizedContent), rubric_id ?? null, id, req.user.id]
+      );
+    }
+
+    const affected = updated?.affectedRows ?? updated?.rowCount ?? updated?.changes ?? 0;
+    if (!affected) {
+      return res.status(404).json({ error: 'Published content not found' });
+    }
+
+    const rowResult = isMySQL()
+      ? await query(
+          'SELECT id, code, title, content_json, rubric_id, created_at FROM published_content WHERE id = ? AND user_id = ?',
+          [id, req.user.id]
+        )
+      : await query(
+          'SELECT id, code, title, content_json, rubric_id, created_at FROM published_content WHERE id = $1 AND user_id = $2',
+          [id, req.user.id]
+        );
+    const row = rowList(rowResult)[0];
+    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+    const refreshedContent = contentService.normalizeGeneratedContent(parsedContent || {});
+
+    res.json({
+      success: true,
+      item: {
+        id: row.id,
+        code: row.code,
+        title: row.title,
+        rubric_id: row.rubric_id ?? null,
+        content: refreshedContent,
+        created_at: row.created_at,
+      }
+    });
+  } catch (error) {
+    console.error('Content update-my-item error:', error);
+    res.status(500).json({ error: 'Failed to update published content' });
+  }
+});
+
+/**
  * Store generated content history item for current user.
  */
 router.post('/history', requireAuth, requireFeature('content_creation'), async (req, res) => {
