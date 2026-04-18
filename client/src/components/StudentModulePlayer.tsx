@@ -232,8 +232,8 @@ export default function StudentModulePlayer() {
                   <p className="mt-2 text-sm text-gray-600">
                     {selectedItem.item_type === 'content'
                       ? selectedItem.section_index >= 0
-                        ? `This opens directly to section ${selectedItem.section_index + 1} inside the lesson.`
-                        : 'This opens the full lesson content.'
+                        ? `This content starts at section ${selectedItem.section_index + 1} and stays inside the module player.`
+                        : 'This content opens inline inside the module player.'
                       : 'This opens the student assessment for this unit.'}
                   </p>
                 </div>
@@ -246,7 +246,7 @@ export default function StudentModulePlayer() {
                     className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
                     <ExternalLink className="w-4 h-4" />
-                    {selectedItem.item_type === 'content' ? 'Open this unit' : 'Take this assessment'}
+                    {selectedItem.item_type === 'content' ? 'Open in new tab' : 'Take this assessment'}
                   </button>
                   <button
                     type="button"
@@ -267,6 +267,16 @@ export default function StudentModulePlayer() {
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
+
+                {selectedItem.item_type === 'content' && getItemLaunchPath(selectedItem) && (
+                  <div className="rounded-2xl border border-gray-200 overflow-hidden bg-gray-50">
+                    <iframe
+                      title={selectedItem.title}
+                      src={getItemLaunchPath(selectedItem) || undefined}
+                      className="w-full min-h-[1100px] bg-white"
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-sm text-gray-600">Select a unit to continue.</div>
