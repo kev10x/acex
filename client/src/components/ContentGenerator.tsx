@@ -14,8 +14,11 @@ const LEVEL_OPTIONS = [
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
+const isDiagramVisual = (visual: any) =>
+  !!String(visual?.mermaid_code || '').trim() ||
+  ['illustration', 'diagram', 'flowchart'].includes(String(visual?.kind || '').trim().toLowerCase());
 const hasVisualSource = (visual: any) =>
-  !!String(visual?.image_url || '').trim() || !!String(visual?.mermaid_code || '').trim();
+  !!String(visual?.image_url || '').trim() || isDiagramVisual(visual);
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -1172,7 +1175,7 @@ const ContentGenerator: React.FC = () => {
                             placeholder="Alt text"
                             className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
                           />
-                          {visual.kind === 'illustration' ? (
+                          {isDiagramVisual(visual) ? (
                             <textarea
                               value={visual.mermaid_code || ''}
                               onChange={(e) => updateVisualField(i, vIdx, 'mermaid_code', e.target.value)}
@@ -1205,7 +1208,7 @@ const ContentGenerator: React.FC = () => {
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
 
                 {/* Illustration figure — shown before body text */}
-                {sectionFigures[i].filter(({ visual }) => visual.kind === 'illustration').map(({ visual, figNum }) => (
+                {sectionFigures[i].filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum }) => (
                   <figure key={figNum} className="my-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
                     {visual.mermaid_code ? (
                       <div className="p-4 bg-gray-50">
@@ -1228,7 +1231,7 @@ const ContentGenerator: React.FC = () => {
                 <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">{sec.body}</p>
 
                 {/* Image figure — shown after body text */}
-                {sectionFigures[i].filter(({ visual }) => visual.kind !== 'illustration').map(({ visual, figNum }) => (
+                {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum }) => (
                   visual.image_url ? (
                     <figure key={figNum} className="mt-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
                       <img
