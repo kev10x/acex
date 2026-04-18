@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { modulesAPI } from '../services/api';
-import type { LearningModule, LearningModuleItem } from '../services/api';
-import { BookOpen, CheckCircle, Clock, Copy, ExternalLink, Play, Users } from 'lucide-react';
+import type { LearningModule } from '../services/api';
+import { BookOpen, CheckCircle, Clock, Play, Users } from 'lucide-react';
 
 export default function StudentModules() {
   const [modules, setModules] = useState<LearningModule[]>([]);
@@ -26,58 +26,33 @@ export default function StudentModules() {
     }
   };
 
-  const getItemLaunchUrl = (item: LearningModuleItem) => {
-    if (!item.code) return null;
-    if (item.item_type === 'content') {
-      const params = new URLSearchParams({ code: item.code });
-      if (item.section_index >= 0) {
-        params.set('section', String(item.section_index));
-      }
-      return `/take-content?${params.toString()}`;
-    }
-    return `/take-assessment?code=${encodeURIComponent(item.code)}`;
-  };
-
   const getBasePath = () => {
     if (typeof window === 'undefined') return '';
     const path = window.location.pathname || '';
     if (path.startsWith('/tools')) return '/tools';
     const segments = path.split('/').filter(Boolean);
+    if (segments.length === 0) return '';
+    if (['take-content', 'take-assessment', 'take-module'].includes(segments[0])) return '';
     return segments[0] ? `/${segments[0]}` : '';
   };
 
-  const getItemShareUrl = (item: LearningModuleItem) => {
-    const relativeUrl = getItemLaunchUrl(item);
-    if (!relativeUrl || typeof window === 'undefined') return null;
-    return `${window.location.origin}${getBasePath()}${relativeUrl}`;
+  const getModulePlayerUrl = (moduleId: number, itemId?: number) => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams({ module_id: String(moduleId) });
+    if (itemId) params.set('item_id', String(itemId));
+    return `${window.location.origin}${getBasePath()}/take-module?${params.toString()}`;
   };
 
-  const handleLaunchItem = (item: LearningModuleItem) => {
-    const url = getItemLaunchUrl(item);
+  const handleLaunchModule = (module: LearningModule, itemId?: number) => {
+    const url = getModulePlayerUrl(module.id, itemId);
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleCopyItemUrl = async (item: LearningModuleItem) => {
-    const url = getItemShareUrl(item);
-    if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch (error) {
-      console.error('Failed to copy item URL:', error);
-    }
   };
 
   const getFirstLaunchableItem = (module: LearningModule) =>
     [...module.items]
       .sort((a, b) => (a.position - b.position) || (a.id - b.id))
-      .find((item) => Boolean(getItemLaunchUrl(item))) || null;
-
-  const handleLaunchModule = (module: LearningModule) => {
-    const firstItem = getFirstLaunchableItem(module);
-    if (!firstItem) return;
-    handleLaunchItem(firstItem);
-  };
+      .find((item) => Boolean(item.code)) || null;
 
   if (loading) {
     return (
@@ -144,7 +119,7 @@ export default function StudentModules() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleLaunchModule(module)}
+                    onClick={() => handleLaunchModule(module, firstLaunchableItem?.id)}
                     disabled={!firstLaunchableItem}
                     className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
@@ -190,42 +165,14 @@ export default function StudentModules() {
                           </div>
                         </div>
                         <button
-                          onClick={() => handleLaunchItem(item)}
+                          onClick={() => handleLaunchModule(module, item.id)}
                           disabled={!item.code}
                           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shrink-0"
                         >
                           <Play className="w-4 h-4" />
-                          {item.item_type === 'content' ? 'Open Content' : 'Take Assessment'}
+                          Open Unit
                         </button>
                       </div>
-
-                      {getItemShareUrl(item) && (
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <input
-                            readOnly
-                            value={getItemShareUrl(item) || ''}
-                            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-700"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleCopyItemUrl(item)}
-                              className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-700 hover:bg-gray-100"
-                            >
-                              <Copy className="w-4 h-4" />
-                              Copy URL
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleLaunchItem(item)}
-                              className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm text-gray-700 hover:bg-gray-100"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                              Open Link
-                            </button>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>

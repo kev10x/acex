@@ -37,6 +37,7 @@ const TakeContent = lazy(() => import('./components/TakeContent'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ModuleOrganizer = lazy(() => import('./components/ModuleOrganizer'));
 const StudentModules = lazy(() => import('./components/StudentModules'));
+const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'));
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 
 type TabType =
@@ -311,6 +312,14 @@ function AppContent() {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
         <TakeContent />
+      </Suspense>
+    );
+  }
+
+  if (typeof window !== 'undefined' && window.location.pathname.includes('take-module')) {
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <StudentModulePlayer />
       </Suspense>
     );
   }
