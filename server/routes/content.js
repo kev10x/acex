@@ -21,6 +21,7 @@ const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
 const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos');
 const CONTENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'content-audio');
+const CONTENT_TTS_VOICES = ['eve', 'ara', 'leo', 'rex', 'sal'];
 
 try {
   fsSync.mkdirSync(CONTENT_AUDIO_DIR, { recursive: true });
@@ -138,6 +139,49 @@ function parseJsonSafe(value, fallback = null) {
   } catch (_) {
     return fallback;
   }
+}
+
+function getContentAudioCachePath(code, sectionIndex, voiceId, narrationText) {
+  const cacheKey = crypto
+    .createHash('sha1')
+    .update(JSON.stringify({ code, sectionIndex, voiceId, narrationText }))
+    .digest('hex');
+  return path.join(CONTENT_AUDIO_DIR, `${cacheKey}.mp3`);
+}
+
+async function ensureContentAudioCache({ code, content, voices = CONTENT_TTS_VOICES } = {}) {
+  if (!process.env.XAI_API_KEY || !code || !content || content?.tts_enabled === false) {
+    return;
+  }
+
+  const sections = Array.isArray(content.sections) ? content.sections : [];
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+    const narrationText = contentService.buildSectionNarrationText(content, sectionIndex);
+    if (!String(narrationText || '').trim()) continue;
+
+    for (const rawVoiceId of voices) {
+      const voiceId = String(rawVoiceId || '').trim().toLowerCase();
+      if (!voiceId) continue;
+      const audioPath = getContentAudioCachePath(code, sectionIndex, voiceId, narrationText);
+      if (fsSync.existsSync(audioPath)) continue;
+
+      try {
+        const audioBuffer = await contentService.synthesizeSectionSpeech(narrationText, {
+          voiceId,
+          language: 'en',
+        });
+        await fs.writeFile(audioPath, audioBuffer);
+      } catch (error) {
+        console.warn(`Pre-generating content audio failed for ${code} section ${sectionIndex} voice ${voiceId}:`, error?.message || error);
+      }
+    }
+  }
+}
+
+function triggerContentAudioPreGeneration(code, content) {
+  ensureContentAudioCache({ code, content }).catch((error) => {
+    console.warn(`Content audio pre-generation failed for ${code}:`, error?.message || error);
+  });
 }
 
 async function getUploadedTemplateByToken(userId, templateToken) {
@@ -393,6 +437,7 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
 
     const base = process.env.CLIENT_URL || '';
     const takePath = base ? `${base.replace(/\/$/, '')}/take-content` : '/take-content';
+    triggerContentAudioPreGeneration(code, normalizedContent);
     res.json({
       success: true,
       code,
@@ -527,6 +572,7 @@ router.put('/my/:id', requireAuth, requireFeature('content_creation'), async (re
     const row = rowList(rowResult)[0];
     const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
     const refreshedContent = contentService.normalizeGeneratedContent(parsedContent || {});
+    triggerContentAudioPreGeneration(row.code, refreshedContent);
 
     res.json({
       success: true,
@@ -998,6 +1044,7 @@ router.get('/take/:code', async (req, res) => {
     if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
     const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
     const content = contentService.normalizeGeneratedContent(parsedContent || {});
+    triggerContentAudioPreGeneration(code, content);
     if (content.quiz && content.quiz.questions) {
       content.quiz.questions = content.quiz.questions.map((q) => {
         const { correct_answer, ...rest } = q;
@@ -1036,11 +1083,7 @@ router.get('/audio/:code/:sectionIndex', async (req, res) => {
 
     const voiceId = String(req.query.voice_id || 'eve').trim().toLowerCase() || 'eve';
     const narrationText = contentService.buildSectionNarrationText(content, sectionIndex);
-    const cacheKey = crypto
-      .createHash('sha1')
-      .update(JSON.stringify({ code, sectionIndex, voiceId, narrationText }))
-      .digest('hex');
-    const audioPath = path.join(CONTENT_AUDIO_DIR, `${cacheKey}.mp3`);
+    const audioPath = getContentAudioCachePath(code, sectionIndex, voiceId, narrationText);
 
     if (!fsSync.existsSync(audioPath)) {
       const audioBuffer = await contentService.synthesizeSectionSpeech(narrationText, {

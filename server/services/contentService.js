@@ -668,18 +668,37 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
   };
 }
 
+function inferVisualKind(visual) {
+  const rawKind = String(visual?.kind || '').trim().toLowerCase();
+  if (rawKind === 'illustration' || rawKind === 'diagram' || rawKind === 'flowchart') {
+    return 'illustration';
+  }
+  if (typeof visual?.mermaid_code === 'string' && visual.mermaid_code.trim()) {
+    return 'illustration';
+  }
+  const combinedText = [
+    visual?.title,
+    visual?.alt_text,
+    visual?.prompt,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/\b(illustration|diagram|flowchart|concept map|mind map|process map)\b/.test(combinedText)) {
+    return 'illustration';
+  }
+  return 'image';
+}
+
 function normalizeSectionVisuals(sectionTitle, visuals, { includeDiagrams = true, includeImages = true } = {}) {
   const incoming = Array.isArray(visuals) ? visuals : [];
   const normalized = incoming
     .filter((v) => {
       if (!v || typeof v !== 'object') return false;
-      const kind = String(v.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
+      const kind = inferVisualKind(v);
       if (kind === 'illustration' && !includeDiagrams) return false;
       if (kind === 'image' && !includeImages) return false;
       return true;
     })
     .map((v, index) => {
-      const kind = String(v.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
+      const kind = inferVisualKind(v);
       const fallback = createFallbackVisual(sectionTitle, kind, index + 1);
       return {
         kind,
