@@ -41,6 +41,36 @@ function buildVisualImagePrompt(prompt, {
     .slice(0, 1800);
 }
 
+function buildVisualRegenerationPrompt(visual, {
+  contentTitle = '',
+  sectionHeading = '',
+  sectionBody = '',
+} = {}) {
+  const currentVisual = visual && typeof visual === 'object' ? visual : {};
+  const parts = [
+    String(currentVisual.prompt || '').trim(),
+    currentVisual.title ? `Visual title: ${String(currentVisual.title).trim()}.` : '',
+    currentVisual.alt_text ? `Accessibility description: ${String(currentVisual.alt_text).trim()}.` : '',
+    currentVisual.kind === 'illustration' && currentVisual.mermaid_code
+      ? `Existing diagram structure to reinterpret visually: ${String(currentVisual.mermaid_code).replace(/\s+/g, ' ').slice(0, 700)}.`
+      : '',
+    currentVisual.kind === 'image' && currentVisual.image_url
+      ? 'Reimagine the current image as a fresher, more polished educational visual while keeping the same teaching intent.'
+      : '',
+    currentVisual.kind === 'illustration'
+      ? 'Reimagine this diagram as a polished educational illustration or infographic that preserves the same concepts and relationships.'
+      : '',
+  ].filter(Boolean).join(' ');
+
+  return buildVisualImagePrompt(parts, {
+    visualKind: String(currentVisual.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image',
+    title: currentVisual.title || '',
+    sectionHeading,
+    sectionBody,
+    contentTitle,
+  });
+}
+
 async function generateImageForVisual(prompt, options = {}) {
   const provider = options.provider === 'openai'
     ? 'openai'
@@ -83,7 +113,12 @@ async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHead
   }
   const currentVisual = visual && typeof visual === 'object' ? visual : {};
   const kind = String(currentVisual.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
-  const imageUrl = await generateImageForVisual(currentVisual.prompt || '', {
+  const regenerationPrompt = buildVisualRegenerationPrompt(currentVisual, {
+    contentTitle,
+    sectionHeading,
+    sectionBody,
+  });
+  const imageUrl = await generateImageForVisual(regenerationPrompt, {
     provider: 'xai',
     visualKind: kind,
     title: currentVisual.title || '',
