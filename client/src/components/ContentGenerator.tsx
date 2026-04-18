@@ -16,7 +16,7 @@ const LEVEL_OPTIONS = [
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const isDiagramVisual = (visual: any) =>
   !!String(visual?.mermaid_code || '').trim() ||
-  ['illustration', 'diagram', 'flowchart'].includes(String(visual?.kind || '').trim().toLowerCase());
+  ['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(String(visual?.kind || '').trim().toLowerCase());
 const hasVisualSource = (visual: any) =>
   !!String(visual?.image_url || '').trim() || isDiagramVisual(visual);
 

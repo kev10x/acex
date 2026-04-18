@@ -47,23 +47,24 @@ function buildVisualRegenerationPrompt(visual, {
   sectionBody = '',
 } = {}) {
   const currentVisual = visual && typeof visual === 'object' ? visual : {};
+  const inferredKind = inferVisualKind(currentVisual);
   const parts = [
     String(currentVisual.prompt || '').trim(),
     currentVisual.title ? `Visual title: ${String(currentVisual.title).trim()}.` : '',
     currentVisual.alt_text ? `Accessibility description: ${String(currentVisual.alt_text).trim()}.` : '',
-    currentVisual.kind === 'illustration' && currentVisual.mermaid_code
+    inferredKind === 'illustration' && currentVisual.mermaid_code
       ? `Existing diagram structure to reinterpret visually: ${String(currentVisual.mermaid_code).replace(/\s+/g, ' ').slice(0, 700)}.`
       : '',
-    currentVisual.kind === 'image' && currentVisual.image_url
+    inferredKind === 'image' && currentVisual.image_url
       ? 'Reimagine the current image as a fresher, more polished educational visual while keeping the same teaching intent.'
       : '',
-    currentVisual.kind === 'illustration'
+    inferredKind === 'illustration'
       ? 'Reimagine this diagram as a polished educational illustration or infographic that preserves the same concepts and relationships.'
       : '',
   ].filter(Boolean).join(' ');
 
   return buildVisualImagePrompt(parts, {
-    visualKind: String(currentVisual.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image',
+    visualKind: inferredKind,
     title: currentVisual.title || '',
     sectionHeading,
     sectionBody,
@@ -112,7 +113,7 @@ async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHead
     throw new Error('XAI_API_KEY is required for Grok image regeneration.');
   }
   const currentVisual = visual && typeof visual === 'object' ? visual : {};
-  const kind = String(currentVisual.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
+  const kind = inferVisualKind(currentVisual);
   const regenerationPrompt = buildVisualRegenerationPrompt(currentVisual, {
     contentTitle,
     sectionHeading,
@@ -670,7 +671,7 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
 
 function inferVisualKind(visual) {
   const rawKind = String(visual?.kind || '').trim().toLowerCase();
-  if (rawKind === 'illustration' || rawKind === 'diagram' || rawKind === 'flowchart') {
+  if (['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(rawKind)) {
     return 'illustration';
   }
   if (typeof visual?.mermaid_code === 'string' && visual.mermaid_code.trim()) {
@@ -681,7 +682,7 @@ function inferVisualKind(visual) {
     visual?.alt_text,
     visual?.prompt,
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/\b(illustration|diagram|flowchart|concept map|mind map|process map)\b/.test(combinedText)) {
+  if (/\b(illustration|diagram|flowchart|graph|graphs|chart|concept map|mind map|process map)\b/.test(combinedText)) {
     return 'illustration';
   }
   return 'image';
