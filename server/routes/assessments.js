@@ -30,6 +30,10 @@ function repairJson(jsonStr) {
   // Remove trailing commas before closing braces/brackets
   repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
 
+  // Fix missing commas between properties (common AI truncation issue)
+  // Look for patterns like "value"}"property": or "value"]"property":
+  repaired = repaired.replace(/("[^"]*")\s*([}\]])\s*"([^"]*)":/g, '$1$2,"$3":');
+
   // Fix incomplete objects - if ends with a property without closing, try to close it
   if (repaired.endsWith(':')) {
     repaired = repaired.slice(0, -1) + ': null}';
@@ -39,6 +43,22 @@ function repairJson(jsonStr) {
   const quoteCount = (repaired.match(/"/g) || []).length;
   if (quoteCount % 2 === 1) {
     repaired += '"';
+  }
+
+  // Handle incomplete array elements - if ends with [" or , " without closing
+  if (repaired.match(/\[[\s\S]*"[^"]*$/) && !repaired.endsWith(']')) {
+    // Find the last incomplete array and complete it
+    const lastArrayMatch = repaired.match(/(":\s*\[[\s\S]*"[^"]*)$/);
+    if (lastArrayMatch) {
+      const arrayPart = lastArrayMatch[1];
+      const completeArray = arrayPart + '"]';
+      repaired = repaired.replace(lastArrayMatch[1], completeArray);
+    }
+  }
+
+  // Handle incomplete object properties - if ends with ,"key": without value
+  if (repaired.match(/"[^"]*":\s*$/)) {
+    repaired = repaired.replace(/"([^"]*)":\s*$/, '"$1": null}');
   }
 
   // Try to complete incomplete JSON structures
@@ -287,18 +307,55 @@ function parseAssessmentJSONFromCompletion(completion) {
   try {
     return JSON.parse(cleanResponse);
   } catch (parseError) {
-    // Try to repair the JSON
-    try {
-      const repairedJson = repairJson(cleanResponse);
-      if (repairedJson !== cleanResponse) {
-        const parsed = JSON.parse(repairedJson);
-        console.warn('Assessment JSON repaired after initial parse failure');
-        return parsed;
+    // Try multiple repair strategies
+    let parsed = null;
+    const repairStrategies = [
+      // Strategy 1: Standard repair
+      () => repairJson(cleanResponse),
+      // Strategy 2: More aggressive bracket/brace completion
+      (str) => {
+        let repaired = str;
+        const openBraces = (repaired.match(/{/g) || []).length;
+        const closeBraces = (repaired.match(/}/g) || []).length;
+        const openBrackets = (repaired.match(/\[/g) || []).length;
+        const closeBrackets = (repaired.match(/\]/g) || []).length;
+        for (let i = 0; i < openBraces - closeBraces; i++) repaired += '}';
+        for (let i = 0; i < openBrackets - closeBrackets; i++) repaired += ']';
+        return repaired;
+      },
+      // Strategy 3: Extract partial JSON if possible
+      (str) => {
+        // Try to find the last complete property and truncate there
+        const lines = str.split('\n');
+        let lastValidLine = -1;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim();
+          if (line.endsWith('}') || line.endsWith(']') || line.endsWith(',') || line.match(/"[^"]*":\s*"[^"]*"$/)) {
+            lastValidLine = i;
+            break;
+          }
+        }
+        if (lastValidLine >= 0) {
+          return lines.slice(0, lastValidLine + 1).join('\n') + '}';
+        }
+        return str;
       }
-    } catch (repairErr) {
-      // Repair failed, continue with original error
+    ];
+
+    for (const strategy of repairStrategies) {
+      try {
+        const repairedJson = strategy(cleanResponse);
+        if (repairedJson !== cleanResponse) {
+          parsed = JSON.parse(repairedJson);
+          console.warn('Assessment JSON repaired using strategy');
+          return parsed;
+        }
+      } catch (strategyErr) {
+        // Continue to next strategy
+      }
     }
 
+    // All repair strategies failed
     const preview = cleanResponse.slice(0, 500);
     throw new Error(`Failed to parse AI response as JSON (${parseError.message}). Preview: ${preview}`);
   }
