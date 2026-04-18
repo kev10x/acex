@@ -19,6 +19,28 @@ const isDiagramVisual = (visual: any) =>
   ['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(String(visual?.kind || '').trim().toLowerCase());
 const hasVisualSource = (visual: any) =>
   !!String(visual?.image_url || '').trim() || isDiagramVisual(visual);
+const buildVisualPromptFromContext = (visual: any, section: any) => {
+  const kind = isDiagramVisual(visual) ? 'illustration' : 'image';
+  const parts = [
+    section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
+    visual?.title ? `Visual title: ${String(visual.title).trim()}.` : '',
+    visual?.alt_text ? `Description: ${String(visual.alt_text).trim()}.` : '',
+    section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
+    section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
+    kind === 'illustration' && visual?.mermaid_code
+      ? `Graph structure to visualize: ${String(visual.mermaid_code).replace(/\s+/g, ' ').slice(0, 420)}.`
+      : '',
+    kind === 'illustration'
+      ? 'Create a clean educational diagram or infographic for this concept.'
+      : 'Create a clean educational supporting image for this concept.',
+  ].filter(Boolean);
+  return parts.join(' ').trim().slice(0, 360);
+};
+const shouldAutoSyncVisualPrompt = (visual: any, section: any) => {
+  const currentPrompt = String(visual?.prompt || '').trim();
+  if (!currentPrompt) return true;
+  return currentPrompt === buildVisualPromptFromContext(visual, section);
+};
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -169,12 +191,13 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
-  const handleSaveDraft = async () => {
-    if (!generatedContent) return;
-    setIsSavingDraft(true);
+  const persistContent = async (content: GeneratedContent, { showSavingState = true } = {}) => {
+    if (showSavingState) {
+      setIsSavingDraft(true);
+    }
     setError(null);
     try {
-      const contentToSave = withGenerationSettings(generatedContent);
+      const contentToSave = withGenerationSettings(content);
       if (activePublishedContentId) {
         const res = await contentAPI.updateMy(activePublishedContentId, {
           content: contentToSave,
@@ -186,6 +209,7 @@ const ContentGenerator: React.FC = () => {
           const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
           await loadMyContent();
+          return res.data.item.content as GeneratedContent;
         }
       } else {
         const payload = {
@@ -199,13 +223,22 @@ const ContentGenerator: React.FC = () => {
           setActiveHistoryId(res.data.item.id);
           setGeneratedContent(res.data.item.content);
           await loadHistory();
+          return res.data.item.content as GeneratedContent;
         }
       }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || (activePublishedContentId ? 'Failed to save published content' : 'Failed to save content draft'));
     } finally {
-      setIsSavingDraft(false);
+      if (showSavingState) {
+        setIsSavingDraft(false);
+      }
     }
+    return null;
+  };
+
+  const handleSaveDraft = async () => {
+    if (!generatedContent) return;
+    await persistContent(generatedContent, { showSavingState: true });
   };
 
   const removeHistoryItem = async (id: number) => {
@@ -461,7 +494,14 @@ const ContentGenerator: React.FC = () => {
     updateGeneratedContent((current) => {
       const sections = Array.isArray(current.sections) ? [...current.sections] : [];
       const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
-      sections[sectionIndex] = { ...section, [field]: value };
+      const nextSection = { ...section, [field]: value };
+      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
+      nextSection.visuals = visuals.map((visual: any) =>
+        shouldAutoSyncVisualPrompt(visual, section)
+          ? { ...visual, prompt: buildVisualPromptFromContext(visual, nextSection) }
+          : visual
+      );
+      sections[sectionIndex] = nextSection;
       return { ...current, sections };
     });
   };
@@ -492,23 +532,25 @@ const ContentGenerator: React.FC = () => {
       const sections = Array.isArray(current.sections) ? [...current.sections] : [];
       const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
       const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
-      visuals.push(
-        kind === 'illustration'
-          ? {
-              kind: 'illustration',
-              title: 'Custom diagram',
-              alt_text: 'Custom diagram',
-              prompt: '',
-              mermaid_code: 'graph TD\n  A[Start] --> B[Step]\n  B --> C[Outcome]',
-            }
-          : {
-              kind: 'image',
-              title: 'Custom image',
-              alt_text: 'Custom image',
-              prompt: '',
-              image_url: '',
-            }
-      );
+      const newVisual = kind === 'illustration'
+        ? {
+            kind: 'illustration',
+            title: 'Custom diagram',
+            alt_text: 'Custom diagram',
+            prompt: '',
+            mermaid_code: 'graph TD\n  A[Start] --> B[Step]\n  B --> C[Outcome]',
+          }
+        : {
+            kind: 'image',
+            title: 'Custom image',
+            alt_text: 'Custom image',
+            prompt: '',
+            image_url: '',
+          };
+      visuals.push({
+        ...newVisual,
+        prompt: buildVisualPromptFromContext(newVisual, section),
+      });
       sections[sectionIndex] = { ...section, visuals };
       return { ...current, sections };
     });
@@ -520,10 +562,22 @@ const ContentGenerator: React.FC = () => {
       const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
       const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
       const visual = visuals[visualIndex] || {};
-      visuals[visualIndex] = { ...visual, [field]: value };
+      const nextVisual = { ...visual, [field]: value };
+      visuals[visualIndex] =
+        field === 'prompt' || !shouldAutoSyncVisualPrompt(visual, section)
+          ? nextVisual
+          : { ...nextVisual, prompt: buildVisualPromptFromContext(nextVisual, section) };
       sections[sectionIndex] = { ...section, visuals };
       return { ...current, sections };
     });
+  };
+
+  const refreshVisualPrompt = (sectionIndex: number, visualIndex: number) => {
+    if (!generatedContent) return;
+    const section = generatedContent.sections?.[sectionIndex];
+    const visual = section?.visuals?.[visualIndex];
+    if (!section || !visual) return;
+    updateVisualField(sectionIndex, visualIndex, 'prompt', buildVisualPromptFromContext(visual, section));
   };
 
   const removeVisual = (sectionIndex: number, visualIndex: number) => {
@@ -566,14 +620,15 @@ const ContentGenerator: React.FC = () => {
         section_body: section.body || '',
       });
       if (res.data?.success && res.data.visual) {
-        updateGeneratedContent((current) => {
-          const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+        const nextContent = (() => {
+          const sections = Array.isArray(generatedContent.sections) ? [...generatedContent.sections] : [];
           const currentSection = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
           const visuals = Array.isArray((currentSection as any).visuals) ? [...(currentSection as any).visuals] : [];
           visuals[visualIndex] = { ...visuals[visualIndex], ...res.data.visual };
           sections[sectionIndex] = { ...currentSection, visuals };
-          return { ...current, sections };
-        });
+          return { ...generatedContent, sections };
+        })();
+        await persistContent(nextContent, { showSavingState: false });
         setSelectedVisualKey(key);
       } else {
         setError('Grok did not return a replacement visual.');
@@ -1225,6 +1280,27 @@ const ContentGenerator: React.FC = () => {
                             onChange={(e) => updateVisualField(i, vIdx, 'alt_text', e.target.value)}
                             placeholder="Alt text"
                             className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                          />
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-[11px] font-medium text-gray-500">
+                              {isDiagramVisual(visual) ? 'Graph generation prompt' : 'Image generation prompt'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => refreshVisualPrompt(i, vIdx)}
+                              className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
+                            >
+                              {isDiagramVisual(visual) ? 'Refresh graph prompt' : 'Refresh prompt'}
+                            </button>
+                          </div>
+                          <textarea
+                            value={visual.prompt || ''}
+                            onChange={(e) => updateVisualField(i, vIdx, 'prompt', e.target.value)}
+                            placeholder={isDiagramVisual(visual)
+                              ? 'Prompt used for graph / diagram generation'
+                              : 'Prompt used for image generation'}
+                            rows={3}
+                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded text-[11px]"
                           />
                           {isDiagramVisual(visual) ? (
                             <textarea
