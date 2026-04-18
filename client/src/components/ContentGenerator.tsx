@@ -43,6 +43,7 @@ const ContentGenerator: React.FC = () => {
   const [exporting, setExporting] = useState<string | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
+  const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number }[][]>(() => {
@@ -424,6 +425,41 @@ const ContentGenerator: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  const handleRegenerateVisual = async (sectionIndex: number, visualIndex: number) => {
+    if (!generatedContent) return;
+    const section = generatedContent.sections?.[sectionIndex];
+    const visual = section?.visuals?.[visualIndex];
+    if (!section || !visual) return;
+
+    const key = `${sectionIndex}:${visualIndex}`;
+    setRegeneratingVisualKey(key);
+    setError(null);
+    try {
+      const res = await contentAPI.regenerateVisual({
+        visual,
+        content_title: generatedContent.title || '',
+        section_heading: section.heading || section.title || '',
+        section_body: section.body || '',
+      });
+      if (res.data?.success && res.data.visual) {
+        updateGeneratedContent((current) => {
+          const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+          const currentSection = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+          const visuals = Array.isArray((currentSection as any).visuals) ? [...(currentSection as any).visuals] : [];
+          visuals[visualIndex] = { ...visuals[visualIndex], ...res.data.visual };
+          sections[sectionIndex] = { ...currentSection, visuals };
+          return { ...current, sections };
+        });
+      } else {
+        setError('Grok did not return a replacement visual.');
+      }
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to regenerate visual with Grok');
+    } finally {
+      setRegeneratingVisualKey(null);
+    }
+  };
+
   const handleSchedulePlanner = async () => {
     const topicsTrim = topics.trim();
     if (!topicsTrim) {
@@ -496,47 +532,53 @@ const ContentGenerator: React.FC = () => {
           Create course content from topics: slide decks, lecture notes, and an interactive student view. Optionally add AI-generated video and upload a PowerPoint template for slides.
         </p>
 
-        {myContent.length > 0 && (
-          <div className="mb-6 p-4 bg-teal-50 border border-teal-200 rounded-lg">
-            <h3 className="text-sm font-semibold text-teal-900 mb-2">My published content (reuse links)</h3>
-            <ul className="space-y-2">
-              {myContent.map((item) => {
-                const link = `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${item.code}`;
-                return (
-                  <li key={item.id} className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
-                    <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(link)}
-                    className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
-                  >
-                    Copy link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteContent(item.id, item.title)}
-                    disabled={deletingContentId === item.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                    title="Delete published content"
-                  >
-                    {deletingContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                    Delete
-                  </button>
-                </li>
-              );
-            })}
-            </ul>
+        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden" open={myContent.length > 0}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900">
+            My published content links ({myContent.length})
+          </summary>
+          <div className="px-4 pb-4">
+            {myContent.length === 0 ? (
+              <p className="text-sm text-teal-900">No published content yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {myContent.map((item) => {
+                  const link = `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${item.code}`;
+                  return (
+                    <li key={item.id} className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                      <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(link)}
+                        className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+                      >
+                        Copy link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteContent(item.id, item.title)}
+                        disabled={deletingContentId === item.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                        title="Delete published content"
+                      >
+                        {deletingContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                        Delete
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
-        )}
+        </details>
 
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
-              <History className="w-4 h-4" />
-              Content generator history
-            </h3>
-            <div className="flex items-center gap-2">
+        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden" open={history.length > 0}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+            <History className="w-4 h-4" />
+            Content generator history ({history.length})
+          </summary>
+          <div className="px-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
               <button
                 type="button"
                 onClick={migrateLegacyHistory}
@@ -554,37 +596,37 @@ const ContentGenerator: React.FC = () => {
                 Clear all
               </button>
             </div>
+            {history.length === 0 ? (
+              <p className="text-sm text-amber-900">No history yet. Generate content and it will appear here.</p>
+            ) : (
+              <ul className="space-y-2">
+                {history.map((item) => (
+                  <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
+                    <span className="font-medium truncate max-w-[260px]" title={item.content?.title || ''}>
+                      {item.content?.title || item.title || 'Untitled content'}
+                    </span>
+                    <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
+                    <button
+                      type="button"
+                      onClick={() => loadFromHistory(item)}
+                      className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeHistoryItem(item.id)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-          {history.length === 0 ? (
-            <p className="text-sm text-amber-900">No history yet. Generate content and it will appear here.</p>
-          ) : (
-            <ul className="space-y-2">
-              {history.map((item) => (
-                <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
-                  <span className="font-medium truncate max-w-[260px]" title={item.content?.title || ''}>
-                    {item.content?.title || item.title || 'Untitled content'}
-                  </span>
-                  <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
-                  <button
-                    type="button"
-                    onClick={() => loadFromHistory(item)}
-                    className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
-                  >
-                    Load
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeHistoryItem(item.id)}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        </details>
 
         {plannerJobs.length > 0 && (
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -963,13 +1005,23 @@ const ContentGenerator: React.FC = () => {
                         <div key={`${i}-${vIdx}`} className="p-2 bg-white border border-gray-200 rounded text-xs">
                           <div className="flex items-center justify-between mb-1">
                             <span className="font-semibold text-gray-700 capitalize">{visual.kind || 'visual'}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeVisual(i, vIdx)}
-                              className="px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
-                            >
-                              Remove
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRegenerateVisual(i, vIdx)}
+                                disabled={regeneratingVisualKey === `${i}:${vIdx}`}
+                                className="px-2 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {regeneratingVisualKey === `${i}:${vIdx}` ? 'Regenerating...' : 'Regenerate with Grok'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeVisual(i, vIdx)}
+                                className="px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                              >
+                                Remove
+                              </button>
+                            </div>
                           </div>
                           <input
                             value={visual.title || ''}

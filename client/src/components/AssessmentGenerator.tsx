@@ -456,44 +456,50 @@ const AssessmentGenerator: React.FC = () => {
           Generate new assessments automatically based on your rubrics. The system creates questions that align with your rubric criteria, ensuring assessments match your marking standards.
         </p>
 
-        {publishedList.length > 0 && (
-          <div className="mb-6 p-4 bg-violet-50 border border-violet-200 rounded-lg">
-            <h3 className="text-sm font-semibold text-violet-900 mb-2">My published assessments (reuse links)</h3>
-            <ul className="space-y-2">
-              {publishedList.map((item) => (
-                <li key={item.id} className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
-                  <input readOnly value={item.link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(item.link)}
-                    className="px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
-                  >
-                    Copy link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeletePublished(item.id, item.title)}
-                    disabled={deletingPublishedId === item.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                    title="Delete published assessment"
-                  >
-                    {deletingPublishedId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
+        <details className="mb-6 bg-violet-50 border border-violet-200 rounded-lg overflow-hidden" open={publishedList.length > 0}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-violet-900">
+            My published assessment links ({publishedList.length})
+          </summary>
+          <div className="px-4 pb-4">
+            {publishedList.length === 0 ? (
+              <p className="text-sm text-violet-900">No published assessments yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {publishedList.map((item) => (
+                  <li key={item.id} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                    <input readOnly value={item.link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(item.link)}
+                      className="px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePublished(item.id, item.title)}
+                      disabled={deletingPublishedId === item.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                      title="Delete published assessment"
+                    >
+                      {deletingPublishedId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-        )}
+        </details>
 
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <h3 className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
-              <History className="w-4 h-4" />
-              Assessment generator history
-            </h3>
-            <div className="flex items-center gap-2">
+        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden" open={history.length > 0}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+            <History className="w-4 h-4" />
+            Assessment generator history ({history.length})
+          </summary>
+          <div className="px-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
               <button
                 type="button"
                 onClick={migrateLegacyHistory}
@@ -511,37 +517,37 @@ const AssessmentGenerator: React.FC = () => {
                 Clear all
               </button>
             </div>
+            {history.length === 0 ? (
+              <p className="text-sm text-amber-900">No history yet. Generate an assessment and it will appear here.</p>
+            ) : (
+              <ul className="space-y-2">
+                {history.map((item) => (
+                  <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
+                    <span className="font-medium truncate max-w-[260px]" title={item.assessment?.title || ''}>
+                      {item.assessment?.title || item.title || 'Untitled assessment'}
+                    </span>
+                    <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
+                    <button
+                      type="button"
+                      onClick={() => loadFromHistory(item)}
+                      className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeHistoryItem(item.id)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-          {history.length === 0 ? (
-            <p className="text-sm text-amber-900">No history yet. Generate an assessment and it will appear here.</p>
-          ) : (
-            <ul className="space-y-2">
-              {history.map((item) => (
-                <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
-                  <span className="font-medium truncate max-w-[260px]" title={item.assessment?.title || ''}>
-                    {item.assessment?.title || item.title || 'Untitled assessment'}
-                  </span>
-                  <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
-                  <button
-                    type="button"
-                    onClick={() => loadFromHistory(item)}
-                    className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
-                  >
-                    Load
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeHistoryItem(item.id)}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        </details>
 
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">

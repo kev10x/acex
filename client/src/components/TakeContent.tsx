@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2, Volume2 } from 'lucide-react';
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
@@ -25,9 +25,14 @@ const TakeContent: React.FC = () => {
   const [result, setResult] = useState<{ total_score: number; feedback?: string; scores?: any[] } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoBlobUrlRef = useRef<string | null>(null);
+  const audioBlobUrlRef = useRef<string | null>(null);
   const progressSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedProgressKeyRef = useRef<string>('');
   const defaultStudentName = user?.name?.trim() || user?.email?.trim() || '';
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [audioVoice, setAudioVoice] = useState('eve');
 
   const sections = content?.sections || [];
   const sectionCount = sections.length;
@@ -104,8 +109,22 @@ const TakeContent: React.FC = () => {
         URL.revokeObjectURL(videoBlobUrlRef.current);
         videoBlobUrlRef.current = null;
       }
+      if (audioBlobUrlRef.current) {
+        URL.revokeObjectURL(audioBlobUrlRef.current);
+        audioBlobUrlRef.current = null;
+      }
     };
   }, [code, step]);
+
+  useEffect(() => {
+    if (audioBlobUrlRef.current) {
+      URL.revokeObjectURL(audioBlobUrlRef.current);
+      audioBlobUrlRef.current = null;
+    }
+    setAudioUrl(null);
+    setAudioError(null);
+    setAudioLoading(false);
+  }, [code, currentSection]);
 
   const loadContent = async (c: string, initialSection: number | null = requestedSection) => {
     setLoading(true);
@@ -311,6 +330,24 @@ const TakeContent: React.FC = () => {
     }
   };
 
+  const handlePlaySectionAudio = async () => {
+    if (!code || currentSection >= sectionCount) return;
+    setAudioLoading(true);
+    setAudioError(null);
+    try {
+      const res = await contentAPI.getSectionAudio(code, currentSection, audioVoice);
+      const blobUrl = URL.createObjectURL(res.data as Blob);
+      if (audioBlobUrlRef.current) URL.revokeObjectURL(audioBlobUrlRef.current);
+      audioBlobUrlRef.current = blobUrl;
+      setAudioUrl(blobUrl);
+    } catch (e: any) {
+      setAudioError(e.response?.data?.error || e.message || 'Failed to load audio for this section.');
+      setAudioUrl(null);
+    } finally {
+      setAudioLoading(false);
+    }
+  };
+
   const visitedCount = visitedSections.length + (isCheckpointView ? 1 : 0);
   const totalTrackable = Math.max(1, sectionCount + (hasQuiz ? 1 : 0));
   const progressPercent = Math.round((Math.min(visitedCount, totalTrackable) / totalTrackable) * 100);
@@ -477,6 +514,36 @@ const TakeContent: React.FC = () => {
                 </h2>
                 {(activeSection as any).support && (
                   <p className="text-base mb-3" style={{ color: content?.theme?.text_color || '#4B5563' }}>{String((activeSection as any).support).trim()}</p>
+                )}
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePlaySectionAudio}
+                    disabled={audioLoading}
+                    className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  >
+                    {audioLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
+                    {audioLoading ? 'Generating audio...' : 'Listen to this section'}
+                  </button>
+                  <select
+                    value={audioVoice}
+                    onChange={(e) => setAudioVoice(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="eve">Eve</option>
+                    <option value="ara">Ara</option>
+                    <option value="leo">Leo</option>
+                    <option value="rex">Rex</option>
+                    <option value="sal">Sal</option>
+                  </select>
+                </div>
+                {audioError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{audioError}</div>}
+                {audioUrl && (
+                  <div className="mb-4">
+                    <audio controls autoPlay className="w-full" src={audioUrl}>
+                      Your browser does not support audio playback.
+                    </audio>
+                  </div>
                 )}
                 {(() => {
                   const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];

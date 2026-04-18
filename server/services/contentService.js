@@ -9,45 +9,170 @@ const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
 const yauzl = require('yauzl');
 
-const IMAGE_MODEL = 'gpt-image-1';
-const IMAGE_SIZE = '1024x1024';
+const OPENAI_IMAGE_MODEL = 'gpt-image-1';
+const OPENAI_IMAGE_SIZE = '1024x1024';
+const XAI_IMAGE_MODEL = 'grok-imagine-image';
 const IMAGE_CONCURRENCY = 3;
+const XAI_TTS_ENDPOINT = 'https://api.x.ai/v1/tts';
+const XAI_TTS_DEFAULT_VOICE = 'eve';
+const XAI_TTS_MAX_CHARS = 15000;
 
-async function generateImageForVisual(prompt) {
-  const client = aiService.openai;
+function buildVisualImagePrompt(prompt, {
+  visualKind = 'image',
+  title = '',
+  sectionHeading = '',
+  sectionBody = '',
+  contentTitle = '',
+} = {}) {
+  const context = [
+    contentTitle ? `Course: ${String(contentTitle).slice(0, 140)}.` : '',
+    sectionHeading ? `Section: ${String(sectionHeading).slice(0, 180)}.` : '',
+    title ? `Caption context: ${String(title).slice(0, 180)}.` : '',
+    sectionBody ? `Lesson excerpt: ${String(sectionBody).replace(/\s+/g, ' ').slice(0, 500)}.` : '',
+    String(prompt || '').trim(),
+  ].filter(Boolean).join(' ');
+
+  const styleInstruction = visualKind === 'illustration'
+    ? 'Create a clean educational conceptual illustration or infographic-style scene with no visible text labels.'
+    : 'Create a clean educational supporting image suitable for lesson content.';
+
+  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays.`
+    .trim()
+    .slice(0, 1800);
+}
+
+async function generateImageForVisual(prompt, options = {}) {
+  const provider = options.provider === 'openai'
+    ? 'openai'
+    : options.provider === 'xai'
+      ? 'xai'
+      : aiService.xai
+        ? 'xai'
+        : 'openai';
+  const client = provider === 'xai' ? aiService.xai : aiService.openai;
   if (!client) return null;
   try {
-    const safePrompt = `Educational illustration for a course slide. ${String(prompt || '').slice(0, 900)}. Clean, professional, suitable for all ages. No text overlays.`;
-    const response = await client.images.generate({
-      model: IMAGE_MODEL,
-      prompt: safePrompt,
-      n: 1,
-      size: IMAGE_SIZE,
-      response_format: 'b64_json',
-    });
+    const safePrompt = buildVisualImagePrompt(prompt, options);
+    const response = provider === 'xai'
+      ? await client.images.generate({
+          model: XAI_IMAGE_MODEL,
+          prompt: safePrompt,
+          n: 1,
+          response_format: 'b64_json',
+          extra_body: { resolution: '1k' },
+        })
+      : await client.images.generate({
+          model: OPENAI_IMAGE_MODEL,
+          prompt: safePrompt,
+          n: 1,
+          size: OPENAI_IMAGE_SIZE,
+          response_format: 'b64_json',
+        });
     const b64 = response.data?.[0]?.b64_json;
     if (!b64) return null;
     return `data:image/png;base64,${b64}`;
   } catch (err) {
-    console.warn('Image generation failed (non-fatal):', err?.message || err);
+    console.warn(`Image generation failed via ${provider} (non-fatal):`, err?.message || err);
     return null;
   }
 }
 
+async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHeading = '', sectionBody = '' } = {}) {
+  if (!aiService.xai || !process.env.XAI_API_KEY) {
+    throw new Error('XAI_API_KEY is required for Grok image regeneration.');
+  }
+  const currentVisual = visual && typeof visual === 'object' ? visual : {};
+  const kind = String(currentVisual.kind || '').toLowerCase() === 'illustration' ? 'illustration' : 'image';
+  const imageUrl = await generateImageForVisual(currentVisual.prompt || '', {
+    provider: 'xai',
+    visualKind: kind,
+    title: currentVisual.title || '',
+    sectionHeading,
+    sectionBody,
+    contentTitle,
+  });
+  if (!imageUrl) {
+    throw new Error('Grok image regeneration did not return an image.');
+  }
+  return {
+    ...currentVisual,
+    kind,
+    image_url: imageUrl,
+    mermaid_code: undefined,
+  };
+}
+
+function buildSectionNarrationText(content, sectionIndex) {
+  const sections = Array.isArray(content?.sections) ? content.sections : [];
+  const section = sections[sectionIndex];
+  if (!section) return '';
+  const parts = [
+    content?.title ? `Lesson title: ${content.title}.` : '',
+    section.heading || section.title ? `Section title: ${section.heading || section.title}.` : '',
+    section.support ? `Key takeaway: ${section.support}.` : '',
+    section.body || '',
+  ].filter(Boolean);
+  return parts.join('\n\n').trim();
+}
+
+async function synthesizeSectionSpeech(text, { voiceId = XAI_TTS_DEFAULT_VOICE, language = 'en' } = {}) {
+  if (!process.env.XAI_API_KEY) {
+    throw new Error('XAI_API_KEY is required for Grok text-to-speech.');
+  }
+  const normalizedText = String(text || '').trim().slice(0, XAI_TTS_MAX_CHARS);
+  if (!normalizedText) {
+    throw new Error('No section text available for text-to-speech.');
+  }
+
+  const response = await fetch(XAI_TTS_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text: normalizedText,
+      voice_id: String(voiceId || XAI_TTS_DEFAULT_VOICE).trim() || XAI_TTS_DEFAULT_VOICE,
+      language: String(language || 'en').trim() || 'en',
+      output_format: {
+        codec: 'mp3',
+        sample_rate: 24000,
+        bit_rate: 128000,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Grok TTS failed (${response.status}): ${detail || response.statusText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 /**
- * After content generation, fill in image_url for every `image` visual using DALL-E.
+ * After content generation, fill in image_url for every `image` visual using the configured image provider.
  * Runs in parallel per section, non-fatal (skips on error).
  */
 async function enrichContentWithImages(content) {
   const sections = content?.sections;
   if (!Array.isArray(sections)) return content;
 
-  // Collect all image visuals that need generation, cap concurrent DALL-E calls.
+  // Collect all image visuals that need generation, cap concurrent image calls.
   const tasks = [];
   sections.forEach((section, si) => {
     (section.visuals || []).forEach((visual, vi) => {
       if (visual.kind === 'image' && !(visual.image_url && !visual.image_url.startsWith('data:image/svg'))) {
-        tasks.push({ si, vi, prompt: visual.prompt });
+        tasks.push({
+          si,
+          vi,
+          prompt: visual.prompt,
+          title: visual.title,
+          sectionHeading: section.heading || section.title || '',
+          sectionBody: section.body || '',
+          contentTitle: content?.title || '',
+        });
       }
     });
   });
@@ -57,7 +182,13 @@ async function enrichContentWithImages(content) {
     const batch = tasks.slice(i, i + IMAGE_CONCURRENCY);
     await Promise.all(
       batch.map(async (task) => {
-        const url = await generateImageForVisual(task.prompt);
+        const url = await generateImageForVisual(task.prompt, {
+          title: task.title,
+          sectionHeading: task.sectionHeading,
+          sectionBody: task.sectionBody,
+          contentTitle: task.contentTitle,
+          visualKind: 'image',
+        });
         if (url) results.set(`${task.si}:${task.vi}`, url);
       })
     );
@@ -866,6 +997,9 @@ function escapeHtml(text) {
 module.exports = {
   generateContentWithAI,
   enrichContentWithImages,
+  regenerateVisualWithGrok,
+  buildSectionNarrationText,
+  synthesizeSectionSpeech,
   normalizeGeneratedContent,
   applyTemplateToContent,
   getTemplateById,

@@ -636,6 +636,7 @@ export interface ContentVisual {
   alt_text?: string;
   prompt?: string;
   image_url?: string;
+  mermaid_code?: string;
 }
 export interface ContentQuizQuestion {
   number: number;
@@ -738,8 +739,19 @@ export const contentAPI = {
   getMy: () => api.get('/content/my'),
   deleteMy: (id: number) => api.delete(`/content/my/${id}`),
   getByCode: (code: string) => api.get(`/content/take/${code}`),
+  regenerateVisual: (data: {
+    visual: ContentVisual;
+    content_title?: string;
+    section_heading?: string;
+    section_body?: string;
+  }) => api.post<{ success: boolean; visual: ContentVisual }>('/content/regenerate-visual', data),
   submitQuiz: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/content/submit-quiz', data),
+  getSectionAudio: (code: string, sectionIndex: number, voiceId = 'eve') =>
+    api.get(`/content/audio/${code}/${sectionIndex}`, {
+      params: { voice_id: voiceId },
+      responseType: 'blob'
+    }),
   getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),
   getVideoContent: (code: string) => api.get(`/content/video/${code}/content`, { responseType: 'blob' }),
   exportPptx: (content: GeneratedContent) =>

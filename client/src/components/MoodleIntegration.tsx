@@ -596,8 +596,16 @@ const MoodleIntegration: React.FC = () => {
                               <td className="px-3 py-2 text-gray-500 max-w-[200px] truncate">{row.feedback || '—'}</td>
                               <td className="px-3 py-2 text-right">
                                 {row.match_confidence === 'exact' && <Check className="w-3.5 h-3.5 text-emerald-500 inline" />}
-                                {row.match_confidence === 'fuzzy' && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 inline" title="Fuzzy match — please verify" />}
-                                {row.match_confidence === 'none' && <Trash2 className="w-3.5 h-3.5 text-red-400 inline" title="Will not be pushed" />}
+                                {row.match_confidence === 'fuzzy' && (
+                                  <span title="Fuzzy match — please verify">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 inline" />
+                                  </span>
+                                )}
+                                {row.match_confidence === 'none' && (
+                                  <span title="Will not be pushed">
+                                    <Trash2 className="w-3.5 h-3.5 text-red-400 inline" />
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           ))}

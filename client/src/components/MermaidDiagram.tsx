@@ -57,7 +57,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className = '' })
           }
         }
       })
-      .catch((err) => {
+      .catch((err: { message?: string }) => {
         setError(err?.message || 'Diagram rendering failed');
       });
   }, [code]);

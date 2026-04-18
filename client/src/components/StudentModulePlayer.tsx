@@ -142,85 +142,92 @@ export default function StudentModulePlayer() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+    <div className="min-h-screen bg-slate-100 flex flex-col">
+      <aside className="order-1 lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 bg-white border-r border-slate-200 shadow-sm z-20">
+        <div className="h-full overflow-y-auto p-5 space-y-5">
           <button
             type="button"
             onClick={goBackToModules}
-            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+            className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to modules
           </button>
 
-          <div className="mt-4 flex items-start justify-between gap-4">
-            <div>
-              <div className="inline-flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
-                <Layers className="w-4 h-4" />
-                Module navigation
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="inline-flex items-center gap-2 text-sm text-emerald-700">
+              <Layers className="w-4 h-4" />
+              Module navigation
+            </div>
+            <h1 className="mt-3 text-2xl font-bold text-slate-900">{moduleData.name}</h1>
+            <p className="mt-2 text-sm text-slate-600">
+              {moduleData.items.length} unit{moduleData.items.length !== 1 ? 's' : ''} in this module.
+            </p>
+          </div>
+
+          {selectedItem && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Current unit</div>
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                {selectedItem.item_type === 'content' ? (
+                  <BookOpen className="w-4 h-4 text-blue-500" />
+                ) : (
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                )}
+                <span>{selectedItem.item_type === 'content' ? 'Content' : 'Assessment'}</span>
               </div>
-              <h1 className="mt-3 text-3xl font-bold text-gray-900">{moduleData.name}</h1>
-              <p className="mt-2 text-sm text-gray-600">
-                Move between units on the left, then open the selected content or assessment when you are ready.
+              <h2 className="text-lg font-semibold text-slate-900">{selectedItem.title}</h2>
+              <p className="text-sm text-slate-600">
+                {selectedItem.item_type === 'content'
+                  ? selectedItem.section_index >= 0
+                    ? `Starts at section ${selectedItem.section_index + 1} inside this player.`
+                    : 'Opens inside this player.'
+                  : 'Launches in the assessment view.'}
               </p>
             </div>
-            <div className="text-sm text-gray-500 shrink-0">{moduleData.items.length} units</div>
+          )}
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => updateSelection(previousItem)}
+              disabled={!previousItem}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Previous unit
+            </button>
+            <button
+              type="button"
+              onClick={() => updateSelection(nextItem)}
+              disabled={!nextItem}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Next unit
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            {selectedItem && (
+              <button
+                type="button"
+                onClick={openSelectedItem}
+                disabled={!getItemLaunchPath(selectedItem)}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+              >
+                <ExternalLink className="w-4 h-4" />
+                {selectedItem.item_type === 'content' ? 'Open in new tab' : 'Take assessment'}
+              </button>
+            )}
           </div>
         </div>
+      </aside>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[320px,1fr] gap-6">
-          <aside className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 h-fit">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Units</h2>
-            <div className="space-y-2">
-              {moduleData.items.map((item, index) => {
-                const isActive = item.id === selectedItemId;
-                const canOpen = Boolean(getItemLaunchPath(item));
-
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => updateSelection(item)}
-                    className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
-                      isActive
-                        ? 'border-emerald-300 bg-emerald-50'
-                        : 'border-gray-200 bg-white hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-gray-200 text-sm font-semibold text-gray-700 shrink-0">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          {item.item_type === 'content' ? (
-                            <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
-                          ) : (
-                            <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                          )}
-                          <span className="font-medium text-gray-900 truncate">{item.title}</span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                          <span>{item.item_type === 'content' ? 'Content' : 'Assessment'}</span>
-                          {item.item_type === 'content' && item.section_index >= 0 && (
-                            <span>Section {item.section_index + 1}</span>
-                          )}
-                          {!canOpen && <span>Not available</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </aside>
-
-          <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            {selectedItem ? (
-              <div className="space-y-6">
+      <main className="order-2 px-4 py-4 lg:px-8 lg:py-6 lg:ml-72 lg:mr-80">
+        <div className="min-h-[calc(100vh-2rem)] rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          {selectedItem ? (
+            <div className="h-full p-4 lg:p-8 space-y-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
                     {selectedItem.item_type === 'content' ? (
                       <BookOpen className="w-4 h-4 text-blue-500" />
                     ) : (
@@ -228,62 +235,98 @@ export default function StudentModulePlayer() {
                     )}
                     <span>{selectedItem.item_type === 'content' ? 'Content unit' : 'Assessment unit'}</span>
                   </div>
-                  <h2 className="mt-2 text-2xl font-semibold text-gray-900">{selectedItem.title}</h2>
-                  <p className="mt-2 text-sm text-gray-600">
+                  <h2 className="mt-2 text-2xl lg:text-3xl font-semibold text-slate-900">{selectedItem.title}</h2>
+                  <p className="mt-2 text-sm text-slate-600 max-w-3xl">
                     {selectedItem.item_type === 'content'
                       ? selectedItem.section_index >= 0
                         ? `This content starts at section ${selectedItem.section_index + 1} and stays inside the module player.`
                         : 'This content opens inline inside the module player.'
-                      : 'This opens the student assessment for this unit.'}
+                      : 'This unit opens the student assessment flow in a focused assessment screen.'}
                   </p>
                 </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={openSelectedItem}
-                    disabled={!getItemLaunchPath(selectedItem)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    {selectedItem.item_type === 'content' ? 'Open in new tab' : 'Take this assessment'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateSelection(previousItem)}
-                    disabled={!previousItem}
-                    className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Previous unit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateSelection(nextItem)}
-                    disabled={!nextItem}
-                    className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Next unit
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {selectedItem.item_type === 'content' && getItemLaunchPath(selectedItem) && (
-                  <div className="rounded-2xl border border-gray-200 overflow-hidden bg-gray-50">
-                    <iframe
-                      title={selectedItem.title}
-                      src={getItemLaunchPath(selectedItem) || undefined}
-                      className="w-full min-h-[1100px] bg-white"
-                    />
-                  </div>
-                )}
               </div>
-            ) : (
-              <div className="text-sm text-gray-600">Select a unit to continue.</div>
-            )}
-          </section>
+
+              {selectedItem.item_type === 'content' && getItemLaunchPath(selectedItem) ? (
+                <div className="rounded-[24px] border border-slate-200 overflow-hidden bg-slate-50">
+                  <iframe
+                    title={selectedItem.title}
+                    src={getItemLaunchPath(selectedItem) || undefined}
+                    className="w-full min-h-[calc(100vh-12rem)] bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-8 lg:p-12">
+                  <div className="max-w-2xl space-y-4">
+                    <h3 className="text-xl font-semibold text-slate-900">Ready to take this assessment</h3>
+                    <p className="text-sm text-slate-600">
+                      Assessments still launch in the dedicated assessment experience so students can focus without the lesson content around them.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openSelectedItem}
+                      disabled={!getItemLaunchPath(selectedItem)}
+                      className="inline-flex items-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Take this assessment
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-8 text-sm text-slate-600">Select a unit to continue.</div>
+          )}
         </div>
-      </div>
+      </main>
+
+      <aside className="order-3 lg:fixed lg:inset-y-0 lg:right-0 lg:w-80 bg-white border-l border-slate-200 shadow-sm z-20">
+        <div className="h-full overflow-y-auto p-5">
+          <h2 className="text-sm font-semibold text-slate-700 mb-3">Unit navigation</h2>
+          <div className="space-y-2">
+            {moduleData.items.map((item, index) => {
+              const isActive = item.id === selectedItemId;
+              const canOpen = Boolean(getItemLaunchPath(item));
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => updateSelection(item)}
+                  className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${
+                    isActive
+                      ? 'border-emerald-300 bg-emerald-50'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-slate-200 text-sm font-semibold text-slate-700 shrink-0">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        {item.item_type === 'content' ? (
+                          <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                        )}
+                        <span className="font-medium text-slate-900 truncate">{item.title}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span>{item.item_type === 'content' ? 'Content' : 'Assessment'}</span>
+                        {item.item_type === 'content' && item.section_index >= 0 && (
+                          <span>Section {item.section_index + 1}</span>
+                        )}
+                        {!canOpen && <span>Not available</span>}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

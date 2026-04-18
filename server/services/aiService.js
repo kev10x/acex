@@ -19,6 +19,16 @@ class AIService {
       console.warn('⚠️  OPENAI_API_KEY not found. OpenAI provider will not be available.');
     }
 
+    // Initialize xAI client (OpenAI-compatible base URL)
+    if (process.env.XAI_API_KEY) {
+      this.xai = new OpenAI({
+        apiKey: process.env.XAI_API_KEY,
+        baseURL: 'https://api.x.ai/v1'
+      });
+    } else {
+      console.warn('⚠️  XAI_API_KEY not found. Grok image/TTS features will not be available.');
+    }
+
     // Initialize Anthropic client
     if (process.env.ANTHROPIC_API_KEY) {
       this.anthropic = new Anthropic({
@@ -273,5 +283,4 @@ class AIService {
 
 // Export singleton instance
 module.exports = new AIService();
-
 

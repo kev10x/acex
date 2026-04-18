@@ -20,6 +20,11 @@ const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
 const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos');
+const CONTENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'content-audio');
+
+try {
+  fsSync.mkdirSync(CONTENT_AUDIO_DIR, { recursive: true });
+} catch (_) {}
 
 function parseClampedInt(value, fallback, min, max) {
   const parsed = parseInt(String(value ?? ''), 10);
@@ -30,6 +35,13 @@ function parseClampedInt(value, fallback, min, max) {
 function rowList(result) {
   if (Array.isArray(result)) return result;
   return result?.rows || [];
+}
+
+async function getPublishedContentByCode(code) {
+  const q = isMySQL()
+    ? await query('SELECT id, content_json, title FROM published_content WHERE code = ?', [code])
+    : await query('SELECT id, content_json, title FROM published_content WHERE code = $1', [code]);
+  return rowList(q)[0] || null;
 }
 
 async function moduleBelongsToUser(moduleId, userId) {
@@ -208,6 +220,33 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
   } catch (error) {
     console.error('Content generate error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate content' });
+  }
+});
+
+router.post('/regenerate-visual', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const {
+      visual,
+      content_title = '',
+      section_heading = '',
+      section_body = '',
+    } = req.body || {};
+
+    if (!visual || typeof visual !== 'object') {
+      return res.status(400).json({ error: 'visual is required' });
+    }
+
+    const updatedVisual = await contentService.regenerateVisualWithGrok({
+      visual,
+      contentTitle: String(content_title || '').trim(),
+      sectionHeading: String(section_heading || '').trim(),
+      sectionBody: String(section_body || '').trim(),
+    });
+
+    res.json({ success: true, visual: updatedVisual });
+  } catch (error) {
+    console.error('Content visual regenerate error:', error);
+    res.status(500).json({ error: error.message || 'Failed to regenerate visual with Grok' });
   }
 });
 
@@ -773,10 +812,7 @@ router.delete(['/my/:id', '/:id'], requireAuth, async (req, res) => {
 router.get('/take/:code', async (req, res) => {
   try {
     const { code } = req.params;
-    const q = isMySQL()
-      ? await query('SELECT content_json, title FROM published_content WHERE code = ?', [code])
-      : await query('SELECT content_json, title FROM published_content WHERE code = $1', [code]);
-    const row = Array.isArray(q) ? q[0] : (q.rows && q.rows[0]);
+    const row = await getPublishedContentByCode(code);
     if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
     const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
     const content = contentService.normalizeGeneratedContent(parsedContent || {});
@@ -795,6 +831,49 @@ router.get('/take/:code', async (req, res) => {
   } catch (error) {
     console.error('Content take error:', error);
     res.status(500).json({ error: 'Failed to load content' });
+  }
+});
+
+router.get('/audio/:code/:sectionIndex', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const sectionIndex = Number(req.params.sectionIndex);
+    if (!Number.isFinite(sectionIndex) || sectionIndex < 0) {
+      return res.status(400).json({ error: 'Invalid section index' });
+    }
+
+    const row = await getPublishedContentByCode(code);
+    if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
+
+    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+    const content = contentService.normalizeGeneratedContent(parsedContent || {});
+    const sections = Array.isArray(content.sections) ? content.sections : [];
+    if (!sections[sectionIndex]) {
+      return res.status(404).json({ error: 'Section not found' });
+    }
+
+    const voiceId = String(req.query.voice_id || 'eve').trim().toLowerCase() || 'eve';
+    const narrationText = contentService.buildSectionNarrationText(content, sectionIndex);
+    const cacheKey = crypto
+      .createHash('sha1')
+      .update(JSON.stringify({ code, sectionIndex, voiceId, narrationText }))
+      .digest('hex');
+    const audioPath = path.join(CONTENT_AUDIO_DIR, `${cacheKey}.mp3`);
+
+    if (!fsSync.existsSync(audioPath)) {
+      const audioBuffer = await contentService.synthesizeSectionSpeech(narrationText, {
+        voiceId,
+        language: 'en',
+      });
+      await fs.writeFile(audioPath, audioBuffer);
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.sendFile(audioPath);
+  } catch (error) {
+    console.error('Content TTS audio error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate section audio' });
   }
 });
 
