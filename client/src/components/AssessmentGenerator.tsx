@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
-import { assessmentsAPI, rubricsAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem } from '../services/api';
+import { assessmentsAPI, rubricsAPI, modulesAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule } from '../services/api';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -50,6 +50,9 @@ const AssessmentGenerator: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<'text' | 'moodle' | 'scorm' | null>(null);
   const [stats, setStats] = useState<any>(null);
+  const [modules, setModules] = useState<LearningModule[]>([]);
+  const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
+  const [newModuleName, setNewModuleName] = useState('');
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string }[]>([]);
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
@@ -59,6 +62,7 @@ const AssessmentGenerator: React.FC = () => {
   useEffect(() => {
     loadStats();
     loadRubrics();
+    loadModules();
     loadPublished();
     loadHistory();
   }, []);
@@ -183,6 +187,15 @@ const AssessmentGenerator: React.FC = () => {
       const res = await assessmentsAPI.getPublished();
       if (res.data.success && res.data.items) setPublishedList(res.data.items);
     } catch (_) {}
+  };
+
+  const loadModules = async () => {
+    try {
+      const res = await modulesAPI.list();
+      if (res.data.success && res.data.modules) setModules(res.data.modules);
+    } catch (_) {
+      setModules([]);
+    }
   };
 
   const loadStats = async () => {
@@ -852,27 +865,63 @@ const AssessmentGenerator: React.FC = () => {
                 SCORM
               </button>
               {savedRubricId && (
-                <button
-                  onClick={async () => {
-                    if (!generatedAssessment || !savedRubricId) return;
-                    try {
-                      const res = await assessmentsAPI.publish({ assessment: generatedAssessment, rubric_id: savedRubricId });
-                      if (res.data.success && res.data.code) {
-                        const path = window.location.pathname.replace(/\/$/, '');
-                        const base = path.startsWith('/tools') ? '/tools' : (path.split('/').filter(Boolean)[0] ? '/' + path.split('/').filter(Boolean)[0] : '');
-                        const link = `${window.location.origin}${base}/take-assessment?code=${res.data.code}`;
-                        setPublishedLink(link);
-                        loadPublished();
+                <>
+                  <div className="flex flex-col gap-3 w-full md:w-auto md:flex-row md:items-center">
+                    <div className="flex-1 min-w-[220px]">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Module folder</label>
+                      <select
+                        value={selectedModuleId ?? ''}
+                        onChange={(e) => setSelectedModuleId(e.target.value ? Number(e.target.value) : null)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                      >
+                        <option value="">Do not assign</option>
+                        {modules.map((module) => (
+                          <option key={module.id} value={module.id}>{module.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[220px]">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Create new module folder</label>
+                      <input
+                        value={newModuleName}
+                        onChange={(e) => setNewModuleName(e.target.value)}
+                        placeholder="New module name"
+                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!generatedAssessment || !savedRubricId) return;
+                      try {
+                        const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string } = {
+                          assessment: generatedAssessment,
+                          rubric_id: savedRubricId,
+                        };
+                        if (newModuleName.trim()) {
+                          payload.module_name = newModuleName.trim();
+                        } else if (selectedModuleId) {
+                          payload.module_id = selectedModuleId;
+                        }
+                        const res = await assessmentsAPI.publish(payload);
+                        if (res.data.success && res.data.code) {
+                          const path = window.location.pathname.replace(/\/$/, '');
+                          const base = path.startsWith('/tools') ? '/tools' : (path.split('/').filter(Boolean)[0] ? '/' + path.split('/').filter(Boolean)[0] : '');
+                          const link = `${window.location.origin}${base}/take-assessment?code=${res.data.code}`;
+                          setPublishedLink(link);
+                          loadPublished();
+                          loadModules();
+                        }
+                      } catch (e: any) {
+                        setError(e.response?.data?.error || 'Failed to publish');
                       }
-                    } catch (e: any) {
-                      setError(e.response?.data?.error || 'Failed to publish');
-                    }
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
-                >
-                  <Link2 className="w-4 h-4" />
-                  Publish for students
-                </button>
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Publish for students
+                  </button>
+                </>
               )}
             </div>
           </div>

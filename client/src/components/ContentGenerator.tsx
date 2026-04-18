@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History } from 'lucide-react';
-import { contentAPI, rubricsAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 
 const LEVEL_OPTIONS = [
@@ -34,6 +34,9 @@ const ContentGenerator: React.FC = () => {
   const [myContent, setMyContent] = useState<{ id: number; code: string; title: string; created_at: string }[]>([]);
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
   const [history, setHistory] = useState<ApiContentHistoryItem[]>([]);
+  const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
+  const [newModuleName, setNewModuleName] = useState('');
+  const [modules, setModules] = useState<LearningModule[]>([]);
   const [scheduledFor, setScheduledFor] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
   const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
@@ -56,6 +59,7 @@ const ContentGenerator: React.FC = () => {
     loadPlannerJobs();
     loadTemplates();
     loadHistory();
+    loadModules();
   }, []);
 
   const loadHistory = async () => {
@@ -190,6 +194,15 @@ const ContentGenerator: React.FC = () => {
     } catch (_) {}
   };
 
+  const loadModules = async () => {
+    try {
+      const res = await modulesAPI.list();
+      if (res.data.success && res.data.modules) setModules(res.data.modules);
+    } catch (_) {
+      setModules([]);
+    }
+  };
+
   useEffect(() => {
     const activeJobs = plannerJobs.some((job) => job.status === 'scheduled' || job.status === 'processing');
     if (!activeJobs) return;
@@ -270,16 +283,23 @@ const ContentGenerator: React.FC = () => {
     if (!generatedContent) return;
     setError(null);
     try {
-      const res = await contentAPI.publish({
+      const payload: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string } = {
         content: generatedContent,
         rubric_id: rubricId || undefined,
         include_video: withVideo,
-      });
+      };
+      if (newModuleName.trim()) {
+        payload.module_name = newModuleName.trim();
+      } else if (selectedModuleId) {
+        payload.module_id = selectedModuleId;
+      }
+      const res = await contentAPI.publish(payload);
       if (res.data.success && res.data.code) {
         const link = res.data.link;
         const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
         setPublishedLink(link && link.startsWith('http') ? link : `${window.location.origin}${base}/take-content?code=${res.data.code}`);
         loadMyContent();
+        loadModules();
       }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to publish');
@@ -811,6 +831,32 @@ const ContentGenerator: React.FC = () => {
                 <Video className="w-4 h-4" />
                 Publish with video
               </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 mb-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Module folder</label>
+                <select
+                  value={selectedModuleId ?? ''}
+                  onChange={(e) => setSelectedModuleId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">Do not assign</option>
+                  {modules.map((module) => (
+                    <option key={module.id} value={module.id}>{module.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Create new module folder</label>
+                <input
+                  value={newModuleName}
+                  onChange={(e) => setNewModuleName(e.target.value)}
+                  placeholder="New module name"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                />
+              </div>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 mb-4">

@@ -27,6 +27,62 @@ function parseClampedInt(value, fallback, min, max) {
   return Math.min(Math.max(parsed, min), max);
 }
 
+function rowList(result) {
+  if (Array.isArray(result)) return result;
+  return result?.rows || [];
+}
+
+async function moduleBelongsToUser(moduleId, userId) {
+  const row = isMySQL()
+    ? await query('SELECT id, user_id FROM modules WHERE id = ? AND user_id = ?', [moduleId, userId])
+    : await query('SELECT id, user_id FROM modules WHERE id = $1 AND user_id = $2', [moduleId, userId]);
+  return rowList(row)[0] || null;
+}
+
+async function getOrCreateModuleId(userId, name) {
+  const cleanName = String(name || '').trim().slice(0, 255);
+  if (!cleanName) return null;
+  const existing = isMySQL()
+    ? await query('SELECT id FROM modules WHERE user_id = ? AND name = ?', [userId, cleanName])
+    : await query('SELECT id FROM modules WHERE user_id = $1 AND name = $2', [userId, cleanName]);
+  const existingRow = rowList(existing)[0];
+  if (existingRow) return existingRow.id;
+  const inserted = isMySQL()
+    ? await query('INSERT INTO modules (user_id, name) VALUES (?, ?)', [userId, cleanName])
+    : await query('INSERT INTO modules (user_id, name) VALUES ($1, $2) RETURNING id', [userId, cleanName]);
+  const insertedRow = rowList(inserted)[0];
+  return insertedRow?.id ?? inserted.insertId ?? inserted.lastID ?? null;
+}
+
+async function addItemToModule(moduleId, userId, itemType, itemId, snapshotTitle, snapshotCode) {
+  if (!Number.isFinite(moduleId) || moduleId <= 0) return;
+  const moduleRow = await moduleBelongsToUser(moduleId, userId);
+  if (!moduleRow) return;
+  const maxQ = isMySQL()
+    ? await query('SELECT COALESCE(MAX(position), -1) AS max_position FROM module_items WHERE module_id = ?', [moduleId])
+    : await query('SELECT COALESCE(MAX(position), -1) AS max_position FROM module_items WHERE module_id = $1', [moduleId]);
+  const nextPos = Number(rowList(maxQ)[0]?.max_position ?? -1) + 1;
+  try {
+    if (isMySQL()) {
+      await query(
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [moduleId, itemType, itemId, snapshotTitle, snapshotCode, nextPos, -1]
+      );
+    } else {
+      await query(
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [moduleId, itemType, itemId, snapshotTitle, snapshotCode, nextPos, -1]
+      );
+    }
+  } catch (err) {
+    if (!(err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').toLowerCase().includes('unique'))) {
+      throw err;
+    }
+  }
+}
+
 function normalizeClipSeconds(value, fallback = 12) {
   const parsed = parseInt(String(value ?? ''), 10);
   if (parsed === 4 || parsed === 8 || parsed === 12) return parsed;
@@ -193,7 +249,7 @@ router.get('/templates', requireAuth, requireFeature('content_creation'), async 
  */
 router.post('/publish', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
-    const { content, rubric_id, include_video } = req.body;
+    const { content, rubric_id, include_video, module_id, module_name } = req.body;
     if (!content || !content.title) {
       return res.status(400).json({ error: 'content with title is required' });
     }
@@ -220,6 +276,28 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
       }
     }
     if (!code) return res.status(500).json({ error: 'Could not generate unique code' });
+
+    let moduleTargetId = null;
+    if (module_name && String(module_name).trim()) {
+      moduleTargetId = await getOrCreateModuleId(req.user.id, module_name);
+    } else if (module_id) {
+      moduleTargetId = Number(module_id);
+      const moduleRow = await moduleBelongsToUser(moduleTargetId, req.user.id);
+      if (!moduleRow) {
+        return res.status(404).json({ error: 'Module not found' });
+      }
+    }
+
+    if (moduleTargetId) {
+      const contentRow = isMySQL()
+        ? await query('SELECT id FROM published_content WHERE code = ?', [code])
+        : await query('SELECT id FROM published_content WHERE code = $1', [code]);
+      const row = rowList(contentRow)[0];
+      const contentId = row?.id;
+      if (contentId) {
+        await addItemToModule(moduleTargetId, req.user.id, 'content', contentId, normalizedContent.title, code);
+      }
+    }
 
     let videoJobId = null;
     if (include_video && process.env.OPENAI_API_KEY) {

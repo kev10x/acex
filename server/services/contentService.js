@@ -113,6 +113,54 @@ const CONTENT_TEMPLATES = {
 };
 
 /**
+ * Attempt to repair common JSON syntax errors from AI responses.
+ * @param {string} jsonStr - The potentially malformed JSON string
+ * @returns {string} - Repaired JSON string or original if unrepairable
+ */
+function repairJson(jsonStr) {
+  if (!jsonStr || typeof jsonStr !== 'string') return jsonStr;
+
+  let repaired = jsonStr.trim();
+
+  // Remove trailing commas before closing braces/brackets
+  repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+
+  // Fix incomplete objects - if ends with a property without closing, try to close it
+  if (repaired.endsWith(':')) {
+    repaired = repaired.slice(0, -1) + ': null}';
+  }
+
+  // Fix unclosed strings - if odd number of quotes at end, close the string
+  const quoteCount = (repaired.match(/"/g) || []).length;
+  if (quoteCount % 2 === 1) {
+    repaired += '"';
+  }
+
+  // Try to complete incomplete JSON structures
+  const openBraces = (repaired.match(/{/g) || []).length;
+  const closeBraces = (repaired.match(/}/g) || []).length;
+  const openBrackets = (repaired.match(/\[/g) || []).length;
+  const closeBrackets = (repaired.match(/\]/g) || []).length;
+
+  // Add missing closing braces
+  for (let i = 0; i < openBraces - closeBraces; i++) {
+    repaired += '}';
+  }
+
+  // Add missing closing brackets
+  for (let i = 0; i < openBrackets - closeBrackets; i++) {
+    repaired += ']';
+  }
+
+  // If it still doesn't start with {, wrap it
+  if (!repaired.trim().startsWith('{')) {
+    repaired = '{' + repaired + '}';
+  }
+
+  return repaired;
+}
+
+/**
  * Generate course content (sections + optional quiz) using AI.
  * @param {object} opts - { topics, level, numSections, rubricContext?, title? }
  * @returns {Promise<{ title, instructions, sections: [{ title, body }], quiz?: { questions } }>}
@@ -211,6 +259,11 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     if (jsonStr.startsWith('```json')) jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     else if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
 
+    // Additional cleaning for common AI response issues
+    jsonStr = jsonStr.replace(/[\u0000-\u001F\u007F-\u009F]/g, ''); // Remove control characters
+    jsonStr = jsonStr.replace(/\r\n/g, '\n').replace(/\r/g, '\n'); // Normalize line endings
+    jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1'); // Remove trailing commas
+
     if (!jsonStr || jsonStr.length < 10) {
       const usage = completion.usage || {};
       const reason = usage.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens
@@ -222,13 +275,41 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     }
 
     try {
-      const data = JSON.parse(jsonStr);
+      let data = JSON.parse(jsonStr);
+
+      // If parsing failed, try to repair the JSON
+      if (!data) {
+        const repairedJson = repairJson(jsonStr);
+        if (repairedJson !== jsonStr) {
+          try {
+            data = JSON.parse(repairedJson);
+            console.warn(`Content JSON repaired for model ${model}`);
+          } catch (repairErr) {
+            // Repair failed, continue with original error
+          }
+        }
+      }
+
       if (!data.title || !data.sections || !Array.isArray(data.sections)) {
         lastReason = 'Invalid content structure: need title and sections array';
         continue;
       }
       return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages });
     } catch (parseErr) {
+      // Try repairing the JSON as a fallback
+      try {
+        const repairedJson = repairJson(jsonStr);
+        if (repairedJson !== jsonStr) {
+          const data = JSON.parse(repairedJson);
+          if (data.title && data.sections && Array.isArray(data.sections)) {
+            console.warn(`Content JSON repaired after initial parse failure for model ${model}`);
+            return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages });
+          }
+        }
+      } catch (repairErr) {
+        // Repair also failed
+      }
+
       const snippet = jsonStr.length > 200 ? `${jsonStr.slice(0, 100)}...${jsonStr.slice(-100)}` : jsonStr;
       console.error(`Content JSON parse error with model ${model}. Snippet:`, snippet);
       lastReason = 'Content generation returned invalid JSON';

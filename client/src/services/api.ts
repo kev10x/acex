@@ -595,7 +595,7 @@ export const assessmentsAPI = {
     question_types?: ('mcq' | 'essay' | 'short_answer' | 'mix_and_match' | 'mix')[];
   }) => api.post('/assessments/generate', data),
   getStats: () => api.get('/assessments/stats'),
-  publish: (data: { assessment: GeneratedAssessment; rubric_id: number }) =>
+  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string }) =>
     api.post('/assessments/publish', data),
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
@@ -732,7 +732,7 @@ export const contentAPI = {
     include_diagrams?: boolean;
     include_images?: boolean;
   }) => api.post('/content/generate', data),
-  publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean }) =>
+  publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
     api.post('/content/publish', data),
   getMy: () => api.get('/content/my'),
   deleteMy: (id: number) => api.delete(`/content/my/${id}`),

@@ -17,12 +17,116 @@ const ASSESSMENT_CONTEXT_LIMITS = {
   topicSummary: 900
 };
 
+/**
+ * Attempt to repair common JSON syntax errors from AI responses.
+ * @param {string} jsonStr - The potentially malformed JSON string
+ * @returns {string} - Repaired JSON string or original if unrepairable
+ */
+function repairJson(jsonStr) {
+  if (!jsonStr || typeof jsonStr !== 'string') return jsonStr;
+
+  let repaired = jsonStr.trim();
+
+  // Remove trailing commas before closing braces/brackets
+  repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+
+  // Fix incomplete objects - if ends with a property without closing, try to close it
+  if (repaired.endsWith(':')) {
+    repaired = repaired.slice(0, -1) + ': null}';
+  }
+
+  // Fix unclosed strings - if odd number of quotes at end, close the string
+  const quoteCount = (repaired.match(/"/g) || []).length;
+  if (quoteCount % 2 === 1) {
+    repaired += '"';
+  }
+
+  // Try to complete incomplete JSON structures
+  const openBraces = (repaired.match(/{/g) || []).length;
+  const closeBraces = (repaired.match(/}/g) || []).length;
+  const openBrackets = (repaired.match(/\[/g) || []).length;
+  const closeBrackets = (repaired.match(/\]/g) || []).length;
+
+  // Add missing closing braces
+  for (let i = 0; i < openBraces - closeBraces; i++) {
+    repaired += '}';
+  }
+
+  // Add missing closing brackets
+  for (let i = 0; i < openBrackets - closeBrackets; i++) {
+    repaired += ']';
+  }
+
+  // If it still doesn't start with {, wrap it
+  if (!repaired.trim().startsWith('{')) {
+    repaired = '{' + repaired + '}';
+  }
+
+  return repaired;
+}
+
 function generateCode() {
   return crypto.randomBytes(6).toString('base64url').slice(0, 8);
 }
 
 function generateSubmissionCode() {
   return crypto.randomBytes(9).toString('base64url').slice(0, 12);
+}
+
+function rowList(result) {
+  if (Array.isArray(result)) return result;
+  return result?.rows || [];
+}
+
+async function moduleBelongsToUser(moduleId, userId) {
+  const row = isMySQLDb()
+    ? await query('SELECT id, user_id FROM modules WHERE id = ? AND user_id = ?', [moduleId, userId])
+    : await query('SELECT id, user_id FROM modules WHERE id = $1 AND user_id = $2', [moduleId, userId]);
+  return rowList(row)[0] || null;
+}
+
+async function getOrCreateModuleId(userId, name) {
+  const cleanName = String(name || '').trim().slice(0, 255);
+  if (!cleanName) return null;
+  const existing = isMySQLDb()
+    ? await query('SELECT id FROM modules WHERE user_id = ? AND name = ?', [userId, cleanName])
+    : await query('SELECT id FROM modules WHERE user_id = $1 AND name = $2', [userId, cleanName]);
+  const existingRow = rowList(existing)[0];
+  if (existingRow) return existingRow.id;
+  const inserted = isMySQLDb()
+    ? await query('INSERT INTO modules (user_id, name) VALUES (?, ?)', [userId, cleanName])
+    : await query('INSERT INTO modules (user_id, name) VALUES ($1, $2) RETURNING id', [userId, cleanName]);
+  const insertedRow = rowList(inserted)[0];
+  return insertedRow?.id ?? inserted.insertId ?? inserted.lastID ?? null;
+}
+
+async function addItemToModule(moduleId, userId, itemType, itemId, snapshotTitle, snapshotCode) {
+  if (!Number.isFinite(moduleId) || moduleId <= 0) return;
+  const moduleRow = await moduleBelongsToUser(moduleId, userId);
+  if (!moduleRow) return;
+  const maxQ = isMySQLDb()
+    ? await query('SELECT COALESCE(MAX(position), -1) AS max_position FROM module_items WHERE module_id = ?', [moduleId])
+    : await query('SELECT COALESCE(MAX(position), -1) AS max_position FROM module_items WHERE module_id = $1', [moduleId]);
+  const nextPos = Number(rowList(maxQ)[0]?.max_position ?? -1) + 1;
+  try {
+    if (isMySQLDb()) {
+      await query(
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [moduleId, itemType, itemId, snapshotTitle, snapshotCode, nextPos, -1]
+      );
+    } else {
+      await query(
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [moduleId, itemType, itemId, snapshotTitle, snapshotCode, nextPos, -1]
+      );
+    }
+  } catch (err) {
+    if (!(err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').toLowerCase().includes('unique'))) {
+      throw err;
+    }
+  }
 }
 
 async function ensurePublishedAssessmentBatch(publishedAssessment, assessment) {
@@ -183,6 +287,18 @@ function parseAssessmentJSONFromCompletion(completion) {
   try {
     return JSON.parse(cleanResponse);
   } catch (parseError) {
+    // Try to repair the JSON
+    try {
+      const repairedJson = repairJson(cleanResponse);
+      if (repairedJson !== cleanResponse) {
+        const parsed = JSON.parse(repairedJson);
+        console.warn('Assessment JSON repaired after initial parse failure');
+        return parsed;
+      }
+    } catch (repairErr) {
+      // Repair failed, continue with original error
+    }
+
     const preview = cleanResponse.slice(0, 500);
     throw new Error(`Failed to parse AI response as JSON (${parseError.message}). Preview: ${preview}`);
   }
@@ -855,7 +971,7 @@ router.get('/stats', async (req, res) => {
  */
 router.post('/publish', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
-    const { assessment, rubric_id } = req.body;
+    const { assessment, rubric_id, module_id, module_name } = req.body;
     if (!assessment || !rubric_id) {
       return res.status(400).json({ error: 'assessment and rubric_id are required' });
     }
@@ -892,6 +1008,21 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
     if (!code) {
       return res.status(500).json({ error: 'Could not generate unique code' });
     }
+    let moduleTargetId = null;
+    if (module_name && String(module_name).trim()) {
+      moduleTargetId = await getOrCreateModuleId(req.user.id, module_name);
+    } else if (module_id) {
+      moduleTargetId = Number(module_id);
+      const moduleRow = await moduleBelongsToUser(moduleTargetId, req.user.id);
+      if (!moduleRow) {
+        return res.status(404).json({ error: 'Module not found' });
+      }
+    }
+
+    if (publishedId && moduleTargetId) {
+      await addItemToModule(moduleTargetId, req.user.id, 'assessment', publishedId, assessment.title || `Assessment ${publishedId}`, code);
+    }
+
     const batchName = `Assessment Submissions - ${String(assessment.title || 'Published Assessment').trim()}`.slice(0, 255);
     const batchDescription = `Auto-managed submissions batch for assessment code ${code}`;
     const batchResult = await query(
