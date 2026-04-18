@@ -395,7 +395,7 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
     let selectedContentSummary = '';
 
     if (useContentItem) {
-      const contentQuery = isMySQL()
+      const contentQuery = isMySQLDb()
         ? 'SELECT id, title, content_json FROM published_content WHERE id = ? AND user_id = ? LIMIT 1'
         : 'SELECT id, title, content_json FROM published_content WHERE id = $1 AND user_id = $2 LIMIT 1';
       const contentRowsResult = await query(contentQuery, [content_id, req.user.id]);
@@ -1330,4 +1330,3 @@ router.post('/submit', async (req, res) => {
 });
 
 module.exports = router;
-

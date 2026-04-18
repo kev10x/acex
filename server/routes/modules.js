@@ -5,13 +5,26 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 
+async function mysqlIndexExists(tableName, indexName) {
+  try {
+    if (tableName !== 'module_items') return false;
+    const result = await query('SHOW INDEX FROM module_items WHERE Key_name = ?', [indexName]);
+    const rows = rowList(result);
+    return rows.length > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Auto-migration: add section_index column and update unique constraint
 ;(async () => {
   try {
     if (isMySQL()) {
       try { await query('ALTER TABLE module_items ADD COLUMN section_index INT NOT NULL DEFAULT -1'); } catch (_) {}
       try { await query('ALTER TABLE module_items DROP INDEX uniq_module_item'); } catch (_) {}
-      try { await query('ALTER TABLE module_items ADD UNIQUE KEY uniq_module_item_v2 (module_id, item_type, item_id, section_index)'); } catch (_) {}
+      if (!(await mysqlIndexExists('module_items', 'uniq_module_item_v2'))) {
+        try { await query('ALTER TABLE module_items ADD UNIQUE KEY uniq_module_item_v2 (module_id, item_type, item_id, section_index)'); } catch (_) {}
+      }
     } else {
       try { await query('ALTER TABLE module_items ADD COLUMN IF NOT EXISTS section_index INTEGER NOT NULL DEFAULT -1'); } catch (_) {}
       try { await query('ALTER TABLE module_items DROP CONSTRAINT module_items_module_id_item_type_item_id_key'); } catch (_) {}
