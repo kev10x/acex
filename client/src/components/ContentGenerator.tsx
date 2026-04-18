@@ -392,6 +392,21 @@ const ContentGenerator: React.FC = () => {
     if (!generatedContent) return;
     setError(null);
     try {
+      if (activePublishedContentId) {
+        const res = await contentAPI.updateMy(activePublishedContentId, {
+          content: withGenerationSettings(generatedContent),
+          rubric_id: rubricId ?? null,
+        });
+        if (res.data?.item?.content) {
+          setGeneratedContent(res.data.item.content);
+          setActivePublishedContentCode(res.data.item.code);
+          const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+          setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
+          await loadMyContent();
+        }
+        return;
+      }
+
       const payload: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string } = {
         content: withGenerationSettings(generatedContent),
         rubric_id: rubricId || undefined,
@@ -1015,14 +1030,14 @@ const ContentGenerator: React.FC = () => {
                 className="flex items-center gap-2 px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
               >
                 <Link2 className="w-4 h-4" />
-                Publish for students
+                {activePublishedContentId ? 'Update student version' : 'Publish for students'}
               </button>
               <button
                 onClick={() => handlePublish(true)}
                 className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
               >
                 <Video className="w-4 h-4" />
-                Publish with video
+                {activePublishedContentId ? 'Update with video kept' : 'Publish with video'}
               </button>
             </div>
           </div>
