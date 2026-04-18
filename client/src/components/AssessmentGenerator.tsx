@@ -26,6 +26,14 @@ const LEVEL_OPTIONS = [
   { value: 'Postgraduate', label: 'Postgraduate' },
 ];
 const LEGACY_ASSESSMENT_HISTORY_KEY = 'assessment_generator_history_v1';
+const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+const stripOptionPrefix = (option: string, optionIndex: number) => {
+  const letter = OPTION_LETTERS[optionIndex] || String(optionIndex + 1);
+  return String(option || '')
+    .replace(new RegExp(`^\\s*\\(?${letter}\\)?[\\)\\].:\\-]?\\s+`, 'i'), '')
+    .trim();
+};
 
 const AssessmentGenerator: React.FC = () => {
   const [useCustomTopics, setUseCustomTopics] = useState(false);
@@ -1070,7 +1078,7 @@ const AssessmentGenerator: React.FC = () => {
                   {question.options && question.options.length > 0 && (
                     <div className="ml-2 mb-2 text-sm text-gray-600">
                       {question.options.map((opt, i) => (
-                        <div key={i}>{String.fromCharCode(65 + i)}) {opt}</div>
+                        <div key={i}>{String.fromCharCode(65 + i)}) {stripOptionPrefix(opt, i) || opt}</div>
                       ))}
                     </div>
                   )}
@@ -1140,4 +1148,3 @@ const AssessmentGenerator: React.FC = () => {
 };
 
 export default AssessmentGenerator;
-

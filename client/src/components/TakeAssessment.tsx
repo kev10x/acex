@@ -4,8 +4,60 @@ import { assessmentsAPI } from '../services/api';
 import type { AssessmentSubmissionStatus, GeneratedAssessment } from '../services/api';
 
 type Step = 'code' | 'form' | 'submitting' | 'pending' | 'result';
+type DraggedMatch = {
+  questionNumber: number;
+  rightIndex: number;
+  sourceLeftIndex: number | null;
+};
 
 const POLL_INTERVAL_MS = 5000;
+const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+const getOptionLetter = (index: number) => OPTION_LETTERS[index] || String(index + 1);
+
+const stripOptionPrefix = (option: string, optionIndex: number) => {
+  const letter = getOptionLetter(optionIndex);
+  return String(option || '')
+    .replace(new RegExp(`^\\s*\\(?${letter}\\)?[\\)\\].:\\-]?\\s+`, 'i'), '')
+    .trim();
+};
+
+const parseMatchAnswer = (value: string, leftCount: number, rightCount: number) => {
+  const assignments = Array.from({ length: leftCount }, () => null as number | null);
+  const usedRightIndexes = new Set<number>();
+  const matches = Array.from(String(value || '').matchAll(/(\d+)\s*[-:=]\s*([A-Z]|\d+)/gi));
+
+  for (const match of matches) {
+    const leftIndex = Number(match[1]) - 1;
+    const rightToken = String(match[2]).trim().toUpperCase();
+    const rightIndex = /^[A-Z]$/.test(rightToken)
+      ? rightToken.charCodeAt(0) - 65
+      : Number(rightToken) - 1;
+
+    if (
+      Number.isFinite(leftIndex) &&
+      Number.isFinite(rightIndex) &&
+      leftIndex >= 0 &&
+      leftIndex < leftCount &&
+      rightIndex >= 0 &&
+      rightIndex < rightCount &&
+      !usedRightIndexes.has(rightIndex)
+    ) {
+      assignments[leftIndex] = rightIndex;
+      usedRightIndexes.add(rightIndex);
+    }
+  }
+
+  return assignments;
+};
+
+const serializeMatchAnswer = (assignments: Array<number | null>) =>
+  assignments
+    .map((rightIndex, leftIndex) => (
+      rightIndex === null ? null : `${leftIndex + 1}-${getOptionLetter(rightIndex)}`
+    ))
+    .filter(Boolean)
+    .join(', ');
 
 const TakeAssessment: React.FC = () => {
   const [code, setCode] = useState('');
@@ -18,6 +70,7 @@ const TakeAssessment: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [submissionCode, setSubmissionCode] = useState<string | null>(null);
   const [submissionStatus, setSubmissionStatus] = useState<AssessmentSubmissionStatus | null>(null);
+  const [draggedMatch, setDraggedMatch] = useState<DraggedMatch | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -115,6 +168,57 @@ const TakeAssessment: React.FC = () => {
 
   const setAnswer = (questionNumber: number, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionNumber]: value }));
+  };
+
+  const updateMatchAnswer = (
+    questionNumber: number,
+    leftCount: number,
+    rightCount: number,
+    updater: (assignments: Array<number | null>) => Array<number | null>
+  ) => {
+    const current = parseMatchAnswer(answers[questionNumber] ?? '', leftCount, rightCount);
+    const next = updater([...current]);
+    setAnswer(questionNumber, serializeMatchAnswer(next));
+  };
+
+  const handleMatchDragStart = (questionNumber: number, rightIndex: number, sourceLeftIndex: number | null) => {
+    setDraggedMatch({ questionNumber, rightIndex, sourceLeftIndex });
+  };
+
+  const handleMatchDrop = (
+    questionNumber: number,
+    targetLeftIndex: number,
+    leftCount: number,
+    rightCount: number
+  ) => {
+    if (!draggedMatch || draggedMatch.questionNumber !== questionNumber) return;
+
+    updateMatchAnswer(questionNumber, leftCount, rightCount, (assignments) => {
+      const next = [...assignments];
+      const { rightIndex, sourceLeftIndex } = draggedMatch;
+      const displaced = next[targetLeftIndex];
+
+      next[targetLeftIndex] = rightIndex;
+      if (sourceLeftIndex !== null && sourceLeftIndex !== targetLeftIndex) {
+        next[sourceLeftIndex] = displaced ?? null;
+      }
+
+      return next;
+    });
+
+    setDraggedMatch(null);
+  };
+
+  const handleMatchPoolDrop = (questionNumber: number, leftCount: number, rightCount: number) => {
+    if (!draggedMatch || draggedMatch.questionNumber !== questionNumber || draggedMatch.sourceLeftIndex === null) return;
+
+    updateMatchAnswer(questionNumber, leftCount, rightCount, (assignments) => {
+      const next = [...assignments];
+      next[draggedMatch.sourceLeftIndex as number] = null;
+      return next;
+    });
+
+    setDraggedMatch(null);
   };
 
   const updateSubmissionUrl = (assessmentCode: string, nextSubmissionCode: string) => {
@@ -352,6 +456,17 @@ const TakeAssessment: React.FC = () => {
             const rawType = ((q as any).type || 'short_answer').replace(/-/g, '_');
             const type = rawType === 'mcq' ? 'multiple_choice' : rawType;
             const value = answers[qNum] ?? '';
+            const leftColumn = Array.isArray((q as any).left_column) ? ((q as any).left_column as string[]) : [];
+            const rightColumn = Array.isArray((q as any).right_column) ? ((q as any).right_column as string[]) : [];
+            const matchAssignments = type === 'mix_and_match'
+              ? parseMatchAnswer(value, leftColumn.length, rightColumn.length)
+              : [];
+            const assignedRightIndexes = new Set(
+              matchAssignments.filter((assignment): assignment is number => assignment !== null)
+            );
+            const unassignedRightItems = rightColumn
+              .map((item, itemIndex) => ({ item, itemIndex }))
+              .filter(({ itemIndex }) => !assignedRightIndexes.has(itemIndex));
 
             return (
               <div key={idx} className="bg-white rounded-xl shadow-lg p-6">
@@ -366,9 +481,10 @@ const TakeAssessment: React.FC = () => {
                 {type === 'multiple_choice' && (q as any).options && Array.isArray((q as any).options) && (
                   <div className="space-y-2">
                     {((q as any).options as string[]).map((opt, optionIndex) => {
-                      const letter = String.fromCharCode(65 + optionIndex);
+                      const letter = getOptionLetter(optionIndex);
+                      const label = stripOptionPrefix(opt, optionIndex) || String(opt || '').trim();
                       return (
-                        <label key={optionIndex} className="flex items-start gap-2 cursor-pointer">
+                        <label key={optionIndex} className="flex items-start gap-3 cursor-pointer rounded-lg border border-gray-200 px-3 py-2 hover:border-violet-300 hover:bg-violet-50">
                           <input
                             type="radio"
                             name={`q-${qNum}`}
@@ -377,39 +493,108 @@ const TakeAssessment: React.FC = () => {
                             onChange={() => setAnswer(qNum, letter)}
                             className="mt-1 text-violet-600 border-gray-300 focus:ring-violet-500"
                           />
-                          <span className="text-gray-700 break-words">{opt}</span>
+                          <span className="inline-flex w-7 shrink-0 justify-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                            {letter}
+                          </span>
+                          <span className="text-gray-700 break-words">{label}</span>
                         </label>
                       );
                     })}
                   </div>
                 )}
 
-                {type === 'mix_and_match' && (q as any).left_column && (q as any).right_column && (
+                {type === 'mix_and_match' && leftColumn.length > 0 && rightColumn.length > 0 && (
                   <div className="space-y-3">
-                    <p className="text-sm text-gray-600">Match each item on the left to the correct item on the right.</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <div className="font-medium text-gray-700 mb-2">Column A</div>
-                        {((q as any).left_column as string[]).map((item, itemIndex) => (
-                          <div key={itemIndex} className="mb-2 text-sm break-words">{itemIndex + 1}. {item}</div>
-                        ))}
+                    <p className="text-sm text-gray-600">
+                      Drag choices from the pool into the matching slots. Drag an assigned choice back to the pool to remove it.
+                    </p>
+                    <div
+                      className="rounded-xl border border-dashed border-violet-300 bg-violet-50/60 p-4"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleMatchPoolDrop(qNum, leftColumn.length, rightColumn.length)}
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium text-violet-800">Choice pool</div>
+                        <div className="text-xs text-violet-700">{unassignedRightItems.length} unassigned</div>
                       </div>
-                      <div>
-                        <div className="font-medium text-gray-700 mb-2">Column B</div>
-                        {((q as any).right_column as string[]).map((item, itemIndex) => (
-                          <div key={itemIndex} className="mb-2 text-sm break-words">{String.fromCharCode(65 + itemIndex)}. {item}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {unassignedRightItems.length === 0 && (
+                          <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm text-violet-700">
+                            All choices have been assigned.
+                          </div>
+                        )}
+                        {unassignedRightItems.map(({ item, itemIndex }) => (
+                          <button
+                            key={itemIndex}
+                            type="button"
+                            draggable
+                            onDragStart={() => handleMatchDragStart(qNum, itemIndex, null)}
+                            onDragEnd={() => setDraggedMatch(null)}
+                            className="flex items-center gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2 text-left text-sm text-gray-700 shadow-sm"
+                          >
+                            <span className="inline-flex w-7 shrink-0 justify-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                              {getOptionLetter(itemIndex)}
+                            </span>
+                            <span className="break-words">{item}</span>
+                          </button>
                         ))}
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Your answer (e.g. 1-A, 2-B, 3-C)</label>
-                      <input
-                        type="text"
-                        value={value}
-                        onChange={(e) => setAnswer(qNum, e.target.value)}
-                        placeholder="1-A, 2-B, ..."
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500"
-                      />
+
+                    <div className="space-y-3">
+                      {leftColumn.map((item, leftIndex) => {
+                        const assignedRightIndex = matchAssignments[leftIndex];
+                        const assignedRightText = assignedRightIndex !== null ? rightColumn[assignedRightIndex] : null;
+
+                        return (
+                          <div
+                            key={leftIndex}
+                            className="grid gap-3 rounded-xl border border-gray-200 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+                          >
+                            <div>
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Prompt {leftIndex + 1}
+                              </div>
+                              <div className="text-sm text-gray-800 break-words">{item}</div>
+                            </div>
+                            <div
+                              className={`rounded-lg border-2 border-dashed p-3 transition-colors ${
+                                draggedMatch?.questionNumber === qNum
+                                  ? 'border-violet-300 bg-violet-50'
+                                  : 'border-gray-200 bg-gray-50'
+                              }`}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={() => handleMatchDrop(qNum, leftIndex, leftColumn.length, rightColumn.length)}
+                            >
+                              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Match
+                              </div>
+                              {assignedRightIndex !== null && assignedRightText ? (
+                                <button
+                                  type="button"
+                                  draggable
+                                  onDragStart={() => handleMatchDragStart(qNum, assignedRightIndex, leftIndex)}
+                                  onDragEnd={() => setDraggedMatch(null)}
+                                  className="flex w-full items-start gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2 text-left text-sm text-gray-700 shadow-sm"
+                                >
+                                  <span className="inline-flex w-7 shrink-0 justify-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                                    {getOptionLetter(assignedRightIndex)}
+                                  </span>
+                                  <span className="break-words">{assignedRightText}</span>
+                                </button>
+                              ) : (
+                                <div className="text-sm text-gray-500">
+                                  Drop the correct match here.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                      Saved as: {value || 'No matches selected yet'}
                     </div>
                   </div>
                 )}
