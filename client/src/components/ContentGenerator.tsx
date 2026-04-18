@@ -55,13 +55,19 @@ const ContentGenerator: React.FC = () => {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [loadingPublishedContentId, setLoadingPublishedContentId] = useState<number | null>(null);
   const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
+  const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const sectionFigures = useMemo<{ visual: any; figNum: number }[][]>(() => {
+  const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
     let counter = 0;
-    return sections.map((sec: any) =>
-      (Array.isArray(sec.visuals) ? sec.visuals : []).map((v: any) => ({ visual: v, figNum: ++counter }))
+    return sections.map((sec: any, sectionIndex: number) =>
+      (Array.isArray(sec.visuals) ? sec.visuals : []).map((v: any, visualIndex: number) => ({
+        visual: v,
+        visualIndex,
+        figNum: ++counter,
+        figureKey: `${sectionIndex}:${visualIndex}`,
+      }))
     );
   }, [generatedContent?.sections]);
 
@@ -129,6 +135,7 @@ const ContentGenerator: React.FC = () => {
       ...item.content,
       tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
     });
+    setSelectedVisualKey(null);
     setActiveHistoryId(item.id);
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
@@ -146,6 +153,7 @@ const ContentGenerator: React.FC = () => {
         throw new Error('Published content could not be loaded');
       }
       setGeneratedContent(item.content);
+      setSelectedVisualKey(null);
       setRubricId(item.rubric_id ?? null);
       setIncludeTextToSpeech(item.content.tts_enabled !== false);
       setActivePublishedContentId(item.id);
@@ -317,6 +325,7 @@ const ContentGenerator: React.FC = () => {
     }
     setError(null);
     setIsGenerating(true);
+    setSelectedVisualKey(null);
     setActiveHistoryId(null);
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
@@ -550,6 +559,7 @@ const ContentGenerator: React.FC = () => {
           sections[sectionIndex] = { ...currentSection, visuals };
           return { ...current, sections };
         });
+        setSelectedVisualKey(key);
       } else {
         setError('Grok did not return a replacement visual.');
       }
@@ -620,6 +630,17 @@ const ContentGenerator: React.FC = () => {
   };
 
   const basePath = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+  const selectedVisualLocation = useMemo(() => {
+    if (!selectedVisualKey || !generatedContent?.sections) return null;
+    const [sectionPart, visualPart] = selectedVisualKey.split(':');
+    const sectionIndex = Number(sectionPart);
+    const visualIndex = Number(visualPart);
+    if (!Number.isFinite(sectionIndex) || !Number.isFinite(visualIndex)) return null;
+    const section = generatedContent.sections[sectionIndex];
+    const visual = section?.visuals?.[visualIndex];
+    if (!section || !visual) return null;
+    return { sectionIndex, visualIndex, section, visual };
+  }, [generatedContent?.sections, selectedVisualKey]);
 
   return (
     <div className="max-w-6xl mx-auto p-6">
@@ -1077,6 +1098,21 @@ const ContentGenerator: React.FC = () => {
           {generatedContent.instructions && (
             <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">{generatedContent.instructions}</div>
           )}
+          {selectedVisualLocation && (
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-emerald-900">
+                Selected figure: <span className="font-semibold">{selectedVisualLocation.visual.title || `Section ${selectedVisualLocation.sectionIndex + 1} visual ${selectedVisualLocation.visualIndex + 1}`}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRegenerateVisual(selectedVisualLocation.sectionIndex, selectedVisualLocation.visualIndex)}
+                disabled={regeneratingVisualKey === selectedVisualKey}
+                className="px-3 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 text-sm"
+              >
+                {regeneratingVisualKey === selectedVisualKey ? 'Regenerating selected figure...' : 'Regenerate selected figure'}
+              </button>
+            </div>
+          )}
           {activePublishedContentId && (
             <div className="mb-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-800">
               Editing published content{activePublishedContentCode ? ` (${activePublishedContentCode})` : ''}. Use `Save published content` to update the existing student-facing item.
@@ -1208,8 +1244,16 @@ const ContentGenerator: React.FC = () => {
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
 
                 {/* Illustration figure — shown before body text */}
-                {sectionFigures[i].filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum }) => (
-                  <figure key={figNum} className="my-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                {sectionFigures[i].filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
+                  <figure
+                    key={figNum}
+                    onClick={() => setSelectedVisualKey(figureKey)}
+                    className={`my-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
+                      selectedVisualKey === figureKey
+                        ? 'border-emerald-400 ring-2 ring-emerald-200'
+                        : 'border-gray-200 hover:border-emerald-300'
+                    }`}
+                  >
                     {visual.mermaid_code ? (
                       <div className="p-4 bg-gray-50">
                         <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
@@ -1223,6 +1267,16 @@ const ContentGenerator: React.FC = () => {
                     ) : null}
                     <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                       <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedVisualKey(figureKey);
+                        }}
+                        className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
+                      >
+                        Select
+                      </button>
                     </figcaption>
                   </figure>
                 ))}
@@ -1231,9 +1285,17 @@ const ContentGenerator: React.FC = () => {
                 <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">{sec.body}</p>
 
                 {/* Image figure — shown after body text */}
-                {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum }) => (
+                {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, figureKey }) => (
                   visual.image_url ? (
-                    <figure key={figNum} className="mt-4 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                    <figure
+                      key={figNum}
+                      onClick={() => setSelectedVisualKey(figureKey)}
+                      className={`mt-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
+                        selectedVisualKey === figureKey
+                          ? 'border-emerald-400 ring-2 ring-emerald-200'
+                          : 'border-gray-200 hover:border-emerald-300'
+                      }`}
+                    >
                       <img
                         src={visual.image_url}
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
@@ -1241,6 +1303,16 @@ const ContentGenerator: React.FC = () => {
                       />
                       <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                         <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVisualKey(figureKey);
+                          }}
+                          className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
+                        >
+                          Select
+                        </button>
                       </figcaption>
                     </figure>
                   ) : null
