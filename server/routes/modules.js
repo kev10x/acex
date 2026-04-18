@@ -5,6 +5,23 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 
+// Auto-migration: add section_index column and update unique constraint
+;(async () => {
+  try {
+    if (isMySQL()) {
+      try { await query('ALTER TABLE module_items ADD COLUMN section_index INT NOT NULL DEFAULT -1'); } catch (_) {}
+      try { await query('ALTER TABLE module_items DROP INDEX uniq_module_item'); } catch (_) {}
+      try { await query('ALTER TABLE module_items ADD UNIQUE KEY uniq_module_item_v2 (module_id, item_type, item_id, section_index)'); } catch (_) {}
+    } else {
+      try { await query('ALTER TABLE module_items ADD COLUMN IF NOT EXISTS section_index INTEGER NOT NULL DEFAULT -1'); } catch (_) {}
+      try { await query('ALTER TABLE module_items DROP CONSTRAINT module_items_module_id_item_type_item_id_key'); } catch (_) {}
+      try { await query('ALTER TABLE module_items ADD CONSTRAINT uniq_module_item_v2 UNIQUE (module_id, item_type, item_id, section_index)'); } catch (_) {}
+    }
+  } catch (e) {
+    console.warn('[modules] section_index migration warning:', e.message);
+  }
+})();
+
 function rowList(result) {
   if (Array.isArray(result)) return result;
   return result?.rows || [];
@@ -24,6 +41,7 @@ function groupModules(modules, items, students) {
       title: i.snapshot_title || `${i.item_type} ${i.item_id}`,
       code: i.snapshot_code || '',
       position: i.position ?? 0,
+      section_index: i.section_index ?? -1,
       created_at: i.created_at,
     });
   });
@@ -111,13 +129,24 @@ async function getAssessmentMeta(itemId, userId) {
   return { title: title || `Assessment ${itemId}`, code: row.code || '' };
 }
 
-async function getContentMeta(itemId, userId) {
+async function getContentMeta(itemId, userId, sectionIndex = -1) {
   const q = isMySQL()
-    ? await query('SELECT code, title FROM published_content WHERE id = ? AND user_id = ?', [itemId, userId])
-    : await query('SELECT code, title FROM published_content WHERE id = $1 AND user_id = $2', [itemId, userId]);
+    ? await query('SELECT code, title, content_json FROM published_content WHERE id = ? AND user_id = ?', [itemId, userId])
+    : await query('SELECT code, title, content_json FROM published_content WHERE id = $1 AND user_id = $2', [itemId, userId]);
   const row = rowList(q)[0];
   if (!row) return null;
-  return { title: row.title || `Content ${itemId}`, code: row.code || '' };
+  let title = row.title || `Content ${itemId}`;
+  if (sectionIndex >= 0) {
+    try {
+      const parsed = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+      const section = parsed?.sections?.[sectionIndex];
+      if (section) {
+        const sTitle = section.heading || section.title || `Section ${sectionIndex + 1}`;
+        title = `${title} \u203a Page ${sectionIndex + 1}: ${sTitle}`;
+      }
+    } catch (_) {}
+  }
+  return { title, code: row.code || '' };
 }
 
 router.get('/', requireAuth, async (req, res) => {
@@ -130,7 +159,7 @@ router.get('/', requireAuth, async (req, res) => {
 
     const itemsQ = isMySQL()
       ? await query(
-          `SELECT mi.id, mi.module_id, mi.item_type, mi.item_id, mi.snapshot_title, mi.snapshot_code, mi.position, mi.created_at
+          `SELECT mi.id, mi.module_id, mi.item_type, mi.item_id, mi.snapshot_title, mi.snapshot_code, mi.position, mi.section_index, mi.created_at
            FROM module_items mi
            INNER JOIN modules m ON m.id = mi.module_id
            WHERE m.user_id = ?
@@ -138,7 +167,7 @@ router.get('/', requireAuth, async (req, res) => {
           [req.user.id]
         )
       : await query(
-          `SELECT mi.id, mi.module_id, mi.item_type, mi.item_id, mi.snapshot_title, mi.snapshot_code, mi.position, mi.created_at
+          `SELECT mi.id, mi.module_id, mi.item_type, mi.item_id, mi.snapshot_title, mi.snapshot_code, mi.position, mi.section_index, mi.created_at
            FROM module_items mi
            INNER JOIN modules m ON m.id = mi.module_id
            WHERE m.user_id = $1
@@ -293,11 +322,15 @@ router.post('/:id/items', requireAuth, async (req, res) => {
     }
     if (!Number.isFinite(itemId) || itemId <= 0) return res.status(400).json({ error: 'Invalid item_id' });
 
+    const sectionIndex = (req.body?.section_index !== undefined && req.body?.section_index !== null)
+      ? Number(req.body.section_index)
+      : -1;
+
     const moduleRow = await moduleBelongsToUser(moduleId, req.user.id);
     if (!moduleRow) return res.status(404).json({ error: 'Module not found' });
 
     const meta = itemType === 'content'
-      ? await getContentMeta(itemId, req.user.id)
+      ? await getContentMeta(itemId, req.user.id, sectionIndex)
       : await getAssessmentMeta(itemId, req.user.id);
     if (!meta) return res.status(404).json({ error: `${itemType} item not found` });
 
@@ -308,15 +341,15 @@ router.post('/:id/items', requireAuth, async (req, res) => {
 
     if (isMySQL()) {
       await query(
-        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [moduleId, itemType, itemId, meta.title, meta.code, nextPos]
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [moduleId, itemType, itemId, meta.title, meta.code, nextPos, sectionIndex]
       );
     } else {
       await query(
-        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [moduleId, itemType, itemId, meta.title, meta.code, nextPos]
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [moduleId, itemType, itemId, meta.title, meta.code, nextPos, sectionIndex]
       );
     }
     res.json({ success: true, message: 'Item added to module' });

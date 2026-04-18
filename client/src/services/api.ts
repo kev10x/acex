@@ -688,6 +688,7 @@ export interface LearningModuleItem {
   title: string;
   code: string;
   position: number;
+  section_index: number; // -1 = whole item, 0+ = specific section
   created_at: string;
 }
 
@@ -789,8 +790,8 @@ export const modulesAPI = {
   create: (name: string) => api.post<{ success: boolean; module: LearningModule }>('/modules', { name }),
   update: (id: number, name: string) => api.put(`/modules/${id}`, { name }),
   remove: (id: number) => api.delete(`/modules/${id}`),
-  addItem: (moduleId: number, itemType: 'content' | 'assessment', itemId: number) =>
-    api.post(`/modules/${moduleId}/items`, { item_type: itemType, item_id: itemId }),
+  addItem: (moduleId: number, itemType: 'content' | 'assessment', itemId: number, sectionIndex?: number) =>
+    api.post(`/modules/${moduleId}/items`, { item_type: itemType, item_id: itemId, section_index: sectionIndex }),
   removeItem: (moduleId: number, moduleItemId: number) => api.delete(`/modules/${moduleId}/items/${moduleItemId}`),
   reorderItems: (moduleId: number, itemIds: number[]) => api.put(`/modules/${moduleId}/reorder`, { item_ids: itemIds }),
   addStudent: (moduleId: number, studentUserId: number) => api.post(`/modules/${moduleId}/students`, { student_user_id: studentUserId }),

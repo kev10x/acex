@@ -610,15 +610,18 @@ router.get('/published', requireAuth, async (req, res) => {
     const takePath = base ? `${base.replace(/\/$/, '')}/take-assessment` : '/take-assessment';
     const items = list.map((r) => {
       let title = '';
+      let question_count = 0;
       try {
         const j = typeof r.assessment_json === 'string' ? JSON.parse(r.assessment_json) : r.assessment_json;
-        title = j && j.title ? j.title : '';
+        title = j?.title || '';
+        question_count = Array.isArray(j?.questions) ? j.questions.length : 0;
       } catch (_) {}
       return {
         id: r.id,
         code: r.code,
         batch_id: r.batch_id ?? null,
         title,
+        question_count,
         link: `${takePath}?code=${r.code}`,
         created_at: r.created_at,
       };

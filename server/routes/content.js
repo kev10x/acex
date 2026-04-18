@@ -295,10 +295,24 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
 router.get('/my', requireAuth, async (req, res) => {
   try {
     const q = isMySQL()
-      ? await query('SELECT id, code, title, created_at FROM published_content WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
-      : await query('SELECT id, code, title, created_at FROM published_content WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+      ? await query('SELECT id, code, title, content_json, created_at FROM published_content WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
+      : await query('SELECT id, code, title, content_json, created_at FROM published_content WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
     const rows = Array.isArray(q) ? q : (q.rows || []);
-    res.json({ success: true, items: rows });
+    const items = rows.map((r) => {
+      let sections = [];
+      try {
+        const parsed = typeof r.content_json === 'string' ? JSON.parse(r.content_json) : r.content_json;
+        if (Array.isArray(parsed?.sections)) {
+          sections = parsed.sections.map((s, idx) => ({
+            index: idx,
+            heading: s.heading || s.title || `Section ${idx + 1}`,
+            preview: typeof s.body === 'string' ? s.body.slice(0, 150) : '',
+          }));
+        }
+      } catch (_) {}
+      return { id: r.id, code: r.code, title: r.title, sections, created_at: r.created_at };
+    });
+    res.json({ success: true, items });
   } catch (error) {
     console.error('Content list error:', error);
     res.status(500).json({ error: 'Failed to list content' });

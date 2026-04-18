@@ -6,6 +6,7 @@ import {
   Edit3,
   FileText,
   Folder,
+  Layers,
   LogOut,
   Presentation,
   Shield,
@@ -33,6 +34,7 @@ const TakeAssessment = lazy(() => import('./components/TakeAssessment'));
 const ContentGenerator = lazy(() => import('./components/ContentGenerator'));
 const TakeContent = lazy(() => import('./components/TakeContent'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const ModuleOrganizer = lazy(() => import('./components/ModuleOrganizer'));
 
 type TabType =
   | 'upload'
@@ -46,14 +48,15 @@ type TabType =
   | 'training'
   | 'assessments'
   | 'content'
+  | 'modules'
   | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
 type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'modules', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'modules'],
   student: ['mcq', 'results']
 };
 
@@ -114,6 +117,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     label: 'Content Generator',
     description: 'Create lesson content and publish learning materials.',
     icon: Presentation
+  },
+  modules: {
+    label: 'Manage Modules',
+    description: 'Organise assessments and content into learning modules for students.',
+    icon: Layers
   },
   admin: {
     label: 'Admin Dashboard',
@@ -182,6 +190,7 @@ function WorkspaceShell({
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+      {activeTab === 'modules' && canAccessTab('modules') && <ModuleOrganizer />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
   );
@@ -210,13 +219,13 @@ function AppContent() {
 
   const workspaceTabs = useMemo<Record<WorkspaceType, TabType[]>>(
     () => ({
-      marking: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'].filter((tab) =>
+      marking: (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'] as TabType[]).filter((tab) =>
         ROLE_TAB_ACCESS[normalizedRole].includes(tab)
       ),
       student:
         normalizedRole === 'student'
-          ? ['results', 'mcq'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-          : ['assessments', 'content']
+          ? (['results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+          : (['assessments', 'content', 'modules'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;
                 if (tab === 'content') return allowContentCreation;
@@ -226,8 +235,8 @@ function AppContent() {
       labs:
         normalizedRole === 'student'
           ? []
-          : ['mcq', 'training'].filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
-      admin: normalizedRole === 'management' ? ['admin'] : []
+          : (['mcq', 'training'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
+      admin: normalizedRole === 'management' ? (['admin'] as TabType[]) : []
     }),
     [allowAssessmentCreation, allowContentCreation, normalizedRole]
   );
