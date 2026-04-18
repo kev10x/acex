@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { modulesAPI } from '../services/api';
 import type { LearningModule } from '../services/api';
-import { BookOpen, CheckCircle, Clock, Play, Users } from 'lucide-react';
+import { BookOpen, Clock, Play, Users } from 'lucide-react';
 
 export default function StudentModules() {
   const [modules, setModules] = useState<LearningModule[]>([]);
@@ -134,47 +134,19 @@ export default function StudentModules() {
                       This module has been assigned to you, but it does not have any launchable items yet.
                     </div>
                   )}
-                  {module.items.map((item, index) => (
-                    <div key={item.id} className="p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="flex items-center justify-center w-8 h-8 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium shrink-0">
-                            {index + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              {item.item_type === 'content' ? (
-                                <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
-                              ) : (
-                                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                              )}
-                              <span className="font-medium text-gray-900 truncate">{item.title}</span>
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                item.item_type === 'content'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-emerald-100 text-emerald-700'
-                              }`}>
-                                {item.item_type === 'content' ? 'Content' : 'Assessment'}
-                              </span>
-                            </div>
-                            {item.item_type === 'content' && (
-                              <p className="text-sm text-gray-500 mt-1">
-                                {item.section_index >= 0 ? `Section ${item.section_index + 1}` : 'Full lesson'}
-                              </p>
-                            )}
-                          </div>
+                  {firstLaunchableItem && (
+                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-start gap-3">
+                        <BookOpen className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-gray-900">Open this module to view its units.</p>
+                          <p className="mt-1 text-sm text-gray-600">
+                            Unit navigation is available inside the module player so the landing page stays focused on your assigned modules.
+                          </p>
                         </div>
-                        <button
-                          onClick={() => handleLaunchModule(module, item.id)}
-                          disabled={!item.code}
-                          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shrink-0"
-                        >
-                          <Play className="w-4 h-4" />
-                          Open Unit
-                        </button>
                       </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             );
