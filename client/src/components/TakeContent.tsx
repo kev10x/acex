@@ -558,7 +558,7 @@ const TakeContent: React.FC = () => {
                     <>
                       {illustrations.map(({ visual, figNum }) => (
                         <figure key={figNum} className="my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                          {visual.image_url && !visual.image_url.startsWith('data:') ? (
+                          {visual.image_url ? (
                             <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-64" />
                           ) : visual.mermaid_code ? (
                             <div className="p-4 bg-gray-50">
@@ -573,7 +573,7 @@ const TakeContent: React.FC = () => {
 
                       <div className="whitespace-pre-wrap leading-relaxed" style={{ color: content?.theme?.text_color || '#374151' }}>{activeSection.body || ''}</div>
 
-                      {images.filter(({ visual }) => visual.image_url && !visual.image_url.startsWith('data:')).map(({ visual, figNum }) => (
+                      {images.filter(({ visual }) => visual.image_url).map(({ visual, figNum }) => (
                         <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                           <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-cover max-h-48" />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
