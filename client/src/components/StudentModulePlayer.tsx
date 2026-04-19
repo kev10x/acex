@@ -377,7 +377,7 @@ export default function StudentModulePlayer() {
                               ) : (
                                 <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
                               )}
-                              <span className="font-medium text-slate-900 truncate">{group.parentTitle}</span>
+                              <span className="font-medium text-slate-900 break-words">{group.parentTitle}</span>
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                               <span>{group.itemType === 'content' ? 'Content' : 'Assessment'}</span>
