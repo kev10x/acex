@@ -33,6 +33,10 @@ const TakeContent: React.FC = () => {
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [audioVoice, setAudioVoice] = useState('eve');
+  const [cpAudioLoading, setCpAudioLoading] = useState<number | null>(null);
+  const [cpAudioIdx, setCpAudioIdx] = useState<number | null>(null);
+  const [cpAudioUrl, setCpAudioUrl] = useState<string | null>(null);
+  const [cpAudioError, setCpAudioError] = useState<string | null>(null);
 
   const sections = content?.sections || [];
   const sectionCount = sections.length;
@@ -349,6 +353,25 @@ const TakeContent: React.FC = () => {
     }
   };
 
+  const handlePlayCheckpointAudio = async (questionIdx: number) => {
+    if (!code) return;
+    setCpAudioLoading(questionIdx);
+    setCpAudioIdx(questionIdx);
+    setCpAudioError(null);
+    setCpAudioUrl(null);
+    try {
+      const res = await contentAPI.getCheckpointQuestionAudio(code, questionIdx, audioVoice);
+      const blobUrl = URL.createObjectURL(res.data as Blob);
+      if (audioBlobUrlRef.current) URL.revokeObjectURL(audioBlobUrlRef.current);
+      audioBlobUrlRef.current = blobUrl;
+      setCpAudioUrl(blobUrl);
+    } catch (e: any) {
+      setCpAudioError(e.response?.data?.error || e.message || 'Failed to load audio.');
+    } finally {
+      setCpAudioLoading(null);
+    }
+  };
+
   const visitedCount = visitedSections.length + (isCheckpointView ? 1 : 0);
   const totalTrackable = Math.max(1, sectionCount + (hasQuiz ? 1 : 0));
   const progressPercent = Math.round((Math.min(visitedCount, totalTrackable) / totalTrackable) * 100);
@@ -614,6 +637,22 @@ const TakeContent: React.FC = () => {
               <div className="max-w-[65ch]">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Knowledge checkpoint</h2>
                 <p className="text-sm text-gray-600 mb-4">Complete this checkpoint to finish the lesson.</p>
+                {ttsEnabled && (
+                  <div className="mb-4 flex items-center gap-2">
+                    <span className="text-sm text-gray-500">Voice:</span>
+                    <select
+                      value={audioVoice}
+                      onChange={(e) => setAudioVoice(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    >
+                      <option value="eve">Eve</option>
+                      <option value="ara">Ara</option>
+                      <option value="leo">Leo</option>
+                      <option value="rex">Rex</option>
+                      <option value="sal">Sal</option>
+                    </select>
+                  </div>
+                )}
                 {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
                 {step === 'submitting' ? (
@@ -628,6 +667,27 @@ const TakeContent: React.FC = () => {
                           {q.number}. {q.question}
                           {q.points != null && <span className="text-gray-500 text-sm ml-1">({q.points} pts)</span>}
                         </p>
+                        {ttsEnabled && (
+                          <div className="mb-3">
+                            <button
+                              type="button"
+                              onClick={() => handlePlayCheckpointAudio(idx)}
+                              disabled={cpAudioLoading === idx}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm"
+                            >
+                              {cpAudioLoading === idx ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
+                              {cpAudioLoading === idx ? 'Generating audio...' : 'Listen to question'}
+                            </button>
+                            {cpAudioIdx === idx && cpAudioError && (
+                              <p className="mt-1 text-sm text-red-600">{cpAudioError}</p>
+                            )}
+                            {cpAudioIdx === idx && cpAudioUrl && (
+                              <audio controls autoPlay className="mt-2 w-full" src={cpAudioUrl}>
+                                Your browser does not support audio playback.
+                              </audio>
+                            )}
+                          </div>
+                        )}
                         {q.options && q.options.length > 0 ? (
                           <div className="space-y-2">
                             {q.options.map((opt, i) => {
