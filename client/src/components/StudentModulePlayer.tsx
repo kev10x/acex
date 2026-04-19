@@ -278,192 +278,123 @@ export default function StudentModulePlayer() {
             Back to modules
           </button>
 
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-            <div className="inline-flex items-center gap-2 text-sm text-emerald-700">
-              <Layers className="w-4 h-4" />
-              Module navigation
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">
+              <Layers className="w-3.5 h-3.5" />
+              {moduleData.name}
             </div>
-            <h1 className="mt-3 text-2xl font-bold text-slate-900">{moduleData.name}</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              {moduleData.items.length} learning item{moduleData.items.length !== 1 ? 's' : ''} in this module.
-            </p>
           </div>
 
-          {selectedItem && (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Current unit</div>
-              <div className="flex items-center gap-2 text-sm text-slate-600">
-                {selectedItem.item_type === 'content' ? (
-                  <BookOpen className="w-4 h-4 text-blue-500" />
-                ) : (
-                  <CheckCircle className="w-4 h-4 text-emerald-500" />
-                )}
-                <span>{selectedItem.item_type === 'content' ? 'Content' : 'Assessment'}</span>
-              </div>
-              <h2 className="text-lg font-semibold text-slate-900">{selectedItem.title}</h2>
-              <p className="text-sm text-slate-600">
-                {selectedItem.item_type === 'content'
-                  ? selectedItem.section_index >= 0
-                    ? `Starts at section ${selectedItem.section_index + 1} inside this player.`
-                    : 'Opens inside this player.'
-                  : 'Launches in the assessment view.'}
-              </p>
-            </div>
-          )}
+          <div className="flex-1 space-y-1">
+            {navigationGroups.map((group, index) => {
+              const isActiveGroup = group.parentItem?.id === selectedItemId || group.subItems.some((item) => item.id === selectedItemId);
+              const canOpenParent = Boolean(getItemLaunchPath(group.primaryItem));
+              const hasSubUnits = group.subItems.length > 0;
+              const showSections = isActiveGroup && !hasSubUnits && embeddedSections.length > 0;
+              const showSubUnits = hasSubUnits && isActiveGroup;
 
-          <div className="space-y-2">
+              return (
+                <div key={group.key}>
+                  <button
+                    type="button"
+                    onClick={() => updateSelection(group.parentItem || group.primaryItem)}
+                    disabled={!canOpenParent}
+                    className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-colors disabled:cursor-not-allowed ${
+                      isActiveGroup
+                        ? 'bg-emerald-50 text-emerald-900'
+                        : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className={`mt-0.5 text-xs font-semibold w-5 shrink-0 ${isActiveGroup ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {group.itemType === 'content'
+                          ? <BookOpen className={`w-3.5 h-3.5 shrink-0 ${isActiveGroup ? 'text-emerald-600' : 'text-blue-400'}`} />
+                          : <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${isActiveGroup ? 'text-emerald-600' : 'text-emerald-400'}`} />}
+                        <span className="text-sm font-medium break-words leading-snug">{group.parentTitle}</span>
+                      </div>
+                    </div>
+                  </button>
+
+                  {(showSubUnits || showSections) && (
+                    <div className="ml-8 mt-0.5 mb-1 space-y-0.5 border-l-2 border-emerald-100 pl-3">
+                      {showSubUnits && group.subItems.map((subItem) => (
+                        <button
+                          key={subItem.id}
+                          type="button"
+                          onClick={() => updateSelection(subItem)}
+                          className={`w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                            subItem.id === selectedItemId
+                              ? 'bg-emerald-100 text-emerald-900 font-medium'
+                              : 'text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          {getContentSectionLabel(subItem)}
+                        </button>
+                      ))}
+                      {showSections && embeddedSections.map((section) => (
+                        <button
+                          key={section.idx}
+                          type="button"
+                          onClick={() => goToEmbeddedSection(section.idx)}
+                          className={`w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                            embeddedCurrentSection === section.idx
+                              ? 'bg-emerald-100 text-emerald-900 font-medium'
+                              : 'text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          {section.title}
+                        </button>
+                      ))}
+                      {showSections && embeddedHasCheckpoint && (
+                        <button
+                          type="button"
+                          onClick={() => goToEmbeddedSection(-1)}
+                          className={`w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                            embeddedCurrentSection === -1
+                              ? 'bg-amber-100 text-amber-900 font-medium'
+                              : 'text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          Knowledge checkpoint
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex gap-2">
             <button
               type="button"
               onClick={() => updateSelection(previousItem)}
               disabled={!previousItem}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
             >
-              <ArrowLeft className="w-4 h-4" />
-              Previous unit
+              <ArrowLeft className="w-3.5 h-3.5" /> Prev
             </button>
             <button
               type="button"
               onClick={() => updateSelection(nextItem)}
               disabled={!nextItem}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
             >
-              Next unit
-              <ArrowRight className="w-4 h-4" />
+              Next <ArrowRight className="w-3.5 h-3.5" />
             </button>
-            {selectedItem && (
+            {selectedItem?.item_type === 'assessment' && (
               <button
                 type="button"
                 onClick={openSelectedItem}
                 disabled={!getItemLaunchPath(selectedItem)}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:bg-slate-300"
               >
-                <ExternalLink className="w-4 h-4" />
-                {selectedItem.item_type === 'content' ? 'Open in new tab' : 'Take assessment'}
+                <ExternalLink className="w-3.5 h-3.5" /> Start
               </button>
             )}
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-slate-700">Module navigation</h2>
-            <div className="space-y-2">
-              {navigationGroups.map((group, index) => {
-                const isExpanded = !!expandedGroups[group.key];
-                const isActiveGroup = group.parentItem?.id === selectedItemId || group.subItems.some((item) => item.id === selectedItemId);
-                const canOpenParent = Boolean(getItemLaunchPath(group.primaryItem));
-                const hasSubUnits = group.subItems.length > 0;
-
-                return (
-                  <div
-                    key={group.key}
-                    className={`rounded-2xl border transition-colors ${
-                      isActiveGroup ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-stretch">
-                      <button
-                        type="button"
-                        onClick={() => updateSelection(group.parentItem || group.primaryItem)}
-                        disabled={!canOpenParent}
-                        className="flex-1 px-3 py-3 text-left rounded-l-2xl hover:bg-slate-50 disabled:cursor-not-allowed"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-slate-200 text-sm font-semibold text-slate-700 shrink-0">
-                            {index + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              {group.itemType === 'content' ? (
-                                <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
-                              ) : (
-                                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                              )}
-                              <span className="font-medium text-slate-900 break-words">{group.parentTitle}</span>
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                              <span>{group.itemType === 'content' ? 'Content' : 'Assessment'}</span>
-                              {group.itemType === 'content' && hasSubUnits && (
-                                <span>{group.subItems.length} topic{group.subItems.length !== 1 ? 's' : ''}</span>
-                              )}
-                              {!canOpenParent && <span>Not available</span>}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                      {hasSubUnits && (
-                        <button
-                          type="button"
-                          onClick={() => toggleGroup(group.key)}
-                          className="px-3 rounded-r-2xl border-l border-slate-200 text-slate-600 hover:bg-slate-50"
-                          aria-label={isExpanded ? 'Collapse topics' : 'Expand topics'}
-                        >
-                          {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        </button>
-                      )}
-                    </div>
-                    {hasSubUnits && isExpanded && (
-                      <div className="px-3 pb-3">
-                        <div className="ml-11 space-y-1 border-l border-emerald-200 pl-3">
-                          {group.subItems.map((subItem) => {
-                            const isActiveSubItem = subItem.id === selectedItemId;
-                            return (
-                              <button
-                                key={subItem.id}
-                                type="button"
-                                onClick={() => updateSelection(subItem)}
-                                className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
-                                  isActiveSubItem
-                                    ? 'bg-emerald-100 text-emerald-900'
-                                    : 'text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                <div className="font-medium">{getContentSectionLabel(subItem)}</div>
-                                <div className="text-xs text-slate-500 mt-0.5">
-                                  Topic {subItem.section_index + 1}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {!hasSubUnits && isActiveGroup && embeddedSections.length > 0 && (
-                      <div className="px-3 pb-3">
-                        <div className="ml-11 space-y-1 border-l border-emerald-200 pl-3">
-                          {embeddedSections.map((section) => (
-                            <button
-                              key={section.idx}
-                              type="button"
-                              onClick={() => goToEmbeddedSection(section.idx)}
-                              className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
-                                embeddedCurrentSection === section.idx
-                                  ? 'bg-emerald-100 text-emerald-900'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="font-medium">{section.title}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">Topic {section.idx + 1}</div>
-                            </button>
-                          ))}
-                          {embeddedHasCheckpoint && (
-                            <button
-                              type="button"
-                              onClick={() => goToEmbeddedSection(-1)}
-                              className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
-                                embeddedCurrentSection === -1
-                                  ? 'bg-amber-100 text-amber-900'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="font-medium">Knowledge checkpoint</div>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       </aside>

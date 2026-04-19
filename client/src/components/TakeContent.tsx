@@ -524,8 +524,8 @@ const TakeContent: React.FC = () => {
           )}
 
           <div className="p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6">
-              <aside className="bg-gray-50 border border-gray-200 rounded-lg p-3 h-fit">
+            <div className={isEmbedded ? '' : 'grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6'}>
+              {!isEmbedded && <aside className="bg-gray-50 border border-gray-200 rounded-lg p-3 h-fit">
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Lesson Navigation</h3>
                 <ul className="space-y-1">
                   {sections.map((sec, idx) => {
@@ -564,7 +564,7 @@ const TakeContent: React.FC = () => {
                     </li>
                   )}
                 </ul>
-              </aside>
+              </aside>}
 
               <div>
             {!isCheckpointView && activeSection && (
