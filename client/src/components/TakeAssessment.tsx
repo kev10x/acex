@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Award, Clock3, FileQuestion, Loader2, Send } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Award, Clock3, FileQuestion, Loader2, Send, Volume2 } from 'lucide-react';
 import { assessmentsAPI } from '../services/api';
 import type { AssessmentSubmissionStatus, GeneratedAssessment } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,6 +13,14 @@ type DraggedMatch = {
 
 const POLL_INTERVAL_MS = 5000;
 const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const AUDIO_LANGUAGE_OPTIONS = [
+  { value: 'en', label: 'English' },
+  { value: 'af', label: 'Afrikaans' },
+  { value: 'zu', label: 'isiZulu' },
+  { value: 'fr', label: 'French' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'pt', label: 'Portuguese' },
+];
 
 const getOptionLetter = (index: number) => OPTION_LETTERS[index] || String(index + 1);
 
@@ -74,6 +82,13 @@ const TakeAssessment: React.FC = () => {
   const [submissionStatus, setSubmissionStatus] = useState<AssessmentSubmissionStatus | null>(null);
   const [draggedMatch, setDraggedMatch] = useState<DraggedMatch | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const questionAudioBlobUrlRef = useRef<string | null>(null);
+  const [questionAudioUrl, setQuestionAudioUrl] = useState<string | null>(null);
+  const [questionAudioLoading, setQuestionAudioLoading] = useState(false);
+  const [questionAudioError, setQuestionAudioError] = useState<string | null>(null);
+  const [questionAudioVoice, setQuestionAudioVoice] = useState('eve');
+  const [questionAudioLanguage, setQuestionAudioLanguage] = useState('en');
+  const [questionAudioTarget, setQuestionAudioTarget] = useState<string | null>(null);
   const defaultStudentName = user?.name?.trim() || user?.email?.trim() || '';
 
   useEffect(() => {
@@ -140,6 +155,15 @@ const TakeAssessment: React.FC = () => {
     if (!defaultStudentName || studentName.trim()) return;
     setStudentName(defaultStudentName);
   }, [defaultStudentName, studentName]);
+
+  useEffect(() => {
+    return () => {
+      if (questionAudioBlobUrlRef.current) {
+        URL.revokeObjectURL(questionAudioBlobUrlRef.current);
+        questionAudioBlobUrlRef.current = null;
+      }
+    };
+  }, []);
 
   const loadAssessment = async (assessmentCode: string, keepPendingStep = false) => {
     setLoading(true);
@@ -236,6 +260,26 @@ const TakeAssessment: React.FC = () => {
     params.set('code', assessmentCode);
     params.set('submission', nextSubmissionCode);
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+  };
+
+  const handlePlayQuestionAudio = async (questionIndex: number) => {
+    if (!code) return;
+    setQuestionAudioLoading(true);
+    setQuestionAudioError(null);
+    setQuestionAudioTarget(`question-${questionIndex}`);
+    try {
+      const res = await assessmentsAPI.getQuestionAudio(code, questionIndex, questionAudioVoice, questionAudioLanguage);
+      const blobUrl = URL.createObjectURL(res.data as Blob);
+      if (questionAudioBlobUrlRef.current) {
+        URL.revokeObjectURL(questionAudioBlobUrlRef.current);
+      }
+      questionAudioBlobUrlRef.current = blobUrl;
+      setQuestionAudioUrl(blobUrl);
+    } catch (e: any) {
+      setQuestionAudioError(e.response?.data?.error || e.message || 'Failed to load audio for this question.');
+    } finally {
+      setQuestionAudioLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -507,6 +551,53 @@ const TakeAssessment: React.FC = () => {
                     {(q as any).points != null ? `${(q as any).points} pts` : ''} {type.replace(/_/g, ' ')}
                   </span>
                 </div>
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePlayQuestionAudio(idx)}
+                    disabled={questionAudioLoading}
+                    className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                  >
+                    {questionAudioLoading && questionAudioTarget === `question-${idx}` ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Volume2 className="w-4 h-4" />
+                    )}
+                    {questionAudioLoading && questionAudioTarget === `question-${idx}` ? 'Generating audio...' : 'Listen to question'}
+                  </button>
+                  <select
+                    value={questionAudioVoice}
+                    onChange={(e) => setQuestionAudioVoice(e.target.value)}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                  >
+                    <option value="eve">Eve</option>
+                    <option value="ara">Ara</option>
+                    <option value="leo">Leo</option>
+                    <option value="rex">Rex</option>
+                    <option value="sal">Sal</option>
+                  </select>
+                  <select
+                    value={questionAudioLanguage}
+                    onChange={(e) => setQuestionAudioLanguage(e.target.value)}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                  >
+                    {AUDIO_LANGUAGE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {questionAudioError && (
+                  <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {questionAudioError}
+                  </div>
+                )}
+                {questionAudioUrl && (
+                  <div className="mb-4">
+                    <audio controls autoPlay className="w-full" src={questionAudioUrl}>
+                      Your browser does not support audio playback.
+                    </audio>
+                  </div>
+                )}
                 <p className="text-gray-700 mb-4 break-words">{(q as any).question}</p>
 
                 {type === 'multiple_choice' && (q as any).options && Array.isArray((q as any).options) && (

@@ -199,12 +199,54 @@ async function normalizeAndRepairPublishedContentRow(row, { userId = null, trigg
   };
 }
 
-function getContentAudioCachePath(code, sectionIndex, voiceId, narrationText) {
+function getContentAudioCachePath(code, sectionIndex, voiceId, language, narrationText, scope = 'section') {
   const cacheKey = crypto
     .createHash('sha1')
-    .update(JSON.stringify({ code, sectionIndex, voiceId, narrationText }))
+    .update(JSON.stringify({ code, sectionIndex, voiceId, language, narrationText, scope }))
     .digest('hex');
   return path.join(CONTENT_AUDIO_DIR, `${cacheKey}.mp3`);
+}
+
+function buildCheckpointQuestionNarrationText(content, questionIndex) {
+  const questions = Array.isArray(content?.quiz?.questions) ? content.quiz.questions : [];
+  const question = questions[questionIndex];
+  if (!question) return '';
+
+  const number = question.number != null ? question.number : questionIndex + 1;
+  const type = String(question.type || 'short_answer').replace(/-/g, '_');
+  const parts = [
+    content?.title ? `Lesson title: ${content.title}.` : '',
+    `Knowledge checkpoint. Question ${number}.`,
+    question.question ? String(question.question).trim() : '',
+  ];
+
+  if (Array.isArray(question.options) && question.options.length > 0) {
+    parts.push('Answer choices:');
+    question.options.forEach((option, optionIndex) => {
+      const optionLabel = String.fromCharCode(65 + optionIndex);
+      parts.push(`Option ${optionLabel}. ${String(option || '').trim()}`);
+    });
+  }
+
+  if (type === 'mix_and_match') {
+    const leftColumn = Array.isArray(question.left_column) ? question.left_column : [];
+    const rightColumn = Array.isArray(question.right_column) ? question.right_column : [];
+    if (leftColumn.length > 0) {
+      parts.push('Prompts to match:');
+      leftColumn.forEach((item, itemIndex) => {
+        parts.push(`Prompt ${itemIndex + 1}. ${String(item || '').trim()}`);
+      });
+    }
+    if (rightColumn.length > 0) {
+      parts.push('Available matches:');
+      rightColumn.forEach((item, itemIndex) => {
+        const optionLabel = String.fromCharCode(65 + itemIndex);
+        parts.push(`Choice ${optionLabel}. ${String(item || '').trim()}`);
+      });
+    }
+  }
+
+  return parts.filter(Boolean).join('\n\n').trim();
 }
 
 async function ensureContentAudioCache({ code, content, voices = CONTENT_TTS_VOICES } = {}) {
@@ -220,7 +262,7 @@ async function ensureContentAudioCache({ code, content, voices = CONTENT_TTS_VOI
     for (const rawVoiceId of voices) {
       const voiceId = String(rawVoiceId || '').trim().toLowerCase();
       if (!voiceId) continue;
-      const audioPath = getContentAudioCachePath(code, sectionIndex, voiceId, narrationText);
+      const audioPath = getContentAudioCachePath(code, sectionIndex, voiceId, 'en', narrationText, 'section');
       if (fsSync.existsSync(audioPath)) continue;
 
       try {
@@ -1139,13 +1181,14 @@ router.get('/audio/:code/:sectionIndex', async (req, res) => {
     }
 
     const voiceId = String(req.query.voice_id || 'eve').trim().toLowerCase() || 'eve';
+    const language = String(req.query.language || 'en').trim().toLowerCase() || 'en';
     const narrationText = contentService.buildSectionNarrationText(content, sectionIndex);
-    const audioPath = getContentAudioCachePath(code, sectionIndex, voiceId, narrationText);
+    const audioPath = getContentAudioCachePath(code, sectionIndex, voiceId, language, narrationText, 'section');
 
     if (!fsSync.existsSync(audioPath)) {
       const audioBuffer = await contentService.synthesizeSectionSpeech(narrationText, {
         voiceId,
-        language: 'en',
+        language,
       });
       await fs.writeFile(audioPath, audioBuffer);
     }
@@ -1156,6 +1199,49 @@ router.get('/audio/:code/:sectionIndex', async (req, res) => {
   } catch (error) {
     console.error('Content TTS audio error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate section audio' });
+  }
+});
+
+router.get('/checkpoint-audio/:code/:questionIndex', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const questionIndex = Number(req.params.questionIndex);
+    if (!Number.isFinite(questionIndex) || questionIndex < 0) {
+      return res.status(400).json({ error: 'Invalid question index' });
+    }
+
+    const row = await getPublishedContentByCode(code);
+    if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
+
+    const repairedRow = await normalizeAndRepairPublishedContentRow(row, { triggerAudio: true });
+    const content = repairedRow.content;
+    if (content?.tts_enabled === false) {
+      return res.status(403).json({ error: 'Text-to-speech is disabled for this content.' });
+    }
+
+    const narrationText = buildCheckpointQuestionNarrationText(content, questionIndex);
+    if (!narrationText) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const voiceId = String(req.query.voice_id || 'eve').trim().toLowerCase() || 'eve';
+    const language = String(req.query.language || 'en').trim().toLowerCase() || 'en';
+    const audioPath = getContentAudioCachePath(code, questionIndex, voiceId, language, narrationText, 'checkpoint-question');
+
+    if (!fsSync.existsSync(audioPath)) {
+      const audioBuffer = await contentService.synthesizeSectionSpeech(narrationText, {
+        voiceId,
+        language,
+      });
+      await fs.writeFile(audioPath, audioBuffer);
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.sendFile(audioPath);
+  } catch (error) {
+    console.error('Checkpoint TTS audio error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate question audio' });
   }
 });
 
@@ -1171,10 +1257,7 @@ router.post('/submit-quiz', async (req, res) => {
     }
     if (String(code).length > 32) return res.status(400).json({ error: 'code too long' });
     if (String(student_name).length > 200) return res.status(400).json({ error: 'student_name too long' });
-    const pubQ = isMySQL()
-      ? await query('SELECT id, content_json, user_id FROM published_content WHERE code = ?', [code])
-      : await query('SELECT id, content_json, user_id FROM published_content WHERE code = $1', [code]);
-    const pub = Array.isArray(pubQ) ? pubQ[0] : (pubQ.rows && pubQ.rows[0]);
+    const pub = await getPublishedContentByCode(code);
     if (!pub) return res.status(404).json({ error: 'Content not found or link expired' });
     const content = typeof pub.content_json === 'string' ? JSON.parse(pub.content_json) : pub.content_json;
     const questions = (content.quiz && content.quiz.questions) || [];
@@ -1203,6 +1286,83 @@ router.post('/submit-quiz', async (req, res) => {
     };
     const { generateMarking } = require('./mark');
     const markingResult = await generateMarking(scriptText, rubricData, 'assignment', null, null, 'strict', null, null);
+    const studentName = String(student_name).trim();
+    const feedbackText = String(markingResult.overall_feedback || markingResult.feedback || '').trim();
+    const contentTitle = String(content?.title || pub.title || 'Content knowledge check').trim();
+    const assignmentFilename = `Knowledge Check - ${contentTitle} - ${studentName}`.slice(0, 255);
+    let assignmentId = null;
+
+    if (isMySQL()) {
+      const insertAssignment = await query(
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [assignmentFilename, '', 0, 'completed', scriptText, pub.user_id]
+      );
+      assignmentId = insertAssignment.insertId ?? insertAssignment.lastID ?? null;
+    } else {
+      const insertAssignment = await query(
+        'INSERT INTO assignments (filename, file_path, file_size, status, extracted_text, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+        [assignmentFilename, '', 0, 'completed', scriptText, pub.user_id]
+      );
+      assignmentId = rowList(insertAssignment)[0]?.id ?? null;
+    }
+
+    if (assignmentId) {
+      const versionQ = isMySQL()
+        ? await query('SELECT COALESCE(MAX(version), 0) AS max_version FROM marking_results WHERE assignment_id = ? AND user_id = ?', [assignmentId, pub.user_id])
+        : await query('SELECT COALESCE(MAX(version), 0) AS max_version FROM marking_results WHERE assignment_id = $1 AND user_id = $2', [assignmentId, pub.user_id]);
+      const newVersion = Number(rowList(versionQ)[0]?.max_version || 0) + 1;
+
+      if (isMySQL()) {
+        await query(
+          'UPDATE marking_results SET is_current = 0 WHERE assignment_id = ? AND user_id = ?',
+          [assignmentId, pub.user_id]
+        );
+        await query(
+          `INSERT INTO marking_results (
+            assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current,
+            strictness_level, provider, user_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            assignmentId,
+            null,
+            studentName,
+            JSON.stringify(markingResult.scores || []),
+            feedbackText,
+            Number(markingResult.total_score || 0),
+            newVersion,
+            1,
+            'strict',
+            'content-quiz',
+            pub.user_id,
+          ]
+        );
+      } else {
+        await query(
+          'UPDATE marking_results SET is_current = 0 WHERE assignment_id = $1 AND user_id = $2',
+          [assignmentId, pub.user_id]
+        );
+        await query(
+          `INSERT INTO marking_results (
+            assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current,
+            strictness_level, provider, user_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            assignmentId,
+            null,
+            studentName,
+            JSON.stringify(markingResult.scores || []),
+            feedbackText,
+            Number(markingResult.total_score || 0),
+            newVersion,
+            true,
+            'strict',
+            'content-quiz',
+            pub.user_id,
+          ]
+        );
+      }
+    }
+
     const answerPayload = JSON.stringify(Array.isArray(answers) ? answers : []);
     if (isMySQL()) {
       await query(
@@ -1214,7 +1374,7 @@ router.post('/submit-quiz', async (req, res) => {
            completed = VALUES(completed),
            score = VALUES(score),
            progress_json = VALUES(progress_json)`,
-        [pub.id, String(student_name).trim(), 9999, answerPayload, 1, Number(markingResult.total_score || 0), answerPayload]
+        [pub.id, studentName, 9999, answerPayload, 1, Number(markingResult.total_score || 0), answerPayload]
       );
     } else {
       await query(
@@ -1227,14 +1387,14 @@ router.post('/submit-quiz', async (req, res) => {
              score = EXCLUDED.score,
              progress_json = EXCLUDED.progress_json,
              updated_at = NOW()`,
-        [pub.id, String(student_name).trim(), 9999, answerPayload, true, Number(markingResult.total_score || 0), answerPayload]
+        [pub.id, studentName, 9999, answerPayload, true, Number(markingResult.total_score || 0), answerPayload]
       );
     }
     res.json({
       success: true,
       result: {
         total_score: markingResult.total_score,
-        feedback: markingResult.feedback,
+        feedback: feedbackText,
         scores: markingResult.scores,
       },
     });

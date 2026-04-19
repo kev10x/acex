@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   Brain,
+  ChevronLeft,
   ClipboardCheck,
   Edit3,
   FileText,
@@ -19,6 +20,7 @@ import {
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
+import ToolsLanding from './components/ToolsLanding';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 const FileUpload = lazy(() => import('./components/FileUpload'));
@@ -39,6 +41,24 @@ const ModuleOrganizer = lazy(() => import('./components/ModuleOrganizer'));
 const StudentModules = lazy(() => import('./components/StudentModules'));
 const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'));
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
+
+type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
+
+const TOOL_WORKSPACES: Record<NonNullable<ToolContext>, WorkspaceType[]> = {
+  marking: ['marking'],
+  content: ['student'],
+  labs: ['labs'],
+  admin: ['admin']
+};
+
+function getToolContext(pathname: string): ToolContext | 'landing' {
+  const match = pathname.match(/\/tools\/?([a-z-]*)?$/);
+  if (!match) return null;
+  const segment = match[1] || '';
+  if (segment === '') return 'landing';
+  if (segment in TOOL_WORKSPACES) return segment as NonNullable<ToolContext>;
+  return null;
+}
 
 type TabType =
   | 'upload'
@@ -213,11 +233,25 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('marking');
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('marking');
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const { user, loading, logout, impersonation, stopImpersonation } = useAuth();
+
+  const navigate = (path: string) => {
+    window.history.pushState(null, '', path);
+    setCurrentPath(path);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const normalizedRole: AppRole = user?.role === 'admin'
     ? 'management'
     : (user?.role as AppRole) || 'lecturer';
+
+  const toolContext = getToolContext(currentPath);
 
   const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
   const allowAssessmentCreation = user?.features?.assessment_creation !== false;
@@ -254,10 +288,14 @@ function AppContent() {
     [allowAssessmentCreation, allowContentCreation, normalizedRole]
   );
 
-  const availableWorkspaces = useMemo(
-    () => WORKSPACE_ORDER.filter((workspace) => workspaceTabs[workspace].length > 0),
-    [workspaceTabs]
-  );
+  const availableWorkspaces = useMemo(() => {
+    const all = WORKSPACE_ORDER.filter((w) => workspaceTabs[w].length > 0);
+    if (toolContext && toolContext !== 'landing') {
+      const allowed = TOOL_WORKSPACES[toolContext];
+      return all.filter((w) => allowed.includes(w));
+    }
+    return all;
+  }, [workspaceTabs, toolContext]);
 
   const currentWorkspaceTabs = workspaceTabs[activeWorkspace] || [];
   const activeTabMeta = TAB_META[activeTab] || TAB_META.results;
@@ -300,7 +338,7 @@ function AppContent() {
     }
   };
 
-  if (typeof window !== 'undefined' && window.location.pathname.includes('take-assessment')) {
+  if (currentPath.includes('take-assessment')) {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
         <TakeAssessment />
@@ -308,7 +346,7 @@ function AppContent() {
     );
   }
 
-  if (typeof window !== 'undefined' && window.location.pathname.includes('take-content')) {
+  if (currentPath.includes('take-content')) {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
         <TakeContent />
@@ -316,7 +354,7 @@ function AppContent() {
     );
   }
 
-  if (typeof window !== 'undefined' && window.location.pathname.includes('take-module')) {
+  if (currentPath.includes('take-module')) {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
         <StudentModulePlayer />
@@ -354,12 +392,33 @@ function AppContent() {
     );
   }
 
+  if (toolContext === 'landing') {
+    return (
+      <ToolsLanding
+        role={normalizedRole}
+        userName={user.name || user.email || ''}
+        orgName={user.organisation_name ?? undefined}
+        onNavigate={navigate}
+        onLogout={logout}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
             <div>
+              {toolContext && (
+                <button
+                  onClick={() => navigate('/tools')}
+                  className="mb-2 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  All tools
+                </button>
+              )}
               <div className="flex items-center">
                 <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
                 <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
@@ -413,33 +472,35 @@ function AppContent() {
 
       <nav className="sticky top-0 z-30 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {availableWorkspaces.map((workspace) => {
-              const meta = WORKSPACE_META[workspace];
-              const Icon = meta.icon;
-              const isActive = workspace === activeWorkspace;
+          {!toolContext && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {availableWorkspaces.map((workspace) => {
+                const meta = WORKSPACE_META[workspace];
+                const Icon = meta.icon;
+                const isActive = workspace === activeWorkspace;
 
-              return (
-                <button
-                  key={workspace}
-                  onClick={() => switchWorkspace(workspace)}
-                  className={`h-full rounded-xl border px-4 py-3 text-left transition-colors ${
-                    isActive
-                      ? `${meta.accent} shadow-sm`
-                      : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <Icon className="h-4 w-4" />
-                    <span>{meta.label}</span>
-                  </div>
-                  <div className="mt-1 max-w-sm text-xs opacity-80">
-                    {meta.description}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                return (
+                  <button
+                    key={workspace}
+                    onClick={() => switchWorkspace(workspace)}
+                    className={`h-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                      isActive
+                        ? `${meta.accent} shadow-sm`
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Icon className="h-4 w-4" />
+                      <span>{meta.label}</span>
+                    </div>
+                    <div className="mt-1 max-w-sm text-xs opacity-80">
+                      {meta.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {currentWorkspaceTabs.length > 0 && (
             <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">

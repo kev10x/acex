@@ -601,6 +601,11 @@ export const assessmentsAPI = {
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/assessments/submit', data),
+  getQuestionAudio: (code: string, questionIndex: number, voiceId = 'eve', language = 'en') =>
+    api.get(`/assessments/audio/${code}/${questionIndex}`, {
+      params: { voice_id: voiceId, language },
+      responseType: 'blob'
+    }),
   getSubmissionStatus: (submissionCode: string) => api.get(`/assessments/submission-status/${submissionCode}`),
   /** Export as Moodle XML (includes answers). Returns blob. */
   exportMoodleXml: (assessment: GeneratedAssessment) =>
@@ -760,9 +765,14 @@ export const contentAPI = {
   }) => api.post<{ success: boolean; visual: ContentVisual }>('/content/regenerate-visual', data),
   submitQuiz: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/content/submit-quiz', data),
-  getSectionAudio: (code: string, sectionIndex: number, voiceId = 'eve') =>
+  getSectionAudio: (code: string, sectionIndex: number, voiceId = 'eve', language = 'en') =>
     api.get(`/content/audio/${code}/${sectionIndex}`, {
-      params: { voice_id: voiceId },
+      params: { voice_id: voiceId, language },
+      responseType: 'blob'
+    }),
+  getCheckpointQuestionAudio: (code: string, questionIndex: number, voiceId = 'eve', language = 'en') =>
+    api.get(`/content/checkpoint-audio/${code}/${questionIndex}`, {
+      params: { voice_id: voiceId, language },
       responseType: 'blob'
     }),
   getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),

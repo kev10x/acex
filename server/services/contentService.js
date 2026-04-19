@@ -16,6 +16,49 @@ const IMAGE_CONCURRENCY = 3;
 const XAI_TTS_ENDPOINT = 'https://api.x.ai/v1/tts';
 const XAI_TTS_DEFAULT_VOICE = 'eve';
 const XAI_TTS_MAX_CHARS = 15000;
+const TTS_TRANSLATION_MODEL = process.env.TTS_TRANSLATION_MODEL || 'gpt-4o-mini';
+
+function normalizeSpeechLanguage(language) {
+  const normalized = String(language || 'en').trim().toLowerCase();
+  return normalized || 'en';
+}
+
+async function localizeTextForSpeech(text, { language = 'en' } = {}) {
+  const normalizedText = String(text || '').trim();
+  const normalizedLanguage = normalizeSpeechLanguage(language);
+  if (!normalizedText) return '';
+  if (['en', 'en-us', 'en-gb'].includes(normalizedLanguage)) {
+    return normalizedText;
+  }
+
+  const provider = aiService.openai ? 'openai' : aiService.anthropic ? 'anthropic' : null;
+  if (!provider) {
+    return normalizedText;
+  }
+
+  try {
+    const result = await aiService.createCompletionWithRetry({
+      provider,
+      model: TTS_TRANSLATION_MODEL,
+      temperature: 0.2,
+      maxTokens: 1200,
+      messages: [
+        {
+          role: 'system',
+          content: 'Translate educational text for audio narration. Preserve numbering, option labels like A), B), and structural cues. Return only the translated text with no commentary.'
+        },
+        {
+          role: 'user',
+          content: `Translate the following educational assessment or lesson text into ${normalizedLanguage} for text-to-speech narration.\n\n${normalizedText}`
+        }
+      ]
+    }, 2);
+    return String(result?.content || '').trim() || normalizedText;
+  } catch (error) {
+    console.warn(`Speech text translation failed for language ${normalizedLanguage}:`, error?.message || error);
+    return normalizedText;
+  }
+}
 
 function buildVisualImagePrompt(prompt, {
   visualKind = 'image',
@@ -155,7 +198,9 @@ async function synthesizeSectionSpeech(text, { voiceId = XAI_TTS_DEFAULT_VOICE, 
   if (!process.env.XAI_API_KEY) {
     throw new Error('XAI_API_KEY is required for Grok text-to-speech.');
   }
-  const normalizedText = String(text || '').trim().slice(0, XAI_TTS_MAX_CHARS);
+  const normalizedLanguage = normalizeSpeechLanguage(language);
+  const localizedText = await localizeTextForSpeech(text, { language: normalizedLanguage });
+  const normalizedText = String(localizedText || '').trim().slice(0, XAI_TTS_MAX_CHARS);
   if (!normalizedText) {
     throw new Error('No section text available for text-to-speech.');
   }
@@ -169,7 +214,7 @@ async function synthesizeSectionSpeech(text, { voiceId = XAI_TTS_DEFAULT_VOICE, 
     body: JSON.stringify({
       text: normalizedText,
       voice_id: String(voiceId || XAI_TTS_DEFAULT_VOICE).trim() || XAI_TTS_DEFAULT_VOICE,
-      language: String(language || 'en').trim() || 'en',
+      language: normalizedLanguage,
       output_format: {
         codec: 'mp3',
         sample_rate: 24000,
@@ -1099,6 +1144,7 @@ module.exports = {
   enrichContentWithImages,
   regenerateVisualWithGrok,
   buildSectionNarrationText,
+  localizeTextForSpeech,
   synthesizeSectionSpeech,
   buildVisualPromptFromContext,
   normalizeGeneratedContent,

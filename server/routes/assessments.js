@@ -1,14 +1,23 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const { query } = require('../database/connection');
 const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
 const { requireAuth, requireFeature } = require('../middleware/auth');
 const { buildMoodleXml, buildScormPackage } = require('../services/assessmentExport');
 const { runOpenAIBatchPollingCycle } = require('../services/openaiBatchMarkingService');
+const contentService = require('../services/contentService');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
+const ASSESSMENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'assessment-audio');
+
+try {
+  fsSync.mkdirSync(ASSESSMENT_AUDIO_DIR, { recursive: true });
+} catch (_) {}
 
 const ASSESSMENT_CONTEXT_LIMITS = {
   assignmentPreview: 320,
@@ -221,6 +230,56 @@ function parseAssessmentSubmissionResult(row) {
     scores,
     marked_at: row.marked_at || row.completed_at || null
   };
+}
+
+function getPublishedAssessmentAudioCachePath(code, questionIndex, voiceId, language, narrationText) {
+  const cacheKey = crypto
+    .createHash('sha1')
+    .update(JSON.stringify({ code, questionIndex, voiceId, language, narrationText }))
+    .digest('hex');
+  return path.join(ASSESSMENT_AUDIO_DIR, `${cacheKey}.mp3`);
+}
+
+function buildAssessmentQuestionNarrationText(assessment, questionIndex) {
+  const questions = Array.isArray(assessment?.questions) ? assessment.questions : [];
+  const question = questions[questionIndex];
+  if (!question) return '';
+
+  const number = question.number != null ? question.number : question.question_number != null ? question.question_number : questionIndex + 1;
+  const type = String(question.type || 'short_answer').replace(/-/g, '_');
+  const parts = [
+    assessment?.title ? `Assessment title: ${assessment.title}.` : '',
+    `Question ${number}.`,
+    question.question ? String(question.question).trim() : '',
+  ];
+
+  if (Array.isArray(question.options) && question.options.length > 0) {
+    parts.push('Answer choices:');
+    question.options.forEach((option, optionIndex) => {
+      const optionLabel = String.fromCharCode(65 + optionIndex);
+      parts.push(`Option ${optionLabel}. ${String(option || '').trim()}`);
+    });
+  }
+
+  if (type === 'mix_and_match') {
+    const leftColumn = Array.isArray(question.left_column) ? question.left_column : [];
+    const rightColumn = Array.isArray(question.right_column) ? question.right_column : [];
+    if (leftColumn.length > 0) {
+      parts.push('Prompts to match:');
+      leftColumn.forEach((item, itemIndex) => {
+        parts.push(`Prompt ${itemIndex + 1}. ${String(item || '').trim()}`);
+      });
+    }
+    if (rightColumn.length > 0) {
+      parts.push('Available matches:');
+      rightColumn.forEach((item, itemIndex) => {
+        const optionLabel = String.fromCharCode(65 + itemIndex);
+        parts.push(`Choice ${optionLabel}. ${String(item || '').trim()}`);
+      });
+    }
+  }
+
+  return parts.filter(Boolean).join('\n\n').trim();
 }
 
 function normalizeContentToText(content) {
@@ -1184,6 +1243,50 @@ router.get('/take/:code', async (req, res) => {
   } catch (error) {
     console.error('Take assessment get error:', error);
     res.status(500).json({ error: 'Failed to load assessment' });
+  }
+});
+
+router.get('/audio/:code/:questionIndex', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const questionIndex = Number(req.params.questionIndex);
+    if (!Number.isFinite(questionIndex) || questionIndex < 0) {
+      return res.status(400).json({ error: 'Invalid question index' });
+    }
+
+    const result = isMySQLDb()
+      ? await query('SELECT assessment_json FROM published_assessments WHERE code = ?', [code])
+      : await query('SELECT assessment_json FROM published_assessments WHERE code = $1', [code]);
+    const rows = result.rows || result;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row) {
+      return res.status(404).json({ error: 'Assessment not found or link expired' });
+    }
+
+    const assessment = typeof row.assessment_json === 'string' ? JSON.parse(row.assessment_json) : row.assessment_json;
+    const narrationText = buildAssessmentQuestionNarrationText(assessment, questionIndex);
+    if (!narrationText) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const voiceId = String(req.query.voice_id || 'eve').trim().toLowerCase() || 'eve';
+    const language = String(req.query.language || 'en').trim().toLowerCase() || 'en';
+    const audioPath = getPublishedAssessmentAudioCachePath(code, questionIndex, voiceId, language, narrationText);
+
+    if (!fsSync.existsSync(audioPath)) {
+      const audioBuffer = await contentService.synthesizeSectionSpeech(narrationText, {
+        voiceId,
+        language,
+      });
+      await fs.writeFile(audioPath, audioBuffer);
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.sendFile(audioPath);
+  } catch (error) {
+    console.error('Assessment question audio error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate assessment audio' });
   }
 });
 
