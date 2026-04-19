@@ -40,8 +40,8 @@ function rowList(result) {
 
 async function getPublishedContentByCode(code) {
   const q = isMySQL()
-    ? await query('SELECT id, content_json, title FROM published_content WHERE code = ?', [code])
-    : await query('SELECT id, content_json, title FROM published_content WHERE code = $1', [code]);
+    ? await query('SELECT id, code, user_id, content_json, title FROM published_content WHERE code = ?', [code])
+    : await query('SELECT id, code, user_id, content_json, title FROM published_content WHERE code = $1', [code]);
   return rowList(q)[0] || null;
 }
 
@@ -139,6 +139,64 @@ function parseJsonSafe(value, fallback = null) {
   } catch (_) {
     return fallback;
   }
+}
+
+function stableJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return '';
+  }
+}
+
+async function persistPublishedContentRepair(row, normalizedContent, { userId = null } = {}) {
+  const normalizedTitle = String(normalizedContent?.title || row?.title || 'Untitled content').slice(0, 500);
+  const serialized = JSON.stringify(normalizedContent);
+  if (isMySQL()) {
+    if (userId != null) {
+      await query(
+        'UPDATE published_content SET title = ?, content_json = ? WHERE id = ? AND user_id = ?',
+        [normalizedTitle, serialized, row.id, userId]
+      );
+    } else {
+      await query(
+        'UPDATE published_content SET title = ?, content_json = ? WHERE id = ?',
+        [normalizedTitle, serialized, row.id]
+      );
+    }
+  } else if (userId != null) {
+    await query(
+      'UPDATE published_content SET title = $1, content_json = $2 WHERE id = $3 AND user_id = $4',
+      [normalizedTitle, serialized, row.id, userId]
+    );
+  } else {
+    await query(
+      'UPDATE published_content SET title = $1, content_json = $2 WHERE id = $3',
+      [normalizedTitle, serialized, row.id]
+    );
+  }
+}
+
+async function normalizeAndRepairPublishedContentRow(row, { userId = null, triggerAudio = false } = {}) {
+  const parsedContent = typeof row?.content_json === 'string' ? JSON.parse(row.content_json) : (row?.content_json || {});
+  const normalizedContent = contentService.normalizeGeneratedContent(parsedContent || {});
+  const normalizedTitle = String(normalizedContent?.title || row?.title || 'Untitled content').slice(0, 500);
+  const needsRepair = stableJson(parsedContent || {}) !== stableJson(normalizedContent) || String(row?.title || '') !== normalizedTitle;
+
+  if (needsRepair && row?.id) {
+    await persistPublishedContentRepair(row, normalizedContent, { userId });
+  }
+  if (triggerAudio && row?.code) {
+    triggerContentAudioPreGeneration(row.code, normalizedContent);
+  }
+
+  return {
+    ...row,
+    title: normalizedTitle,
+    content_json: JSON.stringify(normalizedContent),
+    content: normalizedContent,
+    repaired: needsRepair,
+  };
 }
 
 function getContentAudioCachePath(code, sectionIndex, voiceId, narrationText) {
@@ -460,21 +518,21 @@ router.get('/my', requireAuth, async (req, res) => {
       ? await query('SELECT id, code, title, content_json, created_at FROM published_content WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
       : await query('SELECT id, code, title, content_json, created_at FROM published_content WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
     const rows = Array.isArray(q) ? q : (q.rows || []);
-    const items = rows.map((r) => {
-      let sections = [];
-      try {
-        const parsed = typeof r.content_json === 'string' ? JSON.parse(r.content_json) : r.content_json;
-        if (Array.isArray(parsed?.sections)) {
-          sections = parsed.sections.map((s, idx) => ({
+    let repairedCount = 0;
+    const repairedRows = await Promise.all(rows.map((r) => normalizeAndRepairPublishedContentRow(r, { userId: req.user.id })));
+    const items = repairedRows.map((r) => {
+      const parsed = r.content || parseJsonSafe(r.content_json, {});
+      const sections = Array.isArray(parsed?.sections)
+        ? parsed.sections.map((s, idx) => ({
             index: idx,
             heading: s.heading || s.title || `Section ${idx + 1}`,
             preview: typeof s.body === 'string' ? s.body.slice(0, 150) : '',
-          }));
-        }
-      } catch (_) {}
+          }))
+        : [];
+      if (r.repaired) repairedCount += 1;
       return { id: r.id, code: r.code, title: r.title, sections, created_at: r.created_at };
     });
-    res.json({ success: true, items });
+    res.json({ success: true, items, repaired_count: repairedCount });
   } catch (error) {
     console.error('Content list error:', error);
     res.status(500).json({ error: 'Failed to list content' });
@@ -505,17 +563,17 @@ router.get('/my/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Published content not found' });
     }
 
-    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
-    const content = contentService.normalizeGeneratedContent(parsedContent || {});
+    const repairedRow = await normalizeAndRepairPublishedContentRow(row, { userId: req.user.id });
+    const content = repairedRow.content;
     res.json({
       success: true,
       item: {
-        id: row.id,
-        code: row.code,
-        title: row.title,
-        rubric_id: row.rubric_id ?? null,
+        id: repairedRow.id,
+        code: repairedRow.code,
+        title: repairedRow.title,
+        rubric_id: repairedRow.rubric_id ?? null,
         content,
-        created_at: row.created_at,
+        created_at: repairedRow.created_at,
       }
     });
   } catch (error) {
@@ -1042,9 +1100,8 @@ router.get('/take/:code', async (req, res) => {
     const { code } = req.params;
     const row = await getPublishedContentByCode(code);
     if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
-    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
-    const content = contentService.normalizeGeneratedContent(parsedContent || {});
-    triggerContentAudioPreGeneration(code, content);
+    const repairedRow = await normalizeAndRepairPublishedContentRow(row, { triggerAudio: true });
+    const content = repairedRow.content;
     if (content.quiz && content.quiz.questions) {
       content.quiz.questions = content.quiz.questions.map((q) => {
         const { correct_answer, ...rest } = q;
@@ -1074,8 +1131,8 @@ router.get('/audio/:code/:sectionIndex', async (req, res) => {
     const row = await getPublishedContentByCode(code);
     if (!row) return res.status(404).json({ error: 'Content not found or link expired' });
 
-    const parsedContent = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
-    const content = contentService.normalizeGeneratedContent(parsedContent || {});
+    const repairedRow = await normalizeAndRepairPublishedContentRow(row, { triggerAudio: true });
+    const content = repairedRow.content;
     const sections = Array.isArray(content.sections) ? content.sections : [];
     if (!sections[sectionIndex]) {
       return res.status(404).json({ error: 'Section not found' });

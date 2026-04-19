@@ -33,7 +33,7 @@ function buildVisualImagePrompt(prompt, {
   ].filter(Boolean).join(' ');
 
   const styleInstruction = visualKind === 'illustration'
-    ? 'Create a clean educational conceptual illustration or infographic-style scene with no visible text labels.'
+    ? 'Create a clean educational visual. Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Keep it clean with no visible text labels.'
     : 'Create a clean educational supporting image suitable for lesson content.';
 
   return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays.`
@@ -59,7 +59,7 @@ function buildVisualRegenerationPrompt(visual, {
       ? 'Reimagine the current image as a fresher, more polished educational visual while keeping the same teaching intent.'
       : '',
     inferredKind === 'illustration'
-      ? 'Reimagine this diagram as a polished educational illustration or infographic that preserves the same concepts and relationships.'
+      ? 'Reimagine this as the clearest educational visual for the idea. Use a chart, graph, diagram, or infographic whenever that would teach the concept better while preserving the same relationships and intent.'
       : '',
   ].filter(Boolean).join(' ');
 
@@ -359,7 +359,7 @@ async function generateContentWithAI(opts) {
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const visualsInstruction = (includeDiagrams || includeImages)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
-  - kind = "illustration" — a diagram, flowchart, or architecture diagram relevant to the section. MUST include mermaid_code: a valid Mermaid.js diagram string (graph TD, flowchart LR, sequenceDiagram, classDiagram, etc.). Keep it concise (max 20 nodes). Use real topic-specific content, not generic placeholders.` : ''}${includeImages ? `
+  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. MUST include mermaid_code: valid Mermaid.js syntax (graph TD, flowchart LR, sequenceDiagram, classDiagram, pie, xychart-beta, etc.). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Keep it concise and readable. Use real topic-specific content, not generic placeholders.` : ''}${includeImages ? `
   - kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.` : ''}
   Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.${includeDiagrams ? '\n  mermaid_code (illustration only): valid Mermaid.js syntax.' : ''}`
     : `- visuals: omit entirely — do not include a visuals field in any section.`;
@@ -367,10 +367,10 @@ async function generateContentWithAI(opts) {
     ? `"visuals": [${includeDiagrams ? `
         {
           "kind": "illustration",
-          "title": "Diagram caption (used as figure label)",
-          "alt_text": "Accessible description of the diagram",
-          "prompt": "Prompt text for illustration generation",
-          "mermaid_code": "graph TD\\n  A[Concept A] --> B[Concept B]\\n  B --> C[Outcome]"
+          "title": "Diagram or chart caption (used as figure label)",
+          "alt_text": "Accessible description of the diagram or chart",
+          "prompt": "Prompt text for illustration/chart generation",
+          "mermaid_code": "xychart-beta\\n  title \"Example comparison\"\\n  x-axis [\"A\", \"B\", \"C\"]\\n  bar [3, 5, 4]"
         }` : ''}${includeDiagrams && includeImages ? ',' : ''}${includeImages ? `
         {
           "kind": "image",
@@ -381,9 +381,9 @@ async function generateContentWithAI(opts) {
       ]`
     : '"visuals": []';
   const visualsRule = includeDiagrams && includeImages
-    ? 'Include exactly one illustration and one image descriptor in visuals for every section.'
+    ? 'Include exactly one illustration and one image descriptor in visuals for every section. For the illustration, choose the most educationally effective form: diagram, chart, graph, flowchart, concept map, or infographic.'
     : includeDiagrams
-      ? 'Include exactly one illustration descriptor in visuals for every section.'
+      ? 'Include exactly one illustration descriptor in visuals for every section, choosing a diagram, chart, graph, flowchart, concept map, or infographic as best suits the material.'
       : includeImages
         ? 'Include exactly one image descriptor in visuals for every section.'
         : 'Do not include a visuals field.';
@@ -669,6 +669,39 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
   };
 }
 
+function buildVisualPromptFromContext(visual, section = {}) {
+  const kind = inferVisualKind(visual);
+  const parts = [
+    section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
+    visual?.title ? `Visual title: ${String(visual.title).trim()}.` : '',
+    visual?.alt_text ? `Description: ${String(visual.alt_text).trim()}.` : '',
+    section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
+    section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
+    kind === 'illustration' && visual?.mermaid_code
+      ? `Graph structure to visualize: ${String(visual.mermaid_code).replace(/\s+/g, ' ').slice(0, 420)}.`
+      : '',
+    kind === 'illustration'
+      ? 'Create a clean educational diagram or infographic for this concept.'
+      : 'Create a clean educational supporting image for this concept.',
+  ].filter(Boolean);
+  return parts.join(' ').trim().slice(0, 360);
+}
+
+function shouldRefreshLegacyPrompt(visual, section, fallbackPrompt = '') {
+  const currentPrompt = String(visual?.prompt || '').trim();
+  if (!currentPrompt) return true;
+
+  const normalizedCurrent = currentPrompt.toLowerCase();
+  const normalizedFallback = String(fallbackPrompt || '').trim().toLowerCase();
+  if (normalizedFallback && normalizedCurrent === normalizedFallback) return true;
+
+  if (inferVisualKind(visual) === 'illustration' && typeof visual?.mermaid_code === 'string' && visual.mermaid_code.trim()) {
+    if (!/graph structure to visualize:/i.test(currentPrompt)) return true;
+  }
+
+  return /^(create a clean educational diagram illustrating:|create an educational scene image representing:)/i.test(currentPrompt);
+}
+
 function inferVisualKind(visual) {
   const rawKind = String(visual?.kind || '').trim().toLowerCase();
   if (['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(rawKind)) {
@@ -688,7 +721,8 @@ function inferVisualKind(visual) {
   return 'image';
 }
 
-function normalizeSectionVisuals(sectionTitle, visuals, { includeDiagrams = true, includeImages = true } = {}) {
+function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, includeImages = true } = {}) {
+  const sectionTitle = String(section?.heading || section?.title || 'Section').trim() || 'Section';
   const incoming = Array.isArray(visuals) ? visuals : [];
   const normalized = incoming
     .filter((v) => {
@@ -701,17 +735,25 @@ function normalizeSectionVisuals(sectionTitle, visuals, { includeDiagrams = true
     .map((v, index) => {
       const kind = inferVisualKind(v);
       const fallback = createFallbackVisual(sectionTitle, kind, index + 1);
-      return {
+      const normalizedBase = {
         kind,
         title: String(v.title || fallback.title).slice(0, 160),
         alt_text: String(v.alt_text || fallback.alt_text).slice(0, 260),
-        prompt: String(v.prompt || fallback.prompt).slice(0, 360),
         mermaid_code: kind === 'illustration' && typeof v.mermaid_code === 'string' && v.mermaid_code.trim()
           ? v.mermaid_code.trim()
           : undefined,
         image_url: typeof v.image_url === 'string' && v.image_url.trim()
           ? v.image_url
           : fallback.image_url,
+      };
+      const rebuiltPrompt = buildVisualPromptFromContext(normalizedBase, section);
+      return {
+        ...normalizedBase,
+        prompt: String(
+          shouldRefreshLegacyPrompt(v, section, fallback.prompt)
+            ? rebuiltPrompt
+            : String(v.prompt || rebuiltPrompt)
+        ).slice(0, 360),
       };
     });
 
@@ -754,10 +796,13 @@ function normalizeGeneratedContent(content, templateId = 'classroom', { includeD
   const sections = Array.isArray(content.sections) ? content.sections : [];
   const normalizedSections = sections.map((section, index) => {
     const heading = String(section.heading || section.title || `Section ${index + 1}`).trim();
-    return {
+    const normalizedSection = {
       ...section,
       heading,
-      visuals: normalizeSectionVisuals(heading, section.visuals, { includeDiagrams, includeImages }),
+    };
+    return {
+      ...normalizedSection,
+      visuals: normalizeSectionVisuals(normalizedSection, section.visuals, { includeDiagrams, includeImages }),
     };
   });
 
@@ -1055,6 +1100,7 @@ module.exports = {
   regenerateVisualWithGrok,
   buildSectionNarrationText,
   synthesizeSectionSpeech,
+  buildVisualPromptFromContext,
   normalizeGeneratedContent,
   applyTemplateToContent,
   getTemplateById,

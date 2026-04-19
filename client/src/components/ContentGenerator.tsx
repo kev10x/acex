@@ -1345,16 +1345,16 @@ const ContentGenerator: React.FC = () => {
                         : 'border-gray-200 hover:border-emerald-300'
                     }`}
                   >
-                    {visual.mermaid_code ? (
-                      <div className="p-4 bg-gray-50">
-                        <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
-                      </div>
-                    ) : visual.image_url ? (
+                    {visual.image_url ? (
                       <img
                         src={visual.image_url}
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
                         className="w-full object-contain max-h-64"
                       />
+                    ) : visual.mermaid_code ? (
+                      <div className="p-4 bg-gray-50">
+                        <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
+                      </div>
                     ) : null}
                     <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                       <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}

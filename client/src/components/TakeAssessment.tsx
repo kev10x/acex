@@ -73,6 +73,7 @@ const TakeAssessment: React.FC = () => {
   const [submissionCode, setSubmissionCode] = useState<string | null>(null);
   const [submissionStatus, setSubmissionStatus] = useState<AssessmentSubmissionStatus | null>(null);
   const [draggedMatch, setDraggedMatch] = useState<DraggedMatch | null>(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const defaultStudentName = user?.name?.trim() || user?.email?.trim() || '';
 
   useEffect(() => {
@@ -147,6 +148,7 @@ const TakeAssessment: React.FC = () => {
       const res = await assessmentsAPI.getByCode(assessmentCode);
       if (res.data.success && res.data.assessment) {
         setAssessment(res.data.assessment);
+        setCurrentQuestionIndex(0);
         if (!keepPendingStep) {
           setStep('form');
         }
@@ -425,6 +427,17 @@ const TakeAssessment: React.FC = () => {
     return null;
   }
 
+  const totalQuestions = assessment.questions.length;
+  const safeQuestionIndex = Math.min(Math.max(currentQuestionIndex, 0), Math.max(0, totalQuestions - 1));
+  const activeQuestion = assessment.questions[safeQuestionIndex];
+  const activeQuestionNumber = activeQuestion
+    ? ((activeQuestion as any).number != null ? (activeQuestion as any).number : safeQuestionIndex + 1)
+    : null;
+  const answeredCount = assessment.questions.reduce((count, q, idx) => {
+    const num = (q as any).number != null ? (q as any).number : idx + 1;
+    return answers[num] && String(answers[num]).trim() ? count + 1 : count;
+  }, 0);
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-3xl mx-auto">
@@ -441,6 +454,14 @@ const TakeAssessment: React.FC = () => {
               {assessment.instructions}
             </div>
           )}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-violet-50 px-4 py-3 text-sm">
+            <span className="font-medium text-violet-800">
+              Question {safeQuestionIndex + 1} of {totalQuestions}
+            </span>
+            <span className="text-violet-700">
+              Answered: {answeredCount} / {totalQuestions}
+            </span>
+          </div>
           <p className="mt-3 text-sm text-violet-600 font-medium">
             When you are done, click &quot;Submit for marking&quot; below. Your answers will be saved immediately and the result will appear here once background marking finishes.
           </p>
@@ -459,8 +480,10 @@ const TakeAssessment: React.FC = () => {
             />
           </div>
 
-          {assessment.questions.map((q, idx) => {
-            const qNum = (q as any).number != null ? (q as any).number : idx + 1;
+          {activeQuestion && (() => {
+            const q = activeQuestion;
+            const idx = safeQuestionIndex;
+            const qNum = activeQuestionNumber as number;
             const rawType = ((q as any).type || 'short_answer').replace(/-/g, '_');
             const type = rawType === 'mcq' ? 'multiple_choice' : rawType;
             const value = answers[qNum] ?? '';
@@ -628,7 +651,7 @@ const TakeAssessment: React.FC = () => {
                 )}
               </div>
             );
-          })}
+          })()}
 
           {error && (
             <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
@@ -638,22 +661,40 @@ const TakeAssessment: React.FC = () => {
 
           <div className="flex gap-3">
             <button
-              type="submit"
-              disabled={step === 'submitting'}
-              className="flex-1 py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              type="button"
+              onClick={() => setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))}
+              disabled={safeQuestionIndex === 0}
+              className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 disabled:opacity-50"
             >
-              {step === 'submitting' ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Saving submission...
-                </>
-              ) : (
-                <>
-                  <Send className="w-5 h-5" />
-                  Submit for marking
-                </>
-              )}
+              Previous question
             </button>
+            {safeQuestionIndex < totalQuestions - 1 ? (
+              <button
+                type="button"
+                onClick={() => setCurrentQuestionIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
+                className="flex-1 py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
+              >
+                Next question
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={step === 'submitting'}
+                className="flex-1 py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {step === 'submitting' ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Saving submission...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    Submit for marking
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </form>
       </div>
