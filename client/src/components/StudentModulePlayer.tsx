@@ -237,7 +237,7 @@ export default function StudentModulePlayer() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col">
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-slate-100 flex flex-col">
       <aside className="order-1 lg:fixed lg:inset-y-0 lg:left-0 lg:w-80 bg-white border-r border-slate-200 shadow-sm z-20">
         <div className="h-full overflow-y-auto p-5 space-y-5">
           <button
@@ -405,10 +405,11 @@ export default function StudentModulePlayer() {
         </div>
       </aside>
 
-      <main className="order-2 px-4 py-4 lg:px-8 lg:py-6 lg:ml-80">
-        <div className="min-h-[calc(100vh-2rem)] rounded-[28px] border border-slate-200 bg-white shadow-sm">
+      <main className="order-2 flex-1 flex flex-col overflow-y-auto lg:ml-80">
+        <div className="flex-1 flex flex-col px-4 py-4 lg:px-8 lg:py-6">
+        <div className="flex-1 flex flex-col rounded-[28px] border border-slate-200 bg-white shadow-sm">
           {selectedItem ? (
-            <div className="h-full p-4 lg:p-8 space-y-6">
+            <div className="flex-1 flex flex-col p-4 lg:p-8 gap-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -431,11 +432,11 @@ export default function StudentModulePlayer() {
               </div>
 
               {selectedItem.item_type === 'content' && getItemLaunchPath(selectedItem) ? (
-                <div className="rounded-[24px] border border-slate-200 overflow-hidden bg-slate-50">
+                <div className="flex-1 flex flex-col rounded-[24px] border border-slate-200 overflow-hidden bg-slate-50">
                   <iframe
                     title={selectedItem.title}
                     src={getItemLaunchPath(selectedItem) || undefined}
-                    className="w-full min-h-[calc(100vh-12rem)] bg-white"
+                    className="flex-1 w-full min-h-0 bg-white"
                   />
                 </div>
               ) : (
@@ -461,6 +462,7 @@ export default function StudentModulePlayer() {
           ) : (
             <div className="p-8 text-sm text-slate-600">Select a unit to continue.</div>
           )}
+        </div>
         </div>
       </main>
     </div>
