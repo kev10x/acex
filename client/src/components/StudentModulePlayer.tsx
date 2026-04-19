@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, ChevronDown, ChevronRight, ExternalLink, Layers, Loader2 } from 'lucide-react';
 import { modulesAPI } from '../services/api';
 import type { LearningModule, LearningModuleItem } from '../services/api';
@@ -44,6 +44,10 @@ export default function StudentModulePlayer() {
   const [error, setError] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [embeddedSections, setEmbeddedSections] = useState<Array<{ idx: number; title: string }>>([]);
+  const [embeddedHasCheckpoint, setEmbeddedHasCheckpoint] = useState(false);
+  const [embeddedCurrentSection, setEmbeddedCurrentSection] = useState<number | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const moduleId = useMemo(() => {
     if (typeof window === 'undefined') return null;
@@ -202,6 +206,31 @@ export default function StudentModulePlayer() {
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  };
+
+  useEffect(() => {
+    setEmbeddedSections([]);
+    setEmbeddedHasCheckpoint(false);
+    setEmbeddedCurrentSection(null);
+  }, [selectedItemId]);
+
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'mm:sections') {
+        setEmbeddedSections(e.data.sections || []);
+        setEmbeddedHasCheckpoint(!!e.data.hasCheckpoint);
+      }
+      if (e.data?.type === 'mm:sectionChange') {
+        setEmbeddedCurrentSection(e.data.currentSection);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const goToEmbeddedSection = (sectionIdx: number) => {
+    iframeRef.current?.contentWindow?.postMessage({ type: 'mm:goToSection', section: sectionIdx }, '*');
+    setEmbeddedCurrentSection(sectionIdx);
   };
 
   const goBackToModules = () => {
@@ -397,6 +426,40 @@ export default function StudentModulePlayer() {
                         </div>
                       </div>
                     )}
+                    {!hasSubUnits && isActiveGroup && embeddedSections.length > 0 && (
+                      <div className="px-3 pb-3">
+                        <div className="ml-11 space-y-1 border-l border-emerald-200 pl-3">
+                          {embeddedSections.map((section) => (
+                            <button
+                              key={section.idx}
+                              type="button"
+                              onClick={() => goToEmbeddedSection(section.idx)}
+                              className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                                embeddedCurrentSection === section.idx
+                                  ? 'bg-emerald-100 text-emerald-900'
+                                  : 'text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="font-medium">{section.title}</div>
+                              <div className="text-xs text-slate-500 mt-0.5">Topic {section.idx + 1}</div>
+                            </button>
+                          ))}
+                          {embeddedHasCheckpoint && (
+                            <button
+                              type="button"
+                              onClick={() => goToEmbeddedSection(-1)}
+                              className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                                embeddedCurrentSection === -1
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="font-medium">Knowledge checkpoint</div>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -434,6 +497,7 @@ export default function StudentModulePlayer() {
               {selectedItem.item_type === 'content' && getItemLaunchPath(selectedItem) ? (
                 <div className="flex-1 relative rounded-[24px] border border-slate-200 overflow-hidden bg-slate-50">
                   <iframe
+                    ref={iframeRef}
                     title={selectedItem.title}
                     src={getItemLaunchPath(selectedItem) ? `${getItemLaunchPath(selectedItem)}&embedded=true` : undefined}
                     className="absolute inset-0 w-full h-full bg-white"

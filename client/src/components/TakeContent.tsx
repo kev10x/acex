@@ -374,6 +374,41 @@ const TakeContent: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!isEmbedded || step !== 'content' || !content) return;
+    window.parent.postMessage({
+      type: 'mm:sections',
+      sections: (content.sections || []).map((s: any, i: number) => ({
+        idx: i,
+        title: s.heading || s.title || `Section ${i + 1}`,
+      })),
+      hasCheckpoint: hasQuiz,
+    }, '*');
+  }, [isEmbedded, content, step, hasQuiz]);
+
+  useEffect(() => {
+    if (!isEmbedded || step !== 'content') return;
+    window.parent.postMessage({
+      type: 'mm:sectionChange',
+      currentSection: isCheckpointView ? -1 : currentSection,
+    }, '*');
+  }, [isEmbedded, currentSection, isCheckpointView, step]);
+
+  useEffect(() => {
+    if (!isEmbedded) return;
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type !== 'mm:goToSection') return;
+      const idx = e.data.section;
+      if (idx === -1) {
+        setCurrentSection(checkpointIndex);
+      } else {
+        handleOpenSection(idx);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [isEmbedded, checkpointIndex]);
+
   const visitedCount = visitedSections.length + (isCheckpointView ? 1 : 0);
   const totalTrackable = Math.max(1, sectionCount + (hasQuiz ? 1 : 0));
   const progressPercent = Math.round((Math.min(visitedCount, totalTrackable) / totalTrackable) * 100);
@@ -445,7 +480,7 @@ const TakeContent: React.FC = () => {
     <div
       className={isEmbedded ? 'min-h-full' : 'min-h-screen py-8 px-4'}
       style={{
-        background: content?.theme?.bg_color || '#F9FAFB',
+        background: isEmbedded ? '#F8F9FA' : (content?.theme?.bg_color || '#F9FAFB'),
         color: content?.theme?.text_color || '#111827',
         fontFamily: content?.theme?.font_family || undefined,
       }}
