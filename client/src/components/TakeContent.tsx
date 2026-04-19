@@ -33,6 +33,7 @@ const TakeContent: React.FC = () => {
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [audioVoice, setAudioVoice] = useState('eve');
+  const [audioLanguage, setAudioLanguage] = useState('en');
   const [cpAudioLoading, setCpAudioLoading] = useState<number | null>(null);
   const [cpAudioIdx, setCpAudioIdx] = useState<number | null>(null);
   const [cpAudioUrl, setCpAudioUrl] = useState<string | null>(null);
@@ -340,7 +341,7 @@ const TakeContent: React.FC = () => {
     setAudioLoading(true);
     setAudioError(null);
     try {
-      const res = await contentAPI.getSectionAudio(code, currentSection, audioVoice);
+      const res = await contentAPI.getSectionAudio(code, currentSection, audioVoice, audioLanguage);
       const blobUrl = URL.createObjectURL(res.data as Blob);
       if (audioBlobUrlRef.current) URL.revokeObjectURL(audioBlobUrlRef.current);
       audioBlobUrlRef.current = blobUrl;
@@ -360,7 +361,7 @@ const TakeContent: React.FC = () => {
     setCpAudioError(null);
     setCpAudioUrl(null);
     try {
-      const res = await contentAPI.getCheckpointQuestionAudio(code, questionIdx, audioVoice);
+      const res = await contentAPI.getCheckpointQuestionAudio(code, questionIdx, audioVoice, audioLanguage);
       const blobUrl = URL.createObjectURL(res.data as Blob);
       if (audioBlobUrlRef.current) URL.revokeObjectURL(audioBlobUrlRef.current);
       audioBlobUrlRef.current = blobUrl;
@@ -562,6 +563,16 @@ const TakeContent: React.FC = () => {
                         <option value="rex">Rex</option>
                         <option value="sal">Sal</option>
                       </select>
+                      <select
+                        value={audioLanguage}
+                        onChange={(e) => setAudioLanguage(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      >
+                        <option value="en">English</option>
+                        <option value="af">Afrikaans</option>
+                        <option value="zu">isiZulu</option>
+                        <option value="xh">Xhosa</option>
+                      </select>
                     </div>
                     {audioError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{audioError}</div>}
                     {audioUrl && (
@@ -638,8 +649,7 @@ const TakeContent: React.FC = () => {
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Knowledge checkpoint</h2>
                 <p className="text-sm text-gray-600 mb-4">Complete this checkpoint to finish the lesson.</p>
                 {ttsEnabled && (
-                  <div className="mb-4 flex items-center gap-2">
-                    <span className="text-sm text-gray-500">Voice:</span>
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
                     <select
                       value={audioVoice}
                       onChange={(e) => setAudioVoice(e.target.value)}
@@ -650,6 +660,16 @@ const TakeContent: React.FC = () => {
                       <option value="leo">Leo</option>
                       <option value="rex">Rex</option>
                       <option value="sal">Sal</option>
+                    </select>
+                    <select
+                      value={audioLanguage}
+                      onChange={(e) => setAudioLanguage(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    >
+                      <option value="en">English</option>
+                      <option value="af">Afrikaans</option>
+                      <option value="zu">isiZulu</option>
+                      <option value="xh">Xhosa</option>
                     </select>
                   </div>
                 )}
