@@ -435,7 +435,7 @@ export default function StudentModulePlayer() {
                 <div className="flex-1 relative rounded-[24px] border border-slate-200 overflow-hidden bg-slate-50">
                   <iframe
                     title={selectedItem.title}
-                    src={getItemLaunchPath(selectedItem) || undefined}
+                    src={getItemLaunchPath(selectedItem) ? `${getItemLaunchPath(selectedItem)}&embedded=true` : undefined}
                     className="absolute inset-0 w-full h-full bg-white"
                   />
                 </div>
