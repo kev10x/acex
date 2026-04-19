@@ -8,6 +8,9 @@ interface ToolCard {
   label: string;
   tagline: string;
   description: string;
+  studentLabel?: string;
+  studentTagline?: string;
+  studentDescription?: string;
   icon: React.ComponentType<{ className?: string }>;
   accentBg: string;
   accentText: string;
@@ -36,6 +39,9 @@ const TOOLS: ToolCard[] = [
     tagline: 'Assessments · Content · Modules · Moodle',
     description:
       'Generate assessments and lesson content with AI, then organise them into learning modules for students.',
+    studentLabel: 'Acexen LMS',
+    studentTagline: 'Modules · Assessments · Results',
+    studentDescription: 'Access your learning modules, complete assessments, and view your results.',
     icon: Presentation,
     accentBg: 'bg-emerald-50',
     accentText: 'text-emerald-700',
@@ -126,6 +132,10 @@ export default function ToolsLanding({
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           {visibleTools.map((tool) => {
             const Icon = tool.icon;
+            const isStudent = role === 'student';
+            const label = (isStudent && tool.studentLabel) ? tool.studentLabel : tool.label;
+            const tagline = (isStudent && tool.studentTagline) ? tool.studentTagline : tool.tagline;
+            const description = (isStudent && tool.studentDescription) ? tool.studentDescription : tool.description;
             return (
               <button
                 key={tool.id}
@@ -139,16 +149,16 @@ export default function ToolsLanding({
                 </div>
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className={`text-lg font-semibold ${tool.accentText}`}>{tool.label}</h3>
+                    <h3 className={`text-lg font-semibold ${tool.accentText}`}>{label}</h3>
                     <p className="mt-0.5 text-xs font-medium uppercase tracking-wider text-gray-400">
-                      {tool.tagline}
+                      {tagline}
                     </p>
                   </div>
                   <ChevronRight
                     className={`h-5 w-5 mt-1 flex-shrink-0 transition-transform group-hover:translate-x-1 ${tool.accentText}`}
                   />
                 </div>
-                <p className="mt-3 text-sm text-gray-600 leading-relaxed">{tool.description}</p>
+                <p className="mt-3 text-sm text-gray-600 leading-relaxed">{description}</p>
               </button>
             );
           })}
