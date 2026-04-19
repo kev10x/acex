@@ -478,16 +478,15 @@ const TakeContent: React.FC = () => {
 
   return (
     <div
-      className={isEmbedded ? 'min-h-full' : 'min-h-screen py-8 px-4'}
+      className="min-h-screen py-8 px-4"
       style={{
-        background: isEmbedded ? '#F8F9FA' : (content?.theme?.bg_color || '#F9FAFB'),
+        background: content?.theme?.bg_color || '#F9FAFB',
         color: content?.theme?.text_color || '#111827',
         fontFamily: content?.theme?.font_family || undefined,
       }}
     >
-      <div className={isEmbedded ? '' : 'max-w-6xl mx-auto'}>
-        <div className={isEmbedded ? '' : 'bg-white rounded-xl shadow-lg overflow-hidden'}>
-          {!isEmbedded && (
+      <div className="max-w-6xl mx-auto">
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="p-6 border-b border-gray-200">
             <h1 className="text-2xl font-bold" style={{ color: content?.theme?.heading_color || '#111827' }}>{content?.title}</h1>
             {content?.instructions && <p className="mt-2 text-sm" style={{ color: content?.theme?.text_color || '#4B5563' }}>{content.instructions}</p>}
@@ -510,7 +509,6 @@ const TakeContent: React.FC = () => {
               </div>
             </div>
           </div>
-          )}
 
           {videoStatus && (
             <div className="p-6 border-b border-gray-200 bg-gray-50">
@@ -525,9 +523,9 @@ const TakeContent: React.FC = () => {
             </div>
           )}
 
-          <div className={isEmbedded ? 'p-4 lg:p-8' : 'p-6'}>
-            <div className={isEmbedded ? '' : 'grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6'}>
-              {!isEmbedded && <aside className="bg-gray-50 border border-gray-200 rounded-lg p-3 h-fit">
+          <div className="p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6">
+              <aside className="bg-gray-50 border border-gray-200 rounded-lg p-3 h-fit">
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Lesson Navigation</h3>
                 <ul className="space-y-1">
                   {sections.map((sec, idx) => {
@@ -566,7 +564,7 @@ const TakeContent: React.FC = () => {
                     </li>
                   )}
                 </ul>
-              </aside>}
+              </aside>
 
               <div>
             {!isCheckpointView && activeSection && (
