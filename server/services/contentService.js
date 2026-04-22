@@ -4,6 +4,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
