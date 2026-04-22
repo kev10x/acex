@@ -267,9 +267,12 @@ function AppContent() {
 
   const workspaceTabs = useMemo<Record<WorkspaceType, TabType[]>>(
     () => ({
-      marking: (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'] as TabType[]).filter((tab) =>
-        ROLE_TAB_ACCESS[normalizedRole].includes(tab)
-      ),
+      marking:
+        normalizedRole === 'student'
+          ? []
+          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'] as TabType[]).filter((tab) =>
+              ROLE_TAB_ACCESS[normalizedRole].includes(tab)
+            ),
       student:
         normalizedRole === 'student'
           ? (['modules', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
@@ -309,7 +312,9 @@ function AppContent() {
       normalizedRole === 'student' && availableWorkspaces.includes('student')
         ? 'student'
         : availableWorkspaces[0];
-    const activeTabWorkspace = WORKSPACE_ORDER.find((workspace) => workspaceTabs[workspace].includes(activeTab));
+    const activeTabWorkspace = workspaceTabs[activeWorkspace]?.includes(activeTab)
+      ? activeWorkspace
+      : WORKSPACE_ORDER.find((workspace) => workspaceTabs[workspace].includes(activeTab));
 
     if (!activeTabWorkspace) {
       setActiveWorkspace(defaultWorkspace);

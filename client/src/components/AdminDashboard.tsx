@@ -4,6 +4,7 @@ import {
   assessmentsAPI,
   authAPI,
   batchesAPI,
+  BudgetGuardrailsResponse,
   BatchJobsHealthResponse,
   CustomHomeworkTelemetryResponse,
   Department,
@@ -96,6 +97,7 @@ const AdminDashboard: React.FC = () => {
   const [submissionIdentityConflicts, setSubmissionIdentityConflicts] = useState<SubmissionIdentityConflictResponse | null>(null);
   const [customHomeworkTelemetry, setCustomHomeworkTelemetry] = useState<CustomHomeworkTelemetryResponse | null>(null);
   const [generationTelemetry, setGenerationTelemetry] = useState<GenerationTelemetryResponse | null>(null);
+  const [budgetGuardrails, setBudgetGuardrails] = useState<BudgetGuardrailsResponse | null>(null);
   const [generationJobs, setGenerationJobs] = useState<GenerationJobsResponse | null>(null);
   const [generationJobDeadLetters, setGenerationJobDeadLetters] = useState<GenerationJobDeadLettersResponse | null>(null);
   const [promptRegistry, setPromptRegistry] = useState<PromptRegistryResponse | null>(null);
@@ -156,7 +158,7 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all, orgs, depts, health, performanceData, jobsHealth, identityHealth, identityConflicts, homeworkTelemetry, allGenerationTelemetry, generationJobsRes, generationDeadLettersRes, promptRegistryRes] = await Promise.all([
+      const [pending, all, orgs, depts, health, performanceData, jobsHealth, identityHealth, identityConflicts, homeworkTelemetry, allGenerationTelemetry, budgetGuardrailsRes, generationJobsRes, generationDeadLettersRes, promptRegistryRes] = await Promise.all([
         authAPI.getPendingUsers(token),
         authAPI.getAllUsers(token),
         authAPI.getOrganisations(token),
@@ -168,6 +170,7 @@ const AdminDashboard: React.FC = () => {
         assessmentsAPI.getSubmissionIdentityConflicts().catch(() => null),
         modulesAPI.getCustomHomeworkTelemetry().catch(() => null),
         modulesAPI.getGenerationTelemetry().catch(() => null),
+        modulesAPI.getBudgetGuardrails().catch(() => null),
         modulesAPI.getGenerationJobs({ limit: 25, scope: 'all' }).catch(() => null),
         modulesAPI.getGenerationJobDeadLetters({ limit: 25 }).catch(() => null),
         modulesAPI.getPromptRegistry({ scope: 'all', limit: 30 }).catch(() => null),
@@ -189,6 +192,7 @@ const AdminDashboard: React.FC = () => {
       setSubmissionIdentityConflicts(identityConflicts?.data || null);
       setCustomHomeworkTelemetry(homeworkTelemetry?.data || null);
       setGenerationTelemetry(allGenerationTelemetry?.data || null);
+      setBudgetGuardrails(budgetGuardrailsRes?.data || null);
       setGenerationJobs(generationJobsRes?.data || null);
       setGenerationJobDeadLetters(generationDeadLettersRes?.data || null);
       setPromptRegistry(promptRegistryRes?.data || null);
@@ -1174,6 +1178,30 @@ const AdminDashboard: React.FC = () => {
                       <div className="text-xl font-semibold text-violet-900 mt-1">${generationTelemetry.summary.total_estimated_cost_usd.toFixed(4)}</div>
                     </div>
                   </div>
+                  {budgetGuardrails && (
+                    <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-amber-900">Budget Guardrails (Last 24h)</h4>
+                          <p className="text-xs text-amber-800 mt-1">
+                            Daily budget: ${budgetGuardrails.config.daily_budget_usd.toFixed(2)} per user.
+                            Guardrail {budgetGuardrails.config.enabled ? 'enabled' : 'disabled'}.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <span className="rounded-full bg-white border border-amber-200 px-2 py-1 text-amber-900">
+                            Users analyzed: {budgetGuardrails.summary.users_analyzed}
+                          </span>
+                          <span className="rounded-full bg-white border border-red-200 px-2 py-1 text-red-700">
+                            At/over budget: {budgetGuardrails.summary.users_at_or_above_budget}
+                          </span>
+                          <span className="rounded-full bg-white border border-yellow-200 px-2 py-1 text-yellow-700">
+                            Near budget: {budgetGuardrails.summary.users_near_budget}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
                     <div className="rounded border border-gray-200">
                       <div className="px-4 py-3 border-b border-gray-200">

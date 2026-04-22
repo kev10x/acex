@@ -17,11 +17,84 @@ const {
   resolvePromptRegistryVersion,
 } = require('../services/promptRegistryService');
 const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
+const { assertWithinBudgetOrThrow, getBudgetGuardrailConfig } = require('../services/budgetGuardrailService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
 const isSuperAdmin = (user) => String(user?.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+const HOMEWORK_ANALYTICS_CACHE_TTL_MS = 60 * 1000;
+const HOMEWORK_ANALYTICS_CACHE_MAX_ENTRIES = 500;
+const homeworkAnalyticsCache = new Map();
+
+function toBooleanQueryFlag(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function normalizeQueryForCache(query) {
+  const entries = Object.entries(query || {})
+    .filter(([, value]) => value != null && String(value).trim().length > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${String(value)}`);
+  return entries.join('&');
+}
+
+function buildHomeworkAnalyticsCacheKey(req, endpointKey) {
+  return `${endpointKey}|u:${Number(req?.user?.id) || 0}|q:${normalizeQueryForCache(req?.query || {})}`;
+}
+
+function getHomeworkAnalyticsCachedResponse(req, endpointKey) {
+  if (toBooleanQueryFlag(req?.query?.bypass_cache)) return null;
+  const key = buildHomeworkAnalyticsCacheKey(req, endpointKey);
+  const cached = homeworkAnalyticsCache.get(key);
+  if (!cached) return null;
+  if ((Date.now() - cached.createdAt) > HOMEWORK_ANALYTICS_CACHE_TTL_MS) {
+    homeworkAnalyticsCache.delete(key);
+    return null;
+  }
+  return JSON.parse(JSON.stringify(cached.payload));
+}
+
+function setHomeworkAnalyticsCachedResponse(req, endpointKey, payload) {
+  const key = buildHomeworkAnalyticsCacheKey(req, endpointKey);
+  if (homeworkAnalyticsCache.size >= HOMEWORK_ANALYTICS_CACHE_MAX_ENTRIES) {
+    const oldest = homeworkAnalyticsCache.keys().next().value;
+    if (oldest) homeworkAnalyticsCache.delete(oldest);
+  }
+  homeworkAnalyticsCache.set(key, {
+    createdAt: Date.now(),
+    payload: JSON.parse(JSON.stringify(payload)),
+  });
+}
+
+function invalidateHomeworkAnalyticsCacheForUser(userId) {
+  const numericUserId = Number(userId);
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return;
+  const needle = `|u:${numericUserId}|`;
+  for (const key of homeworkAnalyticsCache.keys()) {
+    if (key.includes(needle)) {
+      homeworkAnalyticsCache.delete(key);
+    }
+  }
+}
+
+function paginateList(items, limitRaw, offsetRaw, defaultLimit = 100, maxLimit = 500) {
+  const total = Array.isArray(items) ? items.length : 0;
+  const limit = Math.max(1, Math.min(maxLimit, Number(limitRaw) || defaultLimit));
+  const offset = Math.max(0, Number(offsetRaw) || 0);
+  const sliced = (Array.isArray(items) ? items : []).slice(offset, offset + limit);
+  return {
+    items: sliced,
+    pagination: {
+      total,
+      limit,
+      offset,
+      returned: sliced.length,
+      has_more: (offset + sliced.length) < total,
+    },
+  };
+}
 
 async function mysqlIndexExists(tableName, indexName) {
   try {
@@ -1189,6 +1262,9 @@ router.get('/student/homework-progress', requireAuth, async (req, res) => {
 
 router.get('/homework-history', requireAuth, async (req, res) => {
   try {
+    const cached = getHomeworkAnalyticsCachedResponse(req, 'homework-history');
+    if (cached) return res.json(cached);
+
     const rows = rowList(
       isMySQL()
         ? await query(
@@ -1300,8 +1376,7 @@ router.get('/homework-history', requireAuth, async (req, res) => {
     }
 
     const items = Array.from(grouped.values())
-      .sort((a, b) => new Date(String(b.homework_created_at || 0)).getTime() - new Date(String(a.homework_created_at || 0)).getTime())
-      .slice(0, 100);
+      .sort((a, b) => new Date(String(b.homework_created_at || 0)).getTime() - new Date(String(a.homework_created_at || 0)).getTime());
 
     const sourceNames = Array.from(new Set(items.map((item) => String(item.source_module_name || '').trim()).filter(Boolean)));
     let sourceIdByName = new Map();
@@ -1342,8 +1417,16 @@ router.get('/homework-history', requireAuth, async (req, res) => {
         },
       };
     });
-
-    res.json({ success: true, items: enrichedItems });
+    const { items: pagedItems, pagination } = paginateList(
+      enrichedItems,
+      req.query?.limit,
+      req.query?.offset,
+      100,
+      500
+    );
+    const responsePayload = { success: true, items: pagedItems, pagination };
+    setHomeworkAnalyticsCachedResponse(req, 'homework-history', responsePayload);
+    res.json(responsePayload);
   } catch (error) {
     console.error('List homework history error:', error);
     res.status(500).json({ error: 'Failed to load homework history' });
@@ -1352,6 +1435,9 @@ router.get('/homework-history', requireAuth, async (req, res) => {
 
 router.get('/homework-review-queue', requireAuth, async (req, res) => {
   try {
+    const cached = getHomeworkAnalyticsCachedResponse(req, 'homework-review-queue');
+    if (cached) return res.json(cached);
+
     const statusFilter = String(req.query?.status || 'all').trim().toLowerCase();
     const olderThanDays = Math.max(0, Math.min(90, Number(req.query?.older_than_days || 0) || 0));
     const reminderDays = Math.max(1, Math.min(30, Number(req.query?.reminder_days || 3) || 3));
@@ -1442,7 +1528,14 @@ router.get('/homework-review-queue', requireAuth, async (req, res) => {
       };
     }).filter((item) => (olderThanDays > 0 ? item.age_days >= olderThanDays : true));
 
-    res.json({
+    const { items: pagedItems, pagination } = paginateList(
+      items,
+      req.query?.limit,
+      req.query?.offset,
+      200,
+      500
+    );
+    const responsePayload = {
       success: true,
       summary: {
         queue_count: items.length,
@@ -1450,8 +1543,11 @@ router.get('/homework-review-queue', requireAuth, async (req, res) => {
         older_than_days: olderThanDays,
         reminder_days: reminderDays,
       },
-      items: items.slice(0, 200),
-    });
+      items: pagedItems,
+      pagination,
+    };
+    setHomeworkAnalyticsCachedResponse(req, 'homework-review-queue', responsePayload);
+    res.json(responsePayload);
   } catch (error) {
     console.error('Homework review queue error:', error);
     res.status(500).json({ error: 'Failed to load homework review queue' });
@@ -1460,6 +1556,9 @@ router.get('/homework-review-queue', requireAuth, async (req, res) => {
 
 router.get('/homework-outcomes', requireAuth, async (req, res) => {
   try {
+    const cached = getHomeworkAnalyticsCachedResponse(req, 'homework-outcomes');
+    if (cached) return res.json(cached);
+
     const rows = rowList(
       isMySQL()
         ? await query(
@@ -1639,7 +1738,16 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
       };
     }).sort((a, b) => new Date(String(b.homework_created_at || 0)).getTime() - new Date(String(a.homework_created_at || 0)).getTime());
 
-    res.json({ success: true, items: items.slice(0, 200) });
+    const { items: pagedItems, pagination } = paginateList(
+      items,
+      req.query?.limit,
+      req.query?.offset,
+      200,
+      500
+    );
+    const responsePayload = { success: true, items: pagedItems, pagination };
+    setHomeworkAnalyticsCachedResponse(req, 'homework-outcomes', responsePayload);
+    res.json(responsePayload);
   } catch (error) {
     console.error('Homework outcomes error:', error);
     res.status(500).json({ error: 'Failed to load homework outcomes' });
@@ -1648,6 +1756,9 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
 
 router.get('/homework-trends', requireAuth, async (req, res) => {
   try {
+    const cached = getHomeworkAnalyticsCachedResponse(req, 'homework-trends');
+    if (cached) return res.json(cached);
+
     const studentFilter = req.query?.student_id != null ? Number(req.query.student_id) : null;
     const rows = rowList(
       isMySQL()
@@ -1878,19 +1989,8 @@ router.get('/homework-trends', requireAuth, async (req, res) => {
       .map((row) => (row.summary?.impact_percent == null ? null : Number(row.summary.impact_percent)))
       .filter((v) => Number.isFinite(v));
 
-    res.json({
-      success: true,
-      summary: {
-        total_cycles: sortedTimeline.length,
-        student_count: student_summaries.length,
-        improved_cycles: sortedTimeline.filter((row) => String(row?.summary?.impact_status || '') === 'positive').length,
-        declined_cycles: sortedTimeline.filter((row) => String(row?.summary?.impact_status || '') === 'negative').length,
-        avg_impact_percent: allImpacts.length > 0
-          ? Number((allImpacts.reduce((sum, val) => sum + Number(val), 0) / allImpacts.length).toFixed(1))
-          : null,
-      },
-      students: student_summaries,
-      timeline: sortedTimeline.map((item) => ({
+    const { items: pagedTimeline, pagination } = paginateList(
+      sortedTimeline.map((item) => ({
         homework_module_id: item.homework_module_id,
         homework_module_name: item.homework_module_name,
         homework_created_at: item.homework_created_at,
@@ -1904,7 +2004,28 @@ router.get('/homework-trends', requireAuth, async (req, res) => {
         declined_count: item.summary?.declined_count || 0,
         follow_up_recommended: !!item.summary?.follow_up_recommended,
       })),
-    });
+      req.query?.limit,
+      req.query?.offset,
+      200,
+      500
+    );
+    const responsePayload = {
+      success: true,
+      summary: {
+        total_cycles: sortedTimeline.length,
+        student_count: student_summaries.length,
+        improved_cycles: sortedTimeline.filter((row) => String(row?.summary?.impact_status || '') === 'positive').length,
+        declined_cycles: sortedTimeline.filter((row) => String(row?.summary?.impact_status || '') === 'negative').length,
+        avg_impact_percent: allImpacts.length > 0
+          ? Number((allImpacts.reduce((sum, val) => sum + Number(val), 0) / allImpacts.length).toFixed(1))
+          : null,
+      },
+      students: student_summaries,
+      timeline: pagedTimeline,
+      pagination,
+    };
+    setHomeworkAnalyticsCachedResponse(req, 'homework-trends', responsePayload);
+    res.json(responsePayload);
   } catch (error) {
     console.error('Homework trends error:', error);
     res.status(500).json({ error: 'Failed to load homework trends' });
@@ -1922,6 +2043,7 @@ router.post('/', requireAuth, async (req, res) => {
       const id = inserted.insertId ?? inserted.lastID;
       const q = await query('SELECT id, name, created_at FROM modules WHERE id = ? AND user_id = ?', [id, req.user.id]);
       const row = rowList(q)[0];
+      invalidateHomeworkAnalyticsCacheForUser(req.user.id);
       return res.json({ success: true, module: { ...row, items: [], students: [] } });
     }
     inserted = await query(
@@ -1929,6 +2051,7 @@ router.post('/', requireAuth, async (req, res) => {
       [req.user.id, cleanName]
     );
     const row = rowList(inserted)[0];
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, module: { ...row, items: [], students: [] } });
   } catch (error) {
     console.error('Create module error:', error);
@@ -1947,6 +2070,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     } else {
       await query('UPDATE modules SET name = $1 WHERE id = $2 AND user_id = $3', [name, id, req.user.id]);
     }
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Module updated' });
   } catch (error) {
     console.error('Update module error:', error);
@@ -1963,6 +2087,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       : await query('DELETE FROM modules WHERE id = $1 AND user_id = $2', [id, req.user.id]);
     const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
     if (!affected) return res.status(404).json({ error: 'Module not found' });
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Module deleted' });
   } catch (error) {
     console.error('Delete module error:', error);
@@ -2011,6 +2136,7 @@ router.post('/:id/items', requireAuth, async (req, res) => {
         [moduleId, itemType, itemId, meta.title, meta.code, nextPos, sectionIndex]
       );
     }
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Item added to module' });
   } catch (error) {
     if (error?.code === 'ER_DUP_ENTRY' || String(error?.message || '').toLowerCase().includes('unique')) {
@@ -2049,6 +2175,7 @@ router.post('/:id/students', requireAuth, async (req, res) => {
         [moduleId, studentUserId]
       );
     }
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Student added to module' });
   } catch (error) {
     if (error?.code === 'ER_DUP_ENTRY' || String(error?.message || '').toLowerCase().includes('unique')) {
@@ -2081,6 +2208,7 @@ router.delete('/:id/students/:studentUserId', requireAuth, async (req, res) => {
         );
     const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
     if (!affected) return res.status(404).json({ error: 'Student not enrolled in this module' });
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Student removed from module' });
   } catch (error) {
     console.error('Remove module student error:', error);
@@ -2109,6 +2237,7 @@ router.delete('/:id/items/:moduleItemId', requireAuth, async (req, res) => {
         );
     const affected = deleted?.affectedRows ?? deleted?.rowCount ?? deleted?.changes ?? 0;
     if (!affected) return res.status(404).json({ error: 'Module item not found' });
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Item removed' });
   } catch (error) {
     console.error('Delete module item error:', error);
@@ -2143,6 +2272,7 @@ router.put('/:id/reorder', requireAuth, async (req, res) => {
         await query('UPDATE module_items SET position = $1 WHERE id = $2 AND module_id = $3', [i, itemId, moduleId]);
       }
     }
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Module items reordered' });
   } catch (error) {
     console.error('Reorder module items error:', error);
@@ -2304,6 +2434,7 @@ router.put('/homework-workflow/bulk', requireAuth, async (req, res) => {
         module_ids: moduleIds,
       }),
     });
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
 
     res.json({
       success: true,
@@ -2442,6 +2573,7 @@ router.put('/:id/homework-workflow', requireAuth, async (req, res) => {
     } catch (eventError) {
       console.warn('[homework-workflow] Failed to persist single workflow event:', eventError?.message || eventError);
     }
+    invalidateHomeworkAnalyticsCacheForUser(req.user.id);
 
     res.json({
       success: true,
@@ -3026,6 +3158,110 @@ router.get('/admin/generation-telemetry', requireAuth, requireRoles(['management
   }
 });
 
+router.get('/admin/budget-guardrails', requireAuth, requireRoles(['management']), async (req, res) => {
+  try {
+    const applyOrgScope = !isSuperAdmin(req.user);
+    if (applyOrgScope && req.user.organisation_id == null) {
+      const config = getBudgetGuardrailConfig();
+      return res.json({
+        success: true,
+        config,
+        summary: {
+          users_analyzed: 0,
+          users_at_or_above_budget: 0,
+          users_near_budget: 0,
+          total_spent_last_24h_usd: 0,
+          average_spent_last_24h_usd: 0,
+        },
+        items: [],
+      });
+    }
+
+    const config = getBudgetGuardrailConfig();
+    const nearThresholdPercent = Math.max(1, Math.min(100, parseClampedInt(req.query?.near_threshold_percent, 80, 1, 100)));
+    const limit = parseClampedInt(req.query?.limit, 100, 10, 300);
+
+    const rowsResult = isMySQL()
+      ? await query(
+          `SELECT
+             owner.id AS owner_user_id,
+             owner.name AS owner_name,
+             owner.email AS owner_email,
+             COALESCE(SUM(g.estimated_cost_usd), 0) AS spent_last_24h_usd
+           FROM users owner
+           LEFT JOIN generation_telemetry_events g
+             ON g.user_id = owner.id
+             AND g.status = 'success'
+             AND g.created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+           WHERE owner.role IN ('management', 'lecturer')
+             ${applyOrgScope ? 'AND owner.organisation_id = ?' : ''}
+           GROUP BY owner.id, owner.name, owner.email
+           ORDER BY spent_last_24h_usd DESC, owner.id ASC
+           LIMIT ?`,
+          applyOrgScope ? [req.user.organisation_id, limit] : [limit]
+        )
+      : await query(
+          `SELECT
+             owner.id AS owner_user_id,
+             owner.name AS owner_name,
+             owner.email AS owner_email,
+             COALESCE(SUM(g.estimated_cost_usd), 0) AS spent_last_24h_usd
+           FROM users owner
+           LEFT JOIN generation_telemetry_events g
+             ON g.user_id = owner.id
+             AND g.status = 'success'
+             AND g.created_at >= NOW() - INTERVAL '24 hours'
+           WHERE owner.role IN ('management', 'lecturer')
+             ${applyOrgScope ? 'AND owner.organisation_id = $1' : ''}
+           GROUP BY owner.id, owner.name, owner.email
+           ORDER BY spent_last_24h_usd DESC, owner.id ASC
+           LIMIT $${applyOrgScope ? '2' : '1'}`,
+          applyOrgScope ? [req.user.organisation_id, limit] : [limit]
+        );
+
+    const items = rowList(rowsResult).map((row) => {
+      const spent = Number(row.spent_last_24h_usd || 0);
+      const usagePercent = config.daily_budget_usd > 0 ? Number(((spent / config.daily_budget_usd) * 100).toFixed(1)) : 0;
+      const remaining = Math.max(0, config.daily_budget_usd - spent);
+      const atOrAboveBudget = spent >= config.daily_budget_usd;
+      const nearBudget = !atOrAboveBudget && usagePercent >= nearThresholdPercent;
+      return {
+        user: {
+          id: Number(row.owner_user_id || 0),
+          name: row.owner_name || row.owner_email || 'Unknown',
+          email: row.owner_email || null,
+        },
+        spent_last_24h_usd: Number(spent.toFixed(4)),
+        daily_budget_usd: Number(config.daily_budget_usd.toFixed(4)),
+        remaining_usd: Number(remaining.toFixed(4)),
+        usage_percent: usagePercent,
+        at_or_above_budget: atOrAboveBudget,
+        near_budget: nearBudget,
+      };
+    });
+
+    const totalSpent = items.reduce((sum, item) => sum + Number(item.spent_last_24h_usd || 0), 0);
+    const usersAtOrAboveBudget = items.filter((item) => item.at_or_above_budget).length;
+    const usersNearBudget = items.filter((item) => item.near_budget).length;
+
+    res.json({
+      success: true,
+      config,
+      summary: {
+        users_analyzed: items.length,
+        users_at_or_above_budget: usersAtOrAboveBudget,
+        users_near_budget: usersNearBudget,
+        total_spent_last_24h_usd: Number(totalSpent.toFixed(4)),
+        average_spent_last_24h_usd: items.length > 0 ? Number((totalSpent / items.length).toFixed(4)) : 0,
+      },
+      items,
+    });
+  } catch (error) {
+    console.error('Budget guardrail analytics error:', error);
+    res.status(500).json({ error: 'Failed to load budget guardrail analytics' });
+  }
+});
+
 router.get('/admin/prompt-registry', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
@@ -3294,6 +3530,7 @@ router.post(
   requireFeature('assessment_creation'),
   async (req, res) => {
     const requestStartedAt = Date.now();
+    const projectedCostUsd = 0.2;
     let generationJobId = null;
     let contentPromptTrace = null;
     let assessmentPromptTrace = null;
@@ -3321,6 +3558,23 @@ router.post(
       homework_module_id: null,
     };
     try {
+      try {
+        await assertWithinBudgetOrThrow({
+          userId: req.user.id,
+          projectedCostUsd,
+          generationType: 'custom homework generation',
+        });
+      } catch (budgetError) {
+        if (budgetError?.code === 'BUDGET_GUARDRAIL_EXCEEDED') {
+          return res.status(budgetError.statusCode || 429).json({
+            error: budgetError.message,
+            code: budgetError.code,
+            budget_status: budgetError.budget_status || null,
+          });
+        }
+        throw budgetError;
+      }
+
       generationJobId = await createGenerationJob({
         user_id: req.user.id,
         job_type: 'custom_homework_generation',
@@ -3773,6 +4027,7 @@ Rules:
           completed_at: new Date(),
         });
       }
+      invalidateHomeworkAnalyticsCacheForUser(req.user.id);
 
       res.json({
         success: true,

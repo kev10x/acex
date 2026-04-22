@@ -16,6 +16,7 @@ const feedbackVideoService = require('../services/feedbackVideoService');
 const { runContentPlannerCycle } = require('../services/contentPlannerService');
 const { buildContentScormPackage } = require('../services/contentExport');
 const aiConfig = require('../config/ai-config');
+const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailService');
 const {
   inferGenerationErrorType,
   logGenerationTelemetry,
@@ -374,6 +375,7 @@ const uploadTemplate = multer({
 router.post('/generate', requireAuth, requireFeature('content_creation'), async (req, res) => {
   const requestStartedAt = Date.now();
   const taskConfig = aiConfig.getTaskConfig('contentGeneration', 'openai');
+  const projectedCostUsd = 0.12;
   let promptTrace = null;
   let generationJobId = null;
   const telemetryBase = {
@@ -393,6 +395,23 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     },
   };
   try {
+    try {
+      await assertWithinBudgetOrThrow({
+        userId: req.user.id,
+        projectedCostUsd,
+        generationType: 'content generation',
+      });
+    } catch (budgetError) {
+      if (budgetError?.code === 'BUDGET_GUARDRAIL_EXCEEDED') {
+        return res.status(budgetError.statusCode || 429).json({
+          error: budgetError.message,
+          code: budgetError.code,
+          budget_status: budgetError.budget_status || null,
+        });
+      }
+      throw budgetError;
+    }
+
     generationJobId = await createGenerationJob({
       user_id: req.user.id,
       job_type: 'content_generation',

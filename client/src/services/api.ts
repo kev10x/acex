@@ -937,6 +937,13 @@ export interface HomeworkTrendStudentSummary {
   declined_cycles: number;
   latest_completed_at: string | null;
 }
+export interface PaginationMeta {
+  total: number;
+  limit: number;
+  offset: number;
+  returned: number;
+  has_more: boolean;
+}
 export interface HomeworkTrendsResponse {
   success: boolean;
   summary: {
@@ -948,6 +955,7 @@ export interface HomeworkTrendsResponse {
   };
   students: HomeworkTrendStudentSummary[];
   timeline: HomeworkTrendTimelineItem[];
+  pagination?: PaginationMeta;
 }
 export interface HomeworkReviewQueueItem {
   homework_module_id: number;
@@ -972,6 +980,7 @@ export interface HomeworkReviewQueueResponse {
     reminder_days: number;
   };
   items: HomeworkReviewQueueItem[];
+  pagination?: PaginationMeta;
 }
 export interface StudentHomeworkProgressItem {
   homework_module_id: number;
@@ -1136,6 +1145,32 @@ export interface GenerationTelemetryResponse {
   by_type: GenerationTelemetryTypeItem[];
   daily_trend: GenerationTelemetryTrendItem[];
   recent_events: GenerationTelemetryEvent[];
+}
+export interface BudgetGuardrailSummary {
+  users_analyzed: number;
+  users_at_or_above_budget: number;
+  users_near_budget: number;
+  total_spent_last_24h_usd: number;
+  average_spent_last_24h_usd: number;
+}
+export interface BudgetGuardrailItem {
+  user: { id: number; name: string; email: string | null };
+  spent_last_24h_usd: number;
+  daily_budget_usd: number;
+  remaining_usd: number;
+  usage_percent: number;
+  at_or_above_budget: boolean;
+  near_budget: boolean;
+}
+export interface BudgetGuardrailsResponse {
+  success: boolean;
+  config: {
+    enabled: boolean;
+    daily_budget_usd: number;
+    warning_threshold_percent: number;
+  };
+  summary: BudgetGuardrailSummary;
+  items: BudgetGuardrailItem[];
 }
 export interface GenerationJobTimelineEvent {
   status: string;
@@ -1313,11 +1348,13 @@ export const modulesAPI = {
   reorderItems: (moduleId: number, itemIds: number[]) => api.put(`/modules/${moduleId}/reorder`, { item_ids: itemIds }),
   addStudent: (moduleId: number, studentUserId: number) => api.post(`/modules/${moduleId}/students`, { student_user_id: studentUserId }),
   removeStudent: (moduleId: number, studentUserId: number) => api.delete(`/modules/${moduleId}/students/${studentUserId}`),
-  getHomeworkHistory: () => api.get<{ success: boolean; items: HomeworkHistoryItem[] }>('/modules/homework-history'),
-  getHomeworkReviewQueue: (params?: { status?: 'all' | 'draft' | 'reviewed'; older_than_days?: number; reminder_days?: number }) =>
+  getHomeworkHistory: (params?: { limit?: number; offset?: number; bypass_cache?: boolean }) =>
+    api.get<{ success: boolean; items: HomeworkHistoryItem[]; pagination?: PaginationMeta }>('/modules/homework-history', { params }),
+  getHomeworkReviewQueue: (params?: { status?: 'all' | 'draft' | 'reviewed'; older_than_days?: number; reminder_days?: number; limit?: number; offset?: number; bypass_cache?: boolean }) =>
     api.get<HomeworkReviewQueueResponse>('/modules/homework-review-queue', { params }),
-  getHomeworkOutcomes: () => api.get<{ success: boolean; items: HomeworkOutcomeItem[] }>('/modules/homework-outcomes'),
-  getHomeworkTrends: (params?: { student_id?: number }) =>
+  getHomeworkOutcomes: (params?: { limit?: number; offset?: number; bypass_cache?: boolean }) =>
+    api.get<{ success: boolean; items: HomeworkOutcomeItem[]; pagination?: PaginationMeta }>('/modules/homework-outcomes', { params }),
+  getHomeworkTrends: (params?: { student_id?: number; limit?: number; offset?: number; bypass_cache?: boolean }) =>
     api.get<HomeworkTrendsResponse>('/modules/homework-trends', { params }),
   updateHomeworkWorkflow: (
     moduleId: number,
@@ -1351,6 +1388,8 @@ export const modulesAPI = {
     api.get<CustomHomeworkTelemetryResponse>('/modules/admin/custom-homework-telemetry'),
   getGenerationTelemetry: (params?: { days?: number; limit?: number }) =>
     api.get<GenerationTelemetryResponse>('/modules/admin/generation-telemetry', { params }),
+  getBudgetGuardrails: (params?: { limit?: number; near_threshold_percent?: number }) =>
+    api.get<BudgetGuardrailsResponse>('/modules/admin/budget-guardrails', { params }),
   getGenerationJobs: (params?: { limit?: number; scope?: 'mine' | 'all' }) =>
     api.get<GenerationJobsResponse>('/modules/generation-jobs', { params }),
   getGenerationJobDeadLetters: (params?: { limit?: number }) =>

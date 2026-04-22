@@ -18,6 +18,7 @@ const {
 } = require('../services/generationTelemetryService');
 const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
 const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
+const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailService');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -470,12 +471,30 @@ function parseAssessmentJSONFromCompletion(completion) {
  */
 router.post('/generate', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   const requestStartedAt = Date.now();
+  const projectedCostUsd = 0.08;
   let telemetryProvider = null;
   let telemetryModel = null;
   let telemetryUsage = null;
   let promptTrace = null;
   let generationJobId = null;
   try {
+    try {
+      await assertWithinBudgetOrThrow({
+        userId: req.user.id,
+        projectedCostUsd,
+        generationType: 'assessment generation',
+      });
+    } catch (budgetError) {
+      if (budgetError?.code === 'BUDGET_GUARDRAIL_EXCEEDED') {
+        return res.status(budgetError.statusCode || 429).json({
+          error: budgetError.message,
+          code: budgetError.code,
+          budget_status: budgetError.budget_status || null,
+        });
+      }
+      throw budgetError;
+    }
+
     generationJobId = await createGenerationJob({
       user_id: req.user.id,
       job_type: 'assessment_generation',

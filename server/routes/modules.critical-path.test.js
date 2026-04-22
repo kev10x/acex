@@ -311,7 +311,7 @@ test('critical path: homework review -> publish -> student completion updates tr
   assert.equal(published.body?.workflow?.status, 'published');
   assert.equal(state.workflows.get(500)?.status, 'published');
 
-  const trendsBefore = await request(app).get('/modules/homework-trends');
+  const trendsBefore = await request(app).get('/modules/homework-trends?bypass_cache=1');
   assert.equal(trendsBefore.status, 200);
   assert.equal(trendsBefore.body?.summary?.total_cycles, 1);
   assert.equal(trendsBefore.body?.summary?.improved_cycles, 0);
@@ -330,13 +330,13 @@ test('critical path: homework review -> publish -> student completion updates tr
     effective_total_score: 16,
   };
 
-  const outcomesAfter = await request(app).get('/modules/homework-outcomes');
+  const outcomesAfter = await request(app).get('/modules/homework-outcomes?bypass_cache=1');
   assert.equal(outcomesAfter.status, 200);
   assert.equal(outcomesAfter.body?.items?.[0]?.completed_attempts, 1);
   assert.equal(outcomesAfter.body?.items?.[0]?.summary?.impact_status, 'positive');
   assert.ok(Number(outcomesAfter.body?.items?.[0]?.summary?.impact_percent) > 0);
 
-  const trendsAfter = await request(app).get('/modules/homework-trends');
+  const trendsAfter = await request(app).get('/modules/homework-trends?bypass_cache=1');
   assert.equal(trendsAfter.status, 200);
   assert.equal(trendsAfter.body?.summary?.total_cycles, 1);
   assert.equal(trendsAfter.body?.summary?.student_count, 1);
