@@ -582,6 +582,87 @@ export interface AssessmentSubmissionStatus {
   result?: AssessmentSubmissionResult | null;
 }
 
+export interface SubmissionIdentityHealthSummary {
+  total_submissions: number;
+  resolved_submissions: number;
+  unresolved_submissions: number;
+  potential_backfill_matches: number;
+}
+
+export interface SubmissionIdentityHealthSample {
+  id: number;
+  submission_code: string;
+  student_name: string;
+  status: string;
+  submitted_at: string;
+  assessment_code: string;
+  lecturer_user_id: number;
+  potential_match: boolean;
+}
+
+export interface SubmissionIdentityHealthResponse {
+  success: boolean;
+  summary: SubmissionIdentityHealthSummary;
+  unresolved_samples: SubmissionIdentityHealthSample[];
+}
+
+export interface SubmissionIdentityBackfillResponse {
+  success: boolean;
+  updated_submissions: number;
+}
+
+export interface SubmissionIdentityConflictCandidate {
+  id: number;
+  name: string;
+  email: string | null;
+  module_id: number;
+  module_name: string | null;
+  match_reason: 'name' | 'email' | 'email_local' | 'heuristic' | string;
+}
+
+export interface SubmissionIdentityConflictItem {
+  id: number;
+  submission_code: string;
+  student_name: string;
+  status: string;
+  submitted_at: string;
+  assessment_code: string;
+  lecturer: {
+    id: number;
+    name: string;
+    email: string | null;
+  };
+  candidate_count: number;
+  candidates: SubmissionIdentityConflictCandidate[];
+}
+
+export interface SubmissionIdentityConflictSummary {
+  unresolved_submissions: number;
+  single_candidate_submissions: number;
+  multi_candidate_submissions: number;
+  no_candidate_submissions: number;
+}
+
+export interface SubmissionIdentityConflictResponse {
+  success: boolean;
+  summary: SubmissionIdentityConflictSummary;
+  items: SubmissionIdentityConflictItem[];
+}
+
+export interface SubmissionIdentityResolveResponse {
+  success: boolean;
+  item: {
+    id: number;
+    submission_code: string;
+    student_name: string;
+    status: string;
+    submitted_at: string;
+    student_user_id: number;
+    resolved_student_name: string | null;
+    resolved_student_email: string | null;
+  };
+}
+
 export const assessmentsAPI = {
   generate: (data: {
     rubric_id?: number; // optional when custom_topics is provided
@@ -607,6 +688,17 @@ export const assessmentsAPI = {
       responseType: 'blob'
     }),
   getSubmissionStatus: (submissionCode: string) => api.get(`/assessments/submission-status/${submissionCode}`),
+  getSubmissionIdentityHealth: () =>
+    api.get<SubmissionIdentityHealthResponse>('/assessments/admin/submission-identity-health'),
+  runSubmissionIdentityBackfill: () =>
+    api.post<SubmissionIdentityBackfillResponse>('/assessments/admin/submission-identity-backfill'),
+  getSubmissionIdentityConflicts: (params?: { limit?: number }) =>
+    api.get<SubmissionIdentityConflictResponse>('/assessments/submission-identity-conflicts', { params }),
+  resolveSubmissionIdentityConflict: (submissionId: number, studentUserId: number) =>
+    api.post<SubmissionIdentityResolveResponse>(
+      `/assessments/submission-identity-conflicts/${submissionId}/resolve`,
+      { student_user_id: studentUserId }
+    ),
   /** Export as Moodle XML (includes answers). Returns blob. */
   exportMoodleXml: (assessment: GeneratedAssessment) =>
     api.post('/assessments/export/moodle-xml', { assessment }, { responseType: 'blob' }),
@@ -725,6 +817,266 @@ export interface LearningModule {
   items: LearningModuleItem[];
   students: LearningModuleStudent[];
 }
+export interface HomeworkHistoryItem {
+  homework_module_id: number;
+  homework_module_name: string;
+  homework_created_at: string;
+  source_module_id: number | null;
+  source_module_name: string;
+  student: {
+    id: number | null;
+    name: string;
+    email: string | null;
+  };
+  workflow: {
+    status: 'draft' | 'reviewed' | 'published';
+    review_notes: string | null;
+    reason_summary: string | null;
+    reason_payload: {
+      source_module_name?: string;
+      student_label?: string;
+      submissions_analyzed?: number;
+      weak_areas?: HomeworkWeakArea[];
+      feedback_themes?: string[];
+      rubric_alignment?: string | null;
+      rubric_criteria?: Array<{ name: string; max_points: number }>;
+      generated_at?: string;
+    } | null;
+    reviewed_at: string | null;
+    published_at: string | null;
+    publish_blockers?: string[];
+  };
+  content: {
+    id: number | null;
+    title: string;
+    code: string | null;
+  } | null;
+  assessment: {
+    id: number | null;
+    title: string;
+    code: string | null;
+  } | null;
+}
+export interface HomeworkWeakAreaOutcome {
+  criterion_name: string;
+  baseline_percent: number;
+  current_percent: number | null;
+  delta_percent: number | null;
+  status: 'improved' | 'unchanged' | 'declined' | 'unknown';
+}
+export interface HomeworkOutcomeItem {
+  homework_module_id: number;
+  homework_module_name: string;
+  homework_created_at: string | null;
+  student: {
+    id: number | null;
+    name: string;
+    email: string | null;
+  };
+  assessment: {
+    id: number | null;
+    title: string | null;
+  };
+  attempts_total: number;
+  completed_attempts: number;
+  latest_completed_at: string | null;
+  latest_score_percent: number | null;
+  weak_area_outcomes: HomeworkWeakAreaOutcome[];
+  summary: {
+    improved_count: number;
+    declined_count: number;
+    unchanged_count: number;
+    follow_up_recommended: boolean;
+  };
+}
+export interface HomeworkReviewQueueItem {
+  homework_module_id: number;
+  homework_module_name: string;
+  workflow_status: 'draft' | 'reviewed';
+  student: {
+    id: number | null;
+    name: string;
+    email: string | null;
+  };
+  updated_at: string | null;
+  age_days: number;
+  needs_reminder: boolean;
+  blockers: string[];
+}
+export interface HomeworkReviewQueueResponse {
+  success: boolean;
+  summary: {
+    queue_count: number;
+    reminder_count: number;
+    older_than_days: number;
+    reminder_days: number;
+  };
+  items: HomeworkReviewQueueItem[];
+}
+export interface StudentHomeworkProgressItem {
+  homework_module_id: number;
+  homework_module_name: string;
+  homework_created_at: string | null;
+  assessment: {
+    id: number | null;
+    title: string | null;
+  };
+  attempts_total: number;
+  completed_attempts: number;
+  latest_completed_at: string | null;
+  latest_score_percent: number | null;
+  weak_area_outcomes: HomeworkWeakAreaOutcome[];
+}
+export interface HomeworkWeakArea {
+  criterion_name: string;
+  avg_percent: number;
+  attempts: number;
+}
+export interface CustomHomeworkGenerationResponse {
+  success: boolean;
+  message: string;
+  homework_module: { id: number; name: string };
+  source_module: { id: number; name: string };
+  student: { id: number; name: string; email: string };
+  analysis: {
+    submissions_analyzed: number;
+    weak_areas: HomeworkWeakArea[];
+    feedback_themes: string[];
+  };
+  generated: {
+    content: { id: number; code: string; title: string; link: string };
+    assessment: {
+      id: number;
+      code: string;
+      title: string;
+      rubric_id: number;
+      generation_mode?: 'ai' | 'fallback';
+      generation_warning?: string | null;
+      link: string;
+    };
+  };
+}
+export interface CustomHomeworkTelemetrySummary {
+  total_events: number;
+  success_events: number;
+  error_events: number;
+  fallback_events: number;
+  average_duration_ms: number;
+  total_estimated_cost_usd: number;
+}
+export interface CustomHomeworkTelemetryTrendItem {
+  date: string;
+  total_events: number;
+  success_events: number;
+  error_events: number;
+  fallback_events: number;
+}
+export interface CustomHomeworkTelemetryEvent {
+  id: number;
+  status: string;
+  duration_ms: number;
+  content_generation_ms: number | null;
+  assessment_generation_ms: number | null;
+  assessment_generation_mode: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  estimated_cost_usd: number | null;
+  error_message: string | null;
+  metadata: {
+    source_module_id?: number | null;
+    student_user_id?: number | null;
+    level?: string | null;
+    num_sections?: number | null;
+    question_count?: number | null;
+    include_diagrams?: boolean | null;
+    include_images?: boolean | null;
+    assessment_provider?: string | null;
+    assessment_model?: string | null;
+    assessment_generation_mode?: string | null;
+    assessment_generation_warning?: string | null;
+    submission_rows?: number | null;
+    completed_rows?: number | null;
+    weak_area_count?: number | null;
+    generated_question_count?: number | null;
+    homework_module_id?: number | null;
+  };
+  created_at: string;
+  owner: { id: number; name: string; email: string | null };
+}
+export interface HomeworkWorkflowAuditEvent {
+  id: number;
+  action: string;
+  status: string | null;
+  target_count: number;
+  updated_count: number;
+  skipped_count: number;
+  module_ids: number[];
+  metadata: Record<string, any>;
+  created_at: string;
+  owner: { id: number; name: string; email: string | null };
+}
+export interface CustomHomeworkTelemetryResponse {
+  success: boolean;
+  summary: CustomHomeworkTelemetrySummary;
+  daily_trend: CustomHomeworkTelemetryTrendItem[];
+  recent_events: CustomHomeworkTelemetryEvent[];
+  workflow_recent_events: HomeworkWorkflowAuditEvent[];
+  workflow_metrics?: {
+    review_backlog_count: number;
+    average_publish_latency_hours: number;
+    published_completion_rate_percent: number;
+    published_modules: number;
+  };
+}
+export interface GenerationTelemetrySummary {
+  total_events: number;
+  success_events: number;
+  error_events: number;
+  error_rate_percent: number;
+  average_duration_ms: number;
+  total_estimated_cost_usd: number;
+}
+export interface GenerationTelemetryTypeItem {
+  generation_type: string;
+  total_events: number;
+  success_events: number;
+  error_events: number;
+  error_rate_percent: number;
+  average_duration_ms: number;
+  total_estimated_cost_usd: number;
+}
+export interface GenerationTelemetryTrendItem {
+  date: string;
+  total_events: number;
+  success_events: number;
+  error_events: number;
+  total_estimated_cost_usd: number;
+}
+export interface GenerationTelemetryEvent {
+  id: number;
+  generation_type: string;
+  status: string;
+  provider: string | null;
+  model: string | null;
+  duration_ms: number;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  estimated_cost_usd: number | null;
+  error_type: string | null;
+  error_message: string | null;
+  metadata: Record<string, any>;
+  created_at: string;
+  owner: { id: number; name: string; email: string | null };
+}
+export interface GenerationTelemetryResponse {
+  success: boolean;
+  summary: GenerationTelemetrySummary;
+  by_type: GenerationTelemetryTypeItem[];
+  daily_trend: GenerationTelemetryTrendItem[];
+  recent_events: GenerationTelemetryEvent[];
+}
 export interface ContentPlannerJob {
   id: number;
   topics: string;
@@ -836,7 +1188,45 @@ export const modulesAPI = {
   reorderItems: (moduleId: number, itemIds: number[]) => api.put(`/modules/${moduleId}/reorder`, { item_ids: itemIds }),
   addStudent: (moduleId: number, studentUserId: number) => api.post(`/modules/${moduleId}/students`, { student_user_id: studentUserId }),
   removeStudent: (moduleId: number, studentUserId: number) => api.delete(`/modules/${moduleId}/students/${studentUserId}`),
+  getHomeworkHistory: () => api.get<{ success: boolean; items: HomeworkHistoryItem[] }>('/modules/homework-history'),
+  getHomeworkReviewQueue: (params?: { status?: 'all' | 'draft' | 'reviewed'; older_than_days?: number; reminder_days?: number }) =>
+    api.get<HomeworkReviewQueueResponse>('/modules/homework-review-queue', { params }),
+  getHomeworkOutcomes: () => api.get<{ success: boolean; items: HomeworkOutcomeItem[] }>('/modules/homework-outcomes'),
+  updateHomeworkWorkflow: (
+    moduleId: number,
+    data: { status: 'draft' | 'reviewed' | 'published'; review_notes?: string | null }
+  ) => api.put<{ success: boolean; workflow: any }>(`/modules/${moduleId}/homework-workflow`, data),
+  bulkUpdateHomeworkWorkflow: (
+    moduleIds: number[],
+    data: { status: 'draft' | 'reviewed' | 'published' }
+  ) => api.put<{
+    success: boolean;
+    updated_count: number;
+    skipped_ids: number[];
+    skipped_details?: Array<{ module_id: number; blockers: string[] }>;
+  }>('/modules/homework-workflow/bulk', {
+    module_ids: moduleIds,
+    status: data.status,
+  }),
+  generateCustomHomework: (
+    moduleId: number,
+    data: {
+      student_user_id: number;
+      student_name?: string;
+      level?: string;
+      num_sections?: number;
+      question_count?: number;
+      include_diagrams?: boolean;
+      include_images?: boolean;
+    }
+  ) => api.post<CustomHomeworkGenerationResponse>(`/modules/${moduleId}/custom-homework`, data),
+  getCustomHomeworkTelemetry: () =>
+    api.get<CustomHomeworkTelemetryResponse>('/modules/admin/custom-homework-telemetry'),
+  getGenerationTelemetry: (params?: { days?: number; limit?: number }) =>
+    api.get<GenerationTelemetryResponse>('/modules/admin/generation-telemetry', { params }),
   getStudentModules: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules/student'),
+  getStudentHomeworkProgress: () =>
+    api.get<{ success: boolean; items: StudentHomeworkProgressItem[] }>('/modules/student/homework-progress'),
 };
 
 // ── Moodle integration API ─────────────────────────────────────

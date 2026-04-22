@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save, RefreshCw } from 'lucide-react';
-import { resultsAPI, reportsAPI, rubricsAPI, markingAPI, MarkingResult, Rubric } from '../services/api';
+import {
+  assessmentsAPI,
+  resultsAPI,
+  reportsAPI,
+  rubricsAPI,
+  markingAPI,
+  MarkingResult,
+  Rubric,
+  SubmissionIdentityConflictResponse
+} from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './resultsReview';
 
@@ -57,6 +66,9 @@ const ResultsDashboard: React.FC = () => {
     lowConfidence: 0,
     reviewed: 0
   });
+  const [identityConflicts, setIdentityConflicts] = useState<SubmissionIdentityConflictResponse | null>(null);
+  const [identityResolveBusy, setIdentityResolveBusy] = useState<number | null>(null);
+  const [identityResolutionSelection, setIdentityResolutionSelection] = useState<Record<number, number>>({});
   const [feedbackVideoStatus, setFeedbackVideoStatus] = useState<'idle' | 'generating' | 'completed' | 'failed'>('idle');
   const [feedbackVideoProgress, setFeedbackVideoProgress] = useState(0);
   const [feedbackVideoError, setFeedbackVideoError] = useState<string | null>(null);
@@ -140,19 +152,22 @@ const ResultsDashboard: React.FC = () => {
           lowConfidence: 0,
           reviewed: 0
         });
+        setIdentityConflicts(null);
         return;
       }
-      const [resultsRes, statsRes, rubricsRes, analyticsRes, reviewQueueRes] = await Promise.all([
+      const [resultsRes, statsRes, rubricsRes, analyticsRes, reviewQueueRes, identityConflictRes] = await Promise.all([
         resultsAPI.getResults(),
         resultsAPI.getStats(),
         rubricsAPI.getRubrics(),
         resultsAPI.getAnalyticsOverview().catch(() => null),
-        resultsAPI.getReviewQueue().catch(() => null)
+        resultsAPI.getReviewQueue().catch(() => null),
+        assessmentsAPI.getSubmissionIdentityConflicts({ limit: 12 }).catch(() => null)
       ]);
       setAllResults(resultsRes.data.results);
       setStats(statsRes.data.stats);
       setRubrics(rubricsRes.data.rubrics);
       setReviewQueueSummary(reviewQueueRes?.data?.summary || summarizeReviewQueue(resultsRes.data.results));
+      setIdentityConflicts(identityConflictRes?.data || null);
       if (analyticsRes?.data?.overview) {
         setAnalytics(analyticsRes.data.overview);
       }
@@ -166,6 +181,19 @@ const ResultsDashboard: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!identityConflicts?.items) return;
+    setIdentityResolutionSelection((prev) => {
+      const next = { ...prev };
+      identityConflicts.items.forEach((item) => {
+        if (!next[item.id] && item.candidates.length > 0) {
+          next[item.id] = item.candidates[0].id;
+        }
+      });
+      return next;
+    });
+  }, [identityConflicts]);
 
   // Filter and group results
   const filteredAndGroupedResults = useMemo(() => {
@@ -289,6 +317,23 @@ const ResultsDashboard: React.FC = () => {
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to delete result');
+    }
+  };
+
+  const handleResolveIdentityConflict = async (submissionId: number) => {
+    const selectedStudentId = identityResolutionSelection[submissionId];
+    if (!selectedStudentId) {
+      setError('Select a student before resolving this identity conflict.');
+      return;
+    }
+    setIdentityResolveBusy(submissionId);
+    try {
+      await assessmentsAPI.resolveSubmissionIdentityConflict(submissionId, selectedStudentId);
+      await fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to resolve submission identity conflict');
+    } finally {
+      setIdentityResolveBusy(null);
     }
   };
 
@@ -874,6 +919,83 @@ const ResultsDashboard: React.FC = () => {
             <div className="text-sm font-medium text-green-700">Reviewed</div>
             <div className="mt-1 text-2xl font-bold text-green-900">{reviewQueueSummary.reviewed}</div>
           </div>
+        </div>
+      )}
+
+      {!isStudent && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Submission Identity Conflict Queue</h3>
+              <p className="text-xs text-gray-500 mt-1">Resolve unresolved student identity matches for assessment submissions.</p>
+            </div>
+            {identityConflicts?.summary && (
+              <div className="text-xs text-gray-600">
+                Unresolved: {identityConflicts.summary.unresolved_submissions} | Multi-candidate: {identityConflicts.summary.multi_candidate_submissions}
+              </div>
+            )}
+          </div>
+          {!identityConflicts ? (
+            <div className="mt-3 text-sm text-gray-600">Identity conflict queue is unavailable right now.</div>
+          ) : (
+            <div className="mt-3 overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidates</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assign To</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {identityConflicts.items.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No unresolved identity conflicts.</td>
+                    </tr>
+                  ) : identityConflicts.items.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        <div>{item.submission_code}</div>
+                        <div className="text-xs text-gray-500">{item.assessment_code}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{item.student_name}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{item.candidate_count}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 min-w-[240px]">
+                        <select
+                          value={identityResolutionSelection[item.id] || ''}
+                          onChange={(event) => setIdentityResolutionSelection((prev) => ({
+                            ...prev,
+                            [item.id]: Number(event.target.value)
+                          }))}
+                          className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                          disabled={item.candidates.length === 0}
+                        >
+                          {item.candidates.length === 0 ? (
+                            <option value="">No candidates</option>
+                          ) : item.candidates.map((candidate) => (
+                            <option key={candidate.id} value={candidate.id}>
+                              {candidate.name} ({candidate.match_reason})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        <button
+                          onClick={() => handleResolveIdentityConflict(item.id)}
+                          disabled={item.candidates.length === 0 || identityResolveBusy === item.id}
+                          className="px-3 py-1.5 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                        >
+                          {identityResolveBusy === item.id ? 'Resolving...' : 'Resolve'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

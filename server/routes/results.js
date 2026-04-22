@@ -4,6 +4,11 @@ const fs = require('fs');
 const { query } = require('../database/connection');
 const { requireAuth, requireFeature, requireRoles } = require('../middleware/auth');
 const feedbackVideoService = require('../services/feedbackVideoService');
+const {
+  inferGenerationErrorType,
+  logGenerationTelemetry,
+  persistGenerationTelemetryEvent,
+} = require('../services/generationTelemetryService');
 
 const router = express.Router();
 const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
@@ -497,6 +502,14 @@ const numClips = Math.min(Math.max(parseInt(process.env.SORA_VIDEO_CLIPS || '1',
 const secondsPerClip = process.env.SORA_VIDEO_SECONDS_PER_CLIP || '4';
 
 router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_video'), async (req, res) => {
+  const requestStartedAt = Date.now();
+  const telemetryBase = {
+    event: 'feedback_video_generate',
+    generation_type: 'feedback_video_generation',
+    user_id: req.user.id,
+    provider: 'openai',
+    model: process.env.SORA_MODEL || 'sora-2',
+  };
   try {
     const resultId = Number(req.params.resultId);
     const markingResult = await getMarkingResultForUser(resultId, req.user.id);
@@ -560,6 +573,23 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
           [resultId, req.user.id, firstId, idsJson, 'queued']
         );
       }
+      const successPayload = {
+        ...telemetryBase,
+        status: 'success',
+        duration_ms: Date.now() - requestStartedAt,
+        metadata: {
+          result_id: resultId,
+          clips: numClips,
+          seconds_per_clip: secondsPerClip,
+          mode: 'multi_clip',
+        },
+      };
+      logGenerationTelemetry(successPayload);
+      try {
+        await persistGenerationTelemetryEvent(successPayload);
+      } catch (telemetryError) {
+        console.warn('[results] Failed to persist feedback video telemetry:', telemetryError?.message || telemetryError);
+      }
       return res.json({
         status: 'queued',
         video_id: firstId,
@@ -593,8 +623,42 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
         [resultId, req.user.id, openaiVideoId, status]
       );
     }
+    const successPayload = {
+      ...telemetryBase,
+      status: 'success',
+      duration_ms: Date.now() - requestStartedAt,
+      metadata: {
+        result_id: resultId,
+        clips: 1,
+        seconds_per_clip: process.env.SORA_VIDEO_SECONDS || '8',
+        mode: 'single_clip',
+      },
+    };
+    logGenerationTelemetry(successPayload);
+    try {
+      await persistGenerationTelemetryEvent(successPayload);
+    } catch (telemetryError) {
+      console.warn('[results] Failed to persist feedback video telemetry:', telemetryError?.message || telemetryError);
+    }
     res.json({ status, video_id: openaiVideoId, message: 'Video generation started' });
   } catch (err) {
+    const errorPayload = {
+      ...telemetryBase,
+      status: 'error',
+      duration_ms: Date.now() - requestStartedAt,
+      error_type: inferGenerationErrorType(err),
+      error_message: String(err?.message || 'Unknown error'),
+      metadata: {
+        result_id: Number(req.params.resultId) || null,
+        clips: numClips,
+      },
+    };
+    logGenerationTelemetry(errorPayload);
+    try {
+      await persistGenerationTelemetryEvent(errorPayload);
+    } catch (telemetryError) {
+      console.warn('[results] Failed to persist feedback video error telemetry:', telemetryError?.message || telemetryError);
+    }
     console.error('Feedback video create error:', err);
     res.status(500).json({
       error: err.message || 'Failed to start video generation',

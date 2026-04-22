@@ -230,13 +230,16 @@ const initDatabase = async () => {
           published_assessment_id INT NOT NULL,
           assignment_id INT NOT NULL UNIQUE,
           result_id INT NULL,
+          student_user_id INT NULL,
           student_name VARCHAR(255) NOT NULL,
           status VARCHAR(50) DEFAULT 'queued',
           failure_reason TEXT NULL,
           submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           completed_at TIMESTAMP NULL,
+          KEY idx_assessment_submissions_student_pub (student_user_id, published_assessment_id),
           FOREIGN KEY (published_assessment_id) REFERENCES published_assessments(id) ON DELETE CASCADE,
           FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+          FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL,
           FOREIGN KEY (result_id) REFERENCES marking_results(id) ON DELETE SET NULL
         )
       `);
@@ -291,6 +294,29 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS homework_module_workflows (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          homework_module_id INT NOT NULL UNIQUE,
+          user_id INT NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'draft',
+          review_notes TEXT NULL,
+          reason_summary TEXT NULL,
+          reason_payload_json LONGTEXT NULL,
+          reviewed_at TIMESTAMP NULL,
+          reviewed_by_user_id INT NULL,
+          published_at TIMESTAMP NULL,
+          published_by_user_id INT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_homework_workflows_status (status),
+          KEY idx_homework_workflows_user (user_id),
+          FOREIGN KEY (homework_module_id) REFERENCES modules(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (published_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS uploaded_ppt_templates (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
@@ -308,6 +334,68 @@ const initDatabase = async () => {
           generated_content_json LONGTEXT NOT NULL,
           input_json LONGTEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS custom_homework_telemetry (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          duration_ms INT NOT NULL,
+          content_generation_ms INT NULL,
+          assessment_generation_ms INT NULL,
+          assessment_generation_mode VARCHAR(20) NULL,
+          prompt_tokens INT NULL,
+          completion_tokens INT NULL,
+          total_tokens INT NULL,
+          estimated_cost_usd DECIMAL(12, 6) NULL,
+          error_message TEXT NULL,
+          metadata_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_custom_homework_telemetry_user_created (user_id, created_at),
+          KEY idx_custom_homework_telemetry_status_created (status, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS homework_workflow_events (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          action VARCHAR(60) NOT NULL,
+          status VARCHAR(20) NULL,
+          target_count INT NOT NULL DEFAULT 0,
+          updated_count INT NOT NULL DEFAULT 0,
+          skipped_count INT NOT NULL DEFAULT 0,
+          module_ids_json LONGTEXT NULL,
+          metadata_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_homework_workflow_events_user_created (user_id, created_at),
+          KEY idx_homework_workflow_events_action_created (action, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS generation_telemetry_events (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          generation_type VARCHAR(40) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          provider VARCHAR(50) NULL,
+          model VARCHAR(120) NULL,
+          duration_ms INT NOT NULL,
+          prompt_tokens INT NULL,
+          completion_tokens INT NULL,
+          total_tokens INT NULL,
+          estimated_cost_usd DECIMAL(12, 6) NULL,
+          error_type VARCHAR(80) NULL,
+          error_message TEXT NULL,
+          metadata_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_generation_telemetry_created (created_at),
+          KEY idx_generation_telemetry_type_created (generation_type, created_at),
+          KEY idx_generation_telemetry_status_created (status, created_at),
+          KEY idx_generation_telemetry_user_created (user_id, created_at),
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
       `);
@@ -743,6 +831,7 @@ const initDatabase = async () => {
               published_assessment_id INT NOT NULL,
               assignment_id INT NOT NULL UNIQUE,
               result_id INT NULL,
+              student_user_id INT NULL,
               student_name VARCHAR(255) NOT NULL,
               status VARCHAR(50) DEFAULT 'queued',
               failure_reason TEXT NULL,
@@ -750,10 +839,157 @@ const initDatabase = async () => {
               completed_at TIMESTAMP NULL,
               FOREIGN KEY (published_assessment_id) REFERENCES published_assessments(id) ON DELETE CASCADE,
               FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+              FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL,
               FOREIGN KEY (result_id) REFERENCES marking_results(id) ON DELETE SET NULL
             )
           `);
         }
+
+        const assessmentSubmissionsStudentUserCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'assessment_submissions' AND column_name = 'student_user_id'
+        `);
+        if ((assessmentSubmissionsStudentUserCheck.rows?.[0]?.count || assessmentSubmissionsStudentUserCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assessment_submissions ADD COLUMN student_user_id INT NULL`);
+        }
+        const assessmentSubmissionsStudentPubIndexCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.STATISTICS
+          WHERE table_schema = DATABASE() AND table_name = 'assessment_submissions' AND index_name = 'idx_assessment_submissions_student_pub'
+        `);
+        if ((assessmentSubmissionsStudentPubIndexCheck.rows?.[0]?.count || assessmentSubmissionsStudentPubIndexCheck?.[0]?.count || 0) === 0) {
+          await query(`CREATE INDEX idx_assessment_submissions_student_pub ON assessment_submissions (student_user_id, published_assessment_id)`);
+        }
+        const homeworkWorkflowTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'homework_module_workflows'
+        `);
+        if ((homeworkWorkflowTableCheck.rows?.[0]?.count || homeworkWorkflowTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE homework_module_workflows (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              homework_module_id INT NOT NULL UNIQUE,
+              user_id INT NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'draft',
+              review_notes TEXT NULL,
+              reason_summary TEXT NULL,
+              reason_payload_json LONGTEXT NULL,
+              reviewed_at TIMESTAMP NULL,
+              reviewed_by_user_id INT NULL,
+              published_at TIMESTAMP NULL,
+              published_by_user_id INT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              KEY idx_homework_workflows_status (status),
+              KEY idx_homework_workflows_user (user_id),
+              FOREIGN KEY (homework_module_id) REFERENCES modules(id) ON DELETE CASCADE,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+              FOREIGN KEY (published_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+          `);
+        }
+        const homeworkWorkflowReasonSummaryCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'homework_module_workflows' AND column_name = 'reason_summary'
+        `);
+        if ((homeworkWorkflowReasonSummaryCheck.rows?.[0]?.count || homeworkWorkflowReasonSummaryCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE homework_module_workflows ADD COLUMN reason_summary TEXT NULL`);
+        }
+        const homeworkWorkflowReasonPayloadCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'homework_module_workflows' AND column_name = 'reason_payload_json'
+        `);
+        if ((homeworkWorkflowReasonPayloadCheck.rows?.[0]?.count || homeworkWorkflowReasonPayloadCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE homework_module_workflows ADD COLUMN reason_payload_json LONGTEXT NULL`);
+        }
+        const homeworkWorkflowEventsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'homework_workflow_events'
+        `);
+        if ((homeworkWorkflowEventsTableCheck.rows?.[0]?.count || homeworkWorkflowEventsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE homework_workflow_events (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              action VARCHAR(60) NOT NULL,
+              status VARCHAR(20) NULL,
+              target_count INT NOT NULL DEFAULT 0,
+              updated_count INT NOT NULL DEFAULT 0,
+              skipped_count INT NOT NULL DEFAULT 0,
+              module_ids_json LONGTEXT NULL,
+              metadata_json LONGTEXT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              KEY idx_homework_workflow_events_user_created (user_id, created_at),
+              KEY idx_homework_workflow_events_action_created (action, created_at),
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+          `);
+        }
+        const generationTelemetryEventsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'generation_telemetry_events'
+        `);
+        if ((generationTelemetryEventsTableCheck.rows?.[0]?.count || generationTelemetryEventsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE generation_telemetry_events (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              generation_type VARCHAR(40) NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              provider VARCHAR(50) NULL,
+              model VARCHAR(120) NULL,
+              duration_ms INT NOT NULL,
+              prompt_tokens INT NULL,
+              completion_tokens INT NULL,
+              total_tokens INT NULL,
+              estimated_cost_usd DECIMAL(12, 6) NULL,
+              error_type VARCHAR(80) NULL,
+              error_message TEXT NULL,
+              metadata_json LONGTEXT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              KEY idx_generation_telemetry_created (created_at),
+              KEY idx_generation_telemetry_type_created (generation_type, created_at),
+              KEY idx_generation_telemetry_status_created (status, created_at),
+              KEY idx_generation_telemetry_user_created (user_id, created_at),
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+          `);
+        }
+        await query(`
+          UPDATE assessment_submissions s
+          INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+          SET s.student_user_id = (
+            SELECT MIN(ms.student_user_id)
+            FROM module_items mi
+            INNER JOIN modules m ON m.id = mi.module_id
+            INNER JOIN module_students ms ON ms.module_id = mi.module_id
+            INNER JOIN users u ON u.id = ms.student_user_id
+            WHERE mi.item_type = 'assessment'
+              AND mi.item_id = s.published_assessment_id
+              AND m.user_id = pa.user_id
+              AND (
+                LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+                OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+                OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1)))
+              )
+          )
+          WHERE s.student_user_id IS NULL
+            AND EXISTS (
+              SELECT 1
+              FROM module_items mi
+              INNER JOIN modules m ON m.id = mi.module_id
+              INNER JOIN module_students ms ON ms.module_id = mi.module_id
+              INNER JOIN users u ON u.id = ms.student_user_id
+              WHERE mi.item_type = 'assessment'
+                AND mi.item_id = s.published_assessment_id
+                AND m.user_id = pa.user_id
+                AND (
+                  LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+                  OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+                  OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1)))
+                )
+            )
+        `);
         
         const accountTypeCheck = await query(`
           SELECT COUNT(*) as count 
@@ -1044,6 +1280,7 @@ const initDatabase = async () => {
           published_assessment_id INTEGER NOT NULL REFERENCES published_assessments(id) ON DELETE CASCADE,
           assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id) ON DELETE CASCADE,
           result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+          student_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
           student_name VARCHAR(255) NOT NULL,
           status VARCHAR(50) DEFAULT 'queued',
           failure_reason TEXT NULL,
@@ -1051,6 +1288,7 @@ const initDatabase = async () => {
           completed_at TIMESTAMP NULL
         )
       `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_assessment_submissions_student_pub ON assessment_submissions(student_user_id, published_assessment_id)`);
 
       await query(`
         CREATE TABLE IF NOT EXISTS published_content (
@@ -1096,6 +1334,25 @@ const initDatabase = async () => {
       `);
       await query(`CREATE INDEX IF NOT EXISTS idx_module_students_module ON module_students(module_id)`);
       await query(`
+        CREATE TABLE IF NOT EXISTS homework_module_workflows (
+          id SERIAL PRIMARY KEY,
+          homework_module_id INTEGER NOT NULL UNIQUE REFERENCES modules(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL DEFAULT 'draft',
+          review_notes TEXT NULL,
+          reason_summary TEXT NULL,
+          reason_payload_json TEXT NULL,
+          reviewed_at TIMESTAMP NULL,
+          reviewed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+          published_at TIMESTAMP NULL,
+          published_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflows_status ON homework_module_workflows(status)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflows_user ON homework_module_workflows(user_id)`);
+      await query(`
         CREATE TABLE IF NOT EXISTS uploaded_ppt_templates (
           id SERIAL PRIMARY KEY,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1114,6 +1371,65 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS custom_homework_telemetry (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL,
+          duration_ms INTEGER NOT NULL,
+          content_generation_ms INTEGER NULL,
+          assessment_generation_ms INTEGER NULL,
+          assessment_generation_mode VARCHAR(20) NULL,
+          prompt_tokens INTEGER NULL,
+          completion_tokens INTEGER NULL,
+          total_tokens INTEGER NULL,
+          estimated_cost_usd NUMERIC(12, 6) NULL,
+          error_message TEXT NULL,
+          metadata_json TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_custom_homework_telemetry_user_created ON custom_homework_telemetry(user_id, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_custom_homework_telemetry_status_created ON custom_homework_telemetry(status, created_at)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS homework_workflow_events (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          action VARCHAR(60) NOT NULL,
+          status VARCHAR(20) NULL,
+          target_count INTEGER NOT NULL DEFAULT 0,
+          updated_count INTEGER NOT NULL DEFAULT 0,
+          skipped_count INTEGER NOT NULL DEFAULT 0,
+          module_ids_json TEXT NULL,
+          metadata_json TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflow_events_user_created ON homework_workflow_events(user_id, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflow_events_action_created ON homework_workflow_events(action, created_at)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS generation_telemetry_events (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          generation_type VARCHAR(40) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          provider VARCHAR(50) NULL,
+          model VARCHAR(120) NULL,
+          duration_ms INTEGER NOT NULL,
+          prompt_tokens INTEGER NULL,
+          completion_tokens INTEGER NULL,
+          total_tokens INTEGER NULL,
+          estimated_cost_usd NUMERIC(12, 6) NULL,
+          error_type VARCHAR(80) NULL,
+          error_message TEXT NULL,
+          metadata_json TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_created ON generation_telemetry_events(created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_type_created ON generation_telemetry_events(generation_type, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_status_created ON generation_telemetry_events(status, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_user_created ON generation_telemetry_events(user_id, created_at)`);
       await query(`
         CREATE TABLE IF NOT EXISTS assessment_generation_history (
           id SERIAL PRIMARY KEY,
@@ -1483,6 +1799,7 @@ const initDatabase = async () => {
               published_assessment_id INTEGER NOT NULL REFERENCES published_assessments(id) ON DELETE CASCADE,
               assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id) ON DELETE CASCADE,
               result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+              student_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
               student_name VARCHAR(255) NOT NULL,
               status VARCHAR(50) DEFAULT 'queued',
               failure_reason TEXT NULL,
@@ -1491,6 +1808,130 @@ const initDatabase = async () => {
             )
           `);
         }
+
+        const assessmentSubmissionsStudentUserCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'assessment_submissions' AND column_name = 'student_user_id'
+        `);
+        if ((assessmentSubmissionsStudentUserCheckPg.rows?.[0]?.count || assessmentSubmissionsStudentUserCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assessment_submissions ADD COLUMN student_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL`);
+        }
+        await query(`CREATE INDEX IF NOT EXISTS idx_assessment_submissions_student_pub ON assessment_submissions(student_user_id, published_assessment_id)`);
+        const homeworkWorkflowTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'homework_module_workflows'
+        `);
+        if ((homeworkWorkflowTableCheckPg.rows?.[0]?.count || homeworkWorkflowTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE homework_module_workflows (
+              id SERIAL PRIMARY KEY,
+              homework_module_id INTEGER NOT NULL UNIQUE REFERENCES modules(id) ON DELETE CASCADE,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              status VARCHAR(20) NOT NULL DEFAULT 'draft',
+              review_notes TEXT NULL,
+              reason_summary TEXT NULL,
+              reason_payload_json TEXT NULL,
+              reviewed_at TIMESTAMP NULL,
+              reviewed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+              published_at TIMESTAMP NULL,
+              published_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflows_status ON homework_module_workflows(status)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflows_user ON homework_module_workflows(user_id)`);
+        }
+        const homeworkWorkflowReasonSummaryCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'homework_module_workflows' AND column_name = 'reason_summary'
+        `);
+        if ((homeworkWorkflowReasonSummaryCheckPg.rows?.[0]?.count || homeworkWorkflowReasonSummaryCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE homework_module_workflows ADD COLUMN reason_summary TEXT NULL`);
+        }
+        const homeworkWorkflowReasonPayloadCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'homework_module_workflows' AND column_name = 'reason_payload_json'
+        `);
+        if ((homeworkWorkflowReasonPayloadCheckPg.rows?.[0]?.count || homeworkWorkflowReasonPayloadCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE homework_module_workflows ADD COLUMN reason_payload_json TEXT NULL`);
+        }
+        const homeworkWorkflowEventsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'homework_workflow_events'
+        `);
+        if ((homeworkWorkflowEventsTableCheckPg.rows?.[0]?.count || homeworkWorkflowEventsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE homework_workflow_events (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              action VARCHAR(60) NOT NULL,
+              status VARCHAR(20) NULL,
+              target_count INTEGER NOT NULL DEFAULT 0,
+              updated_count INTEGER NOT NULL DEFAULT 0,
+              skipped_count INTEGER NOT NULL DEFAULT 0,
+              module_ids_json TEXT NULL,
+              metadata_json TEXT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflow_events_user_created ON homework_workflow_events(user_id, created_at)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_homework_workflow_events_action_created ON homework_workflow_events(action, created_at)`);
+        }
+        const generationTelemetryEventsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'generation_telemetry_events'
+        `);
+        if ((generationTelemetryEventsTableCheckPg.rows?.[0]?.count || generationTelemetryEventsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE generation_telemetry_events (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              generation_type VARCHAR(40) NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              provider VARCHAR(50) NULL,
+              model VARCHAR(120) NULL,
+              duration_ms INTEGER NOT NULL,
+              prompt_tokens INTEGER NULL,
+              completion_tokens INTEGER NULL,
+              total_tokens INTEGER NULL,
+              estimated_cost_usd NUMERIC(12, 6) NULL,
+              error_type VARCHAR(80) NULL,
+              error_message TEXT NULL,
+              metadata_json TEXT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_created ON generation_telemetry_events(created_at)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_type_created ON generation_telemetry_events(generation_type, created_at)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_status_created ON generation_telemetry_events(status, created_at)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_user_created ON generation_telemetry_events(user_id, created_at)`);
+        }
+        await query(`
+          WITH candidates AS (
+            SELECT
+              s.id AS submission_id,
+              MIN(ms.student_user_id) AS matched_student_user_id
+            FROM assessment_submissions s
+            INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+            INNER JOIN module_items mi ON mi.item_type = 'assessment' AND mi.item_id = s.published_assessment_id
+            INNER JOIN modules m ON m.id = mi.module_id AND m.user_id = pa.user_id
+            INNER JOIN module_students ms ON ms.module_id = mi.module_id
+            INNER JOIN users u ON u.id = ms.student_user_id
+            WHERE s.student_user_id IS NULL
+              AND (
+                LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+                OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+                OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(SPLIT_PART(COALESCE(u.email, ''), '@', 1)))
+              )
+            GROUP BY s.id
+          )
+          UPDATE assessment_submissions s
+          SET student_user_id = c.matched_student_user_id
+          FROM candidates c
+          WHERE s.id = c.submission_id
+            AND s.student_user_id IS NULL
+        `);
         
         const accountTypeCheck = await query(`
           SELECT COUNT(*) as count 

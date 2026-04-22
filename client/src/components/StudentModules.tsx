@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { modulesAPI } from '../services/api';
-import type { LearningModule } from '../services/api';
+import type { LearningModule, StudentHomeworkProgressItem } from '../services/api';
 import { BookOpen, Clock, Play, Users } from 'lucide-react';
 
 export default function StudentModules() {
   const [modules, setModules] = useState<LearningModule[]>([]);
+  const [homeworkProgress, setHomeworkProgress] = useState<StudentHomeworkProgressItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,8 +17,12 @@ export default function StudentModules() {
     try {
       setLoading(true);
       setError(null);
-      const response = await modulesAPI.getStudentModules();
-      setModules(response.data.modules || []);
+      const [modulesRes, progressRes] = await Promise.all([
+        modulesAPI.getStudentModules(),
+        modulesAPI.getStudentHomeworkProgress().catch(() => ({ data: { items: [] } as any })),
+      ]);
+      setModules(modulesRes.data.modules || []);
+      setHomeworkProgress(progressRes.data.items || []);
     } catch (err) {
       console.error('Failed to load student modules:', err);
       setError('Failed to load your modules. Please try again.');
@@ -95,6 +100,33 @@ export default function StudentModules() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {homeworkProgress.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Clock className="w-6 h-6 text-blue-600" />
+            <h2 className="text-xl font-bold text-gray-900">Homework Progress Timeline</h2>
+          </div>
+          <div className="space-y-3">
+            {homeworkProgress.slice(0, 8).map((entry) => {
+              const improved = entry.weak_area_outcomes.filter((w) => w.status === 'improved').length;
+              const declined = entry.weak_area_outcomes.filter((w) => w.status === 'declined').length;
+              return (
+                <div key={`progress-${entry.homework_module_id}`} className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                  <p className="text-sm font-semibold text-blue-900">{entry.homework_module_name}</p>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Attempts: {entry.attempts_total} total, {entry.completed_attempts} completed
+                    {entry.latest_score_percent != null ? ` • Latest score ${entry.latest_score_percent}%` : ''}
+                  </p>
+                  <p className="text-xs text-blue-800">
+                    Weak-area trend: {improved} improved, {declined} declined
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex items-center gap-3 mb-6">
           <Users className="w-6 h-6 text-emerald-600" />

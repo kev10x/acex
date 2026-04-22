@@ -1,14 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
+  assessmentsAPI,
   authAPI,
   batchesAPI,
   BatchJobsHealthResponse,
+  CustomHomeworkTelemetryResponse,
   Department,
   FeatureFlags,
+  GenerationTelemetryResponse,
   ManagementPerformanceResponse,
+  modulesAPI,
   Organisation,
   resultsAPI,
+  SubmissionIdentityConflictItem,
+  SubmissionIdentityConflictResponse,
+  SubmissionIdentityHealthResponse,
   systemAPI,
   SystemHealthResponse
 } from '../services/api';
@@ -79,6 +86,13 @@ const AdminDashboard: React.FC = () => {
   const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
   const [performance, setPerformance] = useState<ManagementPerformanceResponse | null>(null);
   const [batchJobsHealth, setBatchJobsHealth] = useState<BatchJobsHealthResponse | null>(null);
+  const [submissionIdentityHealth, setSubmissionIdentityHealth] = useState<SubmissionIdentityHealthResponse | null>(null);
+  const [submissionIdentityConflicts, setSubmissionIdentityConflicts] = useState<SubmissionIdentityConflictResponse | null>(null);
+  const [customHomeworkTelemetry, setCustomHomeworkTelemetry] = useState<CustomHomeworkTelemetryResponse | null>(null);
+  const [generationTelemetry, setGenerationTelemetry] = useState<GenerationTelemetryResponse | null>(null);
+  const [identityBackfillBusy, setIdentityBackfillBusy] = useState(false);
+  const [identityResolveBusy, setIdentityResolveBusy] = useState<number | null>(null);
+  const [identityResolutionSelection, setIdentityResolutionSelection] = useState<Record<number, number>>({});
   const [showPolicyAffectedOnly, setShowPolicyAffectedOnly] = useState(false);
 
   useEffect(() => {
@@ -106,6 +120,19 @@ const AdminDashboard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, user]);
 
+  useEffect(() => {
+    if (!submissionIdentityConflicts?.items) return;
+    setIdentityResolutionSelection((prev) => {
+      const next = { ...prev };
+      submissionIdentityConflicts.items.forEach((item) => {
+        if (!next[item.id] && item.candidates.length > 0) {
+          next[item.id] = item.candidates[0].id;
+        }
+      });
+      return next;
+    });
+  }, [submissionIdentityConflicts]);
+
   const loadUsers = async () => {
     if (!token) {
       console.error('No token available for loadUsers');
@@ -119,14 +146,18 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all, orgs, depts, health, performanceData, jobsHealth] = await Promise.all([
+      const [pending, all, orgs, depts, health, performanceData, jobsHealth, identityHealth, identityConflicts, homeworkTelemetry, allGenerationTelemetry] = await Promise.all([
         authAPI.getPendingUsers(token),
         authAPI.getAllUsers(token),
         authAPI.getOrganisations(token),
         authAPI.getDepartments(token),
         systemAPI.getHealth().catch(() => null),
         resultsAPI.getManagementPerformance().catch(() => null),
-        batchesAPI.getJobsHealth().catch(() => null)
+        batchesAPI.getJobsHealth().catch(() => null),
+        assessmentsAPI.getSubmissionIdentityHealth().catch(() => null),
+        assessmentsAPI.getSubmissionIdentityConflicts().catch(() => null),
+        modulesAPI.getCustomHomeworkTelemetry().catch(() => null),
+        modulesAPI.getGenerationTelemetry().catch(() => null),
       ]);
       console.log('Users loaded successfully:', { 
         pendingCount: pending?.length || 0, 
@@ -141,6 +172,10 @@ const AdminDashboard: React.FC = () => {
       setSystemHealth(health?.data || null);
       setPerformance(performanceData?.data || null);
       setBatchJobsHealth(jobsHealth?.data || null);
+      setSubmissionIdentityHealth(identityHealth?.data || null);
+      setSubmissionIdentityConflicts(identityConflicts?.data || null);
+      setCustomHomeworkTelemetry(homeworkTelemetry?.data || null);
+      setGenerationTelemetry(allGenerationTelemetry?.data || null);
     } catch (err: any) {
       console.error('Error loading users:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to load users';
@@ -356,6 +391,40 @@ const AdminDashboard: React.FC = () => {
       alert(err.response?.data?.error || 'Failed to assign department');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleRunIdentityBackfill = async () => {
+    if (!token || identityBackfillBusy) return;
+    setIdentityBackfillBusy(true);
+    try {
+      const result = await assessmentsAPI.runSubmissionIdentityBackfill();
+      const updated = Number(result?.data?.updated_submissions || 0);
+      alert(`Submission identity backfill complete. Updated ${updated} submission${updated === 1 ? '' : 's'}.`);
+      const refreshed = await assessmentsAPI.getSubmissionIdentityHealth().catch(() => null);
+      setSubmissionIdentityHealth(refreshed?.data || null);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to run submission identity backfill');
+    } finally {
+      setIdentityBackfillBusy(false);
+    }
+  };
+
+  const handleResolveIdentityConflict = async (item: SubmissionIdentityConflictItem) => {
+    if (!token) return;
+    const selectedStudentId = identityResolutionSelection[item.id];
+    if (!selectedStudentId) {
+      alert('Select a student before resolving this conflict.');
+      return;
+    }
+    setIdentityResolveBusy(item.id);
+    try {
+      await assessmentsAPI.resolveSubmissionIdentityConflict(item.id, selectedStudentId);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to resolve submission identity conflict');
+    } finally {
+      setIdentityResolveBusy(null);
     }
   };
 
@@ -727,6 +796,158 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
+              <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Submission Identity Health</h3>
+                    <p className="text-xs text-gray-500 mt-1">Tracks how many assessment submissions are linked to canonical student users.</p>
+                  </div>
+                  <button
+                    onClick={handleRunIdentityBackfill}
+                    disabled={identityBackfillBusy}
+                    className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {identityBackfillBusy ? 'Running...' : 'Run Backfill'}
+                  </button>
+                </div>
+
+                {!submissionIdentityHealth ? (
+                  <div className="mt-3 text-sm text-gray-600">Identity health metrics are unavailable right now.</div>
+                ) : (
+                  <>
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div className="rounded border border-gray-200 p-3">
+                        <div className="text-xs text-gray-500">Total submissions</div>
+                        <div className="text-xl font-semibold text-gray-900 mt-1">{submissionIdentityHealth.summary.total_submissions}</div>
+                      </div>
+                      <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
+                        <div className="text-xs text-emerald-700">Resolved</div>
+                        <div className="text-xl font-semibold text-emerald-900 mt-1">{submissionIdentityHealth.summary.resolved_submissions}</div>
+                      </div>
+                      <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                        <div className="text-xs text-amber-700">Unresolved</div>
+                        <div className="text-xl font-semibold text-amber-900 mt-1">{submissionIdentityHealth.summary.unresolved_submissions}</div>
+                      </div>
+                      <div className="rounded border border-blue-200 bg-blue-50 p-3">
+                        <div className="text-xs text-blue-700">Potential backfill matches</div>
+                        <div className="text-xl font-semibold text-blue-900 mt-1">{submissionIdentityHealth.summary.potential_backfill_matches}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 overflow-x-auto border border-gray-200 rounded-lg">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Potential Match</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submitted</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {submissionIdentityHealth.unresolved_samples.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No unresolved submissions in this scope.</td>
+                            </tr>
+                          ) : submissionIdentityHealth.unresolved_samples.map((sample) => (
+                            <tr key={sample.id}>
+                              <td className="px-4 py-3 text-sm text-gray-700">{sample.submission_code}</td>
+                              <td className="px-4 py-3 text-sm text-gray-700">{sample.student_name}</td>
+                              <td className="px-4 py-3 text-sm text-gray-700">{sample.status}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${sample.potential_match ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                                  {sample.potential_match ? 'Yes' : 'No'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {sample.submitted_at ? new Date(sample.submitted_at).toLocaleDateString() : 'Unknown'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between gap-4 mb-2">
+                        <h4 className="text-sm font-semibold text-gray-900">Unresolved Identity Conflict Queue</h4>
+                        {submissionIdentityConflicts?.summary && (
+                          <div className="text-xs text-gray-600">
+                            Single-candidate: {submissionIdentityConflicts.summary.single_candidate_submissions} | Multi-candidate: {submissionIdentityConflicts.summary.multi_candidate_submissions} | No-candidate: {submissionIdentityConflicts.summary.no_candidate_submissions}
+                          </div>
+                        )}
+                      </div>
+                      {!submissionIdentityConflicts ? (
+                        <div className="text-sm text-gray-600">Conflict queue is unavailable right now.</div>
+                      ) : (
+                        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                          <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidates</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assign To</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {submissionIdentityConflicts.items.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No unresolved identity conflicts.</td>
+                                </tr>
+                              ) : submissionIdentityConflicts.items.map((item) => (
+                                <tr key={item.id}>
+                                  <td className="px-4 py-3 text-sm text-gray-700">
+                                    <div>{item.submission_code}</div>
+                                    <div className="text-xs text-gray-500">{item.assessment_code}</div>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-700">{item.student_name}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-700">
+                                    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${item.candidate_count > 1 ? 'bg-amber-100 text-amber-800' : item.candidate_count === 1 ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-700'}`}>
+                                      {item.candidate_count}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-700 min-w-[260px]">
+                                    <select
+                                      value={identityResolutionSelection[item.id] || ''}
+                                      onChange={(event) => setIdentityResolutionSelection((prev) => ({
+                                        ...prev,
+                                        [item.id]: Number(event.target.value)
+                                      }))}
+                                      className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                                      disabled={item.candidates.length === 0}
+                                    >
+                                      {item.candidates.length === 0 ? (
+                                        <option value="">No candidates</option>
+                                      ) : item.candidates.map((candidate) => (
+                                        <option key={candidate.id} value={candidate.id}>
+                                          {candidate.name} ({candidate.match_reason})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-700">
+                                    <button
+                                      onClick={() => handleResolveIdentityConflict(item)}
+                                      disabled={item.candidates.length === 0 || identityResolveBusy === item.id}
+                                      className="px-3 py-1.5 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                                    >
+                                      {identityResolveBusy === item.id ? 'Resolving...' : 'Resolve'}
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-200">
@@ -889,6 +1110,293 @@ const AdminDashboard: React.FC = () => {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+              {generationTelemetry ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">AI Generation Telemetry</h3>
+                      <p className="text-sm text-gray-600 mt-1">Cross-feature reliability and cost view for content, assessment, homework, and video generation.</p>
+                    </div>
+                    <button
+                      onClick={loadUsers}
+                      className="px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+                    <div className="rounded border border-gray-200 p-3">
+                      <div className="text-xs text-gray-500">Total</div>
+                      <div className="text-xl font-semibold text-gray-900 mt-1">{generationTelemetry.summary.total_events}</div>
+                    </div>
+                    <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
+                      <div className="text-xs text-emerald-700">Success</div>
+                      <div className="text-xl font-semibold text-emerald-900 mt-1">{generationTelemetry.summary.success_events}</div>
+                    </div>
+                    <div className="rounded border border-rose-200 bg-rose-50 p-3">
+                      <div className="text-xs text-rose-700">Errors</div>
+                      <div className="text-xl font-semibold text-rose-900 mt-1">{generationTelemetry.summary.error_events}</div>
+                    </div>
+                    <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                      <div className="text-xs text-amber-700">Error Rate</div>
+                      <div className="text-xl font-semibold text-amber-900 mt-1">{generationTelemetry.summary.error_rate_percent.toFixed(1)}%</div>
+                    </div>
+                    <div className="rounded border border-blue-200 bg-blue-50 p-3">
+                      <div className="text-xs text-blue-700">Avg Duration</div>
+                      <div className="text-xl font-semibold text-blue-900 mt-1">{Math.round(generationTelemetry.summary.average_duration_ms)} ms</div>
+                    </div>
+                    <div className="rounded border border-violet-200 bg-violet-50 p-3">
+                      <div className="text-xs text-violet-700">Estimated Cost</div>
+                      <div className="text-xl font-semibold text-violet-900 mt-1">${generationTelemetry.summary.total_estimated_cost_usd.toFixed(4)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="rounded border border-gray-200">
+                      <div className="px-4 py-3 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">By Generation Type</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Errors</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error %</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {generationTelemetry.by_type.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No generation telemetry yet.</td>
+                              </tr>
+                            ) : generationTelemetry.by_type.map((item) => (
+                              <tr key={item.generation_type}>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.generation_type}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.total_events}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.error_events}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.error_rate_percent.toFixed(1)}%</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">${item.total_estimated_cost_usd.toFixed(4)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className="rounded border border-gray-200">
+                      <div className="px-4 py-3 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">Recent Generation Events</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">When</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {generationTelemetry.recent_events.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No generation events yet.</td>
+                              </tr>
+                            ) : generationTelemetry.recent_events.slice(0, 12).map((eventItem) => (
+                              <tr key={eventItem.id}>
+                                <td className="px-4 py-2 text-sm text-gray-700">{new Date(eventItem.created_at).toLocaleString()}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.generation_type}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.status}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.duration_ms} ms</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.owner.name}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-yellow-800">Generation telemetry is unavailable right now.</p>
+                </div>
+              )}
+              {customHomeworkTelemetry ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Custom Homework Telemetry</h3>
+                      <p className="text-sm text-gray-600 mt-1">Operational snapshot for custom homework generation reliability and cost.</p>
+                    </div>
+                    <button
+                      onClick={loadUsers}
+                      className="px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+                    <div className="rounded border border-gray-200 p-3">
+                      <div className="text-xs text-gray-500">Total</div>
+                      <div className="text-xl font-semibold text-gray-900 mt-1">{customHomeworkTelemetry.summary.total_events}</div>
+                    </div>
+                    <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
+                      <div className="text-xs text-emerald-700">Success</div>
+                      <div className="text-xl font-semibold text-emerald-900 mt-1">{customHomeworkTelemetry.summary.success_events}</div>
+                    </div>
+                    <div className="rounded border border-rose-200 bg-rose-50 p-3">
+                      <div className="text-xs text-rose-700">Errors</div>
+                      <div className="text-xl font-semibold text-rose-900 mt-1">{customHomeworkTelemetry.summary.error_events}</div>
+                    </div>
+                    <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                      <div className="text-xs text-amber-700">Fallback Mode</div>
+                      <div className="text-xl font-semibold text-amber-900 mt-1">{customHomeworkTelemetry.summary.fallback_events}</div>
+                    </div>
+                    <div className="rounded border border-blue-200 bg-blue-50 p-3">
+                      <div className="text-xs text-blue-700">Avg Duration</div>
+                      <div className="text-xl font-semibold text-blue-900 mt-1">{Math.round(customHomeworkTelemetry.summary.average_duration_ms)} ms</div>
+                    </div>
+                    <div className="rounded border border-violet-200 bg-violet-50 p-3">
+                      <div className="text-xs text-violet-700">Estimated Cost</div>
+                      <div className="text-xl font-semibold text-violet-900 mt-1">${customHomeworkTelemetry.summary.total_estimated_cost_usd.toFixed(4)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                      <div className="text-xs text-amber-700">Review Backlog</div>
+                      <div className="text-xl font-semibold text-amber-900 mt-1">
+                        {customHomeworkTelemetry.workflow_metrics?.review_backlog_count ?? 0}
+                      </div>
+                    </div>
+                    <div className="rounded border border-indigo-200 bg-indigo-50 p-3">
+                      <div className="text-xs text-indigo-700">Avg Publish Latency</div>
+                      <div className="text-xl font-semibold text-indigo-900 mt-1">
+                        {Math.round(customHomeworkTelemetry.workflow_metrics?.average_publish_latency_hours ?? 0)}h
+                      </div>
+                    </div>
+                    <div className="rounded border border-teal-200 bg-teal-50 p-3">
+                      <div className="text-xs text-teal-700">Completion Rate</div>
+                      <div className="text-xl font-semibold text-teal-900 mt-1">
+                        {(customHomeworkTelemetry.workflow_metrics?.published_completion_rate_percent ?? 0).toFixed(1)}%
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="rounded border border-gray-200">
+                      <div className="px-4 py-3 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">Last 14 Days</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Success</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Errors</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fallback</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {customHomeworkTelemetry.daily_trend.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No telemetry trends yet.</td>
+                              </tr>
+                            ) : customHomeworkTelemetry.daily_trend.map((item) => (
+                              <tr key={item.date}>
+                                <td className="px-4 py-2 text-sm text-gray-700">{new Date(item.date).toLocaleDateString()}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.total_events}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.success_events}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.error_events}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{item.fallback_events}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded border border-gray-200">
+                      <div className="px-4 py-3 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">Recent Events</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">When</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mode</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {customHomeworkTelemetry.recent_events.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No telemetry events yet.</td>
+                              </tr>
+                            ) : customHomeworkTelemetry.recent_events.slice(0, 12).map((eventItem) => (
+                              <tr key={eventItem.id}>
+                                <td className="px-4 py-2 text-sm text-gray-700">{new Date(eventItem.created_at).toLocaleString()}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.status}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.assessment_generation_mode || 'n/a'}</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.duration_ms} ms</td>
+                                <td className="px-4 py-2 text-sm text-gray-700">{eventItem.owner.name}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded border border-gray-200">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-900">Workflow Audit Events</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">When</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target Status</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Skipped</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {(customHomeworkTelemetry.workflow_recent_events || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="px-4 py-6 text-sm text-gray-500 text-center">No workflow audit events yet.</td>
+                            </tr>
+                          ) : (customHomeworkTelemetry.workflow_recent_events || []).slice(0, 12).map((eventItem) => (
+                            <tr key={eventItem.id}>
+                              <td className="px-4 py-2 text-sm text-gray-700">{new Date(eventItem.created_at).toLocaleString()}</td>
+                              <td className="px-4 py-2 text-sm text-gray-700">{eventItem.action}</td>
+                              <td className="px-4 py-2 text-sm text-gray-700">{eventItem.status || 'n/a'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-700">{eventItem.updated_count}/{eventItem.target_count}</td>
+                              <td className="px-4 py-2 text-sm text-gray-700">{eventItem.skipped_count}</td>
+                              <td className="px-4 py-2 text-sm text-gray-700">{eventItem.owner.name}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-yellow-800">Custom homework telemetry is unavailable right now.</p>
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

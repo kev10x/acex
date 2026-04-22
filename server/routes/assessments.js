@@ -6,14 +6,22 @@ const fsSync = require('fs');
 const { query } = require('../database/connection');
 const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
-const { requireAuth, requireFeature } = require('../middleware/auth');
+const { requireAuth, requireFeature, optionalAuth, requireRoles } = require('../middleware/auth');
 const { buildMoodleXml, buildScormPackage } = require('../services/assessmentExport');
 const { runOpenAIBatchPollingCycle } = require('../services/openaiBatchMarkingService');
 const contentService = require('../services/contentService');
+const {
+  estimateGenerationUsageCost,
+  inferGenerationErrorType,
+  logGenerationTelemetry,
+  persistGenerationTelemetryEvent,
+} = require('../services/generationTelemetryService');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
+const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
 const ASSESSMENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'assessment-audio');
+const isSuperAdmin = (user) => String(user?.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 
 try {
   fsSync.mkdirSync(ASSESSMENT_AUDIO_DIR, { recursive: true });
@@ -105,6 +113,40 @@ function generateSubmissionCode() {
 function rowList(result) {
   if (Array.isArray(result)) return result;
   return result?.rows || [];
+}
+
+function normalizeRole(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin') return 'management';
+  if (r === 'user') return 'lecturer';
+  return r || 'lecturer';
+}
+
+function getIdentityScope(req) {
+  const role = normalizeRole(req.user?.role);
+  if (role === 'management') {
+    const applyOrgScope = !isSuperAdmin(req.user);
+    if (!applyOrgScope) {
+      return { role, applyOrgScope: false, empty: false, scopeClause: '', scopeParams: [] };
+    }
+    if (req.user.organisation_id == null) {
+      return { role, applyOrgScope: true, empty: true, scopeClause: '', scopeParams: [] };
+    }
+    return {
+      role,
+      applyOrgScope: true,
+      empty: false,
+      scopeClause: isMySQLDb() ? ' AND owner.organisation_id = ?' : ' AND owner.organisation_id = $1',
+      scopeParams: [req.user.organisation_id]
+    };
+  }
+  return {
+    role,
+    applyOrgScope: false,
+    empty: false,
+    scopeClause: isMySQLDb() ? ' AND owner.id = ?' : ' AND owner.id = $1',
+    scopeParams: [req.user.id]
+  };
 }
 
 async function moduleBelongsToUser(moduleId, userId) {
@@ -425,6 +467,10 @@ function parseAssessmentJSONFromCompletion(completion) {
  * This uses stored assignment text, rubrics, and marking patterns to create new assessments
  */
 router.post('/generate', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
+  const requestStartedAt = Date.now();
+  let telemetryProvider = null;
+  let telemetryModel = null;
+  let telemetryUsage = null;
   try {
     const {
       rubric_id,
@@ -736,6 +782,8 @@ IMPORTANT:
 - Create variety: different questions on the same topic should use different phrasings and angles.`;
 
     const config = aiConfig.getTaskConfig('assessmentGeneration', 'openai');
+    telemetryProvider = config.provider || null;
+    telemetryModel = config.model || null;
     const completion = await aiService.createCompletionWithRetry({
       provider: config.provider,
       model: config.model,
@@ -752,6 +800,7 @@ IMPORTANT:
       temperature: config.temperature,
       maxTokens: config.maxTokens
     });
+    telemetryUsage = completion?.usage || null;
 
     let assessmentData;
     try {
@@ -826,8 +875,60 @@ IMPORTANT:
         assignments_count: contextData.assignments.length
       }
     });
+    const estimatedCost = estimateGenerationUsageCost(telemetryProvider, telemetryUsage);
+    const successPayload = {
+      event: 'assessment_generate',
+      status: 'success',
+      generation_type: 'assessment_generation',
+      user_id: req.user.id,
+      provider: telemetryProvider,
+      model: telemetryModel,
+      duration_ms: Date.now() - requestStartedAt,
+      usage: telemetryUsage,
+      estimated_cost_usd: estimatedCost,
+      metadata: {
+        rubric_id: rubric_id || null,
+        content_id: content_id || null,
+        has_custom_topics: !!useCustomTopics,
+        level: level || null,
+        difficulty_level,
+        question_count: Number(question_count) || 0,
+        assessment_type,
+      },
+    };
+    logGenerationTelemetry(successPayload);
+    try {
+      await persistGenerationTelemetryEvent(successPayload);
+    } catch (telemetryError) {
+      console.warn('[assessment] Failed to persist generation telemetry:', telemetryError?.message || telemetryError);
+    }
 
   } catch (error) {
+    const errorPayload = {
+      event: 'assessment_generate',
+      status: 'error',
+      generation_type: 'assessment_generation',
+      user_id: req.user?.id || null,
+      provider: telemetryProvider,
+      model: telemetryModel,
+      duration_ms: Date.now() - requestStartedAt,
+      usage: telemetryUsage,
+      estimated_cost_usd: estimateGenerationUsageCost(telemetryProvider, telemetryUsage),
+      error_type: inferGenerationErrorType(error),
+      error_message: String(error?.message || 'Unknown error'),
+      metadata: {
+        rubric_id: req.body?.rubric_id || null,
+        content_id: req.body?.content_id || null,
+        has_custom_topics: !!req.body?.custom_topics,
+        question_count: Number(req.body?.question_count || 0) || 0,
+      },
+    };
+    logGenerationTelemetry(errorPayload);
+    try {
+      await persistGenerationTelemetryEvent(errorPayload);
+    } catch (telemetryError) {
+      console.warn('[assessment] Failed to persist error telemetry:', telemetryError?.message || telemetryError);
+    }
     console.error('Assessment generation error:', error);
     res.status(500).json({
       error: 'Failed to generate assessment',
@@ -1334,10 +1435,613 @@ router.get('/submission-status/:submissionCode', async (req, res) => {
   }
 });
 
+router.get('/admin/submission-identity-health', requireAuth, requireRoles(['management']), async (req, res) => {
+  try {
+    const applyOrgScope = !isSuperAdmin(req.user);
+    if (applyOrgScope && req.user.organisation_id == null) {
+      return res.json({
+        success: true,
+        summary: {
+          total_submissions: 0,
+          resolved_submissions: 0,
+          unresolved_submissions: 0,
+          potential_backfill_matches: 0
+        },
+        unresolved_samples: []
+      });
+    }
+
+    const scopeClause = applyOrgScope
+      ? (isMySQLDb() ? ' AND owner.organisation_id = ?' : ' AND owner.organisation_id = $1')
+      : '';
+    const scopeParams = applyOrgScope ? [req.user.organisation_id] : [];
+    const emailLocalExpr = isMySQLDb()
+      ? "LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1)))"
+      : "LOWER(TRIM(SPLIT_PART(COALESCE(u.email, ''), '@', 1)))";
+
+    const summaryResult = await query(
+      `SELECT
+         COUNT(*) AS total_submissions,
+         SUM(CASE WHEN s.student_user_id IS NOT NULL THEN 1 ELSE 0 END) AS resolved_submissions,
+         SUM(CASE WHEN s.student_user_id IS NULL THEN 1 ELSE 0 END) AS unresolved_submissions
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       WHERE 1=1${scopeClause}`,
+      scopeParams
+    );
+    const summaryRow = rowList(summaryResult)[0] || {};
+
+    const potentialMatchResult = await query(
+      `SELECT COUNT(*) AS count
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       WHERE s.student_user_id IS NULL${scopeClause}
+         AND EXISTS (
+           SELECT 1
+           FROM module_items mi
+           INNER JOIN modules m ON m.id = mi.module_id
+           INNER JOIN module_students ms ON ms.module_id = mi.module_id
+           INNER JOIN users u ON u.id = ms.student_user_id
+           WHERE mi.item_type = 'assessment'
+             AND mi.item_id = s.published_assessment_id
+             AND m.user_id = pa.user_id
+             AND (
+               LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+               OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+               OR LOWER(TRIM(COALESCE(s.student_name, ''))) = ${emailLocalExpr}
+             )
+         )`,
+      scopeParams
+    );
+    const potentialMatchCount = Number(rowList(potentialMatchResult)[0]?.count || 0);
+
+    const unresolvedSamples = rowList(await query(
+      `SELECT
+         s.id,
+         s.submission_code,
+         s.student_name,
+         s.status,
+         s.submitted_at,
+         pa.code AS assessment_code,
+         pa.user_id AS lecturer_user_id,
+         CASE WHEN EXISTS (
+           SELECT 1
+           FROM module_items mi
+           INNER JOIN modules m ON m.id = mi.module_id
+           INNER JOIN module_students ms ON ms.module_id = mi.module_id
+           INNER JOIN users u ON u.id = ms.student_user_id
+           WHERE mi.item_type = 'assessment'
+             AND mi.item_id = s.published_assessment_id
+             AND m.user_id = pa.user_id
+             AND (
+               LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+               OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+               OR LOWER(TRIM(COALESCE(s.student_name, ''))) = ${emailLocalExpr}
+             )
+         ) THEN 1 ELSE 0 END AS potential_match
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       WHERE s.student_user_id IS NULL${scopeClause}
+       ORDER BY s.submitted_at DESC
+       LIMIT 25`,
+      scopeParams
+    )).map((row) => ({
+      id: Number(row.id),
+      submission_code: row.submission_code,
+      student_name: row.student_name,
+      status: row.status,
+      submitted_at: row.submitted_at,
+      assessment_code: row.assessment_code,
+      lecturer_user_id: Number(row.lecturer_user_id || 0),
+      potential_match: Number(row.potential_match || 0) === 1
+    }));
+
+    res.json({
+      success: true,
+      summary: {
+        total_submissions: Number(summaryRow.total_submissions || 0),
+        resolved_submissions: Number(summaryRow.resolved_submissions || 0),
+        unresolved_submissions: Number(summaryRow.unresolved_submissions || 0),
+        potential_backfill_matches: potentialMatchCount
+      },
+      unresolved_samples: unresolvedSamples
+    });
+  } catch (error) {
+    console.error('Submission identity health error:', error);
+    res.status(500).json({ error: 'Failed to load submission identity health' });
+  }
+});
+
+router.post('/admin/submission-identity-backfill', requireAuth, requireRoles(['management']), async (req, res) => {
+  try {
+    const applyOrgScope = !isSuperAdmin(req.user);
+    if (applyOrgScope && req.user.organisation_id == null) {
+      return res.json({ success: true, updated_submissions: 0 });
+    }
+
+    const scopeClause = applyOrgScope
+      ? (isMySQLDb() ? ' AND owner.organisation_id = ?' : ' AND owner.organisation_id = $1')
+      : '';
+    const scopeParams = applyOrgScope ? [req.user.organisation_id] : [];
+    const emailLocalExpr = isMySQLDb()
+      ? "LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1)))"
+      : "LOWER(TRIM(SPLIT_PART(COALESCE(u.email, ''), '@', 1)))";
+
+    const unresolvedBeforeResult = await query(
+      `SELECT COUNT(*) AS count
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       WHERE s.student_user_id IS NULL${scopeClause}`,
+      scopeParams
+    );
+    const unresolvedBefore = Number(rowList(unresolvedBeforeResult)[0]?.count || 0);
+
+    if (isMySQLDb()) {
+      await query(
+        `UPDATE assessment_submissions s
+         INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+         INNER JOIN users owner ON owner.id = pa.user_id
+         SET s.student_user_id = (
+           SELECT MIN(ms.student_user_id)
+           FROM module_items mi
+           INNER JOIN modules m ON m.id = mi.module_id
+           INNER JOIN module_students ms ON ms.module_id = mi.module_id
+           INNER JOIN users u ON u.id = ms.student_user_id
+           WHERE mi.item_type = 'assessment'
+             AND mi.item_id = s.published_assessment_id
+             AND m.user_id = pa.user_id
+             AND (
+               LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+               OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+               OR LOWER(TRIM(COALESCE(s.student_name, ''))) = ${emailLocalExpr}
+             )
+         )
+         WHERE s.student_user_id IS NULL${scopeClause}
+           AND EXISTS (
+             SELECT 1
+             FROM module_items mi
+             INNER JOIN modules m ON m.id = mi.module_id
+             INNER JOIN module_students ms ON ms.module_id = mi.module_id
+             INNER JOIN users u ON u.id = ms.student_user_id
+             WHERE mi.item_type = 'assessment'
+               AND mi.item_id = s.published_assessment_id
+               AND m.user_id = pa.user_id
+               AND (
+                 LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+                 OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+                 OR LOWER(TRIM(COALESCE(s.student_name, ''))) = ${emailLocalExpr}
+               )
+           )`,
+        scopeParams
+      );
+    } else {
+      await query(
+        `WITH target_submissions AS (
+           SELECT s.id AS submission_id
+           FROM assessment_submissions s
+           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+           INNER JOIN users owner ON owner.id = pa.user_id
+           WHERE s.student_user_id IS NULL${scopeClause}
+         ),
+         candidates AS (
+           SELECT
+             s.id AS submission_id,
+             MIN(ms.student_user_id) AS matched_student_user_id
+           FROM assessment_submissions s
+           INNER JOIN target_submissions ts ON ts.submission_id = s.id
+           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+           INNER JOIN module_items mi ON mi.item_type = 'assessment' AND mi.item_id = s.published_assessment_id
+           INNER JOIN modules m ON m.id = mi.module_id AND m.user_id = pa.user_id
+           INNER JOIN module_students ms ON ms.module_id = mi.module_id
+           INNER JOIN users u ON u.id = ms.student_user_id
+           WHERE (
+             LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+             OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+             OR LOWER(TRIM(COALESCE(s.student_name, ''))) = ${emailLocalExpr}
+           )
+           GROUP BY s.id
+         )
+         UPDATE assessment_submissions s
+         SET student_user_id = c.matched_student_user_id
+         FROM candidates c
+         WHERE s.id = c.submission_id
+           AND s.student_user_id IS NULL`,
+        scopeParams
+      );
+    }
+
+    const unresolvedAfterResult = await query(
+      `SELECT COUNT(*) AS count
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       WHERE s.student_user_id IS NULL${scopeClause}`,
+      scopeParams
+    );
+    const unresolvedAfter = Number(rowList(unresolvedAfterResult)[0]?.count || 0);
+    const updated = Math.max(0, unresolvedBefore - unresolvedAfter);
+
+    res.json({ success: true, updated_submissions: updated });
+  } catch (error) {
+    console.error('Submission identity backfill error:', error);
+    res.status(500).json({ error: 'Failed to run submission identity backfill' });
+  }
+});
+
+router.get('/submission-identity-conflicts', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
+  try {
+    const scope = getIdentityScope(req);
+    if (scope.empty) {
+      return res.json({
+        success: true,
+        summary: {
+          unresolved_submissions: 0,
+          single_candidate_submissions: 0,
+          multi_candidate_submissions: 0,
+          no_candidate_submissions: 0
+        },
+        items: []
+      });
+    }
+
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || '25'), 10) || 25, 5), 100);
+    const emailLocalExpr = isMySQLDb()
+      ? "LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1)))"
+      : "LOWER(TRIM(SPLIT_PART(COALESCE(u.email, ''), '@', 1)))";
+    const unresolvedCountResult = await query(
+      `SELECT COUNT(*) AS count
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       WHERE s.student_user_id IS NULL${scope.scopeClause}`,
+      scope.scopeParams
+    );
+    const unresolvedSubmissions = Number(rowList(unresolvedCountResult)[0]?.count || 0);
+
+    const candidateCountResult = await query(
+      `SELECT s.id AS submission_id, COUNT(DISTINCT ms.student_user_id) AS candidate_count
+       FROM assessment_submissions s
+       INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+       INNER JOIN users owner ON owner.id = pa.user_id
+       INNER JOIN module_items mi ON mi.item_type = 'assessment' AND mi.item_id = s.published_assessment_id
+       INNER JOIN modules m ON m.id = mi.module_id AND m.user_id = pa.user_id
+       INNER JOIN module_students ms ON ms.module_id = mi.module_id
+       INNER JOIN users u ON u.id = ms.student_user_id
+       WHERE s.student_user_id IS NULL${scope.scopeClause}
+         AND (
+           LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.name, '')))
+           OR LOWER(TRIM(COALESCE(s.student_name, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+           OR LOWER(TRIM(COALESCE(s.student_name, ''))) = ${emailLocalExpr}
+         )
+       GROUP BY s.id`,
+      scope.scopeParams
+    );
+    const candidateCounts = new Map(
+      rowList(candidateCountResult).map((row) => [Number(row.submission_id), Number(row.candidate_count || 0)])
+    );
+    let singleCandidateSubmissions = 0;
+    let multiCandidateSubmissions = 0;
+    candidateCounts.forEach((count) => {
+      if (count === 1) singleCandidateSubmissions += 1;
+      if (count > 1) multiCandidateSubmissions += 1;
+    });
+    const noCandidateSubmissions = Math.max(0, unresolvedSubmissions - candidateCounts.size);
+
+    const unresolvedRows = isMySQLDb()
+      ? rowList(await query(
+          `SELECT
+             s.id,
+             s.submission_code,
+             s.student_name,
+             s.status,
+             s.submitted_at,
+             s.published_assessment_id,
+             pa.code AS assessment_code,
+             pa.user_id AS lecturer_user_id,
+             owner.name AS lecturer_name,
+             owner.email AS lecturer_email
+           FROM assessment_submissions s
+           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+           INNER JOIN users owner ON owner.id = pa.user_id
+           WHERE s.student_user_id IS NULL${scope.scopeClause}
+           ORDER BY s.submitted_at DESC
+           LIMIT ?`,
+          [...scope.scopeParams, limit]
+        ))
+      : rowList(await query(
+          `SELECT
+             s.id,
+             s.submission_code,
+             s.student_name,
+             s.status,
+             s.submitted_at,
+             s.published_assessment_id,
+             pa.code AS assessment_code,
+             pa.user_id AS lecturer_user_id,
+             owner.name AS lecturer_name,
+             owner.email AS lecturer_email
+           FROM assessment_submissions s
+           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+           INNER JOIN users owner ON owner.id = pa.user_id
+           WHERE s.student_user_id IS NULL${scope.scopeClause}
+           ORDER BY s.submitted_at DESC
+           LIMIT $${scope.scopeParams.length + 1}`,
+          [...scope.scopeParams, limit]
+        ));
+
+    const items = [];
+    for (const row of unresolvedRows) {
+      const normalizedName = String(row.student_name || '').trim().toLowerCase();
+      const candidates = isMySQLDb()
+        ? rowList(await query(
+            `SELECT DISTINCT
+               u.id,
+               u.name,
+               u.email,
+               ms.module_id,
+               m.name AS module_name,
+               CASE
+                 WHEN LOWER(TRIM(COALESCE(u.name, ''))) = ? THEN 'name'
+                 WHEN LOWER(TRIM(COALESCE(u.email, ''))) = ? THEN 'email'
+                 WHEN LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1))) = ? THEN 'email_local'
+                 ELSE 'heuristic'
+               END AS match_reason
+             FROM module_items mi
+             INNER JOIN modules m ON m.id = mi.module_id
+             INNER JOIN module_students ms ON ms.module_id = mi.module_id
+             INNER JOIN users u ON u.id = ms.student_user_id
+             WHERE mi.item_type = 'assessment'
+               AND mi.item_id = ?
+               AND m.user_id = ?
+               AND (
+                 LOWER(TRIM(COALESCE(u.name, ''))) = ?
+                 OR LOWER(TRIM(COALESCE(u.email, ''))) = ?
+                 OR LOWER(TRIM(SUBSTRING_INDEX(COALESCE(u.email, ''), '@', 1))) = ?
+               )
+             ORDER BY
+               CASE
+                 WHEN LOWER(TRIM(COALESCE(u.name, ''))) = ? THEN 0
+                 WHEN LOWER(TRIM(COALESCE(u.email, ''))) = ? THEN 1
+                 ELSE 2
+               END,
+               u.name ASC
+             LIMIT 10`,
+            [
+              normalizedName,
+              normalizedName,
+              normalizedName,
+              row.published_assessment_id,
+              row.lecturer_user_id,
+              normalizedName,
+              normalizedName,
+              normalizedName,
+              normalizedName,
+              normalizedName
+            ]
+          ))
+        : rowList(await query(
+            `SELECT DISTINCT
+               u.id,
+               u.name,
+               u.email,
+               ms.module_id,
+               m.name AS module_name,
+               CASE
+                 WHEN LOWER(TRIM(COALESCE(u.name, ''))) = $1 THEN 'name'
+                 WHEN LOWER(TRIM(COALESCE(u.email, ''))) = $2 THEN 'email'
+                 WHEN LOWER(TRIM(SPLIT_PART(COALESCE(u.email, ''), '@', 1))) = $3 THEN 'email_local'
+                 ELSE 'heuristic'
+               END AS match_reason
+             FROM module_items mi
+             INNER JOIN modules m ON m.id = mi.module_id
+             INNER JOIN module_students ms ON ms.module_id = mi.module_id
+             INNER JOIN users u ON u.id = ms.student_user_id
+             WHERE mi.item_type = 'assessment'
+               AND mi.item_id = $4
+               AND m.user_id = $5
+               AND (
+                 LOWER(TRIM(COALESCE(u.name, ''))) = $6
+                 OR LOWER(TRIM(COALESCE(u.email, ''))) = $7
+                 OR LOWER(TRIM(SPLIT_PART(COALESCE(u.email, ''), '@', 1))) = $8
+               )
+             ORDER BY
+               CASE
+                 WHEN LOWER(TRIM(COALESCE(u.name, ''))) = $9 THEN 0
+                 WHEN LOWER(TRIM(COALESCE(u.email, ''))) = $10 THEN 1
+                 ELSE 2
+               END,
+               u.name ASC
+             LIMIT 10`,
+            [
+              normalizedName,
+              normalizedName,
+              normalizedName,
+              row.published_assessment_id,
+              row.lecturer_user_id,
+              normalizedName,
+              normalizedName,
+              normalizedName,
+              normalizedName,
+              normalizedName
+            ]
+          ));
+
+      items.push({
+        id: Number(row.id || 0),
+        submission_code: row.submission_code,
+        student_name: row.student_name,
+        status: row.status,
+        submitted_at: row.submitted_at,
+        assessment_code: row.assessment_code,
+        lecturer: {
+          id: Number(row.lecturer_user_id || 0),
+          name: row.lecturer_name || row.lecturer_email || `Lecturer #${row.lecturer_user_id}`,
+          email: row.lecturer_email || null
+        },
+        candidate_count: candidates.length,
+        candidates: candidates.map((candidate) => ({
+          id: Number(candidate.id || 0),
+          name: candidate.name || candidate.email || `Student #${candidate.id}`,
+          email: candidate.email || null,
+          module_id: Number(candidate.module_id || 0),
+          module_name: candidate.module_name || null,
+          match_reason: candidate.match_reason || 'heuristic'
+        }))
+      });
+    }
+
+    res.json({
+      success: true,
+      summary: {
+        unresolved_submissions: unresolvedSubmissions,
+        single_candidate_submissions: singleCandidateSubmissions,
+        multi_candidate_submissions: multiCandidateSubmissions,
+        no_candidate_submissions: noCandidateSubmissions
+      },
+      items
+    });
+  } catch (error) {
+    console.error('Submission identity conflicts error:', error);
+    res.status(500).json({ error: 'Failed to load submission identity conflicts' });
+  }
+});
+
+router.post('/submission-identity-conflicts/:submissionId/resolve', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
+  try {
+    const submissionId = Number(req.params.submissionId);
+    const studentUserId = Number(req.body?.student_user_id);
+    if (!Number.isFinite(submissionId) || submissionId <= 0) {
+      return res.status(400).json({ error: 'Invalid submission id' });
+    }
+    if (!Number.isFinite(studentUserId) || studentUserId <= 0) {
+      return res.status(400).json({ error: 'student_user_id is required' });
+    }
+
+    const scope = getIdentityScope(req);
+    if (scope.empty) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    const submissionResult = isMySQLDb()
+      ? await query(
+          `SELECT
+             s.id,
+             s.submission_code,
+             s.student_name,
+             s.status,
+             s.submitted_at,
+             s.student_user_id,
+             s.published_assessment_id,
+             pa.user_id AS lecturer_user_id
+           FROM assessment_submissions s
+           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+           INNER JOIN users owner ON owner.id = pa.user_id
+           WHERE s.id = ?${scope.scopeClause}`,
+          [submissionId, ...scope.scopeParams]
+        )
+      : await query(
+          `SELECT
+             s.id,
+             s.submission_code,
+             s.student_name,
+             s.status,
+             s.submitted_at,
+             s.student_user_id,
+             s.published_assessment_id,
+             pa.user_id AS lecturer_user_id
+           FROM assessment_submissions s
+           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
+           INNER JOIN users owner ON owner.id = pa.user_id
+           WHERE s.id = $1${scope.scopeClause.replace('$1', '$2')}`,
+          [submissionId, ...scope.scopeParams]
+        );
+    const submissionRow = rowList(submissionResult)[0];
+    if (!submissionRow) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    const candidateAllowed = rowList(await query(
+      `SELECT 1
+       FROM module_items mi
+       INNER JOIN modules m ON m.id = mi.module_id
+       INNER JOIN module_students ms ON ms.module_id = mi.module_id
+       WHERE mi.item_type = 'assessment'
+         AND mi.item_id = ?
+         AND m.user_id = ?
+         AND ms.student_user_id = ?
+       LIMIT 1`,
+      [submissionRow.published_assessment_id, submissionRow.lecturer_user_id, studentUserId]
+    ))[0];
+    if (!candidateAllowed) {
+      return res.status(400).json({ error: 'Selected student is not enrolled for this assessment module' });
+    }
+
+    if (isMySQLDb()) {
+      await query('UPDATE assessment_submissions SET student_user_id = ? WHERE id = ?', [studentUserId, submissionId]);
+    } else {
+      await query('UPDATE assessment_submissions SET student_user_id = $1 WHERE id = $2', [studentUserId, submissionId]);
+    }
+
+    const resolvedResult = isMySQLDb()
+      ? await query(
+          `SELECT
+             s.id,
+             s.submission_code,
+             s.student_name,
+             s.status,
+             s.submitted_at,
+             s.student_user_id,
+             u.name AS resolved_student_name,
+             u.email AS resolved_student_email
+           FROM assessment_submissions s
+           LEFT JOIN users u ON u.id = s.student_user_id
+           WHERE s.id = ?`,
+          [submissionId]
+        )
+      : await query(
+          `SELECT
+             s.id,
+             s.submission_code,
+             s.student_name,
+             s.status,
+             s.submitted_at,
+             s.student_user_id,
+             u.name AS resolved_student_name,
+             u.email AS resolved_student_email
+           FROM assessment_submissions s
+           LEFT JOIN users u ON u.id = s.student_user_id
+           WHERE s.id = $1`,
+          [submissionId]
+        );
+    const resolved = rowList(resolvedResult)[0];
+
+    res.json({
+      success: true,
+      item: {
+        id: Number(resolved.id || 0),
+        submission_code: resolved.submission_code,
+        student_name: resolved.student_name,
+        status: resolved.status,
+        submitted_at: resolved.submitted_at,
+        student_user_id: Number(resolved.student_user_id || 0),
+        resolved_student_name: resolved.resolved_student_name || resolved.resolved_student_email || null,
+        resolved_student_email: resolved.resolved_student_email || null
+      }
+    });
+  } catch (error) {
+    console.error('Submission identity resolve error:', error);
+    res.status(500).json({ error: 'Failed to resolve submission identity conflict' });
+  }
+});
+
 /**
  * Submit student answers and queue marking. Public. Returns submission receipt.
  */
-router.post('/submit', async (req, res) => {
+router.post('/submit', optionalAuth, async (req, res) => {
   try {
     const { code, student_name, answers } = req.body;
     if (!code || !student_name || !Array.isArray(answers)) {
@@ -1369,6 +2073,10 @@ router.post('/submit', async (req, res) => {
       return res.status(500).json({ error: 'Rubric not found' });
     }
 
+    const studentUserId = req.user && String(req.user.role || '').toLowerCase() === 'student'
+      ? Number(req.user.id)
+      : null;
+
     const scriptText = buildAssessmentScriptText(assessment.questions || [], answers);
     const filename = `Submission - ${student_name} - ${code}.txt`;
     const insertAssign = isMySQL
@@ -1387,9 +2095,9 @@ router.post('/submit', async (req, res) => {
       try {
         await query(
           `INSERT INTO assessment_submissions (
-            submission_code, published_assessment_id, assignment_id, student_name, status
-          ) VALUES (?, ?, ?, ?, ?)`,
-          [submissionCode, pub.id, assignmentId, student_name.trim(), 'queued']
+            submission_code, published_assessment_id, assignment_id, student_user_id, student_name, status
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+          [submissionCode, pub.id, assignmentId, studentUserId, student_name.trim(), 'queued']
         );
         break;
       } catch (error) {
@@ -1418,6 +2126,7 @@ router.post('/submit', async (req, res) => {
       submission: {
         submission_code: submissionCode,
         status: 'queued',
+        student_user_id: studentUserId,
         student_name: student_name.trim(),
         submitted_at: new Date().toISOString(),
         batch_id: batchId

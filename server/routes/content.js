@@ -15,6 +15,12 @@ const contentService = require('../services/contentService');
 const feedbackVideoService = require('../services/feedbackVideoService');
 const { runContentPlannerCycle } = require('../services/contentPlannerService');
 const { buildContentScormPackage } = require('../services/contentExport');
+const aiConfig = require('../config/ai-config');
+const {
+  inferGenerationErrorType,
+  logGenerationTelemetry,
+  persistGenerationTelemetryEvent,
+} = require('../services/generationTelemetryService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -364,6 +370,24 @@ const uploadTemplate = multer({
  * Generate course content with AI. Body: topics, level?, num_sections?, rubric_id?, rubric_context?, include_video? (boolean)
  */
 router.post('/generate', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  const requestStartedAt = Date.now();
+  const taskConfig = aiConfig.getTaskConfig('contentGeneration', 'openai');
+  const telemetryBase = {
+    event: 'content_generate',
+    generation_type: 'content_generation',
+    user_id: req.user.id,
+    provider: taskConfig?.provider || null,
+    model: taskConfig?.model || null,
+    metadata: {
+      rubric_id: req.body?.rubric_id || null,
+      template_id: req.body?.template_id || 'classroom',
+      level: String(req.body?.level || '').trim() || null,
+      num_sections: parseClampedInt(req.body?.num_sections, 5, 1, 20),
+      include_diagrams: req.body?.include_diagrams !== false,
+      include_images: req.body?.include_images !== false,
+      topics_preview: String(req.body?.topics || '').trim().slice(0, 160) || null,
+    },
+  };
   try {
     const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true } = req.body;
     if (!topics || !String(topics).trim()) {
@@ -410,8 +434,37 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     if (include_images !== false) {
       content = await contentService.enrichContentWithImages(content);
     }
+    const successPayload = {
+      ...telemetryBase,
+      status: 'success',
+      duration_ms: Date.now() - requestStartedAt,
+      metadata: {
+        ...telemetryBase.metadata,
+        section_count: Array.isArray(content?.sections) ? content.sections.length : 0,
+        quiz_question_count: Array.isArray(content?.quiz?.questions) ? content.quiz.questions.length : 0,
+      },
+    };
+    logGenerationTelemetry(successPayload);
+    try {
+      await persistGenerationTelemetryEvent(successPayload);
+    } catch (telemetryError) {
+      console.warn('[content] Failed to persist generation telemetry:', telemetryError?.message || telemetryError);
+    }
     res.json({ success: true, content });
   } catch (error) {
+    const errorPayload = {
+      ...telemetryBase,
+      status: 'error',
+      duration_ms: Date.now() - requestStartedAt,
+      error_type: inferGenerationErrorType(error),
+      error_message: String(error?.message || 'Unknown error'),
+    };
+    logGenerationTelemetry(errorPayload);
+    try {
+      await persistGenerationTelemetryEvent(errorPayload);
+    } catch (telemetryError) {
+      console.warn('[content] Failed to persist error telemetry:', telemetryError?.message || telemetryError);
+    }
     console.error('Content generate error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate content' });
   }

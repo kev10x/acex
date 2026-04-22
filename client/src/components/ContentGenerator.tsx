@@ -1078,10 +1078,18 @@ const ContentGenerator: React.FC = () => {
       </div>
 
       {generatedContent && (
-        <div className="flex gap-4 items-start mb-6">
-        <div className="bg-white rounded-lg shadow-lg p-6 flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-            <h2 className="text-xl font-bold text-gray-800">Edit and preview content</h2>
+        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start">
+        <div className="flex-1 min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-lg md:p-6">
+          <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Edit and preview content</h2>
+                <p className="mt-1 text-sm text-slate-600">Refine this version before students see it.</p>
+              </div>
+              <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
+                {generatedContent.sections?.length || 0} sections
+              </span>
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={handleSaveDraft}
@@ -1094,7 +1102,7 @@ const ContentGenerator: React.FC = () => {
               <button
                 onClick={() => handleExport('pptx')}
                 disabled={!!exporting}
-                className="flex items-center gap-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50"
               >
                 {exporting === 'pptx' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 Download PPTX
@@ -1102,7 +1110,7 @@ const ContentGenerator: React.FC = () => {
               <button
                 onClick={() => handleExport('lecture-notes')}
                 disabled={!!exporting}
-                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50"
               >
                 {exporting === 'lecture-notes' ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />}
                 Lecture notes
@@ -1110,7 +1118,7 @@ const ContentGenerator: React.FC = () => {
               <button
                 onClick={handleExportScorm}
                 disabled={!!exporting}
-                className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50"
               >
                 {exporting === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 SCORM package
@@ -1131,7 +1139,7 @@ const ContentGenerator: React.FC = () => {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 mb-4">
+          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Module folder</label>
@@ -1157,7 +1165,7 @@ const ContentGenerator: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 mb-4">
+          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 grid grid-cols-1 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
               <input
@@ -1223,8 +1231,8 @@ const ContentGenerator: React.FC = () => {
               Editing published content{activePublishedContentCode ? ` (${activePublishedContentCode})` : ''}. Use `Save published content` to update the existing student-facing item.
             </div>
           )}
-          <div className="mb-4 text-xs text-gray-500">
-            Text-to-speech is {generatedContent.tts_enabled !== false ? 'enabled' : 'disabled'} for this content.
+          <div className="mb-4 text-xs text-gray-600">
+            Text-to-speech status: <span className={`font-semibold ${generatedContent.tts_enabled !== false ? 'text-teal-700' : 'text-slate-500'}`}>{generatedContent.tts_enabled !== false ? 'Enabled' : 'Disabled'}</span>
           </div>
           {(() => {
             const sections = generatedContent.sections || [];
@@ -1233,14 +1241,15 @@ const ContentGenerator: React.FC = () => {
             {sections.map((sec: any, i: number) => (
               <div
                 key={i}
-                className={`border rounded-lg p-5 transition ${dragOverKey === `section:${i}` ? 'border-teal-400 bg-teal-50' : 'border-gray-200'}`}
+                className={`border rounded-xl p-4 transition ${dragOverKey === `section:${i}` ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white'}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverKey(`section:${i}`); }}
                 onDragLeave={() => setDragOverKey(null)}
                 onDrop={(e) => handleDropOnSection(i, e)}
               >
-                <div className="grid grid-cols-1 gap-2 mb-3 bg-gray-50 border border-gray-200 rounded p-3">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-gray-700">Section {i + 1} editor</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Section {i + 1} editor</span>
                     <button
                       type="button"
                       onClick={() => removeSection(i)}
@@ -1372,6 +1381,8 @@ const ContentGenerator: React.FC = () => {
                     </div>
                   )}
                 </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Student preview</div>
                 <h3 className="font-semibold text-gray-800 mb-1 text-base">{sec.heading || sec.title || 'Section'}</h3>
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
 
@@ -1478,6 +1489,8 @@ const ContentGenerator: React.FC = () => {
                     </figure>
                   ) : null
                 ))}
+                </div>
+                </div>
               </div>
             ))}
             {generatedContent.quiz && generatedContent.quiz.questions && generatedContent.quiz.questions.length > 0 && (
@@ -1496,7 +1509,7 @@ const ContentGenerator: React.FC = () => {
         </div>
 
         {templateImages.length > 0 && (
-          <div className="w-52 shrink-0 bg-white rounded-lg shadow-lg p-4 sticky top-4">
+          <div className="w-full xl:w-56 shrink-0 bg-white rounded-xl border border-slate-200 shadow-lg p-4 xl:sticky xl:top-4">
             <div className="flex items-center gap-2 mb-3">
               <Images className="w-4 h-4 text-teal-600" />
               <span className="text-sm font-semibold text-gray-700">Template assets</span>
@@ -1508,7 +1521,7 @@ const ContentGenerator: React.FC = () => {
                   key={idx}
                   draggable
                   onDragStart={(e) => e.dataTransfer.setData('text/plain', url)}
-                  className="cursor-grab active:cursor-grabbing border border-gray-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition"
+                  className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition"
                   title={`Drag to use this image`}
                 >
                   <img
