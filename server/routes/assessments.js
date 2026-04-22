@@ -16,6 +16,8 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
+const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
+const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -471,7 +473,19 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
   let telemetryProvider = null;
   let telemetryModel = null;
   let telemetryUsage = null;
+  let promptTrace = null;
+  let generationJobId = null;
   try {
+    generationJobId = await createGenerationJob({
+      user_id: req.user.id,
+      job_type: 'assessment_generation',
+      status: JOB_STATUS.PROCESSING,
+      source_route: '/assessments/generate',
+      payload: req.body || {},
+    });
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, { started_at: new Date() });
+    }
     const {
       rubric_id,
       content_id = null,
@@ -784,6 +798,16 @@ IMPORTANT:
     const config = aiConfig.getTaskConfig('assessmentGeneration', 'openai');
     telemetryProvider = config.provider || null;
     telemetryModel = config.model || null;
+    promptTrace = await resolvePromptRegistryVersion({
+      user_id: req.user.id,
+      generation_type: 'assessment_generation',
+      prompt_key: 'assessment.generate.default',
+      prompt_text: 'Default assessment generation prompt template used by /assessments/generate.',
+      provider: config.provider,
+      model: config.model,
+      temperature: config.temperature,
+      max_tokens: config.maxTokens,
+    });
     const completion = await aiService.createCompletionWithRetry({
       provider: config.provider,
       model: config.model,
@@ -873,7 +897,8 @@ IMPORTANT:
       saved_rubric_name: savedRubricName,
       context_used: {
         assignments_count: contextData.assignments.length
-      }
+      },
+      generation_trace: promptTrace,
     });
     const estimatedCost = estimateGenerationUsageCost(telemetryProvider, telemetryUsage);
     const successPayload = {
@@ -894,6 +919,8 @@ IMPORTANT:
         difficulty_level,
         question_count: Number(question_count) || 0,
         assessment_type,
+        prompt_key: promptTrace?.prompt_key || null,
+        prompt_version: promptTrace?.prompt_version || null,
       },
     };
     logGenerationTelemetry(successPayload);
@@ -901,6 +928,18 @@ IMPORTANT:
       await persistGenerationTelemetryEvent(successPayload);
     } catch (telemetryError) {
       console.warn('[assessment] Failed to persist generation telemetry:', telemetryError?.message || telemetryError);
+    }
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.COMPLETED,
+        result: {
+          success: true,
+          title: assessmentData?.title || null,
+          question_count: Array.isArray(assessmentData?.questions) ? assessmentData.questions.length : 0,
+          saved_rubric_id: savedRubricId || null,
+        },
+        completed_at: new Date(),
+      });
     }
 
   } catch (error) {
@@ -921,6 +960,8 @@ IMPORTANT:
         content_id: req.body?.content_id || null,
         has_custom_topics: !!req.body?.custom_topics,
         question_count: Number(req.body?.question_count || 0) || 0,
+        prompt_key: promptTrace?.prompt_key || null,
+        prompt_version: promptTrace?.prompt_version || null,
       },
     };
     logGenerationTelemetry(errorPayload);
@@ -928,6 +969,13 @@ IMPORTANT:
       await persistGenerationTelemetryEvent(errorPayload);
     } catch (telemetryError) {
       console.warn('[assessment] Failed to persist error telemetry:', telemetryError?.message || telemetryError);
+    }
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.FAILED,
+        error_message: String(error?.message || 'Unknown error'),
+        completed_at: new Date(),
+      });
     }
     console.error('Assessment generation error:', error);
     res.status(500).json({
@@ -1049,6 +1097,7 @@ router.post('/history', requireAuth, requireFeature('assessment_creation'), asyn
           title: row.title,
           assessment: parseJsonSafe(row.generated_assessment_json, null),
           input: parseJsonSafe(row.input_json, null),
+          generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
           created_at: row.created_at,
         }
       });
@@ -1068,6 +1117,7 @@ router.post('/history', requireAuth, requireFeature('assessment_creation'), asyn
         title: row.title,
         assessment: parseJsonSafe(row.generated_assessment_json, null),
         input: parseJsonSafe(row.input_json, null),
+        generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
         created_at: row.created_at,
       }
     });
@@ -1106,6 +1156,7 @@ router.get('/history', requireAuth, requireFeature('assessment_creation'), async
       title: row.title,
       assessment: parseJsonSafe(row.generated_assessment_json, null),
       input: parseJsonSafe(row.input_json, null),
+      generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
       created_at: row.created_at,
     }));
     res.json({ success: true, items });

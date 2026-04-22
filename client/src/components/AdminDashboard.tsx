@@ -8,10 +8,13 @@ import {
   CustomHomeworkTelemetryResponse,
   Department,
   FeatureFlags,
+  GenerationJobDeadLettersResponse,
+  GenerationJobsResponse,
   GenerationTelemetryResponse,
   ManagementPerformanceResponse,
   modulesAPI,
   Organisation,
+  PromptRegistryResponse,
   resultsAPI,
   SubmissionIdentityConflictItem,
   SubmissionIdentityConflictResponse,
@@ -90,6 +93,10 @@ const AdminDashboard: React.FC = () => {
   const [submissionIdentityConflicts, setSubmissionIdentityConflicts] = useState<SubmissionIdentityConflictResponse | null>(null);
   const [customHomeworkTelemetry, setCustomHomeworkTelemetry] = useState<CustomHomeworkTelemetryResponse | null>(null);
   const [generationTelemetry, setGenerationTelemetry] = useState<GenerationTelemetryResponse | null>(null);
+  const [generationJobs, setGenerationJobs] = useState<GenerationJobsResponse | null>(null);
+  const [generationJobDeadLetters, setGenerationJobDeadLetters] = useState<GenerationJobDeadLettersResponse | null>(null);
+  const [promptRegistry, setPromptRegistry] = useState<PromptRegistryResponse | null>(null);
+  const [retryingGenerationJobId, setRetryingGenerationJobId] = useState<number | null>(null);
   const [identityBackfillBusy, setIdentityBackfillBusy] = useState(false);
   const [identityResolveBusy, setIdentityResolveBusy] = useState<number | null>(null);
   const [identityResolutionSelection, setIdentityResolutionSelection] = useState<Record<number, number>>({});
@@ -146,7 +153,7 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     try {
       console.log('Fetching pending users and all users...');
-      const [pending, all, orgs, depts, health, performanceData, jobsHealth, identityHealth, identityConflicts, homeworkTelemetry, allGenerationTelemetry] = await Promise.all([
+      const [pending, all, orgs, depts, health, performanceData, jobsHealth, identityHealth, identityConflicts, homeworkTelemetry, allGenerationTelemetry, generationJobsRes, generationDeadLettersRes, promptRegistryRes] = await Promise.all([
         authAPI.getPendingUsers(token),
         authAPI.getAllUsers(token),
         authAPI.getOrganisations(token),
@@ -158,6 +165,9 @@ const AdminDashboard: React.FC = () => {
         assessmentsAPI.getSubmissionIdentityConflicts().catch(() => null),
         modulesAPI.getCustomHomeworkTelemetry().catch(() => null),
         modulesAPI.getGenerationTelemetry().catch(() => null),
+        modulesAPI.getGenerationJobs({ limit: 25, scope: 'all' }).catch(() => null),
+        modulesAPI.getGenerationJobDeadLetters({ limit: 25 }).catch(() => null),
+        modulesAPI.getPromptRegistry({ scope: 'all', limit: 30 }).catch(() => null),
       ]);
       console.log('Users loaded successfully:', { 
         pendingCount: pending?.length || 0, 
@@ -176,6 +186,9 @@ const AdminDashboard: React.FC = () => {
       setSubmissionIdentityConflicts(identityConflicts?.data || null);
       setCustomHomeworkTelemetry(homeworkTelemetry?.data || null);
       setGenerationTelemetry(allGenerationTelemetry?.data || null);
+      setGenerationJobs(generationJobsRes?.data || null);
+      setGenerationJobDeadLetters(generationDeadLettersRes?.data || null);
+      setPromptRegistry(promptRegistryRes?.data || null);
     } catch (err: any) {
       console.error('Error loading users:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to load users';
@@ -425,6 +438,18 @@ const AdminDashboard: React.FC = () => {
       alert(err.response?.data?.error || 'Failed to resolve submission identity conflict');
     } finally {
       setIdentityResolveBusy(null);
+    }
+  };
+
+  const handleRetryGenerationJob = async (jobId: number) => {
+    setRetryingGenerationJobId(jobId);
+    try {
+      await modulesAPI.retryGenerationJob(jobId);
+      await loadUsers();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to retry generation job');
+    } finally {
+      setRetryingGenerationJobId(null);
     }
   };
 
@@ -1224,6 +1249,172 @@ const AdminDashboard: React.FC = () => {
               ) : (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-yellow-800">Generation telemetry is unavailable right now.</p>
+                </div>
+              )}
+              {generationJobs ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Generation Job Timeline</h3>
+                      <p className="text-sm text-gray-600 mt-1">State machine timeline across generation jobs (scheduled, processing, completed, failed).</p>
+                    </div>
+                    <button
+                      onClick={loadUsers}
+                      className="px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="mt-3 overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">When</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Retries</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timeline</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {generationJobs.items.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-6 text-sm text-gray-500 text-center">No generation jobs yet.</td>
+                          </tr>
+                        ) : generationJobs.items.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.created_at ? new Date(item.created_at).toLocaleString() : 'n/a'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.job_type}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.status}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.retry_count}/{item.max_retries}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">
+                              {item.timeline.length === 0
+                                ? 'n/a'
+                                : item.timeline
+                                    .map((t) => `${t.status} (${new Date(t.at).toLocaleTimeString()})`)
+                                    .join(' -> ')}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700">
+                              {item.status === 'failed' && item.retry_count < item.max_retries ? (
+                                <button
+                                  onClick={() => handleRetryGenerationJob(item.id)}
+                                  disabled={retryingGenerationJobId === item.id}
+                                  className="px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                                >
+                                  {retryingGenerationJobId === item.id ? 'Retrying...' : 'Retry'}
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-500">n/a</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-yellow-800">Generation jobs timeline is unavailable right now.</p>
+                </div>
+              )}
+              {generationJobDeadLetters ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Generation Dead-Letter Queue</h3>
+                      <p className="text-sm text-gray-600 mt-1">Jobs that exhausted retries and require manual intervention.</p>
+                    </div>
+                    <button
+                      onClick={loadUsers}
+                      className="px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="mt-3 overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">When</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Retries</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {generationJobDeadLetters.items.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-6 text-sm text-gray-500 text-center">No dead-lettered generation jobs.</td>
+                          </tr>
+                        ) : generationJobDeadLetters.items.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.created_at ? new Date(item.created_at).toLocaleString() : 'n/a'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.job_type}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.owner_name}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.retry_count}/{item.max_retries}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.dead_letter_reason || 'max_retries_exhausted'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-yellow-800">Generation dead-letter queue is unavailable right now.</p>
+                </div>
+              )}
+              {promptRegistry ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Prompt Registry</h3>
+                      <p className="text-sm text-gray-600 mt-1">Versioned prompt governance for generation pipelines.</p>
+                    </div>
+                    <button
+                      onClick={loadUsers}
+                      className="px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="mt-3 overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">When</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Version</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scope</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {promptRegistry.items.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-6 text-sm text-gray-500 text-center">No prompt versions registered yet.</td>
+                          </tr>
+                        ) : promptRegistry.items.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.created_at ? new Date(item.created_at).toLocaleString() : 'n/a'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.generation_type}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.prompt_key}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">v{item.version}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.model || 'n/a'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{item.user_id == null ? 'Global' : 'User'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-yellow-800">Prompt registry is unavailable right now.</p>
                 </div>
               )}
               {customHomeworkTelemetry ? (

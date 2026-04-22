@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
-import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule } from '../services/api';
+import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace } from '../services/api';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -101,7 +101,13 @@ const AssessmentGenerator: React.FC = () => {
     }
   };
 
-  const addToHistory = async (assessment: GeneratedAssessment, nextSavedRubricId: number | null, nextSavedRubricName: string | null, nextSelectedRubric: any | null) => {
+  const addToHistory = async (
+    assessment: GeneratedAssessment,
+    nextSavedRubricId: number | null,
+    nextSavedRubricName: string | null,
+    nextSelectedRubric: any | null,
+    trace: GenerationTrace | null
+  ) => {
     try {
       await assessmentsAPI.saveHistory({
         assessment,
@@ -120,6 +126,7 @@ const AssessmentGenerator: React.FC = () => {
           selected_content_id: selectedContentId,
           saved_rubric_id: nextSavedRubricId,
           saved_rubric_name: nextSavedRubricName,
+          generation_trace: trace,
         }
       });
       await loadHistory();
@@ -323,6 +330,7 @@ const AssessmentGenerator: React.FC = () => {
 
       if (response.data.success) {
         setGeneratedAssessment(response.data.assessment);
+        const responseTrace = response.data.generation_trace || null;
         const responseRubric = response.data.rubric || selectedRubric || null;
         if (responseRubric) {
           setSelectedRubric(responseRubric);
@@ -331,7 +339,7 @@ const AssessmentGenerator: React.FC = () => {
         const nextSavedRubricName = response.data.saved_rubric_name ?? null;
         setSavedRubricId(nextSavedRubricId);
         setSavedRubricName(nextSavedRubricName);
-        await addToHistory(response.data.assessment, nextSavedRubricId, nextSavedRubricName, responseRubric);
+        await addToHistory(response.data.assessment, nextSavedRubricId, nextSavedRubricName, responseRubric, responseTrace);
         setPublishedLink(null);
       } else {
         setError(response.data.error || 'Failed to generate assessment');
@@ -576,6 +584,11 @@ const AssessmentGenerator: React.FC = () => {
                     <span className="font-medium truncate max-w-[260px]" title={item.assessment?.title || ''}>
                       {item.assessment?.title || item.title || 'Untitled assessment'}
                     </span>
+                    {(item.generation_trace || item.input?.generation_trace) && (
+                      <span className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">
+                        Prompt v{(item.generation_trace || item.input?.generation_trace)?.prompt_version ?? '?'} / {(item.generation_trace || item.input?.generation_trace)?.model || 'unknown model'}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
                     <button
                       type="button"

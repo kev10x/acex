@@ -9,6 +9,7 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
+const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
 
 const router = express.Router();
 const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
@@ -503,6 +504,7 @@ const secondsPerClip = process.env.SORA_VIDEO_SECONDS_PER_CLIP || '4';
 
 router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_video'), async (req, res) => {
   const requestStartedAt = Date.now();
+  let generationJobId = null;
   const telemetryBase = {
     event: 'feedback_video_generate',
     generation_type: 'feedback_video_generation',
@@ -511,6 +513,13 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
     model: process.env.SORA_MODEL || 'sora-2',
   };
   try {
+    generationJobId = await createGenerationJob({
+      user_id: req.user.id,
+      job_type: 'feedback_video_generation',
+      status: JOB_STATUS.QUEUED,
+      source_route: '/results/feedback-video/:resultId',
+      payload: { result_id: Number(req.params.resultId) || null },
+    });
     const resultId = Number(req.params.resultId);
     const markingResult = await getMarkingResultForUser(resultId, req.user.id);
     if (!markingResult) {
@@ -590,6 +599,13 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
       } catch (telemetryError) {
         console.warn('[results] Failed to persist feedback video telemetry:', telemetryError?.message || telemetryError);
       }
+      if (generationJobId) {
+        await updateGenerationJob(generationJobId, {
+          status: JOB_STATUS.QUEUED,
+          result: { status: 'queued', result_id: resultId, clips: numClips, first_video_id: firstId },
+          started_at: new Date(),
+        });
+      }
       return res.json({
         status: 'queued',
         video_id: firstId,
@@ -640,6 +656,13 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
     } catch (telemetryError) {
       console.warn('[results] Failed to persist feedback video telemetry:', telemetryError?.message || telemetryError);
     }
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.QUEUED,
+        result: { status: 'queued', result_id: resultId, clips: 1, first_video_id: openaiVideoId },
+        started_at: new Date(),
+      });
+    }
     res.json({ status, video_id: openaiVideoId, message: 'Video generation started' });
   } catch (err) {
     const errorPayload = {
@@ -658,6 +681,13 @@ router.post('/feedback-video/:resultId', requireAuth, requireFeature('feedback_v
       await persistGenerationTelemetryEvent(errorPayload);
     } catch (telemetryError) {
       console.warn('[results] Failed to persist feedback video error telemetry:', telemetryError?.message || telemetryError);
+    }
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.FAILED,
+        error_message: String(err?.message || 'Unknown error'),
+        completed_at: new Date(),
+      });
     }
     console.error('Feedback video create error:', err);
     res.status(500).json({

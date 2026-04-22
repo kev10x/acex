@@ -400,6 +400,69 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS prompt_registry (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NULL,
+          generation_type VARCHAR(60) NOT NULL,
+          prompt_key VARCHAR(80) NOT NULL DEFAULT 'default',
+          version INT NOT NULL,
+          prompt_text LONGTEXT NOT NULL,
+          provider VARCHAR(50) NULL,
+          model VARCHAR(120) NULL,
+          temperature DECIMAL(6, 3) NULL,
+          max_tokens INT NULL,
+          notes TEXT NULL,
+          is_active TINYINT(1) NOT NULL DEFAULT 1,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_prompt_registry_lookup (generation_type, prompt_key, user_id, is_active),
+          KEY idx_prompt_registry_user_created (user_id, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS generation_jobs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          job_type VARCHAR(60) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+          source_route VARCHAR(120) NULL,
+          payload_json LONGTEXT NULL,
+          result_json LONGTEXT NULL,
+          error_message TEXT NULL,
+          retry_count INT NOT NULL DEFAULT 0,
+          max_retries INT NOT NULL DEFAULT 2,
+          scheduled_for TIMESTAMP NULL,
+          started_at TIMESTAMP NULL,
+          completed_at TIMESTAMP NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_generation_jobs_user_created (user_id, created_at),
+          KEY idx_generation_jobs_type_status_created (job_type, status, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS generation_job_dead_letters (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          job_id INT NOT NULL UNIQUE,
+          user_id INT NOT NULL,
+          job_type VARCHAR(60) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          retry_count INT NOT NULL DEFAULT 0,
+          max_retries INT NOT NULL DEFAULT 0,
+          error_message TEXT NULL,
+          payload_json LONGTEXT NULL,
+          result_json LONGTEXT NULL,
+          dead_letter_reason VARCHAR(120) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_generation_job_dead_letters_user_created (user_id, created_at),
+          KEY idx_generation_job_dead_letters_type_created (job_type, created_at),
+          FOREIGN KEY (job_id) REFERENCES generation_jobs(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS assessment_generation_history (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
@@ -955,6 +1018,87 @@ const initDatabase = async () => {
             )
           `);
         }
+        const promptRegistryTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'prompt_registry'
+        `);
+        if ((promptRegistryTableCheck.rows?.[0]?.count || promptRegistryTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE prompt_registry (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NULL,
+              generation_type VARCHAR(60) NOT NULL,
+              prompt_key VARCHAR(80) NOT NULL DEFAULT 'default',
+              version INT NOT NULL,
+              prompt_text LONGTEXT NOT NULL,
+              provider VARCHAR(50) NULL,
+              model VARCHAR(120) NULL,
+              temperature DECIMAL(6, 3) NULL,
+              max_tokens INT NULL,
+              notes TEXT NULL,
+              is_active TINYINT(1) NOT NULL DEFAULT 1,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              KEY idx_prompt_registry_lookup (generation_type, prompt_key, user_id, is_active),
+              KEY idx_prompt_registry_user_created (user_id, created_at),
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+          `);
+        }
+        const generationJobsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'generation_jobs'
+        `);
+        if ((generationJobsTableCheck.rows?.[0]?.count || generationJobsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE generation_jobs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              job_type VARCHAR(60) NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+              source_route VARCHAR(120) NULL,
+              payload_json LONGTEXT NULL,
+              result_json LONGTEXT NULL,
+              error_message TEXT NULL,
+              retry_count INT NOT NULL DEFAULT 0,
+              max_retries INT NOT NULL DEFAULT 2,
+              scheduled_for TIMESTAMP NULL,
+              started_at TIMESTAMP NULL,
+              completed_at TIMESTAMP NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              KEY idx_generation_jobs_user_created (user_id, created_at),
+              KEY idx_generation_jobs_type_status_created (job_type, status, created_at),
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+          `);
+        }
+        const generationDeadLettersTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'generation_job_dead_letters'
+        `);
+        if ((generationDeadLettersTableCheck.rows?.[0]?.count || generationDeadLettersTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE generation_job_dead_letters (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              job_id INT NOT NULL UNIQUE,
+              user_id INT NOT NULL,
+              job_type VARCHAR(60) NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              retry_count INT NOT NULL DEFAULT 0,
+              max_retries INT NOT NULL DEFAULT 0,
+              error_message TEXT NULL,
+              payload_json LONGTEXT NULL,
+              result_json LONGTEXT NULL,
+              dead_letter_reason VARCHAR(120) NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              KEY idx_generation_job_dead_letters_user_created (user_id, created_at),
+              KEY idx_generation_job_dead_letters_type_created (job_type, created_at),
+              FOREIGN KEY (job_id) REFERENCES generation_jobs(id) ON DELETE CASCADE,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+          `);
+        }
         await query(`
           UPDATE assessment_submissions s
           INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
@@ -1431,6 +1575,65 @@ const initDatabase = async () => {
       await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_status_created ON generation_telemetry_events(status, created_at)`);
       await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_user_created ON generation_telemetry_events(user_id, created_at)`);
       await query(`
+        CREATE TABLE IF NOT EXISTS prompt_registry (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+          generation_type VARCHAR(60) NOT NULL,
+          prompt_key VARCHAR(80) NOT NULL DEFAULT 'default',
+          version INTEGER NOT NULL,
+          prompt_text TEXT NOT NULL,
+          provider VARCHAR(50) NULL,
+          model VARCHAR(120) NULL,
+          temperature NUMERIC(6, 3) NULL,
+          max_tokens INTEGER NULL,
+          notes TEXT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_prompt_registry_lookup ON prompt_registry(generation_type, prompt_key, user_id, is_active)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_prompt_registry_user_created ON prompt_registry(user_id, created_at)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS generation_jobs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          job_type VARCHAR(60) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+          source_route VARCHAR(120) NULL,
+          payload_json TEXT NULL,
+          result_json TEXT NULL,
+          error_message TEXT NULL,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          max_retries INTEGER NOT NULL DEFAULT 2,
+          scheduled_for TIMESTAMP NULL,
+          started_at TIMESTAMP NULL,
+          completed_at TIMESTAMP NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_created ON generation_jobs(user_id, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_jobs_type_status_created ON generation_jobs(job_type, status, created_at)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS generation_job_dead_letters (
+          id SERIAL PRIMARY KEY,
+          job_id INTEGER NOT NULL UNIQUE REFERENCES generation_jobs(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          job_type VARCHAR(60) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          max_retries INTEGER NOT NULL DEFAULT 0,
+          error_message TEXT NULL,
+          payload_json TEXT NULL,
+          result_json TEXT NULL,
+          dead_letter_reason VARCHAR(120) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_job_dead_letters_user_created ON generation_job_dead_letters(user_id, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_generation_job_dead_letters_type_created ON generation_job_dead_letters(job_type, created_at)`);
+      await query(`
         CREATE TABLE IF NOT EXISTS assessment_generation_history (
           id SERIAL PRIMARY KEY,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1906,6 +2109,83 @@ const initDatabase = async () => {
           await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_type_created ON generation_telemetry_events(generation_type, created_at)`);
           await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_status_created ON generation_telemetry_events(status, created_at)`);
           await query(`CREATE INDEX IF NOT EXISTS idx_generation_telemetry_user_created ON generation_telemetry_events(user_id, created_at)`);
+        }
+        const promptRegistryTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'prompt_registry'
+        `);
+        if ((promptRegistryTableCheckPg.rows?.[0]?.count || promptRegistryTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE prompt_registry (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+              generation_type VARCHAR(60) NOT NULL,
+              prompt_key VARCHAR(80) NOT NULL DEFAULT 'default',
+              version INTEGER NOT NULL,
+              prompt_text TEXT NOT NULL,
+              provider VARCHAR(50) NULL,
+              model VARCHAR(120) NULL,
+              temperature NUMERIC(6, 3) NULL,
+              max_tokens INTEGER NULL,
+              notes TEXT NULL,
+              is_active BOOLEAN NOT NULL DEFAULT TRUE,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX IF NOT EXISTS idx_prompt_registry_lookup ON prompt_registry(generation_type, prompt_key, user_id, is_active)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_prompt_registry_user_created ON prompt_registry(user_id, created_at)`);
+        }
+        const generationJobsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'generation_jobs'
+        `);
+        if ((generationJobsTableCheckPg.rows?.[0]?.count || generationJobsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE generation_jobs (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              job_type VARCHAR(60) NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+              source_route VARCHAR(120) NULL,
+              payload_json TEXT NULL,
+              result_json TEXT NULL,
+              error_message TEXT NULL,
+              retry_count INTEGER NOT NULL DEFAULT 0,
+              max_retries INTEGER NOT NULL DEFAULT 2,
+              scheduled_for TIMESTAMP NULL,
+              started_at TIMESTAMP NULL,
+              completed_at TIMESTAMP NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_created ON generation_jobs(user_id, created_at)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_jobs_type_status_created ON generation_jobs(job_type, status, created_at)`);
+        }
+        const generationDeadLettersTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'generation_job_dead_letters'
+        `);
+        if ((generationDeadLettersTableCheckPg.rows?.[0]?.count || generationDeadLettersTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE generation_job_dead_letters (
+              id SERIAL PRIMARY KEY,
+              job_id INTEGER NOT NULL UNIQUE REFERENCES generation_jobs(id) ON DELETE CASCADE,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              job_type VARCHAR(60) NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              retry_count INTEGER NOT NULL DEFAULT 0,
+              max_retries INTEGER NOT NULL DEFAULT 0,
+              error_message TEXT NULL,
+              payload_json TEXT NULL,
+              result_json TEXT NULL,
+              dead_letter_reason VARCHAR(120) NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_job_dead_letters_user_created ON generation_job_dead_letters(user_id, created_at)`);
+          await query(`CREATE INDEX IF NOT EXISTS idx_generation_job_dead_letters_type_created ON generation_job_dead_letters(job_type, created_at)`);
         }
         await query(`
           WITH candidates AS (

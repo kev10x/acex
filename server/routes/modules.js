@@ -10,6 +10,12 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
+const { createGenerationJob, updateGenerationJob, JOB_STATUS, listGenerationJobs } = require('../services/generationJobService');
+const {
+  listPromptRegistry,
+  createPromptRegistryVersion,
+  resolvePromptRegistryVersion,
+} = require('../services/promptRegistryService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -2723,6 +2729,250 @@ router.get('/admin/generation-telemetry', requireAuth, requireRoles(['management
   }
 });
 
+router.get('/admin/prompt-registry', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const isManager = role === 'management' || role === 'admin';
+    const scope = isManager && String(req.query?.scope || '').toLowerCase() === 'all' ? 'all' : 'mine';
+    const generationType = String(req.query?.generation_type || '').trim() || null;
+    const limit = parseClampedInt(req.query?.limit, 100, 1, 300);
+    const rows = await listPromptRegistry({
+      user_id: req.user.id,
+      generation_type: generationType,
+      scope,
+      limit,
+    });
+
+    const items = rows.map((row) => ({
+      id: Number(row.id || 0),
+      user_id: row.user_id == null ? null : Number(row.user_id),
+      generation_type: row.generation_type || 'unknown',
+      prompt_key: row.prompt_key || 'default',
+      version: Number(row.version || 1),
+      prompt_text: row.prompt_text || '',
+      provider: row.provider || null,
+      model: row.model || null,
+      temperature: row.temperature == null ? null : Number(row.temperature),
+      max_tokens: row.max_tokens == null ? null : Number(row.max_tokens),
+      notes: row.notes || null,
+      is_active: !!row.is_active,
+      created_at: row.created_at || null,
+    }));
+
+    res.json({ success: true, items });
+  } catch (error) {
+    console.error('Prompt registry list error:', error);
+    res.status(500).json({ error: 'Failed to load prompt registry' });
+  }
+});
+
+router.post('/admin/prompt-registry', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const isManager = role === 'management' || role === 'admin';
+    const useGlobalPrompt = isManager && req.body?.is_global === true;
+    const created = await createPromptRegistryVersion({
+      user_id: useGlobalPrompt ? null : req.user.id,
+      generation_type: req.body?.generation_type,
+      prompt_key: req.body?.prompt_key || 'default',
+      prompt_text: req.body?.prompt_text,
+      provider: req.body?.provider || null,
+      model: req.body?.model || null,
+      temperature: req.body?.temperature ?? null,
+      max_tokens: req.body?.max_tokens ?? null,
+      notes: req.body?.notes || null,
+      is_active: req.body?.is_active !== false,
+    });
+    if (!created) {
+      return res.status(500).json({ error: 'Failed to create prompt version' });
+    }
+
+    res.status(201).json({
+      success: true,
+      item: {
+        id: Number(created.id || 0),
+        user_id: created.user_id == null ? null : Number(created.user_id),
+        generation_type: created.generation_type || 'unknown',
+        prompt_key: created.prompt_key || 'default',
+        version: Number(created.version || 1),
+        prompt_text: created.prompt_text || '',
+        provider: created.provider || null,
+        model: created.model || null,
+        temperature: created.temperature == null ? null : Number(created.temperature),
+        max_tokens: created.max_tokens == null ? null : Number(created.max_tokens),
+        notes: created.notes || null,
+        is_active: !!created.is_active,
+        created_at: created.created_at || null,
+      },
+    });
+  } catch (error) {
+    console.error('Prompt registry create error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create prompt version' });
+  }
+});
+
+router.get('/generation-jobs', requireAuth, async (req, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const isManager = role === 'management' || role === 'admin';
+    const limit = parseClampedInt(req.query?.limit, 50, 1, 200);
+    const rows = await listGenerationJobs({
+      user_id: isManager && req.query?.scope === 'all' ? null : req.user.id,
+      limit,
+    });
+
+    const items = rows.map((row) => {
+      const payload = safeJsonParse(row.payload_json, null);
+      const result = safeJsonParse(row.result_json, null);
+      const events = [
+        row.created_at ? { status: 'scheduled', at: row.created_at } : null,
+        row.started_at ? { status: 'processing', at: row.started_at } : null,
+        row.completed_at ? { status: row.status, at: row.completed_at } : null,
+      ].filter(Boolean);
+      return {
+        id: Number(row.id || 0),
+        user_id: Number(row.user_id || 0),
+        job_type: row.job_type || 'unknown',
+        status: row.status || 'scheduled',
+        source_route: row.source_route || null,
+        retry_count: Number(row.retry_count || 0),
+        max_retries: Number(row.max_retries || 0),
+        scheduled_for: row.scheduled_for || null,
+        started_at: row.started_at || null,
+        completed_at: row.completed_at || null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+        error_message: row.error_message || null,
+        payload,
+        result,
+        timeline: events,
+      };
+    });
+
+    res.json({ success: true, items });
+  } catch (error) {
+    console.error('List generation jobs error:', error);
+    res.status(500).json({ error: 'Failed to load generation jobs' });
+  }
+});
+
+router.get('/generation-jobs/dead-letters', requireAuth, requireRoles(['management']), async (req, res) => {
+  try {
+    const limit = parseClampedInt(req.query?.limit, 50, 1, 200);
+    const applyOrgScope = !isSuperAdmin(req.user);
+    if (applyOrgScope && req.user.organisation_id == null) {
+      return res.json({ success: true, items: [] });
+    }
+    const scopeClause = applyOrgScope ? ' AND owner.organisation_id = ?' : '';
+    const scopeParams = applyOrgScope ? [req.user.organisation_id] : [];
+
+    const rows = isMySQL()
+      ? rowList(await query(
+          `SELECT
+             dl.id, dl.job_id, dl.user_id, dl.job_type, dl.status, dl.retry_count, dl.max_retries,
+             dl.error_message, dl.payload_json, dl.result_json, dl.dead_letter_reason, dl.created_at,
+             owner.name AS owner_name, owner.email AS owner_email
+           FROM generation_job_dead_letters dl
+           INNER JOIN users owner ON owner.id = dl.user_id
+           WHERE 1=1${scopeClause}
+           ORDER BY dl.created_at DESC
+           LIMIT ?`,
+          [...scopeParams, limit]
+        ))
+      : rowList(await query(
+          `SELECT
+             dl.id, dl.job_id, dl.user_id, dl.job_type, dl.status, dl.retry_count, dl.max_retries,
+             dl.error_message, dl.payload_json, dl.result_json, dl.dead_letter_reason, dl.created_at,
+             owner.name AS owner_name, owner.email AS owner_email
+           FROM generation_job_dead_letters dl
+           INNER JOIN users owner ON owner.id = dl.user_id
+           WHERE 1=1${applyOrgScope ? ' AND owner.organisation_id = $1' : ''}
+           ORDER BY dl.created_at DESC
+           LIMIT $${applyOrgScope ? '2' : '1'}`,
+          applyOrgScope ? [req.user.organisation_id, limit] : [limit]
+        ));
+
+    const items = rows.map((row) => ({
+      id: Number(row.id || 0),
+      job_id: Number(row.job_id || 0),
+      user_id: Number(row.user_id || 0),
+      owner_name: row.owner_name || row.owner_email || 'Unknown',
+      owner_email: row.owner_email || null,
+      job_type: row.job_type || 'unknown',
+      status: row.status || 'failed',
+      retry_count: Number(row.retry_count || 0),
+      max_retries: Number(row.max_retries || 0),
+      error_message: row.error_message || null,
+      payload: safeJsonParse(row.payload_json, null),
+      result: safeJsonParse(row.result_json, null),
+      dead_letter_reason: row.dead_letter_reason || null,
+      created_at: row.created_at || null,
+    }));
+
+    res.json({ success: true, items });
+  } catch (error) {
+    console.error('List generation dead letters error:', error);
+    res.status(500).json({ error: 'Failed to load generation dead letters' });
+  }
+});
+
+router.post('/generation-jobs/:id/retry', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid job id' });
+    }
+    const role = String(req.user?.role || '').toLowerCase();
+    const isManager = role === 'management' || role === 'admin';
+
+    const rows = isMySQL()
+      ? rowList(await query(
+          `SELECT g.id, g.user_id, g.status, g.retry_count, g.max_retries
+           FROM generation_jobs g
+           WHERE g.id = ?`,
+          [id]
+        ))
+      : rowList(await query(
+          `SELECT g.id, g.user_id, g.status, g.retry_count, g.max_retries
+           FROM generation_jobs g
+           WHERE g.id = $1`,
+          [id]
+        ));
+    const row = rows[0];
+    if (!row) return res.status(404).json({ error: 'Generation job not found' });
+    if (!isManager && Number(row.user_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: 'Not allowed to retry this generation job' });
+    }
+    if (String(row.status || '') !== 'failed') {
+      return res.status(400).json({ error: 'Only failed jobs can be retried' });
+    }
+    if (Number(row.retry_count || 0) >= Number(row.max_retries || 0)) {
+      return res.status(400).json({ error: 'Max retries already exhausted for this job' });
+    }
+
+    if (isMySQL()) {
+      await query(
+        `UPDATE generation_jobs
+         SET status = ?, error_message = ?, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        ['scheduled', 'Manual retry scheduled', id]
+      );
+    } else {
+      await query(
+        `UPDATE generation_jobs
+         SET status = $1, error_message = $2, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        ['scheduled', 'Manual retry scheduled', id]
+      );
+    }
+
+    res.json({ success: true, message: 'Generation job retry scheduled' });
+  } catch (error) {
+    console.error('Retry generation job error:', error);
+    res.status(500).json({ error: 'Failed to retry generation job' });
+  }
+});
+
 router.post(
   '/:id/custom-homework',
   requireAuth,
@@ -2730,6 +2980,9 @@ router.post(
   requireFeature('assessment_creation'),
   async (req, res) => {
     const requestStartedAt = Date.now();
+    let generationJobId = null;
+    let contentPromptTrace = null;
+    let assessmentPromptTrace = null;
     const telemetry = {
       user_id: Number(req.user?.id) || null,
       source_module_id: Number(req.params.id) || null,
@@ -2754,6 +3007,22 @@ router.post(
       homework_module_id: null,
     };
     try {
+      generationJobId = await createGenerationJob({
+        user_id: req.user.id,
+        job_type: 'custom_homework_generation',
+        status: JOB_STATUS.PROCESSING,
+        source_route: '/modules/:id/custom-homework',
+        payload: {
+          module_id: Number(req.params.id) || null,
+          student_user_id: Number(req.body?.student_user_id) || null,
+          level: String(req.body?.level || '').trim() || null,
+          num_sections: parseClampedInt(req.body?.num_sections, 4, 2, 8),
+          question_count: parseClampedInt(req.body?.question_count, 8, 4, 20),
+        },
+      });
+      if (generationJobId) {
+        await updateGenerationJob(generationJobId, { started_at: new Date() });
+      }
       const sourceModuleId = Number(req.params.id);
       const studentUserId = Number(req.body?.student_user_id);
       const requestedLevel = String(req.body?.level || '').trim();
@@ -2916,6 +3185,17 @@ router.post(
       ].filter(Boolean).join(' ');
 
       const contentGenerationStartedAt = Date.now();
+      const contentConfig = aiConfig.getTaskConfig('contentGeneration', 'openai');
+      contentPromptTrace = await resolvePromptRegistryVersion({
+        user_id: req.user.id,
+        generation_type: 'custom_homework_generation',
+        prompt_key: 'custom-homework.content.default',
+        prompt_text: 'Default custom-homework content generation prompt template.',
+        provider: contentConfig.provider,
+        model: contentConfig.model,
+        temperature: contentConfig.temperature,
+        max_tokens: contentConfig.maxTokens,
+      });
       let generatedContent = await contentService.generateContentWithAI({
         topics: topicsPrompt,
         level: requestedLevel || 'Undergraduate',
@@ -2936,6 +3216,16 @@ router.post(
       const assessmentConfig = aiConfig.getTaskConfig('assessmentGeneration', 'openai');
       telemetry.assessment_provider = assessmentConfig.provider;
       telemetry.assessment_model = assessmentConfig.model;
+      assessmentPromptTrace = await resolvePromptRegistryVersion({
+        user_id: req.user.id,
+        generation_type: 'custom_homework_generation',
+        prompt_key: 'custom-homework.assessment.default',
+        prompt_text: 'Default custom-homework assessment generation prompt template.',
+        provider: assessmentConfig.provider,
+        model: assessmentConfig.model,
+        temperature: assessmentConfig.temperature,
+        max_tokens: assessmentConfig.maxTokens,
+      });
       const assessmentPrompt = `You are an expert educator creating a personalized remedial homework assessment.
 
 Student: ${studentLabel}
@@ -3147,6 +3437,8 @@ Rules:
           assessment_generation_mode: telemetry.assessment_generation_mode,
           generated_question_count: telemetry.generated_question_count,
           homework_module_id: telemetry.homework_module_id,
+          content_prompt_version: contentPromptTrace?.prompt_version || null,
+          assessment_prompt_version: assessmentPromptTrace?.prompt_version || null,
         },
       };
       logGenerationTelemetry(genericSuccessPayload);
@@ -3154,6 +3446,18 @@ Rules:
         await persistGenerationTelemetryEvent(genericSuccessPayload);
       } catch (telemetryError) {
         console.warn('[custom-homework] Failed to persist generic success telemetry:', telemetryError?.message || telemetryError);
+      }
+      if (generationJobId) {
+        await updateGenerationJob(generationJobId, {
+          status: JOB_STATUS.COMPLETED,
+          result: {
+            success: true,
+            homework_module_id: homeworkModuleId,
+            content_code: publishedContent.code,
+            assessment_code: publishedAssessment.code,
+          },
+          completed_at: new Date(),
+        });
       }
 
       res.json({
@@ -3193,6 +3497,10 @@ Rules:
             generation_warning: assessmentGenerationWarning,
             link: `${assessmentPath}?code=${publishedAssessment.code}`,
           },
+        },
+        generation_trace: {
+          content: contentPromptTrace,
+          assessment: assessmentPromptTrace,
         },
       });
     } catch (error) {
@@ -3235,6 +3543,8 @@ Rules:
           include_diagrams: telemetry.include_diagrams,
           include_images: telemetry.include_images,
           assessment_generation_mode: telemetry.assessment_generation_mode,
+          content_prompt_version: contentPromptTrace?.prompt_version || null,
+          assessment_prompt_version: assessmentPromptTrace?.prompt_version || null,
         },
       };
       logGenerationTelemetry(genericErrorPayload);
@@ -3242,6 +3552,13 @@ Rules:
         await persistGenerationTelemetryEvent(genericErrorPayload);
       } catch (telemetryError) {
         console.warn('[custom-homework] Failed to persist generic error telemetry:', telemetryError?.message || telemetryError);
+      }
+      if (generationJobId) {
+        await updateGenerationJob(generationJobId, {
+          status: JOB_STATUS.FAILED,
+          error_message: String(error?.message || 'Unknown error'),
+          completed_at: new Date(),
+        });
       }
       console.error('Generate custom homework module error:', error);
       res.status(500).json({ error: error.message || 'Failed to generate custom homework module' });

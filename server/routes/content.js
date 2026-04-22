@@ -21,6 +21,8 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
+const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
+const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -372,6 +374,8 @@ const uploadTemplate = multer({
 router.post('/generate', requireAuth, requireFeature('content_creation'), async (req, res) => {
   const requestStartedAt = Date.now();
   const taskConfig = aiConfig.getTaskConfig('contentGeneration', 'openai');
+  let promptTrace = null;
+  let generationJobId = null;
   const telemetryBase = {
     event: 'content_generate',
     generation_type: 'content_generation',
@@ -389,6 +393,26 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     },
   };
   try {
+    generationJobId = await createGenerationJob({
+      user_id: req.user.id,
+      job_type: 'content_generation',
+      status: JOB_STATUS.PROCESSING,
+      source_route: '/content/generate',
+      payload: req.body || {},
+    });
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, { started_at: new Date() });
+    }
+    promptTrace = await resolvePromptRegistryVersion({
+      user_id: req.user.id,
+      generation_type: 'content_generation',
+      prompt_key: 'content.generate.default',
+      prompt_text: 'Default content generation prompt template used by /content/generate.',
+      provider: taskConfig?.provider || null,
+      model: taskConfig?.model || null,
+      temperature: taskConfig?.temperature ?? null,
+      max_tokens: taskConfig?.maxTokens ?? null,
+    });
     const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true } = req.body;
     if (!topics || !String(topics).trim()) {
       return res.status(400).json({ error: 'topics is required' });
@@ -442,6 +466,8 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
         ...telemetryBase.metadata,
         section_count: Array.isArray(content?.sections) ? content.sections.length : 0,
         quiz_question_count: Array.isArray(content?.quiz?.questions) ? content.quiz.questions.length : 0,
+        prompt_key: promptTrace?.prompt_key || null,
+        prompt_version: promptTrace?.prompt_version || null,
       },
     };
     logGenerationTelemetry(successPayload);
@@ -450,7 +476,18 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     } catch (telemetryError) {
       console.warn('[content] Failed to persist generation telemetry:', telemetryError?.message || telemetryError);
     }
-    res.json({ success: true, content });
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.COMPLETED,
+        result: {
+          success: true,
+          title: content?.title || null,
+          section_count: Array.isArray(content?.sections) ? content.sections.length : 0,
+        },
+        completed_at: new Date(),
+      });
+    }
+    res.json({ success: true, content, generation_trace: promptTrace });
   } catch (error) {
     const errorPayload = {
       ...telemetryBase,
@@ -458,12 +495,24 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       duration_ms: Date.now() - requestStartedAt,
       error_type: inferGenerationErrorType(error),
       error_message: String(error?.message || 'Unknown error'),
+      metadata: {
+        ...telemetryBase.metadata,
+        prompt_key: promptTrace?.prompt_key || null,
+        prompt_version: promptTrace?.prompt_version || null,
+      },
     };
     logGenerationTelemetry(errorPayload);
     try {
       await persistGenerationTelemetryEvent(errorPayload);
     } catch (telemetryError) {
       console.warn('[content] Failed to persist error telemetry:', telemetryError?.message || telemetryError);
+    }
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.FAILED,
+        error_message: String(error?.message || 'Unknown error'),
+        completed_at: new Date(),
+      });
     }
     console.error('Content generate error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate content' });
@@ -836,6 +885,7 @@ router.post('/history', requireAuth, requireFeature('content_creation'), async (
           title: row.title,
           content: parseJsonSafe(row.generated_content_json, null),
           input: parseJsonSafe(row.input_json, null),
+          generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
           created_at: row.created_at,
         }
       });
@@ -855,6 +905,7 @@ router.post('/history', requireAuth, requireFeature('content_creation'), async (
         title: row.title,
         content: parseJsonSafe(row.generated_content_json, null),
         input: parseJsonSafe(row.input_json, null),
+        generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
         created_at: row.created_at,
       }
     });
@@ -905,6 +956,7 @@ router.put('/history/:id', requireAuth, requireFeature('content_creation'), asyn
           title: row.title,
           content: parseJsonSafe(row.generated_content_json, null),
           input: parseJsonSafe(row.input_json, null),
+          generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
           created_at: row.created_at,
         }
       });
@@ -928,6 +980,7 @@ router.put('/history/:id', requireAuth, requireFeature('content_creation'), asyn
         title: row.title,
         content: parseJsonSafe(row.generated_content_json, null),
         input: parseJsonSafe(row.input_json, null),
+        generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
         created_at: row.created_at,
       }
     });
@@ -965,6 +1018,7 @@ router.get('/history', requireAuth, requireFeature('content_creation'), async (r
       title: row.title,
       content: parseJsonSafe(row.generated_content_json, null),
       input: parseJsonSafe(row.input_json, null),
+      generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
       created_at: row.created_at,
     }));
     res.json({ success: true, items });

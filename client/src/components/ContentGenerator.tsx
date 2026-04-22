@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 
 const LEVEL_OPTIONS = [
@@ -56,6 +56,7 @@ const ContentGenerator: React.FC = () => {
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
+  const [generationTrace, setGenerationTrace] = useState<GenerationTrace | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
@@ -130,12 +131,15 @@ const ContentGenerator: React.FC = () => {
     tts_enabled: content.tts_enabled !== false && includeTextToSpeech,
   });
 
-  const addToHistory = async (content: GeneratedContent) => {
+  const addToHistory = async (content: GeneratedContent, trace: GenerationTrace | null) => {
     try {
       const normalizedContent = withGenerationSettings(content);
       const res = await contentAPI.saveHistory({
         content: normalizedContent,
-        input: buildContentInput(),
+        input: {
+          ...buildContentInput(),
+          generation_trace: trace,
+        },
       });
       if (res.data?.item?.id) {
         setActiveHistoryId(res.data.item.id);
@@ -159,6 +163,7 @@ const ContentGenerator: React.FC = () => {
       ...item.content,
       tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
     });
+    setGenerationTrace(item.generation_trace || input.generation_trace || null);
     setSelectedVisualKey(null);
     setActiveHistoryId(item.id);
     setActivePublishedContentId(null);
@@ -180,6 +185,7 @@ const ContentGenerator: React.FC = () => {
       setSelectedVisualKey(null);
       setRubricId(item.rubric_id ?? null);
       setIncludeTextToSpeech(item.content.tts_enabled !== false);
+      setGenerationTrace(null);
       setActivePublishedContentId(item.id);
       setActivePublishedContentCode(item.code);
       setActiveHistoryId(null);
@@ -216,7 +222,10 @@ const ContentGenerator: React.FC = () => {
       } else {
         const payload = {
           content: contentToSave,
-          input: buildContentInput(),
+          input: {
+            ...buildContentInput(),
+            generation_trace: generationTrace,
+          },
         };
         const res = activeHistoryId
           ? await contentAPI.updateHistoryItem(activeHistoryId, payload)
@@ -370,6 +379,7 @@ const ContentGenerator: React.FC = () => {
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
     setGeneratedContent(null);
+    setGenerationTrace(null);
     try {
       let effectiveTemplateId = templateId;
       if (templateFile) {
@@ -391,8 +401,10 @@ const ContentGenerator: React.FC = () => {
       });
       if (res.data.success && res.data.content) {
         const contentWithSettings = withGenerationSettings(res.data.content);
+        const trace = res.data.generation_trace || null;
+        setGenerationTrace(trace);
         setGeneratedContent(contentWithSettings);
-        await addToHistory(contentWithSettings);
+        await addToHistory(contentWithSettings, trace);
       } else {
         setError('Failed to generate content');
       }
@@ -838,6 +850,11 @@ const ContentGenerator: React.FC = () => {
                     <span className="font-medium truncate max-w-[260px]" title={item.content?.title || ''}>
                       {item.content?.title || item.title || 'Untitled content'}
                     </span>
+                    {(item.generation_trace || item.input?.generation_trace) && (
+                      <span className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">
+                        Prompt v{(item.generation_trace || item.input?.generation_trace)?.prompt_version ?? '?'} / {(item.generation_trace || item.input?.generation_trace)?.model || 'unknown model'}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
                     <button
                       type="button"

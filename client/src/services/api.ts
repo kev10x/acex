@@ -562,7 +562,20 @@ export interface AssessmentHistoryItem {
   title: string;
   assessment: GeneratedAssessment;
   input?: any;
+  generation_trace?: GenerationTrace | null;
   created_at: string;
+}
+
+export interface GenerationTrace {
+  prompt_registry_id: number;
+  generation_type: string;
+  prompt_key: string;
+  prompt_version: number;
+  provider?: string | null;
+  model?: string | null;
+  temperature?: number | null;
+  max_tokens?: number | null;
+  source?: 'global' | 'user' | string;
 }
 
 export interface AssessmentSubmissionResult {
@@ -675,7 +688,7 @@ export const assessmentsAPI = {
     topic?: string | null;
     question_types?: ('mcq' | 'essay' | 'short_answer' | 'mix_and_match' | 'mix')[];
     content_id?: number;
-  }) => api.post('/assessments/generate', data),
+  }) => api.post<{ success: boolean; assessment: GeneratedAssessment; generation_trace?: GenerationTrace | null }>('/assessments/generate', data),
   getStats: () => api.get('/assessments/stats'),
   publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string }) =>
     api.post('/assessments/publish', data),
@@ -779,6 +792,7 @@ export interface ContentHistoryItem {
   title: string;
   content: GeneratedContent;
   input?: any;
+  generation_trace?: GenerationTrace | null;
   created_at: string;
 }
 export interface PublishedContentItem {
@@ -1077,6 +1091,71 @@ export interface GenerationTelemetryResponse {
   daily_trend: GenerationTelemetryTrendItem[];
   recent_events: GenerationTelemetryEvent[];
 }
+export interface GenerationJobTimelineEvent {
+  status: string;
+  at: string;
+}
+export interface GenerationJobItem {
+  id: number;
+  user_id: number;
+  job_type: string;
+  status: string;
+  source_route: string | null;
+  retry_count: number;
+  max_retries: number;
+  scheduled_for: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  error_message: string | null;
+  payload: Record<string, any> | null;
+  result: Record<string, any> | null;
+  timeline: GenerationJobTimelineEvent[];
+}
+export interface GenerationJobsResponse {
+  success: boolean;
+  items: GenerationJobItem[];
+}
+export interface GenerationJobDeadLetterItem {
+  id: number;
+  job_id: number;
+  user_id: number;
+  owner_name: string;
+  owner_email: string | null;
+  job_type: string;
+  status: string;
+  retry_count: number;
+  max_retries: number;
+  error_message: string | null;
+  payload: Record<string, any> | null;
+  result: Record<string, any> | null;
+  dead_letter_reason: string | null;
+  created_at: string | null;
+}
+export interface GenerationJobDeadLettersResponse {
+  success: boolean;
+  items: GenerationJobDeadLetterItem[];
+}
+export interface PromptRegistryItem {
+  id: number;
+  user_id: number | null;
+  generation_type: string;
+  prompt_key: string;
+  version: number;
+  prompt_text: string;
+  provider: string | null;
+  model: string | null;
+  temperature: number | null;
+  max_tokens: number | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string | null;
+}
+export interface PromptRegistryResponse {
+  success: boolean;
+  items: PromptRegistryItem[];
+}
 export interface ContentPlannerJob {
   id: number;
   topics: string;
@@ -1102,7 +1181,7 @@ export const contentAPI = {
     template_id?: string;
     include_diagrams?: boolean;
     include_images?: boolean;
-  }) => api.post('/content/generate', data),
+  }) => api.post<{ success: boolean; content: GeneratedContent; generation_trace?: GenerationTrace | null }>('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
     api.post('/content/publish', data),
   getMy: () => api.get<{ success: boolean; items: PublishedContentItem[] }>('/content/my'),
@@ -1224,6 +1303,26 @@ export const modulesAPI = {
     api.get<CustomHomeworkTelemetryResponse>('/modules/admin/custom-homework-telemetry'),
   getGenerationTelemetry: (params?: { days?: number; limit?: number }) =>
     api.get<GenerationTelemetryResponse>('/modules/admin/generation-telemetry', { params }),
+  getGenerationJobs: (params?: { limit?: number; scope?: 'mine' | 'all' }) =>
+    api.get<GenerationJobsResponse>('/modules/generation-jobs', { params }),
+  getGenerationJobDeadLetters: (params?: { limit?: number }) =>
+    api.get<GenerationJobDeadLettersResponse>('/modules/generation-jobs/dead-letters', { params }),
+  retryGenerationJob: (id: number) =>
+    api.post<{ success: boolean; message: string }>(`/modules/generation-jobs/${id}/retry`),
+  getPromptRegistry: (params?: { generation_type?: string; scope?: 'mine' | 'all'; limit?: number }) =>
+    api.get<PromptRegistryResponse>('/modules/admin/prompt-registry', { params }),
+  createPromptRegistryVersion: (data: {
+    generation_type: string;
+    prompt_key?: string;
+    prompt_text: string;
+    provider?: string | null;
+    model?: string | null;
+    temperature?: number | null;
+    max_tokens?: number | null;
+    notes?: string | null;
+    is_active?: boolean;
+    is_global?: boolean;
+  }) => api.post<{ success: boolean; item: PromptRegistryItem }>('/modules/admin/prompt-registry', data),
   getStudentModules: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules/student'),
   getStudentHomeworkProgress: () =>
     api.get<{ success: boolean; items: StudentHomeworkProgressItem[] }>('/modules/student/homework-progress'),
