@@ -12,7 +12,9 @@ import {
   HomeworkHistoryItem,
   HomeworkOutcomeItem,
   HomeworkReviewQueueItem,
+  HomeworkTrendsResponse,
 } from '../services/api';
+import StatePanel from './feedback/StatePanel';
 
 // ── Library types ─────────────────────────────────────────────
 interface ContentSection {
@@ -76,6 +78,7 @@ const ModuleOrganizer: React.FC = () => {
   const [assessmentLib, setAssessmentLib] = useState<LibraryAssessment[]>([]);
   const [homeworkHistory, setHomeworkHistory] = useState<HomeworkHistoryItem[]>([]);
   const [homeworkOutcomes, setHomeworkOutcomes] = useState<HomeworkOutcomeItem[]>([]);
+  const [homeworkTrends, setHomeworkTrends] = useState<HomeworkTrendsResponse | null>(null);
   const [homeworkReviewQueue, setHomeworkReviewQueue] = useState<HomeworkReviewQueueItem[]>([]);
   const [students, setStudents] = useState<{ id: number; name: string; email: string }[]>([]);
 
@@ -119,6 +122,7 @@ const ModuleOrganizer: React.FC = () => {
         assessmentsRes,
         homeworkHistoryRes,
         homeworkOutcomesRes,
+        homeworkTrendsRes,
         homeworkReviewQueueRes,
       ] = await Promise.all([
         modulesAPI.listAvailableStudents(),
@@ -127,6 +131,7 @@ const ModuleOrganizer: React.FC = () => {
         assessmentsAPI.getPublished(),
         modulesAPI.getHomeworkHistory(),
         modulesAPI.getHomeworkOutcomes(),
+        modulesAPI.getHomeworkTrends(),
         modulesAPI.getHomeworkReviewQueue({ status: 'all', reminder_days: 3 }),
       ]);
       setStudents(studentsRes.data.students || []);
@@ -149,6 +154,7 @@ const ModuleOrganizer: React.FC = () => {
       );
       setHomeworkHistory(homeworkHistoryRes.data.items || []);
       setHomeworkOutcomes(homeworkOutcomesRes.data.items || []);
+      setHomeworkTrends(homeworkTrendsRes.data || null);
       setHomeworkReviewQueue(homeworkReviewQueueRes.data.items || []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to load');
@@ -496,7 +502,7 @@ const ModuleOrganizer: React.FC = () => {
 
   const handleExportOutcomeCriteriaCsv = () => {
     const escapeCsv = (value: any) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const rowsSource = trendStudentId === 'all' ? homeworkOutcomes : trendOutcomes;
+    const rowsSource = trendStudentId === 'all' ? trendRows : trendOutcomes;
     const header = [
       'student_name',
       'homework_date',
@@ -583,14 +589,37 @@ const ModuleOrganizer: React.FC = () => {
     return studentMatch && moduleMatch && fromMatch && toMatch && statusMatch;
   });
   const outcomeByModuleId = new Map(homeworkOutcomes.map((item) => [item.homework_module_id, item]));
-  const trendStudents = Array.from(new Map(
-    homeworkOutcomes
-      .filter((item) => item.student?.id != null)
-      .map((item) => [Number(item.student.id), item.student])
-  ).entries())
-    .map(([id, student]) => ({ id, name: student?.name || `Student ${id}` }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const trendOutcomes = homeworkOutcomes
+  const trendRows = Array.isArray(homeworkTrends?.timeline) && homeworkTrends.timeline.length > 0
+    ? homeworkTrends.timeline.map((item) => ({
+        homework_module_id: item.homework_module_id,
+        homework_module_name: item.homework_module_name,
+        homework_created_at: item.homework_created_at,
+        student: item.student,
+        latest_score_percent: item.latest_score_percent,
+        latest_completed_at: item.latest_completed_at,
+        summary: {
+          improved_count: item.improved_count,
+          declined_count: item.declined_count,
+          unchanged_count: item.unchanged_count,
+          impact_percent: item.impact_percent,
+          impact_status: item.impact_status,
+          follow_up_recommended: item.follow_up_recommended,
+        },
+      }))
+    : homeworkOutcomes;
+  const trendStudents = Array.isArray(homeworkTrends?.students) && homeworkTrends.students.length > 0
+    ? homeworkTrends.students
+      .filter((row) => row.student?.id != null)
+      .map((row) => ({ id: Number(row.student.id), name: row.student.name || `Student ${row.student.id}` }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : Array.from(new Map(
+        trendRows
+          .filter((item) => item.student?.id != null)
+          .map((item) => [Number(item.student.id), item.student])
+      ).entries())
+        .map(([id, student]) => ({ id, name: student?.name || `Student ${id}` }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+  const trendOutcomes = trendRows
     .filter((item) => {
       if (trendStudentId === 'all') return false;
       return Number(item.student?.id) === Number(trendStudentId);
@@ -611,21 +640,38 @@ const ModuleOrganizer: React.FC = () => {
     return { x, y, score };
   }).filter(Boolean) as Array<{ x: number; y: number; score: number }>;
   const trendPath = trendPathPoints.map((p) => `${p.x},${p.y}`).join(' ');
-  const outcomeByStudentSummary = trendStudents.map((student) => {
-    const rows = homeworkOutcomes
-      .filter((item) => Number(item.student?.id) === Number(student.id))
-      .sort((a, b) => new Date(String(a.homework_created_at || 0)).getTime() - new Date(String(b.homework_created_at || 0)).getTime());
-    const latest = rows[rows.length - 1] || null;
-    const latestScore = latest?.latest_score_percent != null ? Number(latest.latest_score_percent) : null;
-    const improvedTotal = rows.reduce((sum, row) => sum + Number(row.summary?.improved_count || 0), 0);
-    return {
-      id: student.id,
-      name: student.name,
-      cycles: rows.length,
-      latestScore,
-      improvedTotal,
-    };
-  });
+  const outcomeByStudentSummary = Array.isArray(homeworkTrends?.students) && homeworkTrends.students.length > 0
+    ? homeworkTrends.students
+        .filter((row) => row.student?.id != null)
+        .map((row) => ({
+          id: Number(row.student.id),
+          name: row.student.name || `Student ${row.student.id}`,
+          cycles: Number(row.cycles || 0),
+          latestScore: row.latest_score_percent == null ? null : Number(row.latest_score_percent),
+          improvedTotal: Number(row.improved_cycles || 0),
+          avgImpactPercent: row.avg_impact_percent == null ? null : Number(row.avg_impact_percent),
+        }))
+    : trendStudents.map((student) => {
+        const rows = trendRows
+          .filter((item) => Number(item.student?.id) === Number(student.id))
+          .sort((a, b) => new Date(String(a.homework_created_at || 0)).getTime() - new Date(String(b.homework_created_at || 0)).getTime());
+        const latest = rows[rows.length - 1] || null;
+        const latestScore = latest?.latest_score_percent != null ? Number(latest.latest_score_percent) : null;
+        const improvedTotal = rows.reduce((sum, row) => sum + Number(row.summary?.improved_count || 0), 0);
+        const knownImpacts = rows
+          .map((row) => (row.summary?.impact_percent == null ? null : Number(row.summary.impact_percent)))
+          .filter((v) => Number.isFinite(v));
+        return {
+          id: student.id,
+          name: student.name,
+          cycles: rows.length,
+          latestScore,
+          improvedTotal,
+          avgImpactPercent: knownImpacts.length > 0
+            ? Number((knownImpacts.reduce((sum, val) => sum + Number(val), 0) / knownImpacts.length).toFixed(1))
+            : null,
+        };
+      });
   const selectedVisibleHomeworkCount = filteredHomeworkHistory
     .map((item) => item.homework_module_id)
     .filter((id) => selectedHomeworkIds.has(id)).length;
@@ -693,14 +739,16 @@ const ModuleOrganizer: React.FC = () => {
       )}
 
       {error && (
-        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-          {error}
-        </div>
+        <StatePanel
+          variant="error"
+          title="Could not update modules"
+          message={error}
+          actionLabel="Retry"
+          onAction={() => { void loadAll(); }}
+        />
       )}
       {notice && (
-        <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
-          {notice}
-        </div>
+        <StatePanel variant="info" title="Update" message={notice} />
       )}
 
       <div className="flex flex-col lg:flex-row gap-4 items-start">
@@ -738,9 +786,12 @@ const ModuleOrganizer: React.FC = () => {
               <div className="pt-2">
 
             {loading ? (
-              <div className="flex items-center gap-2 text-xs text-gray-500 px-1 mb-3">
-                <Loader2 className="w-3 h-3 animate-spin" /> Loading...
-              </div>
+              <StatePanel
+                variant="loading"
+                title="Loading library"
+                message="Fetching published content..."
+                className="mb-3"
+              />
             ) : filteredContent.length === 0 ? (
               <p className="text-xs text-gray-400 px-1 mb-3">No published content yet.</p>
             ) : (
@@ -938,9 +989,9 @@ const ModuleOrganizer: React.FC = () => {
 
         {/* ── Modules panel ───────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-4">
-          <details className="bg-white border border-blue-200 rounded-xl shadow-sm overflow-hidden" open={homeworkOutcomes.length > 0}>
+          <details className="bg-white border border-blue-200 rounded-xl shadow-sm overflow-hidden" open={trendRows.length > 0}>
             <summary className="cursor-pointer list-none px-4 py-3 bg-blue-50 border-b border-blue-100 text-sm font-semibold text-blue-900">
-              Outcome trends by student ({homeworkOutcomes.length})
+              Outcome trends by student ({trendRows.length})
             </summary>
             <div className="p-3 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -989,6 +1040,7 @@ const ModuleOrganizer: React.FC = () => {
                           <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Student</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Homework cycles</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Latest score</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Avg impact</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Total improved areas</th>
                         </tr>
                       </thead>
@@ -998,6 +1050,9 @@ const ModuleOrganizer: React.FC = () => {
                             <td className="px-3 py-2 text-sm text-gray-800">{row.name}</td>
                             <td className="px-3 py-2 text-sm text-gray-700">{row.cycles}</td>
                             <td className="px-3 py-2 text-sm text-gray-700">{row.latestScore == null ? 'n/a' : `${row.latestScore}%`}</td>
+                            <td className={`px-3 py-2 text-sm ${row.avgImpactPercent == null ? 'text-gray-500' : row.avgImpactPercent >= 2 ? 'text-emerald-700' : row.avgImpactPercent <= -2 ? 'text-red-700' : 'text-blue-700'}`}>
+                              {row.avgImpactPercent == null ? 'n/a' : `${row.avgImpactPercent > 0 ? '+' : ''}${row.avgImpactPercent}%`}
+                            </td>
                             <td className="px-3 py-2 text-sm text-gray-700">{row.improvedTotal}</td>
                           </tr>
                         ))}
@@ -1009,7 +1064,7 @@ const ModuleOrganizer: React.FC = () => {
                 <p className="text-sm text-gray-500">No trend history for this student yet.</p>
               ) : (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                     <div className="rounded border border-blue-100 bg-blue-50 p-2">
                       <p className="text-[11px] text-blue-700">Homework cycles</p>
                       <p className="text-sm font-semibold text-blue-900">{trendOutcomes.length}</p>
@@ -1026,6 +1081,19 @@ const ModuleOrganizer: React.FC = () => {
                       <p className="text-[11px] text-blue-700">Total improved areas</p>
                       <p className="text-sm font-semibold text-blue-900">
                         {trendOutcomes.reduce((sum, item) => sum + Number(item.summary?.improved_count || 0), 0)}
+                      </p>
+                    </div>
+                    <div className="rounded border border-blue-100 bg-blue-50 p-2">
+                      <p className="text-[11px] text-blue-700">Homework impact</p>
+                      <p className="text-sm font-semibold text-blue-900">
+                        {(() => {
+                          const impacts = trendOutcomes
+                            .map((item) => (item.summary?.impact_percent == null ? null : Number(item.summary.impact_percent)))
+                            .filter((v) => Number.isFinite(v));
+                          if (impacts.length === 0) return 'n/a';
+                          const avg = Number((impacts.reduce((sum, val) => sum + Number(val), 0) / impacts.length).toFixed(1));
+                          return `${avg > 0 ? '+' : ''}${avg}%`;
+                        })()}
                       </p>
                     </div>
                   </div>
@@ -1053,6 +1121,7 @@ const ModuleOrganizer: React.FC = () => {
                       <p key={`trend-detail-${item.homework_module_id}`} className="text-xs text-blue-900">
                         {new Date(String(item.homework_created_at || '')).toLocaleDateString()} • {item.homework_module_name}
                         {' '}• Improved {item.summary?.improved_count || 0}, unchanged {item.summary?.unchanged_count || 0}, declined {item.summary?.declined_count || 0}
+                        {' '}• Impact {item.summary?.impact_percent == null ? 'n/a' : `${Number(item.summary.impact_percent) > 0 ? '+' : ''}${item.summary.impact_percent}%`}
                       </p>
                     ))}
                   </div>
@@ -1501,14 +1570,13 @@ const ModuleOrganizer: React.FC = () => {
 
           {/* Module list */}
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading modules...
-            </div>
+            <StatePanel variant="loading" title="Loading modules" message="Syncing modules, students, and workflow data..." />
           ) : modules.length === 0 ? (
-            <div className="text-center py-16 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-              <Boxes className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">No modules yet. Create one, then drag content from the library.</p>
-            </div>
+            <StatePanel
+              variant="empty"
+              title="No modules yet"
+              message="Create one, then drag content from the library."
+            />
           ) : (
             <div className="space-y-4">
               {modules.map((module) => {

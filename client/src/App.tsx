@@ -22,6 +22,7 @@ import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
 import ToolsLanding from './components/ToolsLanding';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 
 const FileUpload = lazy(() => import('./components/FileUpload'));
 const RubricManager = lazy(() => import('./components/RubricManager'));
@@ -558,7 +559,9 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <NotificationProvider>
+        <AppContent />
+      </NotificationProvider>
     </AuthProvider>
   );
 }

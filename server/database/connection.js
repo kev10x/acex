@@ -359,6 +359,27 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS audit_events (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NULL,
+          target_user_id INT NULL,
+          category VARCHAR(50) NOT NULL,
+          action VARCHAR(100) NOT NULL,
+          outcome VARCHAR(30) NOT NULL DEFAULT 'success',
+          organisation_id INT NULL,
+          department_id INT NULL,
+          metadata_json LONGTEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_audit_events_created (created_at),
+          KEY idx_audit_events_user_created (user_id, created_at),
+          KEY idx_audit_events_category_created (category, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL,
+          FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS homework_workflow_events (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
@@ -1535,6 +1556,23 @@ const initDatabase = async () => {
       `);
       await query(`CREATE INDEX IF NOT EXISTS idx_custom_homework_telemetry_user_created ON custom_homework_telemetry(user_id, created_at)`);
       await query(`CREATE INDEX IF NOT EXISTS idx_custom_homework_telemetry_status_created ON custom_homework_telemetry(status, created_at)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS audit_events (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+          target_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+          category VARCHAR(50) NOT NULL,
+          action VARCHAR(100) NOT NULL,
+          outcome VARCHAR(30) NOT NULL DEFAULT 'success',
+          organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL,
+          department_id INTEGER NULL REFERENCES departments(id) ON DELETE SET NULL,
+          metadata_json TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events(user_id, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_audit_events_category_created ON audit_events(category, created_at)`);
       await query(`
         CREATE TABLE IF NOT EXISTS homework_workflow_events (
           id SERIAL PRIMARY KEY,

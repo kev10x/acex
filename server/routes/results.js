@@ -10,6 +10,7 @@ const {
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
 const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
+const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 
 const router = express.Router();
 const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
@@ -1075,7 +1076,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Result not found' });
     }
 
-    console.log(`[AUDIT] User ${req.user.id} (${req.user.email}) deleted marking result id=${id}`);
+    await recordAuditEvent({
+      user_id: req.user.id,
+      category: 'results',
+      action: 'delete_result',
+      outcome: 'success',
+      organisation_id: req.user?.organisation_id ?? null,
+      department_id: req.user?.department_id ?? null,
+      metadata: getRequestMetadata(req, { result_id: Number(id) || null }),
+    });
     res.json({
       success: true,
       message: 'Result deleted successfully'
@@ -1091,10 +1100,19 @@ router.delete('/', requireAuth, async (req, res) => {
   try {
     const result = await query('DELETE FROM marking_results WHERE user_id = ?', [req.user.id]);
 
-    console.log(`[AUDIT] User ${req.user.id} (${req.user.email}) deleted ALL marking results (${result.changes || result.affectedRows || 0} rows)`);
+    const removedCount = result.changes || result.affectedRows || 0;
+    await recordAuditEvent({
+      user_id: req.user.id,
+      category: 'results',
+      action: 'delete_all_results',
+      outcome: 'success',
+      organisation_id: req.user?.organisation_id ?? null,
+      department_id: req.user?.department_id ?? null,
+      metadata: getRequestMetadata(req, { removed_count: Number(removedCount) || 0 }),
+    });
     res.json({
       success: true,
-      message: `All marking results deleted successfully (${result.changes || 0} results removed)`
+      message: `All marking results deleted successfully (${removedCount} results removed)`
     });
   } catch (error) {
     console.error('Delete all results error:', error);

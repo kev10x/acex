@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { query } = require('../database/connection');
 const { requireAuth, requireAdmin, generateToken, normalizeRole, parseUserFeatures, mergeFeatures, normalizeFeatureSet } = require('../middleware/auth');
 const emailService = require('../services/emailService');
+const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 
 const router = express.Router();
 const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
@@ -69,6 +70,19 @@ function buildAuthUserPayload(user, impersonation = null) {
     features,
     impersonation
   };
+}
+
+async function auditAdminAction(req, action, targetUserId, metadata = {}) {
+  await recordAuditEvent({
+    user_id: req.user?.id || null,
+    target_user_id: targetUserId == null ? null : Number(targetUserId),
+    category: 'admin_user_management',
+    action,
+    outcome: 'success',
+    organisation_id: req.user?.organisation_id ?? null,
+    department_id: req.user?.department_id ?? null,
+    metadata: getRequestMetadata(req, metadata),
+  });
 }
 
 // Register new user
@@ -710,6 +724,11 @@ router.post('/admin/users/:id/impersonate', requireAuth, requireAdmin, async (re
       impersonatedByName: req.user.name || null
     });
 
+    await auditAdminAction(req, 'impersonate_user', targetUser.id, {
+      target_email: targetUser.email,
+      target_role: normalizeRole(targetUser.role),
+    });
+
     res.json({
       success: true,
       message: `Now impersonating ${targetUser.name || targetUser.email}`,
@@ -740,6 +759,11 @@ router.post('/admin/users/:id/approve', requireAuth, requireAdmin, async (req, r
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    await auditAdminAction(req, 'approve_user', id, {
+      target_email: user.email,
+      target_role: normalizeRole(guard.target?.role),
+    });
 
     res.json({
       message: 'User approved successfully',
@@ -794,6 +818,12 @@ router.post('/admin/users/:id/reject', requireAuth, requireAdmin, [
       return res.status(404).json({ error: 'User not found' });
     }
 
+    await auditAdminAction(req, deactivate ? 'reject_and_deactivate_user' : 'reject_user', id, {
+      deactivate: !!deactivate,
+      target_email: user.email,
+      target_role: normalizeRole(guard.target?.role),
+    });
+
     res.json({
       message: deactivate ? 'User rejected and deactivated' : 'User rejected',
       user: {
@@ -847,6 +877,11 @@ router.put('/admin/users/:id/lock', requireAuth, requireAdmin, [
       return res.status(404).json({ error: 'User not found' });
     }
 
+    await auditAdminAction(req, locked ? 'lock_user' : 'unlock_user', id, {
+      target_email: user.email,
+      target_role: normalizeRole(guard.target?.role),
+    });
+
     res.json({
       message: locked ? 'User locked' : 'User unlocked',
       user: {
@@ -889,6 +924,10 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
     }
 
     await query('DELETE FROM users WHERE id = $1', [targetId]);
+    await auditAdminAction(req, 'delete_user', targetId, {
+      target_email: targetUser.email,
+      target_role: normalizeRole(targetUser.role),
+    });
 
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
@@ -937,6 +976,10 @@ const updateUserFeaturesHandler = [
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
+      await auditAdminAction(req, 'update_user_features', id, {
+        target_email: user.email,
+        features: allowed,
+      });
       res.json({
         message: 'User features updated',
         user: {
@@ -994,6 +1037,12 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
       return res.status(404).json({ error: 'User not found' });
     }
 
+    await auditAdminAction(req, 'update_user_role', id, {
+      target_email: user.email,
+      previous_role: normalizeRole(guard.target?.role),
+      new_role: normalizeRole(role),
+    });
+
     res.json({
       message: 'User role updated successfully',
       user: {
@@ -1045,6 +1094,20 @@ router.post('/admin/organisations', requireAuth, requireAdmin, [
     if (ex) return res.status(400).json({ error: 'Organisation already exists' });
     const ins = await query('INSERT INTO organisations (name) VALUES ($1)', [name]);
     const id = ins.insertId || ins.lastID || ins.rows?.[0]?.id;
+
+    await recordAuditEvent({
+      user_id: req.user?.id || null,
+      category: 'admin_organisation_management',
+      action: 'create_organisation',
+      outcome: 'success',
+      organisation_id: req.user?.organisation_id ?? null,
+      department_id: req.user?.department_id ?? null,
+      metadata: getRequestMetadata(req, {
+        created_organisation_id: id || null,
+        created_organisation_name: name,
+      }),
+    });
+
     res.json({ success: true, organisation: { id, name } });
   } catch (error) {
     console.error('Create organisation error:', error);
@@ -1074,6 +1137,19 @@ router.put('/admin/organisations/:id/features', requireAuth, requireAdmin, [
     if (!organisation) return res.status(404).json({ error: 'Organisation not found' });
 
     await query('UPDATE organisations SET features = $1 WHERE id = $2', [featuresJson, organisationId]);
+    await recordAuditEvent({
+      user_id: req.user?.id || null,
+      category: 'admin_organisation_management',
+      action: 'update_organisation_features',
+      outcome: 'success',
+      organisation_id: req.user?.organisation_id ?? null,
+      department_id: req.user?.department_id ?? null,
+      metadata: getRequestMetadata(req, {
+        target_organisation_id: organisationId,
+        target_organisation_name: organisation.name,
+        features,
+      }),
+    });
 
     res.json({
       success: true,
@@ -1177,6 +1253,20 @@ router.post('/admin/departments', requireAuth, requireAdmin, [
     );
     const departmentId = inserted.insertId || inserted.lastID || inserted.rows?.[0]?.id;
 
+    await recordAuditEvent({
+      user_id: req.user?.id || null,
+      category: 'admin_department_management',
+      action: 'create_department',
+      outcome: 'success',
+      organisation_id: Number(organisation.id) || null,
+      department_id: null,
+      metadata: getRequestMetadata(req, {
+        department_id: departmentId || null,
+        department_name: name,
+        organisation_name: organisation.name,
+      }),
+    });
+
     res.json({
       success: true,
       department: {
@@ -1238,6 +1328,13 @@ router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
     );
     const user = result.rows?.[0] || result?.[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await auditAdminAction(req, 'assign_user_organisation', id, {
+      target_email: user.email,
+      organisation_id: user.organisation_id == null ? null : Number(user.organisation_id),
+      organisation_name: user.organisation_name || null,
+    });
+
     res.json({ success: true, user });
   } catch (error) {
     console.error('Assign organisation error:', error);
@@ -1298,6 +1395,15 @@ router.put('/admin/users/:id/department', requireAuth, requireAdmin, [
     );
     const user = result.rows?.[0] || result?.[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await auditAdminAction(req, 'assign_user_department', id, {
+      target_email: user.email,
+      organisation_id: user.organisation_id == null ? null : Number(user.organisation_id),
+      organisation_name: user.organisation_name || null,
+      department_id: user.department_id == null ? null : Number(user.department_id),
+      department_name: user.department_name || null,
+    });
+
     res.json({ success: true, user });
   } catch (error) {
     console.error('Assign department error:', error);

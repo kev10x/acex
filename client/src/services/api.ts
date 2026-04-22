@@ -900,8 +900,54 @@ export interface HomeworkOutcomeItem {
     improved_count: number;
     declined_count: number;
     unchanged_count: number;
+    impact_percent?: number | null;
+    impact_status?: 'positive' | 'neutral' | 'negative' | 'unknown' | string;
     follow_up_recommended: boolean;
   };
+}
+export interface HomeworkTrendTimelineItem {
+  homework_module_id: number;
+  homework_module_name: string;
+  homework_created_at: string | null;
+  student: {
+    id: number | null;
+    name: string;
+    email: string | null;
+  };
+  latest_score_percent: number | null;
+  latest_completed_at: string | null;
+  impact_percent: number | null;
+  impact_status: 'positive' | 'neutral' | 'negative' | 'unknown' | string;
+  improved_count: number;
+  unchanged_count: number;
+  declined_count: number;
+  follow_up_recommended: boolean;
+}
+export interface HomeworkTrendStudentSummary {
+  student: {
+    id: number | null;
+    name: string;
+    email: string | null;
+  };
+  cycles: number;
+  latest_score_percent: number | null;
+  avg_score_percent: number | null;
+  avg_impact_percent: number | null;
+  improved_cycles: number;
+  declined_cycles: number;
+  latest_completed_at: string | null;
+}
+export interface HomeworkTrendsResponse {
+  success: boolean;
+  summary: {
+    total_cycles: number;
+    student_count: number;
+    improved_cycles: number;
+    declined_cycles: number;
+    avg_impact_percent: number | null;
+  };
+  students: HomeworkTrendStudentSummary[];
+  timeline: HomeworkTrendTimelineItem[];
 }
 export interface HomeworkReviewQueueItem {
   homework_module_id: number;
@@ -1271,6 +1317,8 @@ export const modulesAPI = {
   getHomeworkReviewQueue: (params?: { status?: 'all' | 'draft' | 'reviewed'; older_than_days?: number; reminder_days?: number }) =>
     api.get<HomeworkReviewQueueResponse>('/modules/homework-review-queue', { params }),
   getHomeworkOutcomes: () => api.get<{ success: boolean; items: HomeworkOutcomeItem[] }>('/modules/homework-outcomes'),
+  getHomeworkTrends: (params?: { student_id?: number }) =>
+    api.get<HomeworkTrendsResponse>('/modules/homework-trends', { params }),
   updateHomeworkWorkflow: (
     moduleId: number,
     data: { status: 'draft' | 'reviewed' | 'published'; review_notes?: string | null }

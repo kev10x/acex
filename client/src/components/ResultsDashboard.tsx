@@ -12,6 +12,7 @@ import {
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './resultsReview';
+import StatePanel from './feedback/StatePanel';
 
 type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
@@ -645,9 +646,7 @@ const ResultsDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-      </div>
+      <StatePanel variant="loading" title="Loading results" message="Collecting marking outcomes and analytics..." />
     );
   }
 
@@ -707,14 +706,7 @@ const ResultsDashboard: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
-          <div className="flex">
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Error</h3>
-              <p className="mt-1 text-sm text-red-700">{error}</p>
-            </div>
-          </div>
-        </div>
+        <StatePanel variant="error" title="Something went wrong" message={error} actionLabel="Retry" onAction={() => { void fetchData(); }} />
       )}
 
       {/* Analytics Section */}
@@ -1143,14 +1135,11 @@ const ResultsDashboard: React.FC = () => {
 
             if (displayResults.length === 0) {
               return (
-                <div className="text-center py-8">
-                  <p className="text-gray-500">No marking results found.</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {allResults.length === 0 
-                      ? 'Mark some assignments to see results here.'
-                      : 'Try adjusting your filters.'}
-                  </p>
-                </div>
+                <StatePanel
+                  variant="empty"
+                  title="No marking results found"
+                  message={allResults.length === 0 ? 'Mark some assignments to see results here.' : 'Try adjusting your filters.'}
+                />
               );
             }
 

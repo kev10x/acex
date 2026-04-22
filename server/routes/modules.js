@@ -16,6 +16,7 @@ const {
   createPromptRegistryVersion,
   resolvePromptRegistryVersion,
 } = require('../services/promptRegistryService');
+const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -1600,6 +1601,19 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
       const improvedCount = weakAreaOutcomes.filter((w) => w.status === 'improved').length;
       const declinedCount = weakAreaOutcomes.filter((w) => w.status === 'declined').length;
       const unchangedCount = weakAreaOutcomes.filter((w) => w.status === 'unchanged').length;
+      const knownDeltas = weakAreaOutcomes
+        .map((w) => (w.delta_percent == null ? null : Number(w.delta_percent)))
+        .filter((v) => Number.isFinite(v));
+      const impactPercent = knownDeltas.length > 0
+        ? Number((knownDeltas.reduce((sum, val) => sum + Number(val), 0) / knownDeltas.length).toFixed(1))
+        : null;
+      const impactStatus = impactPercent == null
+        ? 'unknown'
+        : impactPercent >= 2
+          ? 'positive'
+          : impactPercent <= -2
+            ? 'negative'
+            : 'neutral';
       return {
         homework_module_id: item.homework_module_id,
         homework_module_name: item.homework_module_name,
@@ -1618,6 +1632,8 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
           improved_count: improvedCount,
           declined_count: declinedCount,
           unchanged_count: unchangedCount,
+          impact_percent: impactPercent,
+          impact_status: impactStatus,
           follow_up_recommended: declinedCount > 0 || (completedRows.length > 0 && improvedCount === 0),
         },
       };
@@ -1627,6 +1643,271 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Homework outcomes error:', error);
     res.status(500).json({ error: 'Failed to load homework outcomes' });
+  }
+});
+
+router.get('/homework-trends', requireAuth, async (req, res) => {
+  try {
+    const studentFilter = req.query?.student_id != null ? Number(req.query.student_id) : null;
+    const rows = rowList(
+      isMySQL()
+        ? await query(
+            `SELECT
+               m.id AS homework_module_id,
+               m.name AS homework_module_name,
+               m.created_at AS homework_created_at,
+               hmw.reason_payload_json,
+               ms.student_user_id,
+               u.name AS student_name,
+               u.email AS student_email,
+               mi.item_type,
+               mi.item_id,
+               mi.snapshot_title
+             FROM modules m
+             LEFT JOIN homework_module_workflows hmw ON hmw.homework_module_id = m.id
+             LEFT JOIN module_students ms ON ms.module_id = m.id
+             LEFT JOIN users u ON u.id = ms.student_user_id
+             LEFT JOIN module_items mi ON mi.module_id = m.id
+             WHERE m.user_id = ?
+               AND m.name LIKE ?
+             ORDER BY m.created_at DESC, mi.position ASC, mi.id ASC`,
+            [req.user.id, '% - Homework for %']
+          )
+        : await query(
+            `SELECT
+               m.id AS homework_module_id,
+               m.name AS homework_module_name,
+               m.created_at AS homework_created_at,
+               hmw.reason_payload_json,
+               ms.student_user_id,
+               u.name AS student_name,
+               u.email AS student_email,
+               mi.item_type,
+               mi.item_id,
+               mi.snapshot_title
+             FROM modules m
+             LEFT JOIN homework_module_workflows hmw ON hmw.homework_module_id = m.id
+             LEFT JOIN module_students ms ON ms.module_id = m.id
+             LEFT JOIN users u ON u.id = ms.student_user_id
+             LEFT JOIN module_items mi ON mi.module_id = m.id
+             WHERE m.user_id = $1
+               AND m.name LIKE $2
+             ORDER BY m.created_at DESC, mi.position ASC, mi.id ASC`,
+            [req.user.id, '% - Homework for %']
+          )
+    );
+
+    const grouped = new Map();
+    for (const row of rows) {
+      const moduleId = Number(row.homework_module_id || 0);
+      if (!moduleId) continue;
+      if (!grouped.has(moduleId)) {
+        grouped.set(moduleId, {
+          homework_module_id: moduleId,
+          homework_module_name: row.homework_module_name,
+          homework_created_at: row.homework_created_at,
+          student: {
+            id: Number(row.student_user_id) || null,
+            name: row.student_name || row.student_email || 'Unknown student',
+            email: row.student_email || null,
+          },
+          reason_payload: safeJsonParse(row.reason_payload_json, null),
+          assessment_id: null,
+          assessment_title: null,
+        });
+      }
+      const entry = grouped.get(moduleId);
+      if (row.item_type === 'assessment' && !entry.assessment_id) {
+        entry.assessment_id = Number(row.item_id) || null;
+        entry.assessment_title = row.snapshot_title || 'Homework assessment';
+      }
+    }
+    const baseItems = Array.from(grouped.values());
+    const assessmentIds = Array.from(new Set(baseItems.map((item) => Number(item.assessment_id)).filter((id) => Number.isFinite(id) && id > 0)));
+    const studentIds = Array.from(new Set(baseItems.map((item) => Number(item.student?.id)).filter((id) => Number.isFinite(id) && id > 0)));
+    const submissionRows = (assessmentIds.length > 0 && studentIds.length > 0)
+      ? rowList(
+          isMySQL()
+            ? await query(
+                `SELECT
+                   s.published_assessment_id,
+                   s.student_user_id,
+                   s.status,
+                   s.submitted_at,
+                   s.completed_at,
+                   s.assignment_id,
+                   mr.scores,
+                   mr.total_score,
+                   mr.effective_total_score,
+                   mr.marked_at
+                 FROM assessment_submissions s
+                 LEFT JOIN marking_results mr
+                   ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = 1))
+                 WHERE s.published_assessment_id IN (${assessmentIds.map(() => '?').join(', ')})
+                   AND s.student_user_id IN (${studentIds.map(() => '?').join(', ')})
+                   AND s.status IN ('completed', 'processing', 'queued')`,
+                [...assessmentIds, ...studentIds]
+              )
+            : await query(
+                `SELECT
+                   s.published_assessment_id,
+                   s.student_user_id,
+                   s.status,
+                   s.submitted_at,
+                   s.completed_at,
+                   s.assignment_id,
+                   mr.scores,
+                   mr.total_score,
+                   mr.effective_total_score,
+                   mr.marked_at
+                 FROM assessment_submissions s
+                 LEFT JOIN marking_results mr
+                   ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = TRUE))
+                 WHERE s.published_assessment_id = ANY($1::int[])
+                   AND s.student_user_id = ANY($2::int[])
+                   AND s.status IN ('completed', 'processing', 'queued')`,
+                [assessmentIds, studentIds]
+              )
+        )
+      : [];
+
+    const outcomeItems = baseItems.map((item) => {
+      const scopedRows = submissionRows.filter(
+        (row) => Number(row.published_assessment_id) === Number(item.assessment_id)
+          && Number(row.student_user_id) === Number(item.student?.id)
+      );
+      const completedRows = scopedRows.filter((row) => row.status === 'completed');
+      const sortedCompleted = completedRows.slice().sort((a, b) => {
+        const da = new Date(a.marked_at || a.completed_at || a.submitted_at || 0).getTime();
+        const db = new Date(b.marked_at || b.completed_at || b.submitted_at || 0).getTime();
+        return db - da;
+      });
+      const latest = sortedCompleted[0] || null;
+      const criteria = aggregateCriteriaFromSubmissionRows(completedRows);
+      const weakAreaOutcomes = buildWeakAreaOutcomes(item.reason_payload?.weak_areas, criteria);
+      const improvedCount = weakAreaOutcomes.filter((w) => w.status === 'improved').length;
+      const declinedCount = weakAreaOutcomes.filter((w) => w.status === 'declined').length;
+      const unchangedCount = weakAreaOutcomes.filter((w) => w.status === 'unchanged').length;
+      const knownDeltas = weakAreaOutcomes
+        .map((w) => (w.delta_percent == null ? null : Number(w.delta_percent)))
+        .filter((v) => Number.isFinite(v));
+      const impactPercent = knownDeltas.length > 0
+        ? Number((knownDeltas.reduce((sum, val) => sum + Number(val), 0) / knownDeltas.length).toFixed(1))
+        : null;
+      const impactStatus = impactPercent == null
+        ? 'unknown'
+        : impactPercent >= 2
+          ? 'positive'
+          : impactPercent <= -2
+            ? 'negative'
+            : 'neutral';
+      return {
+        homework_module_id: item.homework_module_id,
+        homework_module_name: item.homework_module_name,
+        homework_created_at: toIsoOrNull(item.homework_created_at),
+        student: item.student,
+        assessment: {
+          id: item.assessment_id,
+          title: item.assessment_title,
+        },
+        attempts_total: scopedRows.length,
+        completed_attempts: completedRows.length,
+        latest_completed_at: toIsoOrNull(latest?.marked_at || latest?.completed_at || latest?.submitted_at || null),
+        latest_score_percent: latest ? computeScorePercentFromRow(latest) : null,
+        weak_area_outcomes: weakAreaOutcomes,
+        summary: {
+          improved_count: improvedCount,
+          declined_count: declinedCount,
+          unchanged_count: unchangedCount,
+          impact_percent: impactPercent,
+          impact_status: impactStatus,
+          follow_up_recommended: declinedCount > 0 || (completedRows.length > 0 && improvedCount === 0),
+        },
+      };
+    });
+
+    const scopedOutcomes = studentFilter && Number.isFinite(studentFilter) && studentFilter > 0
+      ? outcomeItems.filter((item) => Number(item?.student?.id) === studentFilter)
+      : outcomeItems;
+
+    const sortedTimeline = scopedOutcomes
+      .slice()
+      .sort((a, b) => new Date(String(a.homework_created_at || 0)).getTime() - new Date(String(b.homework_created_at || 0)).getTime());
+
+    const studentMap = new Map();
+    for (const item of sortedTimeline) {
+      const sid = Number(item?.student?.id || 0);
+      if (!sid) continue;
+      if (!studentMap.has(sid)) {
+        studentMap.set(sid, {
+          student: item.student,
+          rows: [],
+        });
+      }
+      studentMap.get(sid).rows.push(item);
+    }
+
+    const student_summaries = Array.from(studentMap.values())
+      .map((entry) => {
+        const rows = entry.rows;
+        const latest = rows[rows.length - 1] || null;
+        const scores = rows
+          .map((row) => (row.latest_score_percent == null ? null : Number(row.latest_score_percent)))
+          .filter((v) => Number.isFinite(v));
+        const impacts = rows
+          .map((row) => (row.summary?.impact_percent == null ? null : Number(row.summary.impact_percent)))
+          .filter((v) => Number.isFinite(v));
+        return {
+          student: entry.student,
+          cycles: rows.length,
+          latest_score_percent: latest?.latest_score_percent ?? null,
+          avg_score_percent: scores.length > 0
+            ? Number((scores.reduce((sum, val) => sum + Number(val), 0) / scores.length).toFixed(1))
+            : null,
+          avg_impact_percent: impacts.length > 0
+            ? Number((impacts.reduce((sum, val) => sum + Number(val), 0) / impacts.length).toFixed(1))
+            : null,
+          improved_cycles: rows.filter((row) => String(row?.summary?.impact_status || '') === 'positive').length,
+          declined_cycles: rows.filter((row) => String(row?.summary?.impact_status || '') === 'negative').length,
+          latest_completed_at: latest?.latest_completed_at || null,
+        };
+      })
+      .sort((a, b) => String(a.student?.name || '').localeCompare(String(b.student?.name || '')));
+
+    const allImpacts = sortedTimeline
+      .map((row) => (row.summary?.impact_percent == null ? null : Number(row.summary.impact_percent)))
+      .filter((v) => Number.isFinite(v));
+
+    res.json({
+      success: true,
+      summary: {
+        total_cycles: sortedTimeline.length,
+        student_count: student_summaries.length,
+        improved_cycles: sortedTimeline.filter((row) => String(row?.summary?.impact_status || '') === 'positive').length,
+        declined_cycles: sortedTimeline.filter((row) => String(row?.summary?.impact_status || '') === 'negative').length,
+        avg_impact_percent: allImpacts.length > 0
+          ? Number((allImpacts.reduce((sum, val) => sum + Number(val), 0) / allImpacts.length).toFixed(1))
+          : null,
+      },
+      students: student_summaries,
+      timeline: sortedTimeline.map((item) => ({
+        homework_module_id: item.homework_module_id,
+        homework_module_name: item.homework_module_name,
+        homework_created_at: item.homework_created_at,
+        student: item.student,
+        latest_score_percent: item.latest_score_percent,
+        latest_completed_at: item.latest_completed_at,
+        impact_percent: item.summary?.impact_percent ?? null,
+        impact_status: item.summary?.impact_status || 'unknown',
+        improved_count: item.summary?.improved_count || 0,
+        unchanged_count: item.summary?.unchanged_count || 0,
+        declined_count: item.summary?.declined_count || 0,
+        follow_up_recommended: !!item.summary?.follow_up_recommended,
+      })),
+    });
+  } catch (error) {
+    console.error('Homework trends error:', error);
+    res.status(500).json({ error: 'Failed to load homework trends' });
   }
 });
 
@@ -2007,6 +2288,22 @@ router.put('/homework-workflow/bulk', requireAuth, async (req, res) => {
     } catch (eventError) {
       console.warn('[homework-workflow] Failed to persist workflow event:', eventError?.message || eventError);
     }
+
+    await recordAuditEvent({
+      user_id: req.user.id,
+      category: 'module_workflow',
+      action: 'bulk_workflow_status_update',
+      outcome: 'success',
+      organisation_id: req.user?.organisation_id ?? null,
+      department_id: req.user?.department_id ?? null,
+      metadata: getRequestMetadata(req, {
+        status,
+        target_count: moduleIds.length,
+        updated_count: updatedIds.length,
+        skipped_count: skippedIds.length,
+        module_ids: moduleIds,
+      }),
+    });
 
     res.json({
       success: true,
@@ -2965,6 +3262,23 @@ router.post('/generation-jobs/:id/retry', requireAuth, async (req, res) => {
         ['scheduled', 'Manual retry scheduled', id]
       );
     }
+
+    await recordAuditEvent({
+      user_id: req.user.id,
+      target_user_id: Number(row.user_id) || null,
+      category: 'generation_jobs',
+      action: 'manual_retry_scheduled',
+      outcome: 'success',
+      organisation_id: req.user?.organisation_id ?? null,
+      department_id: req.user?.department_id ?? null,
+      metadata: getRequestMetadata(req, {
+        generation_job_id: id,
+        previous_status: row.status,
+        retry_count: Number(row.retry_count || 0),
+        max_retries: Number(row.max_retries || 0),
+        acted_as_manager: isManager,
+      }),
+    });
 
     res.json({ success: true, message: 'Generation job retry scheduled' });
   } catch (error) {

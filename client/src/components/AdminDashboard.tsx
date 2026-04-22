@@ -23,6 +23,8 @@ import {
   SystemHealthResponse
 } from '../services/api';
 import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video, BarChart3, TrendingUp } from 'lucide-react';
+import StatePanel from './feedback/StatePanel';
+import { useNotification } from '../contexts/NotificationContext';
 
 export interface UserFeatures {
   assessment_creation?: boolean;
@@ -75,6 +77,7 @@ const normalizeRole = (role?: string): UserRole => {
 
 const AdminDashboard: React.FC = () => {
   const { token, user, impersonateUser } = useAuth();
+  const { notifyError, notifySuccess, notifyInfo } = useNotification();
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'performance' | 'system'>('pending');
@@ -212,7 +215,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.approveUser(token, userId);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to approve user');
+      notifyError(getActionErrorMessage(err, 'Failed to approve user'));
     } finally {
       setActionLoading(null);
     }
@@ -230,7 +233,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.rejectUser(token, userId, deactivate);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to reject user');
+      notifyError(getActionErrorMessage(err, 'Failed to reject user'));
     } finally {
       setActionLoading(null);
     }
@@ -248,7 +251,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.updateUserRole(token, userId, newRole);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update user role');
+      notifyError(getActionErrorMessage(err, 'Failed to update user role'));
     } finally {
       setActionLoading(null);
     }
@@ -261,7 +264,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.lockUser(token, userId, !currentlyLocked);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update lock status');
+      notifyError(getActionErrorMessage(err, 'Failed to update lock status'));
     } finally {
       setActionLoading(null);
     }
@@ -275,7 +278,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.deleteUser(token, userId);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to delete user');
+      notifyError(getActionErrorMessage(err, 'Failed to delete user'));
     } finally {
       setActionLoading(null);
     }
@@ -286,7 +289,7 @@ const AdminDashboard: React.FC = () => {
     try {
       await impersonateUser(userId);
     } catch (err: any) {
-      alert(err.response?.data?.error || err.message || 'Failed to impersonate user');
+      notifyError(getActionErrorMessage(err, 'Failed to impersonate user'));
     } finally {
       setActionLoading(null);
     }
@@ -307,7 +310,7 @@ const AdminDashboard: React.FC = () => {
       });
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update features');
+      notifyError(getActionErrorMessage(err, 'Failed to update features'));
     } finally {
       setActionLoading(null);
     }
@@ -323,7 +326,7 @@ const AdminDashboard: React.FC = () => {
       setNewOrganisationName('');
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create organisation');
+      notifyError(getActionErrorMessage(err, 'Failed to create organisation'));
     } finally {
       setActionLoading(null);
     }
@@ -349,7 +352,7 @@ const AdminDashboard: React.FC = () => {
       }
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create department');
+      notifyError(getActionErrorMessage(err, 'Failed to create department'));
     } finally {
       setActionLoading(null);
     }
@@ -375,7 +378,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.updateOrganisationFeatures(token, organisationId, nextFeatures);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update organisation features');
+      notifyError(getActionErrorMessage(err, 'Failed to update organisation features'));
     } finally {
       setActionLoading(null);
     }
@@ -388,7 +391,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.updateUserOrganisation(token, userId, organisationId);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to assign organisation');
+      notifyError(getActionErrorMessage(err, 'Failed to assign organisation'));
     } finally {
       setActionLoading(null);
     }
@@ -401,7 +404,7 @@ const AdminDashboard: React.FC = () => {
       await authAPI.updateUserDepartment(token, userId, departmentId);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to assign department');
+      notifyError(getActionErrorMessage(err, 'Failed to assign department'));
     } finally {
       setActionLoading(null);
     }
@@ -413,21 +416,24 @@ const AdminDashboard: React.FC = () => {
     try {
       const result = await assessmentsAPI.runSubmissionIdentityBackfill();
       const updated = Number(result?.data?.updated_submissions || 0);
-      alert(`Submission identity backfill complete. Updated ${updated} submission${updated === 1 ? '' : 's'}.`);
+      notifySuccess(`Submission identity backfill complete. Updated ${updated} submission${updated === 1 ? '' : 's'}.`);
       const refreshed = await assessmentsAPI.getSubmissionIdentityHealth().catch(() => null);
       setSubmissionIdentityHealth(refreshed?.data || null);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to run submission identity backfill');
+      notifyError(getActionErrorMessage(err, 'Failed to run submission identity backfill'));
     } finally {
       setIdentityBackfillBusy(false);
     }
   };
 
+  const getActionErrorMessage = (err: any, fallback: string) =>
+    err?.response?.data?.error || err?.message || fallback;
+
   const handleResolveIdentityConflict = async (item: SubmissionIdentityConflictItem) => {
     if (!token) return;
     const selectedStudentId = identityResolutionSelection[item.id];
     if (!selectedStudentId) {
-      alert('Select a student before resolving this conflict.');
+      notifyInfo('Select a student before resolving this conflict.');
       return;
     }
     setIdentityResolveBusy(item.id);
@@ -435,7 +441,7 @@ const AdminDashboard: React.FC = () => {
       await assessmentsAPI.resolveSubmissionIdentityConflict(item.id, selectedStudentId);
       await loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to resolve submission identity conflict');
+      notifyError(getActionErrorMessage(err, 'Failed to resolve submission identity conflict'));
     } finally {
       setIdentityResolveBusy(null);
     }
@@ -446,8 +452,9 @@ const AdminDashboard: React.FC = () => {
     try {
       await modulesAPI.retryGenerationJob(jobId);
       await loadUsers();
+      notifySuccess('Generation retry scheduled.');
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to retry generation job');
+      notifyError(getActionErrorMessage(err, 'Failed to retry generation job'));
     } finally {
       setRetryingGenerationJobId(null);
     }
@@ -753,28 +760,18 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
-            <div className="flex-1">
-              <p className="text-red-800 font-medium">Error loading users</p>
-              <p className="text-red-600 text-sm mt-1">{error}</p>
-            </div>
-            <button
-              onClick={loadUsers}
-              className="ml-4 px-4 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-md transition-colors"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
+        <StatePanel
+          variant="error"
+          title="Error loading users"
+          message={error}
+          actionLabel="Retry"
+          onAction={() => { void loadUsers(); }}
+          className="mb-4"
+        />
       )}
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading users...</p>
-        </div>
+        <StatePanel variant="loading" title="Loading users" message="Fetching users, permissions, and telemetry..." />
       ) : activeTab === 'performance' ? (
         <div className="space-y-6">
           {!performance ? (
