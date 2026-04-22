@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History } from 'lucide-react';
+import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 
@@ -78,6 +78,8 @@ const ContentGenerator: React.FC = () => {
   const [loadingPublishedContentId, setLoadingPublishedContentId] = useState<number | null>(null);
   const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
+  const [templateImages, setTemplateImages] = useState<string[]>([]);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
@@ -330,6 +332,11 @@ const ContentGenerator: React.FC = () => {
       }
     } catch (_) {}
   };
+
+  useEffect(() => {
+    const tmpl = templates.find((t) => t.id === templateId);
+    setTemplateImages(tmpl?.images || []);
+  }, [templateId, templates]);
 
   const loadModules = async () => {
     try {
@@ -712,6 +719,32 @@ const ContentGenerator: React.FC = () => {
     return { sectionIndex, visualIndex, section, visual };
   }, [generatedContent?.sections, selectedVisualKey]);
 
+  const handleDropOnVisual = (sectionIndex: number, visualIndex: number, e: React.DragEvent) => {
+    e.preventDefault();
+    const url = e.dataTransfer.getData('text/plain');
+    if (url) updateVisualField(sectionIndex, visualIndex, 'image_url', url);
+    setDragOverKey(null);
+  };
+
+  const handleDropOnSection = (sectionIndex: number, e: React.DragEvent) => {
+    e.preventDefault();
+    const url = e.dataTransfer.getData('text/plain');
+    if (!url) return;
+    setDragOverKey(null);
+    updateGeneratedContent((c) => {
+      const sections = [...(c.sections || [])];
+      const visuals = [...(sections[sectionIndex]?.visuals || []), {
+        kind: 'image',
+        title: 'Template image',
+        alt_text: '',
+        prompt: '',
+        image_url: url,
+      }];
+      sections[sectionIndex] = { ...sections[sectionIndex], visuals };
+      return { ...c, sections };
+    });
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-6">
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
@@ -923,15 +956,39 @@ const ContentGenerator: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Template / theme</label>
-              <select
-                value={templateId}
-                onChange={(e) => setTemplateId(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-              >
-                {(templates.length > 0 ? templates : [{ id: 'classroom', name: 'Classroom Fresh', theme: {} }]).map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
+              <div className="flex gap-2 items-center">
+                <select
+                  value={templateId}
+                  onChange={(e) => setTemplateId(e.target.value)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                >
+                  {(templates.length > 0 ? templates : [{ id: 'classroom', name: 'Classroom Fresh', theme: {} }]).map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pptx"
+                  className="hidden"
+                  onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 whitespace-nowrap"
+                  title="Upload a .pptx file to use its theme and images"
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload .pptx
+                </button>
+              </div>
+              {templateFile && (
+                <div className="mt-1 flex items-center gap-1 text-sm text-gray-600">
+                  <span className="truncate max-w-[260px]">{templateFile.name}</span>
+                  <button type="button" onClick={() => setTemplateFile(null)} className="text-red-500 hover:text-red-700"><X className="w-4 h-4" /></button>
+                </div>
+              )}
             </div>
           </div>
           <div>
@@ -989,29 +1046,6 @@ const ContentGenerator: React.FC = () => {
               />
               <span className="text-sm text-gray-700">Enable text-to-speech for students</span>
             </label>
-            <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pptx"
-                className="hidden"
-                onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <Upload className="w-4 h-4" />
-                Upload PPT template
-              </button>
-              {templateFile && (
-                <span className="text-sm text-gray-600 flex items-center gap-1">
-                  {templateFile.name}
-                  <button type="button" onClick={() => setTemplateFile(null)} className="text-red-600"><X className="w-4 h-4" /></button>
-                </span>
-              )}
-            </div>
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <button
@@ -1044,7 +1078,8 @@ const ContentGenerator: React.FC = () => {
       </div>
 
       {generatedContent && (
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="flex gap-4 items-start mb-6">
+        <div className="bg-white rounded-lg shadow-lg p-6 flex-1 min-w-0">
           <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
             <h2 className="text-xl font-bold text-gray-800">Edit and preview content</h2>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1196,7 +1231,13 @@ const ContentGenerator: React.FC = () => {
             return (
           <div className="space-y-6">
             {sections.map((sec: any, i: number) => (
-              <div key={i} className="border border-gray-200 rounded-lg p-5">
+              <div
+                key={i}
+                className={`border rounded-lg p-5 transition ${dragOverKey === `section:${i}` ? 'border-teal-400 bg-teal-50' : 'border-gray-200'}`}
+                onDragOver={(e) => { e.preventDefault(); setDragOverKey(`section:${i}`); }}
+                onDragLeave={() => setDragOverKey(null)}
+                onDrop={(e) => handleDropOnSection(i, e)}
+              >
                 <div className="grid grid-cols-1 gap-2 mb-3 bg-gray-50 border border-gray-200 rounded p-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-gray-700">Section {i + 1} editor</span>
@@ -1393,8 +1434,13 @@ const ContentGenerator: React.FC = () => {
                     <figure
                       key={figNum}
                       onClick={() => setSelectedVisualKey(figureKey)}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(figureKey); }}
+                      onDragLeave={() => setDragOverKey(null)}
+                      onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, visualIndex, e); }}
                       className={`mt-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
-                        selectedVisualKey === figureKey
+                        dragOverKey === figureKey
+                          ? 'border-teal-400 ring-2 ring-teal-200'
+                          : selectedVisualKey === figureKey
                           ? 'border-emerald-400 ring-2 ring-emerald-200'
                           : 'border-gray-200 hover:border-emerald-300'
                       }`}
@@ -1447,6 +1493,35 @@ const ContentGenerator: React.FC = () => {
           </div>
             );
           })()}
+        </div>
+
+        {templateImages.length > 0 && (
+          <div className="w-52 shrink-0 bg-white rounded-lg shadow-lg p-4 sticky top-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Images className="w-4 h-4 text-teal-600" />
+              <span className="text-sm font-semibold text-gray-700">Template assets</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Drag an image onto a section or visual slot to use it.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {templateImages.map((url, idx) => (
+                <div
+                  key={idx}
+                  draggable
+                  onDragStart={(e) => e.dataTransfer.setData('text/plain', url)}
+                  className="cursor-grab active:cursor-grabbing border border-gray-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition"
+                  title={`Drag to use this image`}
+                >
+                  <img
+                    src={url}
+                    alt={`Template image ${idx + 1}`}
+                    className="w-full h-16 object-cover"
+                    draggable={false}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         </div>
       )}
 

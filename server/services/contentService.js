@@ -398,7 +398,7 @@ function repairJson(jsonStr) {
  * @returns {Promise<{ title, instructions, sections: [{ title, body }], quiz?: { questions } }>}
  */
 async function generateContentWithAI(opts) {
-  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', includeDiagrams = true, includeImages = true } = opts;
+  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', includeDiagrams = true, includeImages = true, uploadedTheme = null } = opts;
   const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
   const compactTopics = String(topics || '').trim().slice(0, 1200);
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
@@ -597,7 +597,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
         lastReason = 'Invalid content structure: need title and sections array';
         continue;
       }
-      return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages });
+      return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, uploadedTheme });
     } catch (parseErr) {
       // Try multiple repair strategies
       let data = null;
@@ -641,7 +641,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
             data = JSON.parse(repairedJson);
             if (data && data.title && data.sections && Array.isArray(data.sections)) {
               console.warn(`Content JSON repaired using strategy for model ${model}`);
-              return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages });
+              return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, uploadedTheme });
             }
           }
         } catch (strategyErr) {
@@ -817,7 +817,7 @@ function getTemplateById(templateId) {
   return CONTENT_TEMPLATES[key] || CONTENT_TEMPLATES.classroom;
 }
 
-function applyTemplateToContent(content, templateId = 'classroom') {
+function applyTemplateToContent(content, templateId = 'classroom', uploadedTheme = null) {
   const templateToken = String(templateId || 'classroom').trim();
   if (/^uploaded:\d+$/i.test(templateToken)) {
     const fallback = CONTENT_TEMPLATES.classroom;
@@ -825,7 +825,7 @@ function applyTemplateToContent(content, templateId = 'classroom') {
       ...content,
       template_id: templateToken,
       template_name: 'Uploaded template',
-      theme: { ...(content?.theme || fallback.theme || {}) },
+      theme: uploadedTheme ? { ...uploadedTheme } : { ...(content?.theme || fallback.theme || {}) },
     };
   }
   const template = getTemplateById(templateId);
@@ -837,7 +837,7 @@ function applyTemplateToContent(content, templateId = 'classroom') {
   };
 }
 
-function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true } = {}) {
+function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true, uploadedTheme = null } = {}) {
   const sections = Array.isArray(content.sections) ? content.sections : [];
   const normalizedSections = sections.map((section, index) => {
     const heading = String(section.heading || section.title || `Section ${index + 1}`).trim();
@@ -856,7 +856,7 @@ function normalizeGeneratedContent(content, templateId = 'classroom', { includeD
     sections: normalizedSections,
   };
   const selectedTemplateId = content?.template_id || templateId || 'classroom';
-  return applyTemplateToContent(withSections, selectedTemplateId);
+  return applyTemplateToContent(withSections, selectedTemplateId, uploadedTheme);
 }
 
 // Normalize section for assertion-evidence: support both legacy (title, body) and new (heading, support, body)
@@ -871,6 +871,38 @@ function getSectionSupport(sec) {
 }
 function getSectionBody(sec) {
   return sec.body || '';
+}
+
+function extractTemplateImages(zipPath, outputDir) {
+  return new Promise((resolve) => {
+    if (!zipPath || !fs.existsSync(zipPath)) return resolve([]);
+    try { fs.mkdirSync(outputDir, { recursive: true }); } catch (_) {}
+    const saved = [];
+    yauzl.open(zipPath, { lazyEntries: true }, (openErr, zipfile) => {
+      if (openErr || !zipfile) return resolve([]);
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        if (!/^ppt\/media\/.+\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(entry.fileName)) {
+          zipfile.readEntry();
+          return;
+        }
+        const basename = path.basename(entry.fileName);
+        const outPath = path.join(outputDir, basename);
+        zipfile.openReadStream(entry, (streamErr, stream) => {
+          if (streamErr || !stream) { zipfile.readEntry(); return; }
+          const chunks = [];
+          stream.on('data', (d) => chunks.push(Buffer.from(d)));
+          stream.on('end', () => {
+            try { fs.writeFileSync(outPath, Buffer.concat(chunks)); saved.push(basename); } catch (_) {}
+            zipfile.readEntry();
+          });
+          stream.on('error', () => zipfile.readEntry());
+        });
+      });
+      zipfile.on('end', () => resolve(saved));
+      zipfile.on('error', () => resolve(saved));
+    });
+  });
 }
 
 function readZipEntryText(zipPath, entryName) {
@@ -923,14 +955,22 @@ async function extractTemplateTheme(templatePath) {
   const headingColor = extractThemeColor(xml, 'accent1', '#0F172A');
   const textColor = extractThemeColor(xml, 'dk1', '#0F172A');
   const accentColor = extractThemeColor(xml, 'accent2', '#2563EB');
+  const bgColor = extractThemeColor(xml, 'lt1', '#F8FAFC');
   const headFont = extractThemeFont(xml, 'majorFont');
   const bodyFont = extractThemeFont(xml, 'minorFont');
+  return { headingColor, textColor, accentColor, bgColor, headFont, bodyFont };
+}
+
+function pptxThemeToContentTheme(pptxTheme) {
+  if (!pptxTheme) return null;
+  const rawFont = (pptxTheme.bodyFont || pptxTheme.headFont || '').replace(/^'|'$/g, '');
   return {
-    headingColor,
-    textColor,
-    accentColor,
-    headFont,
-    bodyFont,
+    heading_color: pptxTheme.headingColor || '#0F172A',
+    text_color: pptxTheme.textColor || '#0F172A',
+    accent_color: pptxTheme.accentColor || '#2563EB',
+    bg_color: pptxTheme.bgColor || '#F8FAFC',
+    surface_color: '#FFFFFF',
+    font_family: rawFont ? `'${rawFont}', sans-serif` : "'Segoe UI', sans-serif",
   };
 }
 
@@ -1153,4 +1193,7 @@ module.exports = {
   CONTENT_TEMPLATES,
   buildPptx,
   buildLectureNotesHtml,
+  extractTemplateTheme,
+  extractTemplateImages,
+  pptxThemeToContentTheme,
 };

@@ -185,7 +185,7 @@ const sanitizeJsonControlChars = (str) => {
         // Peek ahead (skip whitespace) and check the next structural character.
         // A legitimate string terminator is followed by :  ,  }  ]  or end-of-input.
         let j = i + 1;
-        while (j < str.length && (str[j] === ' ' || str[j] === '\t')) j++;
+        while (j < str.length && /\s/.test(str[j])) j++;
         const next = str[j] !== undefined ? str[j] : '';
         if (next === '' || next === ':' || next === ',' || next === '}' || next === ']') {
           // Looks like end of string
@@ -206,6 +206,86 @@ const sanitizeJsonControlChars = (str) => {
     }
   }
   return out;
+};
+
+const getJsonErrorPosition = (error) => {
+  const match = String(error?.message || '').match(/position\s+(\d+)/i);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const isEscapedQuoteAt = (text, index) => {
+  let slashCount = 0;
+  let cursor = index - 1;
+  while (cursor >= 0 && text[cursor] === '\\') {
+    slashCount += 1;
+    cursor -= 1;
+  }
+  return slashCount % 2 === 1;
+};
+
+const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 500) => {
+  const start = Math.max(0, parseErrorPosition - maxLookback);
+
+  for (let i = parseErrorPosition - 1; i >= start; i--) {
+    if (text[i] !== '"' || isEscapedQuoteAt(text, i)) continue;
+
+    let right = i + 1;
+    while (right < text.length && /\s/.test(text[right])) right += 1;
+    const rightChar = text[right] || '';
+
+    if (rightChar === ':') continue;
+    if (rightChar === '}' || rightChar === ']') continue;
+
+    if (rightChar === ',') {
+      let afterComma = right + 1;
+      while (afterComma < text.length && /\s/.test(text[afterComma])) afterComma += 1;
+      const nextToken = text[afterComma] || '';
+      const looksLikeJsonToken =
+        nextToken === '"' ||
+        nextToken === '{' ||
+        nextToken === '[' ||
+        nextToken === '}' ||
+        nextToken === ']' ||
+        nextToken === '-' ||
+        /[0-9]/.test(nextToken) ||
+        nextToken === 't' ||
+        nextToken === 'f' ||
+        nextToken === 'n';
+
+      if (looksLikeJsonToken) {
+        continue;
+      }
+    }
+
+    return i;
+  }
+
+  return -1;
+};
+
+const repairJsonByParsePosition = (value, maxAttempts = 8) => {
+  let candidate = value;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch (error) {
+      lastError = error;
+      const errorPos = getJsonErrorPosition(error);
+      if (errorPos == null) break;
+
+      const quoteIndex = findLikelyUnescapedQuoteIndex(candidate, errorPos);
+      if (quoteIndex < 0) break;
+
+      candidate = `${candidate.slice(0, quoteIndex)}\\${candidate.slice(quoteIndex)}`;
+    }
+  }
+
+  throw lastError || new Error('Failed to repair JSON from parse position');
 };
 
 const repairJsonCandidate = (value) => {
@@ -238,6 +318,29 @@ const parseAiJsonResponse = (rawResponse) => {
         return {
           parsed: JSON.parse(variant),
           cleanedText: variant
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  // Position-guided quote repair fallback for malformed strings like:
+  // "feedback": "The learner wrote "important point", but ..."
+  for (const candidate of baseCandidates) {
+    if (!candidate) continue;
+
+    for (const seed of [candidate, repairJsonCandidate(candidate)]) {
+      if (!seed || seen.has(seed)) continue;
+      seen.add(seed);
+
+      try {
+        const repaired = repairJsonByParsePosition(seed);
+        if (!repaired || seen.has(repaired)) continue;
+        seen.add(repaired);
+        return {
+          parsed: JSON.parse(repaired),
+          cleanedText: repaired
         };
       } catch (error) {
         lastError = error;
@@ -2618,4 +2721,3 @@ router.get('/history/compare/:result_id1/:result_id2', requireAuth, async (req, 
 module.exports = router;
 module.exports.generateMarking = generateMarking;
 module.exports.parseMarkingResponsePayload = parseMarkingResponsePayload;
-

@@ -671,6 +671,8 @@ export interface GeneratedContent {
 export interface ContentTemplate {
   id: string;
   name: string;
+  kind?: 'builtin' | 'uploaded';
+  images?: string[];
   theme: {
     font_family?: string;
     bg_color?: string;

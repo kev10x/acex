@@ -312,9 +312,41 @@ async function getUploadedTemplateByToken(userId, templateToken) {
 }
 
 const templateDir = path.join(__dirname, '../uploads/content-templates');
+const templateMediaDir = path.join(__dirname, '../uploads/content-template-media');
 try {
   require('fs').mkdirSync(templateDir, { recursive: true });
+  require('fs').mkdirSync(templateMediaDir, { recursive: true });
 } catch (_) {}
+
+function getTemplateMediaDir(templateId) {
+  return path.join(templateMediaDir, String(templateId));
+}
+
+function listTemplateImageUrls(templateId, baseUrl = '') {
+  const dir = getTemplateMediaDir(templateId);
+  try {
+    return require('fs').readdirSync(dir)
+      .filter((f) => (/\.(png|jpe?g|gif|webp|bmp|svg)$/i).test(f))
+      .map((f) => `${baseUrl}/uploads/content-template-media/${templateId}/${f}`);
+  } catch (_) {
+    return [];
+  }
+}
+
+function injectTemplateImages(content, imageUrls) {
+  if (!imageUrls || imageUrls.length === 0) return content;
+  let idx = 0;
+  const sections = (content.sections || []).map((section) => ({
+    ...section,
+    visuals: (section.visuals || []).map((visual) => {
+      if (visual.kind === 'image' && !visual.image_url) {
+        return { ...visual, image_url: imageUrls[idx++ % imageUrls.length] };
+      }
+      return visual;
+    }),
+  }));
+  return { ...content, sections };
+}
 const templateStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, templateDir),
   filename: (req, file, cb) => cb(null, `template-${Date.now()}-${(file.originalname || 'slide').replace(/[^a-zA-Z0-9.-]/g, '_')}`),
@@ -348,6 +380,20 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
         rubricContext = `Rubric: ${row.name}. Criteria: ${Array.isArray(crit) ? crit.map((c) => c.name).join(', ') : ''}`;
       }
     }
+    let uploadedTheme = null;
+    let templateImageUrls = [];
+    const isUploadedTemplate = (/^uploaded:\d+$/i).test(String(template_id || ''));
+    if (isUploadedTemplate) {
+      const tmpl = await getUploadedTemplateByToken(req.user.id, template_id);
+      if (tmpl?.abs_path) {
+        try {
+          const pptxTheme = await contentService.extractTemplateTheme(tmpl.abs_path);
+          uploadedTheme = contentService.pptxThemeToContentTheme(pptxTheme);
+        } catch (_) { /* non-fatal */ }
+      }
+      const dbId = String(template_id).replace(/^uploaded:/i, '');
+      templateImageUrls = listTemplateImageUrls(dbId, `${req.protocol}://${req.get('host')}`);
+    }
     let content = await contentService.generateContentWithAI({
       topics: String(topics).trim(),
       level: level || '',
@@ -356,7 +402,11 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       templateId: template_id,
       includeDiagrams: include_diagrams !== false,
       includeImages: include_images !== false,
+      uploadedTheme,
     });
+    if (templateImageUrls.length > 0) {
+      content = injectTemplateImages(content, templateImageUrls);
+    }
     if (include_images !== false) {
       content = await contentService.enrichContentWithImages(content);
     }
@@ -412,13 +462,23 @@ router.get('/templates', requireAuth, requireFeature('content_creation'), async 
           [req.user.id]
         );
     const uploadedRows = Array.isArray(uploadedQ) ? uploadedQ : (uploadedQ.rows || []);
-    const uploaded = uploadedRows.map((row) => ({
-      id: `uploaded:${row.id}`,
-      name: `${row.name} (uploaded template)`,
-      theme: {},
-      kind: 'uploaded',
-      uploaded_template_id: row.id,
-      created_at: row.created_at,
+    const uploaded = await Promise.all(uploadedRows.map(async (row) => {
+      let theme = {};
+      try {
+        const filePath = path.join(templateDir, row.file_name);
+        const pptxTheme = await contentService.extractTemplateTheme(filePath);
+        theme = contentService.pptxThemeToContentTheme(pptxTheme) || {};
+      } catch (_) { /* file may not exist yet */ }
+      const images = listTemplateImageUrls(row.id, `${req.protocol}://${req.get('host')}`);
+      return {
+        id: `uploaded:${row.id}`,
+        name: `${row.name} (uploaded template)`,
+        theme,
+        images,
+        kind: 'uploaded',
+        uploaded_template_id: row.id,
+        created_at: row.created_at,
+      };
     }));
     res.json({ success: true, templates: [...builtIns, ...uploaded] });
   } catch (error) {
@@ -1589,17 +1649,31 @@ router.post('/template', requireAuth, requireFeature('content_creation'), (req, 
         );
       }
       const templateId = inserted?.insertId ?? inserted?.lastID ?? inserted?.rows?.[0]?.id ?? null;
+      const tmplFilePath = path.join(templateDir, req.file.filename);
+      let extractedImages = [];
+      let theme = {};
+      try {
+        const pptxTheme = await contentService.extractTemplateTheme(tmplFilePath);
+        theme = contentService.pptxThemeToContentTheme(pptxTheme) || {};
+        if (templateId) {
+          const mediaDir = getTemplateMediaDir(templateId);
+          const filenames = await contentService.extractTemplateImages(tmplFilePath, mediaDir);
+          const base = `${req.protocol}://${req.get('host')}`;
+          extractedImages = filenames.map((f) => `${base}/uploads/content-template-media/${templateId}/${f}`);
+        }
+      } catch (_) { /* non-fatal */ }
       res.json({
         success: true,
         template: {
           id: `uploaded:${templateId}`,
           name: `${baseName} (uploaded template)`,
           kind: 'uploaded',
-          theme: {},
+          theme,
+          images: extractedImages,
         },
         template_path: req.file.filename,
         original_name: req.file.originalname,
-        message: 'Template stored. It can now be selected and used when exporting PPTX.',
+        message: `Template stored. Extracted ${extractedImages.length} image(s) from slides.`,
       });
     } catch (dbError) {
       console.error('Template metadata save error:', dbError);
