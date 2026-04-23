@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './resultsReview';
 import StatePanel from './feedback/StatePanel';
+import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
@@ -87,7 +88,7 @@ const ResultsDashboard: React.FC = () => {
     provider: string;
     strictness_level: string;
     mark_as_image: boolean;
-  }>({ assessment_type: 'assignment', level: 'undergraduate', provider: 'openai', strictness_level: 'strict', mark_as_image: false });
+  }>({ assessment_type: 'assignment', level: DEFAULT_MARKING_LEVEL, provider: 'openai', strictness_level: 'strict', mark_as_image: false });
   const [remarking, setRemarking] = useState(false);
   const [remarkError, setRemarkError] = useState<string | null>(null);
   
@@ -1732,13 +1733,12 @@ const ResultsDashboard: React.FC = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-1">Level</label>
                             <select
                               value={remarkOptions.level}
-                              onChange={e => setRemarkOptions(o => ({ ...o, level: e.target.value }))}
+                              onChange={e => setRemarkOptions(o => ({ ...o, level: normalizeEducationLevelValue(e.target.value, DEFAULT_MARKING_LEVEL) }))}
                               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                             >
-                              <option value="primary_school">Primary school</option>
-                              <option value="high_school">High school</option>
-                              <option value="undergraduate">Undergraduate</option>
-                              <option value="postgraduate">Postgraduate</option>
+                              {EDUCATION_LEVEL_OPTIONS.filter((option) => option.value).map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                             </select>
                           </div>
                           <div>

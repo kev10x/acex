@@ -77,7 +77,7 @@ const normalizeRole = (role?: string): UserRole => {
 };
 
 const AdminDashboard: React.FC = () => {
-  const { token, user, impersonateUser } = useAuth();
+  const { token, user, impersonateUser, impersonation, stopImpersonation } = useAuth();
   const { notifyError, notifySuccess, notifyInfo } = useNotification();
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
@@ -292,6 +292,7 @@ const AdminDashboard: React.FC = () => {
     setActionLoading(userId);
     try {
       await impersonateUser(userId);
+      notifySuccess('Impersonation session started.');
     } catch (err: any) {
       notifyError(getActionErrorMessage(err, 'Failed to impersonate user'));
     } finally {
@@ -414,6 +415,15 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleStopImpersonation = async () => {
+    try {
+      await stopImpersonation();
+      notifySuccess('Returned to your admin session.');
+    } catch (err: any) {
+      notifyError(getActionErrorMessage(err, 'Failed to stop impersonation'));
+    }
+  };
+
   const handleRunIdentityBackfill = async () => {
     if (!token || identityBackfillBusy) return;
     setIdentityBackfillBusy(true);
@@ -503,6 +513,19 @@ const AdminDashboard: React.FC = () => {
               <p className="text-red-600 text-sm mt-2">Your role: {user.role || 'not set'}</p>
             </div>
           </div>
+          {impersonation?.active && (
+            <div className="mt-4 border-t border-red-200 pt-4">
+              <p className="text-sm text-red-700 mb-2">
+                You are currently impersonating a user. Return to your admin session to access this dashboard.
+              </p>
+              <button
+                onClick={() => void handleStopImpersonation()}
+                className="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Stop impersonating
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

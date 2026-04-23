@@ -18,6 +18,7 @@ const {
 } = require('../services/promptRegistryService');
 const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 const { assertWithinBudgetOrThrow, getBudgetGuardrailConfig } = require('../services/budgetGuardrailService');
+const { buildEducationLevelPromptBlock } = require('../services/educationLevelService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -3766,7 +3767,7 @@ router.post(
       });
       let generatedContent = await contentService.generateContentWithAI({
         topics: topicsPrompt,
-        level: requestedLevel || 'Undergraduate',
+        level: requestedLevel || 'level_7',
         numSections,
         rubricContext: `Weakness-driven remediation for ${studentLabel}`,
         templateId: 'classroom',
@@ -3800,7 +3801,7 @@ Student: ${studentLabel}
 Source module: ${sourceMeta.name}
 Weakness areas: ${weakAreasText}
 Feedback themes: ${feedbackThemeText || 'N/A'}
-Requested level: ${requestedLevel || 'Undergraduate'}
+${buildEducationLevelPromptBlock(requestedLevel || 'level_7')}
 Number of questions: ${questionCount}
 
 Use this generated homework lesson summary as context:

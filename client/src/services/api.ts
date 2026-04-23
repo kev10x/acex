@@ -347,7 +347,7 @@ export const markingAPI = {
     student_name?: string;
     output_type?: 'annotate' | 'report';
     assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
-    level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
+    level?: string;
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
     mark_as_image?: boolean;
@@ -359,7 +359,7 @@ export const markingAPI = {
     student_names?: (string | null)[];
     output_type?: 'annotate' | 'report';
     assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
-    level?: 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate';
+    level?: string;
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
     mark_as_image?: boolean;
@@ -548,6 +548,41 @@ export interface GeneratedAssessment {
   rubric_alignment?: string; // Explanation of how assessment aligns with rubric
 }
 
+export interface PracticalProcedureStep {
+  step: number;
+  title: string;
+  instructions: string;
+  expected_outcome?: string;
+  teacher_notes?: string;
+}
+
+export interface PracticalAssessmentCriterion {
+  name: string;
+  description: string;
+  max_points: number;
+}
+
+export interface GeneratedPractical {
+  title: string;
+  topic: string;
+  practical_type: string;
+  mode: 'guide' | 'assessment';
+  estimated_duration_minutes: number;
+  overview: string;
+  learning_objectives: string[];
+  materials: string[];
+  safety_notes: string[];
+  preparation_checklist: string[];
+  procedure_steps: PracticalProcedureStep[];
+  reflection_questions: string[];
+  optional_assessment: null | {
+    submission_instructions: string;
+    evidence_requirements: string[];
+    rubric_criteria: PracticalAssessmentCriterion[];
+    total_points: number;
+  };
+}
+
 export interface PublishedAssessmentItem {
   id: number;
   code: string;
@@ -689,6 +724,17 @@ export const assessmentsAPI = {
     question_types?: ('mcq' | 'essay' | 'short_answer' | 'mix_and_match' | 'mix')[];
     content_id?: number;
   }) => api.post<{ success: boolean; assessment: GeneratedAssessment; generation_trace?: GenerationTrace | null }>('/assessments/generate', data),
+  generatePractical: (data: {
+    topic: string;
+    level?: string | null;
+    practical_type?: string;
+    mode?: 'guide' | 'assessment';
+    include_detailed_instructions?: boolean;
+    duration_minutes?: number;
+    learning_objectives?: string[];
+    required_materials?: string[];
+    safety_focus?: string[];
+  }) => api.post<{ success: boolean; practical: GeneratedPractical; input?: any }>('/assessments/generate-practical', data),
   getStats: () => api.get('/assessments/stats'),
   publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string }) =>
     api.post('/assessments/publish', data),

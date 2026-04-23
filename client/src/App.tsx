@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   Edit3,
   FileText,
+  FlaskConical,
   Folder,
   Globe,
   Layers,
@@ -34,6 +35,7 @@ const MCQInterface = lazy(() => import('./components/MCQInterface'));
 const BatchManager = lazy(() => import('./components/BatchManager'));
 const TrainingDataManager = lazy(() => import('./components/TrainingDataManager'));
 const AssessmentGenerator = lazy(() => import('./components/AssessmentGenerator'));
+const PracticalGenerator = lazy(() => import('./components/PracticalGenerator'));
 const TakeAssessment = lazy(() => import('./components/TakeAssessment'));
 const ContentGenerator = lazy(() => import('./components/ContentGenerator'));
 const TakeContent = lazy(() => import('./components/TakeContent'));
@@ -72,6 +74,7 @@ type TabType =
   | 'batches'
   | 'training'
   | 'assessments'
+  | 'practicals'
   | 'content'
   | 'modules'
   | 'moodle'
@@ -81,8 +84,8 @@ type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'modules', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'content', 'modules', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
   student: ['modules', 'mcq', 'results']
 };
 
@@ -135,13 +138,18 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     icon: Brain
   },
   assessments: {
-    label: 'Generate Assessments',
+    label: 'Assessment Generator',
     description: 'Prepare and publish student-facing assessments.',
     icon: Sparkles
   },
+  practicals: {
+    label: 'Practical Generator',
+    description: 'Create practical guides or assessable practical tasks.',
+    icon: FlaskConical
+  },
   content: {
-    label: 'Content Generator',
-    description: 'Create lesson content and publish learning materials.',
+    label: 'Lesson Generator',
+    description: 'Create lesson materials and publish learning content.',
     icon: Presentation
   },
   modules: {
@@ -170,7 +178,7 @@ const WORKSPACE_META: Record<WorkspaceType, { label: string; description: string
   },
   student: {
     label: 'Student Workspace',
-    description: 'Student-facing assessments, content, and outcome views live here.',
+    description: 'Student-facing assessments, practicals, lesson content, and outcomes live here.',
     icon: Presentation,
     accent: 'bg-emerald-50 text-emerald-700 border-emerald-200'
   },
@@ -214,6 +222,7 @@ function WorkspaceShell({
       {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
       {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
       {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
+      {activeTab === 'practicals' && canAccessTab('practicals') && <PracticalGenerator />}
       {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
       {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
       {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
@@ -257,6 +266,7 @@ function AppContent() {
   const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
   const allowAssessmentCreation = user?.features?.assessment_creation !== false;
   const allowContentCreation = user?.features?.content_creation !== false;
+  const allowPracticalCreation = allowAssessmentCreation || allowContentCreation;
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -276,9 +286,10 @@ function AppContent() {
       student:
         normalizedRole === 'student'
           ? (['modules', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-          : (['assessments', 'content', 'modules', 'moodle'] as TabType[])
+          : (['assessments', 'practicals', 'content', 'modules', 'moodle'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;
+                if (tab === 'practicals') return allowPracticalCreation;
                 if (tab === 'content') return allowContentCreation;
                 return true;
               })
@@ -289,7 +300,7 @@ function AppContent() {
           : (['mcq', 'training'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
       admin: normalizedRole === 'management' ? (['admin'] as TabType[]) : []
     }),
-    [allowAssessmentCreation, allowContentCreation, normalizedRole]
+    [allowAssessmentCreation, allowContentCreation, allowPracticalCreation, normalizedRole]
   );
 
   const availableWorkspaces = useMemo(() => {

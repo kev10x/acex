@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
+const { buildEducationLevelPromptBlock, buildAcademicWritingGuidance } = require('./educationLevelService');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
 const yauzl = require('yauzl');
 
@@ -405,7 +406,7 @@ async function generateContentWithAI(opts) {
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const visualsInstruction = (includeDiagrams || includeImages)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
-  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. MUST include mermaid_code: valid Mermaid.js syntax (graph TD, flowchart LR, sequenceDiagram, classDiagram, pie, xychart-beta, etc.). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Keep it concise and readable. Use real topic-specific content, not generic placeholders.` : ''}${includeImages ? `
+  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. MUST include mermaid_code: valid Mermaid.js syntax (graph TD, flowchart LR, sequenceDiagram, classDiagram, pie, xychart-beta, etc.). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Use real topic-specific labels and values, not placeholders (never use "A/B/C" or abstract unlabeled nodes). Aim for meaningful complexity: at least 5 nodes/items or 4 data points where applicable.` : ''}${includeImages ? `
   - kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.` : ''}
   Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.${includeDiagrams ? '\n  mermaid_code (illustration only): valid Mermaid.js syntax.' : ''}`
     : `- visuals: omit entirely — do not include a visuals field in any section.`;
@@ -416,7 +417,7 @@ async function generateContentWithAI(opts) {
           "title": "Diagram or chart caption (used as figure label)",
           "alt_text": "Accessible description of the diagram or chart",
           "prompt": "Prompt text for illustration/chart generation",
-          "mermaid_code": "xychart-beta\\n  title \"Example comparison\"\\n  x-axis [\"A\", \"B\", \"C\"]\\n  bar [3, 5, 4]"
+          "mermaid_code": "xychart-beta\\n  title \"Assessment Outcome by Criterion\"\\n  x-axis [\"Methodology\", \"Argument\", \"Evidence\", \"Structure\"]\\n  bar [62, 74, 58, 81]"
         }` : ''}${includeDiagrams && includeImages ? ',' : ''}${includeImages ? `
         {
           "kind": "image",
@@ -427,23 +428,26 @@ async function generateContentWithAI(opts) {
       ]`
     : '"visuals": []';
   const visualsRule = includeDiagrams && includeImages
-    ? 'Include exactly one illustration and one image descriptor in visuals for every section. For the illustration, choose the most educationally effective form: diagram, chart, graph, flowchart, concept map, or infographic.'
+    ? 'Include exactly one illustration and one image descriptor in visuals for every section. For the illustration, choose the most educationally effective form: diagram, chart, graph, flowchart, concept map, or infographic. Avoid simplistic diagrams; each one must encode concrete domain information.'
     : includeDiagrams
-      ? 'Include exactly one illustration descriptor in visuals for every section, choosing a diagram, chart, graph, flowchart, concept map, or infographic as best suits the material.'
+      ? 'Include exactly one illustration descriptor in visuals for every section, choosing a diagram, chart, graph, flowchart, concept map, or infographic as best suits the material. Avoid simplistic diagrams; each one must encode concrete domain information.'
       : includeImages
         ? 'Include exactly one image descriptor in visuals for every section.'
         : 'Do not include a visuals field.';
+  const levelPromptBlock = level ? buildEducationLevelPromptBlock(level) : '';
+  const writingGuidance = buildAcademicWritingGuidance(level || 'level_4');
   const buildPrompt = ({ compact = false } = {}) => `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text-no long bullet lists or text-heavy slides.
 
 TOPICS TO COVER (create clear sections that teach these):
 ${compactTopics}
-${level ? `TARGET LEVEL/CATEGORY: ${level}.${level === 'ECD' || level === 'Foundation Phase' ? ' Use age-appropriate language, simple sentences, and concrete examples suitable for early childhood or foundation phase learners.' : ''}\n` : ''}
+${levelPromptBlock ? `${levelPromptBlock}\n` : ''}
+${writingGuidance}
 ${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` : ''}
 
 Generate a structured course with exactly ${numSections} sections. For each section provide:
 - heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
 - support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
-- body: Full explanation for lecture notes and detailed reading (2-4 short paragraphs). Use \\n for paragraph breaks.
+- body: Full explanation for lecture notes and detailed reading (3-6 substantive paragraphs) in clear academic writing. Use \\n for paragraph breaks. Where it improves clarity, include structured lists using Markdown-style bullets ("- item") and numbered lists ("1. item"), especially for processes, criteria, comparisons, or key takeaways.
 ${visualsInstruction}
 
 Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
@@ -475,11 +479,11 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content. ${visualsRule} Quiz questions must have options and correct_answer.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} Quiz questions must have options and correct_answer. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
   const prompt = buildPrompt();
 
   const messages = [
-    { role: 'system', content: 'You are an expert educator. Respond only with valid JSON, no markdown.' },
+    { role: 'system', content: 'You are an expert educator and academic writer. Produce rigorous, clear instructional content and respond only with valid JSON, no markdown.' },
     { role: 'user', content: prompt },
   ];
   const fallbackModel = process.env.CONTENT_GENERATION_FALLBACK_MODEL || 'gpt-4o-mini';
@@ -492,13 +496,13 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     },
     {
       model: fallbackModel,
-      maxTokens: Math.max(config.maxTokens, 5200),
+      maxTokens: Math.max(config.maxTokens, 8000),
       messages,
       label: 'fallback',
     },
     {
       model: fallbackModel,
-      maxTokens: Math.max(config.maxTokens, 5200),
+      maxTokens: Math.max(config.maxTokens, 8000),
       messages: [
         { role: 'system', content: 'You are an expert educator. Return only compact, valid JSON matching the requested schema.' },
         { role: 'user', content: buildPrompt({ compact: true }) },
@@ -598,6 +602,10 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
         lastReason = 'Invalid content structure: need title and sections array';
         continue;
       }
+      if (data.sections.length < numSections) {
+        lastReason = `Incomplete content: expected ${numSections} sections, received ${data.sections.length}`;
+        continue;
+      }
       return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, uploadedTheme });
     } catch (parseErr) {
       // Try multiple repair strategies
@@ -640,7 +648,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
           const repairedJson = strategy(jsonStr);
           if (repairedJson !== jsonStr) {
             data = JSON.parse(repairedJson);
-            if (data && data.title && data.sections && Array.isArray(data.sections)) {
+            if (data && data.title && data.sections && Array.isArray(data.sections) && data.sections.length >= numSections) {
               console.warn(`Content JSON repaired using strategy for model ${model}`);
               return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, uploadedTheme });
             }
@@ -767,6 +775,33 @@ function inferVisualKind(visual) {
   return 'image';
 }
 
+function isWeakMermaidCode(code) {
+  const text = String(code || '').trim();
+  if (!text) return true;
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 4) return true;
+  if (/example comparison|x-axis\s*\[\s*"a"\s*,\s*"b"\s*,\s*"c"\s*\]/i.test(text)) return true;
+  if (/\b[A-C]\b/.test(text) && !/[a-z]{4,}/i.test(text)) return true;
+  const nodeMatches = text.match(/\[[^\]]+\]/g) || [];
+  return nodeMatches.length > 0 && nodeMatches.length < 4;
+}
+
+function buildSectionMermaidFallback(sectionTitle) {
+  const safeTitle = String(sectionTitle || 'Topic').replace(/"/g, '\\"').slice(0, 60);
+  return [
+    'flowchart TD',
+    `  C1["${safeTitle}: core concept"]`,
+    '  C2["Context and assumptions"]',
+    '  C3["Key mechanism or process"]',
+    '  C4["Evidence, example, or application"]',
+    '  C5["Common misconceptions and checks"]',
+    '  C1 --> C2',
+    '  C2 --> C3',
+    '  C3 --> C4',
+    '  C4 --> C5',
+  ].join('\n');
+}
+
 function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, includeImages = true } = {}) {
   const sectionTitle = String(section?.heading || section?.title || 'Section').trim() || 'Section';
   const incoming = Array.isArray(visuals) ? visuals : [];
@@ -786,7 +821,7 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
         title: String(v.title || fallback.title).slice(0, 160),
         alt_text: String(v.alt_text || fallback.alt_text).slice(0, 260),
         mermaid_code: kind === 'illustration' && typeof v.mermaid_code === 'string' && v.mermaid_code.trim()
-          ? v.mermaid_code.trim()
+          ? (isWeakMermaidCode(v.mermaid_code) ? buildSectionMermaidFallback(sectionTitle) : v.mermaid_code.trim())
           : undefined,
         image_url: typeof v.image_url === 'string' && v.image_url.trim()
           ? v.image_url

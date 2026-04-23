@@ -109,8 +109,12 @@ module.exports = {
       anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 8000, temperature: 0.6 }
     },
     contentGeneration: {
-      openai: { model: 'gpt-4o-mini', maxTokens: 5200, temperature: 0.55 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4200, temperature: 0.55 }
+      openai: { model: 'gpt-4o-mini', maxTokens: 8200, temperature: 0.55 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 7000, temperature: 0.55 }
+    },
+    practicalGeneration: {
+      openai: { model: 'gpt-4o-mini', maxTokens: 7600, temperature: 0.45 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 6400, temperature: 0.45 }
     },
     anchorExtraction: {
       openai: { model: 'gpt-4o-mini', maxTokens: 250, temperature: 0.1 },

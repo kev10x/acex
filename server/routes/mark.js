@@ -6,6 +6,7 @@ const aiConfig = require('../config/ai-config');
 const aiService = require('../services/aiService');
 const { annotatePdfWithIssues, buildIssuesFromMarking } = require('../services/pdfAnnotator');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
+const { resolveEducationLevel, buildEducationLevelPromptBlock } = require('../services/educationLevelService');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -630,6 +631,10 @@ const parseMarkingResponsePayload = (response, { selectedProvider = 'openai', us
 const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null) => {
   const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
   try {
+    const resolvedLevel = resolveEducationLevel(level || 'level_4');
+    const levelCategory = resolvedLevel.marking_category;
+    const levelBandLabel = resolvedLevel.label;
+    const levelPromptBlock = buildEducationLevelPromptBlock(resolvedLevel.id);
     // Auto-detect document type if not provided (only when we have text; for image-based use provided or default)
     if (!documentType) {
       if (imageBased) {
@@ -841,10 +846,10 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       const introMap = {
         treatise: level === 'postgraduate' 
           ? `You are an expert examiner evaluating a Masters Degree Treatise. This is a substantial academic document requiring thorough analysis. Apply STRICT and rigorous postgraduate standards. Be critical and demanding - award marks only when work fully meets the high standards expected. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Use scholarly terminology appropriate for advanced academic work.`
-          : `You are an expert educator evaluating a Treatise. Apply STRICT academic standards for ${level || 'high school'} level work. Be critical and precise in your evaluation. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
+          : `You are an expert educator evaluating a Treatise. Apply STRICT academic standards for ${levelBandLabel} work. Be critical and precise in your evaluation. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         thesis: level === 'postgraduate'
           ? `You are an expert examiner evaluating a Thesis. Apply STRICT and rigorous postgraduate standards. Be demanding and critical - this represents the culmination of significant research and must meet the highest standards. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Use advanced academic terminology.`
-          : `You are an expert examiner evaluating a Thesis at ${level || 'undergraduate'} level. Apply STRICT academic standards. Be critical and precise in your assessment. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
+          : `You are an expert examiner evaluating a Thesis at ${levelBandLabel}. Apply STRICT academic standards. Be critical and precise in your assessment. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         assignment: level === 'primary_school'
           ? `You are a primary school teacher evaluating a student's assignment. Apply STRICT but age-appropriate standards. Provide ${terms.feedback} feedback that is ${terms.tone}. Use simple, clear language that encourages learning while maintaining high expectations.`
           : level === 'high_school'
@@ -867,7 +872,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
           ? `You are a university lecturer evaluating an undergraduate research report. Emphasize methodology, analysis depth, synthesis, and academic rigor. Provide ${terms.feedback} feedback appropriate for university-level work.`
           : `You are a supervisor evaluating a postgraduate research report. Emphasize methodology, analytical depth, synthesis, theoretical framework, and scholarly contribution. Provide ${terms.feedback} feedback appropriate for advanced academic work.`,
         proposal: level === 'undergraduate' || level === 'postgraduate'
-          ? `You are a supervisor evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Provide ${terms.feedback} feedback appropriate for ${level} level work.`
+          ? `You are a supervisor evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Provide ${terms.feedback} feedback appropriate for ${levelBandLabel}.`
           : `You are evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         question_paper: `You are an examiner evaluating a Question Paper/Exam. Focus on accuracy of answers, completeness, clarity of explanations, and adherence to expected responses.`,
         memo: `You are an examiner using a MEMO (Marking Memorandum/Answer Key) to evaluate student responses. Compare student answers against the model answers and marking scheme in the memo.`
@@ -876,7 +881,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       return introMap[assessmentType] || introMap.assignment;
     };
     
-    const intro = getIntro(documentType, level);
+    const intro = getIntro(documentType, levelCategory);
 
     // Build evaluation guidelines based on document type, level, and memo status
     const getEvaluationGuidelines = (assessmentType, level, isMemo) => {
@@ -1053,7 +1058,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       contentLabel = 'PROPOSAL CONTENT:';
     }
     
-    const evaluationGuidelines = getEvaluationGuidelines(documentType, level, isMemo);
+    const evaluationGuidelines = getEvaluationGuidelines(documentType, levelCategory, isMemo);
 
     // Get strictness guidelines based on strictness level
     // IMPORTANT: These instructions OVERRIDE general marking standards - they define the strictness level
@@ -1331,6 +1336,8 @@ ${rubricLabel}
 ${detailedRubric}
 
 TOTAL: ${totalPoints} points
+
+${levelPromptBlock}
 
 ${evaluationGuidelines}
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw, Folder, X } from 'lucide-react';
 import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch } from '../services/api';
+import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 const MarkingInterface: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -12,7 +13,7 @@ const MarkingInterface: React.FC = () => {
   const [studentNames, setStudentNames] = useState<{ [key: number]: string }>({});
   const [outputType, setOutputType] = useState<'annotate' | 'report'>('annotate');
   const [assessmentType, setAssessmentType] = useState<'assignment' | 'test' | 'treatise' | 'thesis'>('assignment');
-  const [level, setLevel] = useState<'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate'>('high_school');
+  const [level, setLevel] = useState<string>(DEFAULT_MARKING_LEVEL);
   const [provider] = useState<'openai' | 'anthropic'>('openai');
   const [strictnessLevel, setStrictnessLevel] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
   const [markAsImage, setMarkAsImage] = useState(false);
@@ -309,7 +310,7 @@ const MarkingInterface: React.FC = () => {
         student_name: studentName,
         output_type: lastMarkingParams.output_type as 'annotate' | 'report',
         assessment_type: lastMarkingParams.assessment_type as 'assignment' | 'test' | 'treatise' | 'thesis',
-        level: lastMarkingParams.level as 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate',
+        level: lastMarkingParams.level,
         provider: lastMarkingParams.provider as 'openai' | 'anthropic',
         strictness_level: lastMarkingParams.strictness_level as 'very_strict' | 'strict' | 'moderate' | 'lenient',
         mark_as_image: lastMarkingParams.mark_as_image
@@ -396,16 +397,15 @@ const MarkingInterface: React.FC = () => {
               </label>
               <select
                 value={level}
-                onChange={(e) => setLevel(e.target.value as 'primary_school' | 'high_school' | 'undergraduate' | 'postgraduate')}
+                onChange={(e) => setLevel(normalizeEducationLevelValue(e.target.value, DEFAULT_MARKING_LEVEL))}
                 className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
               >
-                <option value="primary_school">Primary School</option>
-                <option value="high_school">High School</option>
-                <option value="undergraduate">Undergraduate</option>
-                <option value="postgraduate">Postgraduate</option>
+                {EDUCATION_LEVEL_OPTIONS.filter((option) => option.value).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
               <p className="mt-1 text-xs text-gray-500">
-                Select the educational level of the students
+                Select the grade/qualification level band of the students
               </p>
             </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
 import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace } from '../services/api';
+import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -12,19 +13,6 @@ const QUESTION_TYPE_LABELS: Record<QuestionTypeOption, string> = {
   mix_and_match: 'Mix and match',
 };
 
-const LEVEL_OPTIONS = [
-  { value: '', label: 'Any level' },
-  { value: 'Grade 8', label: 'Grade 8' },
-  { value: 'Grade 9', label: 'Grade 9' },
-  { value: 'Grade 10', label: 'Grade 10' },
-  { value: 'Grade 11', label: 'Grade 11' },
-  { value: 'Grade 12', label: 'Grade 12' },
-  { value: 'Year 1', label: 'Year 1 (tertiary)' },
-  { value: 'Year 2', label: 'Year 2 (tertiary)' },
-  { value: 'Year 3', label: 'Year 3 (tertiary)' },
-  { value: 'Undergraduate', label: 'Undergraduate' },
-  { value: 'Postgraduate', label: 'Postgraduate' },
-];
 const LEGACY_ASSESSMENT_HISTORY_KEY = 'assessment_generator_history_v1';
 const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PUBLISHED_PAGE_SIZE = 8;
@@ -138,7 +126,7 @@ const AssessmentGenerator: React.FC = () => {
     setUseCustomTopics(!!input.use_custom_topics);
     setCustomTopicsText(input.custom_topics_text || '');
     setCustomTopicsFile(null);
-    setLevel(input.level || '');
+    setLevel(normalizeEducationLevelValue(input.level || '', ''));
     setTopic(input.topic || '');
     setDifficultyLevel(input.difficulty_level || 'moderate');
     setQuestionCount(input.question_count || 5);
@@ -192,7 +180,7 @@ const AssessmentGenerator: React.FC = () => {
           input: {
             use_custom_topics: !!item.use_custom_topics,
             custom_topics_text: item.custom_topics_text || '',
-            level: item.level || '',
+            level: normalizeEducationLevelValue(item.level || '', ''),
             topic: item.topic || '',
             difficulty_level: item.difficulty_level || 'moderate',
             question_count: item.question_count || 5,
@@ -480,7 +468,7 @@ const AssessmentGenerator: React.FC = () => {
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3 mb-6">
           <Sparkles className="w-8 h-8 text-purple-600" />
-          <h1 className="text-3xl font-bold text-gray-800">AI Assessment Generator</h1>
+          <h1 className="text-3xl font-bold text-gray-800">Assessment Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
           Generate new assessments automatically based on your rubrics. The system creates questions that align with your rubric criteria, ensuring assessments match your marking standards.
@@ -729,7 +717,7 @@ const AssessmentGenerator: React.FC = () => {
                   onChange={(e) => setLevel(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
-                  {LEVEL_OPTIONS.map((opt) => (
+                  {EDUCATION_LEVEL_OPTIONS.map((opt) => (
                     <option key={opt.value || 'any'} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
@@ -797,7 +785,7 @@ const AssessmentGenerator: React.FC = () => {
                   onChange={(e) => setLevel(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
-                  {LEVEL_OPTIONS.map((opt) => (
+                  {EDUCATION_LEVEL_OPTIONS.map((opt) => (
                     <option key={opt.value || 'any'} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>

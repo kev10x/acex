@@ -2,17 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
+import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
-const LEVEL_OPTIONS = [
-  { value: '', label: 'Any level' },
-  { value: 'ECD', label: 'ECD (Early Childhood Development)' },
-  { value: 'Foundation Phase', label: 'Foundation Phase' },
-  { value: 'Grade 8', label: 'Grade 8' },
-  { value: 'Grade 10', label: 'Grade 10' },
-  { value: 'Grade 12', label: 'Grade 12' },
-  { value: 'Undergraduate', label: 'Undergraduate' },
-  { value: 'Postgraduate', label: 'Postgraduate' },
-];
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const isDiagramVisual = (visual: any) =>
   !!String(visual?.mermaid_code || '').trim() ||
@@ -151,7 +142,7 @@ const ContentGenerator: React.FC = () => {
   const loadFromHistory = (item: ApiContentHistoryItem) => {
     const input = item.input || {};
     setTopics(input.topics || '');
-    setLevel(input.level || '');
+    setLevel(normalizeEducationLevelValue(input.level || '', ''));
     setNumSections(input.num_sections || 5);
     setRubricId(input.rubric_id || null);
     setTemplateId(input.template_id || 'classroom');
@@ -288,7 +279,7 @@ const ContentGenerator: React.FC = () => {
           content: item.content,
           input: {
             topics: item.topics || '',
-            level: item.level || '',
+            level: normalizeEducationLevelValue(item.level || '', ''),
             num_sections: item.num_sections || 5,
             rubric_id: item.rubric_id || null,
             template_id: item.template_id || 'classroom',
@@ -762,7 +753,7 @@ const ContentGenerator: React.FC = () => {
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3 mb-6">
           <Presentation className="w-8 h-8 text-teal-600" />
-          <h1 className="text-3xl font-bold text-gray-800">Content Generator</h1>
+          <h1 className="text-3xl font-bold text-gray-800">Lesson Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
           Create course content from topics: slide decks, lecture notes, and an interactive student view. Optionally add AI-generated video and upload a PowerPoint template for slides.
@@ -955,7 +946,7 @@ const ContentGenerator: React.FC = () => {
                 onChange={(e) => setLevel(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
               >
-                {LEVEL_OPTIONS.map((o) => (
+                {EDUCATION_LEVEL_OPTIONS.map((o) => (
                   <option key={o.value || 'any'} value={o.value}>{o.label}</option>
                 ))}
               </select>

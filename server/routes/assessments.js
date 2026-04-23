@@ -16,6 +16,7 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
+const { buildEducationLevelPromptBlock, buildAcademicWritingGuidance } = require('../services/educationLevelService');
 const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
 const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
 const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailService');
@@ -720,8 +721,11 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
     let rubricDescription;
     if (useCustomTopics) {
       rubricDescription = `\n\nCUSTOM TOPIC LIST (create questions covering these topics):\n${topicsFromRubric}\n`;
-      if (level && String(level).trim()) {
-        rubricDescription += `\nTARGET LEVEL: ${String(level).trim()}\n`;
+      const levelPromptBlock = level && String(level).trim()
+        ? buildEducationLevelPromptBlock(String(level).trim())
+        : '';
+      if (levelPromptBlock) {
+        rubricDescription += `\n${levelPromptBlock}\n`;
       }
       rubricDescription += `\nTotal points: use a round number (e.g. 100) that fits the number and difficulty of questions. suggested_rubric_criteria must sum to the same.\n`;
     } else {
@@ -761,7 +765,7 @@ ${rubricDescription}
 
 TOPICS TO COVER (create questions with variations around these):
 ${topic ? topic + '; ' : ''}${topicsFromRubric}
-${level && String(level).trim() ? `\nTARGET LEVEL: ${String(level).trim()}\n` : ''}
+${level && String(level).trim() ? `\n${buildEducationLevelPromptBlock(String(level).trim())}\n` : ''}
 
 DIFFICULTY LEVEL: ${difficulty_level}
 NUMBER OF QUESTIONS: ${question_count}
@@ -1000,6 +1004,189 @@ IMPORTANT:
     res.status(500).json({
       error: 'Failed to generate assessment',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+router.post('/generate-practical', requireAuth, async (req, res) => {
+  try {
+    const canCreateAssessment = req.user?.features?.assessment_creation !== false;
+    const canCreateContent = req.user?.features?.content_creation !== false;
+    if (!canCreateAssessment && !canCreateContent) {
+      return res.status(403).json({ error: 'You do not have permission to generate practicals.' });
+    }
+
+    const {
+      topic,
+      level = null,
+      practical_type = 'laboratory',
+      mode = 'guide',
+      include_detailed_instructions = true,
+      duration_minutes = 60,
+      learning_objectives = [],
+      required_materials = [],
+      safety_focus = [],
+    } = req.body || {};
+
+    const normalizedTopic = String(topic || '').trim();
+    if (!normalizedTopic) {
+      return res.status(400).json({ error: 'topic is required' });
+    }
+
+    const normalizedMode = String(mode || 'guide').toLowerCase() === 'assessment' ? 'assessment' : 'guide';
+    const normalizedType = String(practical_type || 'laboratory').trim().slice(0, 120) || 'laboratory';
+    const normalizedLevel = String(level || '').trim();
+    const normalizedDuration = Math.max(20, Math.min(240, Number.parseInt(duration_minutes, 10) || 60));
+    const normalizedObjectives = Array.isArray(learning_objectives)
+      ? learning_objectives.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 10)
+      : [];
+    const normalizedMaterials = Array.isArray(required_materials)
+      ? required_materials.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20)
+      : [];
+    const normalizedSafety = Array.isArray(safety_focus)
+      ? safety_focus.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : [];
+
+    const levelBlock = buildEducationLevelPromptBlock(normalizedLevel || 'level_4');
+    const writingGuidance = buildAcademicWritingGuidance(normalizedLevel || 'level_4');
+    const detailInstruction = include_detailed_instructions
+      ? 'Include detailed step-by-step instructions suitable for direct classroom/lab facilitation, with setup notes and quality checkpoints.'
+      : 'Keep instructions concise and high-level. Focus on task flow and outcomes rather than granular steps.';
+    const modeInstruction = normalizedMode === 'assessment'
+      ? 'This must function as an assessable practical task. Include marking criteria and evidence requirements.'
+      : 'This must function as a practical guide only. Do not include marks, rubric scores, or grading allocations.';
+
+    const prompt = `You are an expert educator designing a high-quality practical activity.
+
+TOPIC: ${normalizedTopic}
+PRACTICAL TYPE: ${normalizedType}
+MODE: ${normalizedMode}
+TARGET DURATION: ${normalizedDuration} minutes
+${levelBlock}
+${writingGuidance}
+
+REQUESTED EMPHASIS:
+- ${detailInstruction}
+- ${modeInstruction}
+${normalizedObjectives.length ? `- Learning objectives to include: ${normalizedObjectives.join('; ')}` : ''}
+${normalizedMaterials.length ? `- Preferred materials/equipment: ${normalizedMaterials.join('; ')}` : ''}
+${normalizedSafety.length ? `- Safety focus areas: ${normalizedSafety.join('; ')}` : ''}
+
+Return JSON only (no markdown) in this structure:
+{
+  "title": "string",
+  "topic": "string",
+  "practical_type": "string",
+  "mode": "guide|assessment",
+  "estimated_duration_minutes": 60,
+  "overview": "short academic overview paragraph",
+  "learning_objectives": ["obj1", "obj2"],
+  "materials": ["item1", "item2"],
+  "safety_notes": ["note1", "note2"],
+  "preparation_checklist": ["prep1", "prep2"],
+  "procedure_steps": [
+    {
+      "step": 1,
+      "title": "Step title",
+      "instructions": "What to do",
+      "expected_outcome": "What should happen",
+      "teacher_notes": "Facilitator note"
+    }
+  ],
+  "reflection_questions": ["q1", "q2"],
+  "optional_assessment": {
+    "submission_instructions": "How learners submit evidence",
+    "evidence_requirements": ["evidence1", "evidence2"],
+    "rubric_criteria": [
+      { "name": "Criterion name", "description": "How to evaluate quality", "max_points": 10 }
+    ],
+    "total_points": 100
+  }
+}
+
+Rules:
+- Provide at least 6 procedure_steps.
+- Use clear academic language and structured instructional design.
+- Ensure safety_notes and preparation_checklist are specific and practical.
+- If mode is "guide", set optional_assessment to null.
+- If mode is "assessment", optional_assessment is required with rubric_criteria and total_points.
+- Keep the output directly usable by educators.`;
+
+    const config = aiConfig.getTaskConfig('practicalGeneration', 'openai');
+    const completion = await aiService.createCompletionWithRetry({
+      provider: config.provider,
+      model: config.model,
+      temperature: config.temperature,
+      maxTokens: config.maxTokens,
+      messages: [
+        { role: 'system', content: 'You are an expert practical curriculum designer. Return valid JSON only.' },
+        { role: 'user', content: prompt },
+      ],
+    });
+
+    const parsed = parseAssessmentJSONFromCompletion(completion);
+    const procedureSteps = Array.isArray(parsed?.procedure_steps) ? parsed.procedure_steps : [];
+    if (procedureSteps.length === 0) {
+      return res.status(500).json({ error: 'Practical generation failed: no procedure steps returned.' });
+    }
+
+    const practical = {
+      title: String(parsed?.title || `${normalizedTopic} Practical`).slice(0, 220),
+      topic: String(parsed?.topic || normalizedTopic).slice(0, 220),
+      practical_type: String(parsed?.practical_type || normalizedType).slice(0, 120),
+      mode: normalizedMode,
+      estimated_duration_minutes: Math.max(20, Math.min(240, Number.parseInt(parsed?.estimated_duration_minutes, 10) || normalizedDuration)),
+      overview: String(parsed?.overview || '').trim(),
+      learning_objectives: Array.isArray(parsed?.learning_objectives) ? parsed.learning_objectives.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12) : [],
+      materials: Array.isArray(parsed?.materials) ? parsed.materials.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 30) : [],
+      safety_notes: Array.isArray(parsed?.safety_notes) ? parsed.safety_notes.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20) : [],
+      preparation_checklist: Array.isArray(parsed?.preparation_checklist) ? parsed.preparation_checklist.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20) : [],
+      procedure_steps: procedureSteps.map((step, index) => ({
+        step: Number.parseInt(step?.step, 10) || (index + 1),
+        title: String(step?.title || `Step ${index + 1}`).trim(),
+        instructions: String(step?.instructions || '').trim(),
+        expected_outcome: String(step?.expected_outcome || '').trim(),
+        teacher_notes: String(step?.teacher_notes || '').trim(),
+      })).filter((step) => step.instructions).slice(0, 20),
+      reflection_questions: Array.isArray(parsed?.reflection_questions) ? parsed.reflection_questions.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12) : [],
+      optional_assessment: normalizedMode === 'assessment'
+        ? {
+            submission_instructions: String(parsed?.optional_assessment?.submission_instructions || '').trim(),
+            evidence_requirements: Array.isArray(parsed?.optional_assessment?.evidence_requirements)
+              ? parsed.optional_assessment.evidence_requirements.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
+              : [],
+            rubric_criteria: Array.isArray(parsed?.optional_assessment?.rubric_criteria)
+              ? parsed.optional_assessment.rubric_criteria.map((criterion) => ({
+                  name: String(criterion?.name || '').trim(),
+                  description: String(criterion?.description || '').trim(),
+                  max_points: Math.max(1, Number.parseInt(criterion?.max_points, 10) || 1),
+                })).filter((criterion) => criterion.name && criterion.description).slice(0, 12)
+              : [],
+            total_points: Math.max(1, Number.parseInt(parsed?.optional_assessment?.total_points, 10) || 100),
+          }
+        : null,
+    };
+
+    if (practical.procedure_steps.length < 4) {
+      return res.status(500).json({ error: 'Practical generation returned too few usable steps. Please try again.' });
+    }
+
+    res.json({
+      success: true,
+      practical,
+      input: {
+        topic: normalizedTopic,
+        level: normalizedLevel || null,
+        practical_type: normalizedType,
+        mode: normalizedMode,
+        include_detailed_instructions: include_detailed_instructions !== false,
+      },
+    });
+  } catch (error) {
+    console.error('Practical generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate practical',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
