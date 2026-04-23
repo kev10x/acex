@@ -2501,13 +2501,3 @@ router.post('/submit', optionalAuth, async (req, res) => {
 });
 
 module.exports = router;
-    generationJobId = await createGenerationJob({
-      user_id: req.user.id,
-      job_type: 'practical_generation',
-      status: JOB_STATUS.PROCESSING,
-      source_route: '/assessments/generate-practical',
-      payload: req.body || {},
-    });
-    if (generationJobId) {
-      await updateGenerationJob(generationJobId, { started_at: new Date() });
-    }
