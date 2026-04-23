@@ -554,6 +554,11 @@ export interface PracticalProcedureStep {
   instructions: string;
   expected_outcome?: string;
   teacher_notes?: string;
+  code_example?: {
+    language: string;
+    code: string;
+    explanation?: string;
+  };
 }
 
 export interface PracticalAssessmentCriterion {
@@ -562,11 +567,20 @@ export interface PracticalAssessmentCriterion {
   max_points: number;
 }
 
+export interface PracticalCodeExample {
+  title: string;
+  language: string;
+  code: string;
+  explanation?: string;
+}
+
 export interface GeneratedPractical {
   title: string;
   topic: string;
   practical_type: string;
   mode: 'guide' | 'assessment';
+  delivery_mode?: 'computer_based' | 'hands_on';
+  digital_environment?: string[];
   estimated_duration_minutes: number;
   overview: string;
   learning_objectives: string[];
@@ -574,6 +588,7 @@ export interface GeneratedPractical {
   safety_notes: string[];
   preparation_checklist: string[];
   procedure_steps: PracticalProcedureStep[];
+  code_examples?: PracticalCodeExample[];
   reflection_questions: string[];
   optional_assessment: null | {
     submission_instructions: string;
@@ -729,6 +744,10 @@ export const assessmentsAPI = {
     level?: string | null;
     practical_type?: string;
     mode?: 'guide' | 'assessment';
+    delivery_mode?: 'computer_based' | 'hands_on';
+    include_code_examples?: boolean;
+    programming_language?: string | null;
+    platform_tools?: string[];
     include_detailed_instructions?: boolean;
     duration_minutes?: number;
     learning_objectives?: string[];

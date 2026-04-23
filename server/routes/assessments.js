@@ -1021,6 +1021,10 @@ router.post('/generate-practical', requireAuth, async (req, res) => {
       level = null,
       practical_type = 'laboratory',
       mode = 'guide',
+      delivery_mode = 'computer_based',
+      include_code_examples = true,
+      programming_language = null,
+      platform_tools = [],
       include_detailed_instructions = true,
       duration_minutes = 60,
       learning_objectives = [],
@@ -1035,6 +1039,14 @@ router.post('/generate-practical', requireAuth, async (req, res) => {
 
     const normalizedMode = String(mode || 'guide').toLowerCase() === 'assessment' ? 'assessment' : 'guide';
     const normalizedType = String(practical_type || 'laboratory').trim().slice(0, 120) || 'laboratory';
+    const normalizedDeliveryMode = String(delivery_mode || 'computer_based').toLowerCase() === 'hands_on'
+      ? 'hands_on'
+      : 'computer_based';
+    const shouldIncludeCodeExamples = include_code_examples !== false;
+    const normalizedProgrammingLanguage = String(programming_language || '').trim().slice(0, 80);
+    const normalizedPlatformTools = Array.isArray(platform_tools)
+      ? platform_tools.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : [];
     const normalizedLevel = String(level || '').trim();
     const normalizedDuration = Math.max(20, Math.min(240, Number.parseInt(duration_minutes, 10) || 60));
     const normalizedObjectives = Array.isArray(learning_objectives)
@@ -1055,12 +1067,19 @@ router.post('/generate-practical', requireAuth, async (req, res) => {
     const modeInstruction = normalizedMode === 'assessment'
       ? 'This must function as an assessable practical task. Include marking criteria and evidence requirements.'
       : 'This must function as a practical guide only. Do not include marks, rubric scores, or grading allocations.';
+    const deliveryInstruction = normalizedDeliveryMode === 'computer_based'
+      ? 'Design this as a computer-based practical for IT students, with explicit software/tool workflow and machine-based execution steps.'
+      : 'Design this as a hands-on practical task with physical setup and implementation steps.';
+    const codeInstruction = shouldIncludeCodeExamples
+      ? 'Include realistic code examples aligned to the practical workflow. Use concise, correct snippets and explain how each snippet is used.'
+      : 'Do not include code examples unless strictly required by the topic.';
 
     const prompt = `You are an expert educator designing a high-quality practical activity.
 
 TOPIC: ${normalizedTopic}
 PRACTICAL TYPE: ${normalizedType}
 MODE: ${normalizedMode}
+DELIVERY MODE: ${normalizedDeliveryMode}
 TARGET DURATION: ${normalizedDuration} minutes
 ${levelBlock}
 ${writingGuidance}
@@ -1068,6 +1087,10 @@ ${writingGuidance}
 REQUESTED EMPHASIS:
 - ${detailInstruction}
 - ${modeInstruction}
+- ${deliveryInstruction}
+- ${codeInstruction}
+${normalizedProgrammingLanguage ? `- Preferred programming language: ${normalizedProgrammingLanguage}` : ''}
+${normalizedPlatformTools.length ? `- Suggested digital environment/tools: ${normalizedPlatformTools.join('; ')}` : ''}
 ${normalizedObjectives.length ? `- Learning objectives to include: ${normalizedObjectives.join('; ')}` : ''}
 ${normalizedMaterials.length ? `- Preferred materials/equipment: ${normalizedMaterials.join('; ')}` : ''}
 ${normalizedSafety.length ? `- Safety focus areas: ${normalizedSafety.join('; ')}` : ''}
@@ -1078,6 +1101,8 @@ Return JSON only (no markdown) in this structure:
   "topic": "string",
   "practical_type": "string",
   "mode": "guide|assessment",
+  "delivery_mode": "computer_based|hands_on",
+  "digital_environment": ["required software/tool 1", "required software/tool 2"],
   "estimated_duration_minutes": 60,
   "overview": "short academic overview paragraph",
   "learning_objectives": ["obj1", "obj2"],
@@ -1090,7 +1115,20 @@ Return JSON only (no markdown) in this structure:
       "title": "Step title",
       "instructions": "What to do",
       "expected_outcome": "What should happen",
-      "teacher_notes": "Facilitator note"
+      "teacher_notes": "Facilitator note",
+      "code_example": {
+        "language": "python",
+        "code": "print('example')",
+        "explanation": "how the code supports the step"
+      }
+    }
+  ],
+  "code_examples": [
+    {
+      "title": "Core implementation snippet",
+      "language": "python",
+      "code": "print('example')",
+      "explanation": "what this snippet demonstrates"
     }
   ],
   "reflection_questions": ["q1", "q2"],
@@ -1108,6 +1146,9 @@ Rules:
 - Provide at least 6 procedure_steps.
 - Use clear academic language and structured instructional design.
 - Ensure safety_notes and preparation_checklist are specific and practical.
+- Use academically grounded writing with clear headings, bullet-ready sequencing, and concise explanatory tone.
+- For computer_based mode, include concrete software/tool setup in digital_environment and procedure steps.
+- If code examples are requested, include at least two meaningful snippets in code_examples and embed step-level code_example where relevant.
 - If mode is "guide", set optional_assessment to null.
 - If mode is "assessment", optional_assessment is required with rubric_criteria and total_points.
 - Keep the output directly usable by educators.`;
@@ -1135,6 +1176,10 @@ Rules:
       topic: String(parsed?.topic || normalizedTopic).slice(0, 220),
       practical_type: String(parsed?.practical_type || normalizedType).slice(0, 120),
       mode: normalizedMode,
+      delivery_mode: normalizedDeliveryMode,
+      digital_environment: Array.isArray(parsed?.digital_environment)
+        ? parsed.digital_environment.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20)
+        : normalizedPlatformTools,
       estimated_duration_minutes: Math.max(20, Math.min(240, Number.parseInt(parsed?.estimated_duration_minutes, 10) || normalizedDuration)),
       overview: String(parsed?.overview || '').trim(),
       learning_objectives: Array.isArray(parsed?.learning_objectives) ? parsed.learning_objectives.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12) : [],
@@ -1147,7 +1192,25 @@ Rules:
         instructions: String(step?.instructions || '').trim(),
         expected_outcome: String(step?.expected_outcome || '').trim(),
         teacher_notes: String(step?.teacher_notes || '').trim(),
+        code_example: step?.code_example && String(step?.code_example?.code || '').trim()
+          ? {
+              language: String(step.code_example.language || normalizedProgrammingLanguage || 'text').trim().slice(0, 40) || 'text',
+              code: String(step.code_example.code || '').trim().slice(0, 5000),
+              explanation: String(step.code_example.explanation || '').trim().slice(0, 800),
+            }
+          : undefined,
       })).filter((step) => step.instructions).slice(0, 20),
+      code_examples: Array.isArray(parsed?.code_examples)
+        ? parsed.code_examples
+            .map((item) => ({
+              title: String(item?.title || 'Code example').trim().slice(0, 140),
+              language: String(item?.language || normalizedProgrammingLanguage || 'text').trim().slice(0, 40) || 'text',
+              code: String(item?.code || '').trim().slice(0, 6000),
+              explanation: String(item?.explanation || '').trim().slice(0, 1200),
+            }))
+            .filter((item) => item.code)
+            .slice(0, 12)
+        : [],
       reflection_questions: Array.isArray(parsed?.reflection_questions) ? parsed.reflection_questions.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 12) : [],
       optional_assessment: normalizedMode === 'assessment'
         ? {
@@ -1179,6 +1242,10 @@ Rules:
         level: normalizedLevel || null,
         practical_type: normalizedType,
         mode: normalizedMode,
+        delivery_mode: normalizedDeliveryMode,
+        include_code_examples: shouldIncludeCodeExamples,
+        programming_language: normalizedProgrammingLanguage || null,
+        platform_tools: normalizedPlatformTools,
         include_detailed_instructions: include_detailed_instructions !== false,
       },
     });

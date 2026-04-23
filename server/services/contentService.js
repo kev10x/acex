@@ -486,7 +486,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     { role: 'system', content: 'You are an expert educator and academic writer. Produce rigorous, clear instructional content and respond only with valid JSON, no markdown.' },
     { role: 'user', content: prompt },
   ];
-  const fallbackModel = process.env.CONTENT_GENERATION_FALLBACK_MODEL || 'gpt-4o-mini';
+  const fallbackModel = process.env.CONTENT_GENERATION_FALLBACK_MODEL || 'gpt-5-mini';
   const attemptConfigs = [
     {
       model: config.model,
