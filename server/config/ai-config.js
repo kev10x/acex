@@ -109,7 +109,7 @@ module.exports = {
       anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 8000, temperature: 0.6 }
     },
     contentGeneration: {
-      openai: { model: 'gpt-5-mini', maxTokens: 8200, temperature: 0.55 },
+      openai: { model: 'gpt-5-mini', maxTokens: 12000, temperature: 0.55 },
       anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 7000, temperature: 0.55 }
     },
     practicalGeneration: {

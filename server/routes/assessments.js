@@ -922,6 +922,7 @@ IMPORTANT:
         assignments_count: contextData.assignments.length
       },
       generation_trace: promptTrace,
+      generation_job_id: generationJobId,
     });
     const estimatedCost = estimateGenerationUsageCost(telemetryProvider, telemetryUsage);
     const successPayload = {
@@ -957,9 +958,17 @@ IMPORTANT:
         status: JOB_STATUS.COMPLETED,
         result: {
           success: true,
+          assessment: assessmentData,
+          rubric: {
+            id: useCustomTopics ? savedRubricId : rubric_id,
+            name: selectedRubric?.name || null,
+            total_points: assessmentData?.total_points ?? selectedRubric?.total_points ?? null,
+          },
+          saved_rubric_id: savedRubricId || null,
+          saved_rubric_name: savedRubricName || null,
+          generation_trace: promptTrace || null,
           title: assessmentData?.title || null,
           question_count: Array.isArray(assessmentData?.questions) ? assessmentData.questions.length : 0,
-          saved_rubric_id: savedRubricId || null,
         },
         completed_at: new Date(),
       });
@@ -1009,6 +1018,7 @@ IMPORTANT:
 });
 
 router.post('/generate-practical', requireAuth, async (req, res) => {
+  let generationJobId = null;
   try {
     const canCreateAssessment = req.user?.features?.assessment_creation !== false;
     const canCreateContent = req.user?.features?.content_creation !== false;
@@ -1248,8 +1258,33 @@ Rules:
         platform_tools: normalizedPlatformTools,
         include_detailed_instructions: include_detailed_instructions !== false,
       },
+      generation_job_id: generationJobId,
     });
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.COMPLETED,
+        result: {
+          success: true,
+          practical,
+          input: {
+            topic: normalizedTopic,
+            level: normalizedLevel || null,
+            practical_type: normalizedType,
+            mode: normalizedMode,
+            delivery_mode: normalizedDeliveryMode,
+          },
+        },
+        completed_at: new Date(),
+      });
+    }
   } catch (error) {
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, {
+        status: JOB_STATUS.FAILED,
+        error_message: String(error?.message || 'Unknown error'),
+        completed_at: new Date(),
+      });
+    }
     console.error('Practical generation error:', error);
     res.status(500).json({
       error: 'Failed to generate practical',
@@ -2466,3 +2501,13 @@ router.post('/submit', optionalAuth, async (req, res) => {
 });
 
 module.exports = router;
+    generationJobId = await createGenerationJob({
+      user_id: req.user.id,
+      job_type: 'practical_generation',
+      status: JOB_STATUS.PROCESSING,
+      source_route: '/assessments/generate-practical',
+      payload: req.body || {},
+    });
+    if (generationJobId) {
+      await updateGenerationJob(generationJobId, { started_at: new Date() });
+    }

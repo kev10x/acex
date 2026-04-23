@@ -50,6 +50,7 @@ const ContentGenerator: React.FC = () => {
   const [generationTrace, setGenerationTrace] = useState<GenerationTrace | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [backgroundGenerationNotice, setBackgroundGenerationNotice] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<PublishedContentItem[]>([]);
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
@@ -73,6 +74,7 @@ const ContentGenerator: React.FC = () => {
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recoveredContentJobIdRef = useRef<number | null>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
@@ -95,6 +97,50 @@ const ContentGenerator: React.FC = () => {
     loadHistory();
     loadModules();
   }, []);
+
+  const recoverBackgroundContentGeneration = async () => {
+    try {
+      const res = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine' });
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const jobs = items
+        .filter((job: any) => job?.job_type === 'content_generation')
+        .sort((a: any, b: any) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
+      const latest = jobs[0];
+      if (!latest) return;
+
+      if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
+        setBackgroundGenerationNotice('A content generation is still running in the background. This page will auto-recover it when it finishes.');
+        return;
+      }
+
+      if (
+        latest.status === 'completed' &&
+        latest.result?.content &&
+        recoveredContentJobIdRef.current !== Number(latest.id || 0) &&
+        (isGenerating || !generatedContent)
+      ) {
+        const recoveredContent = withGenerationSettings(latest.result.content);
+        const recoveredTrace = latest.result?.generation_trace || null;
+        recoveredContentJobIdRef.current = Number(latest.id || 0);
+        setGeneratedContent(recoveredContent);
+        setGenerationTrace(recoveredTrace);
+        setIsGenerating(false);
+        setError(null);
+        setBackgroundGenerationNotice('Recovered your generated content from a background job.');
+        await addToHistory(recoveredContent, recoveredTrace);
+      }
+    } catch (_) {
+      // Best-effort recovery only; ignore poll failures.
+    }
+  };
+
+  useEffect(() => {
+    recoverBackgroundContentGeneration();
+    const timer = setInterval(() => {
+      recoverBackgroundContentGeneration();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [isGenerating, generatedContent]);
 
   const loadHistory = async () => {
     try {
@@ -364,6 +410,7 @@ const ContentGenerator: React.FC = () => {
       return;
     }
     setError(null);
+    setBackgroundGenerationNotice(null);
     setIsGenerating(true);
     setSelectedVisualKey(null);
     setActiveHistoryId(null);
@@ -925,6 +972,9 @@ const ContentGenerator: React.FC = () => {
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+        )}
+        {backgroundGenerationNotice && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">{backgroundGenerationNotice}</div>
         )}
 
         <div className="space-y-4">

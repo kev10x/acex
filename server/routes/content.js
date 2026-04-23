@@ -500,13 +500,15 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
         status: JOB_STATUS.COMPLETED,
         result: {
           success: true,
+          content,
+          generation_trace: promptTrace || null,
           title: content?.title || null,
           section_count: Array.isArray(content?.sections) ? content.sections.length : 0,
         },
         completed_at: new Date(),
       });
     }
-    res.json({ success: true, content, generation_trace: promptTrace });
+    res.json({ success: true, content, generation_trace: promptTrace, generation_job_id: generationJobId });
   } catch (error) {
     const errorPayload = {
       ...telemetryBase,

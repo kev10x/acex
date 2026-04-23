@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Beaker, Download, Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import {
   assessmentsAPI,
   GeneratedPractical,
+  modulesAPI,
   PracticalCodeExample,
   PracticalProcedureStep,
 } from '../services/api';
@@ -26,8 +27,10 @@ const PracticalGenerator: React.FC = () => {
   const [safetyFocus, setSafetyFocus] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backgroundGenerationNotice, setBackgroundGenerationNotice] = useState<string | null>(null);
   const [editablePractical, setEditablePractical] = useState<GeneratedPractical | null>(null);
   const [practicalView, setPracticalView] = useState<'edit' | 'preview'>('edit');
+  const recoveredPracticalJobIdRef = useRef<number | null>(null);
 
   const splitLines = (text: string) =>
     text
@@ -162,6 +165,7 @@ const PracticalGenerator: React.FC = () => {
 
     setIsGenerating(true);
     setError(null);
+    setBackgroundGenerationNotice(null);
     setEditablePractical(null);
 
     try {
@@ -188,6 +192,47 @@ const PracticalGenerator: React.FC = () => {
       setIsGenerating(false);
     }
   };
+
+  const recoverBackgroundPracticalGeneration = async () => {
+    try {
+      const res = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine' });
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const jobs = items
+        .filter((job: any) => job?.job_type === 'practical_generation')
+        .sort((a: any, b: any) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
+      const latest = jobs[0];
+      if (!latest) return;
+
+      if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
+        setBackgroundGenerationNotice('A practical generation is still running in the background. This page will auto-recover it when it finishes.');
+        return;
+      }
+
+      if (
+        latest.status === 'completed' &&
+        latest.result?.practical &&
+        recoveredPracticalJobIdRef.current !== Number(latest.id || 0) &&
+        (isGenerating || !editablePractical)
+      ) {
+        recoveredPracticalJobIdRef.current = Number(latest.id || 0);
+        setEditablePractical(clonePractical(latest.result.practical));
+        setPracticalView('edit');
+        setIsGenerating(false);
+        setError(null);
+        setBackgroundGenerationNotice('Recovered your generated practical from a background job.');
+      }
+    } catch (_) {
+      // Best-effort recovery only; ignore poll failures.
+    }
+  };
+
+  useEffect(() => {
+    recoverBackgroundPracticalGeneration();
+    const timer = setInterval(() => {
+      recoverBackgroundPracticalGeneration();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [isGenerating, editablePractical]);
 
   const handleDownload = () => {
     if (!editablePractical) return;
@@ -288,6 +333,9 @@ const PracticalGenerator: React.FC = () => {
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+        )}
+        {backgroundGenerationNotice && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">{backgroundGenerationNotice}</div>
         )}
 
         <div className="space-y-4">

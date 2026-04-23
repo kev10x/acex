@@ -487,6 +487,8 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     { role: 'user', content: prompt },
   ];
   const fallbackModel = process.env.CONTENT_GENERATION_FALLBACK_MODEL || 'gpt-5-mini';
+  const nonReasoningFallbackModel = process.env.CONTENT_GENERATION_NON_REASONING_MODEL || 'gpt-4o-mini';
+  const boostedMaxTokens = Math.max(config.maxTokens || 0, 12000);
   const attemptConfigs = [
     {
       model: config.model,
@@ -496,18 +498,27 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     },
     {
       model: fallbackModel,
-      maxTokens: Math.max(config.maxTokens, 8000),
+      maxTokens: boostedMaxTokens,
       messages,
       label: 'fallback',
     },
     {
       model: fallbackModel,
-      maxTokens: Math.max(config.maxTokens, 8000),
+      maxTokens: boostedMaxTokens,
       messages: [
         { role: 'system', content: 'You are an expert educator. Return only compact, valid JSON matching the requested schema.' },
         { role: 'user', content: buildPrompt({ compact: true }) },
       ],
       label: 'compact-fallback',
+    },
+    {
+      model: nonReasoningFallbackModel,
+      maxTokens: boostedMaxTokens,
+      messages: [
+        { role: 'system', content: 'You are an expert educator. Return strict JSON only. Do not include any explanatory text outside the JSON object.' },
+        { role: 'user', content: buildPrompt({ compact: true }) },
+      ],
+      label: 'non-reasoning-fallback',
     },
   ].filter((attempt, index, all) =>
     Boolean(attempt.model) &&

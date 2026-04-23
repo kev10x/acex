@@ -48,6 +48,7 @@ const AssessmentGenerator: React.FC = () => {
   const [savedRubricName, setSavedRubricName] = useState<string | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [backgroundGenerationNotice, setBackgroundGenerationNotice] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<'text' | 'moodle' | 'scorm' | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [modules, setModules] = useState<LearningModule[]>([]);
@@ -60,6 +61,7 @@ const AssessmentGenerator: React.FC = () => {
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
   const [publishedPage, setPublishedPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
+  const recoveredAssessmentJobIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadStats();
@@ -69,6 +71,62 @@ const AssessmentGenerator: React.FC = () => {
     loadPublished();
     loadHistory();
   }, []);
+
+  const recoverBackgroundAssessmentGeneration = async () => {
+    try {
+      const res = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine' });
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const jobs = items
+        .filter((job: any) => job?.job_type === 'assessment_generation')
+        .sort((a: any, b: any) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
+      const latest = jobs[0];
+      if (!latest) return;
+
+      if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
+        setBackgroundGenerationNotice('An assessment generation is still running in the background. This page will auto-recover it when it finishes.');
+        return;
+      }
+
+      if (
+        latest.status === 'completed' &&
+        latest.result?.assessment &&
+        recoveredAssessmentJobIdRef.current !== Number(latest.id || 0) &&
+        (isGenerating || !generatedAssessment)
+      ) {
+        recoveredAssessmentJobIdRef.current = Number(latest.id || 0);
+        const recoveredAssessment = latest.result.assessment as GeneratedAssessment;
+        const recoveredTrace = latest.result?.generation_trace || null;
+        const recoveredRubric = latest.result?.rubric || selectedRubric || null;
+        const recoveredSavedRubricId = latest.result?.saved_rubric_id ?? null;
+        const recoveredSavedRubricName = latest.result?.saved_rubric_name ?? null;
+        setGeneratedAssessment(recoveredAssessment);
+        setSelectedRubric(recoveredRubric);
+        setSavedRubricId(recoveredSavedRubricId);
+        setSavedRubricName(recoveredSavedRubricName);
+        setPublishedLink(null);
+        setError(null);
+        setIsGenerating(false);
+        setBackgroundGenerationNotice('Recovered your generated assessment from a background job.');
+        await addToHistory(
+          recoveredAssessment,
+          recoveredSavedRubricId,
+          recoveredSavedRubricName,
+          recoveredRubric,
+          recoveredTrace
+        );
+      }
+    } catch (_) {
+      // Best-effort recovery only; ignore poll failures.
+    }
+  };
+
+  useEffect(() => {
+    recoverBackgroundAssessmentGeneration();
+    const timer = setInterval(() => {
+      recoverBackgroundAssessmentGeneration();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [isGenerating, generatedAssessment, selectedRubric]);
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(publishedList.length / PUBLISHED_PAGE_SIZE));
@@ -291,6 +349,7 @@ const AssessmentGenerator: React.FC = () => {
 
     setIsGenerating(true);
     setError(null);
+    setBackgroundGenerationNotice(null);
     setGeneratedAssessment(null);
     setSavedRubricId(null);
     setSavedRubricName(null);
@@ -473,6 +532,9 @@ const AssessmentGenerator: React.FC = () => {
         <p className="text-gray-600 mb-6">
           Generate new assessments automatically based on your rubrics. The system creates questions that align with your rubric criteria, ensuring assessments match your marking standards.
         </p>
+        {backgroundGenerationNotice && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">{backgroundGenerationNotice}</div>
+        )}
 
         <details className="mb-6 bg-violet-50 border border-violet-200 rounded-lg overflow-hidden" open={publishedList.length > 0}>
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-violet-900">
