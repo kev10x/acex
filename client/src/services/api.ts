@@ -803,6 +803,7 @@ export interface ContentSection {
   /** One short supporting line for slides. */
   support?: string;
   body: string;
+  background_image_url?: string;
   visuals?: ContentVisual[];
 }
 export interface ContentVisual {

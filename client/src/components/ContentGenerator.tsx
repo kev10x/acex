@@ -32,6 +32,16 @@ const shouldAutoSyncVisualPrompt = (visual: any, section: any) => {
   if (!currentPrompt) return true;
   return currentPrompt === buildVisualPromptFromContext(visual, section);
 };
+const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
+  const trimmed = String(backgroundUrl || '').trim();
+  if (!trimmed) return {};
+  return {
+    backgroundImage: `linear-gradient(rgba(255,255,255,0.9), rgba(255,255,255,0.92)), url("${trimmed}")`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+  } as React.CSSProperties;
+};
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -582,6 +592,29 @@ const ContentGenerator: React.FC = () => {
       sections.splice(sectionIndex, 1);
       return { ...current, sections };
     });
+  };
+
+  const setSectionBackground = (sectionIndex: number, url: string) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      sections[sectionIndex] = {
+        ...section,
+        background_image_url: String(url || '').trim(),
+      };
+      return { ...current, sections };
+    });
+  };
+
+  const uploadSectionBackground = (sectionIndex: number, file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (!dataUrl) return;
+      setSectionBackground(sectionIndex, dataUrl);
+    };
+    reader.readAsDataURL(file);
   };
 
   const addCustomVisual = (sectionIndex: number, kind: 'illustration' | 'image') => {
@@ -1303,6 +1336,7 @@ const ContentGenerator: React.FC = () => {
                 onDragOver={(e) => { e.preventDefault(); setDragOverKey(`section:${i}`); }}
                 onDragLeave={() => setDragOverKey(null)}
                 onDrop={(e) => handleDropOnSection(i, e)}
+                style={buildSectionBackgroundStyle((sec as any).background_image_url)}
               >
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="grid grid-cols-1 gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
@@ -1350,7 +1384,31 @@ const ContentGenerator: React.FC = () => {
                     >
                       Add custom image
                     </button>
+                    <label className="px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800 cursor-pointer">
+                      Add section background
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => uploadSectionBackground(i, e.target.files?.[0] || null)}
+                        className="hidden"
+                      />
+                    </label>
+                    {!!String((sec as any).background_image_url || '').trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setSectionBackground(i, '')}
+                        className="px-2 py-1 text-xs bg-rose-600 text-white rounded hover:bg-rose-700"
+                      >
+                        Remove background
+                      </button>
+                    )}
                   </div>
+                  <input
+                    value={(sec as any).background_image_url || ''}
+                    onChange={(e) => setSectionBackground(i, e.target.value)}
+                    placeholder="Section background image URL (optional)"
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                  />
                   {Array.isArray(sec.visuals) && sec.visuals.length > 0 && (
                     <div className="space-y-2">
                       {sec.visuals.map((visual: any, vIdx: number) => (

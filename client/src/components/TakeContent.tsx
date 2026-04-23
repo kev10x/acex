@@ -7,6 +7,17 @@ import { useAuth } from '../contexts/AuthContext';
 
 type Step = 'code' | 'content' | 'submitting' | 'result';
 
+const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
+  const trimmed = String(backgroundUrl || '').trim();
+  if (!trimmed) return {};
+  return {
+    backgroundImage: `linear-gradient(rgba(255,255,255,0.92), rgba(255,255,255,0.94)), url("${trimmed}")`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+  } as React.CSSProperties;
+};
+
 const TakeContent: React.FC = () => {
   const { user } = useAuth();
   const isEmbedded = useMemo(() => new URLSearchParams(window.location.search).get('embedded') === 'true', []);
@@ -568,7 +579,10 @@ const TakeContent: React.FC = () => {
 
               <div>
             {!isCheckpointView && activeSection && (
-              <section className="w-full min-w-0">
+              <section
+                className="w-full min-w-0 rounded-xl border border-gray-200 p-4"
+                style={buildSectionBackgroundStyle((activeSection as any).background_image_url)}
+              >
                 <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Section {Math.min(currentSection + 1, sectionCount)} of {sectionCount}</div>
                 <h2 className="text-xl font-semibold leading-snug mb-2" style={{ color: content?.theme?.heading_color || '#111827' }}>
                   {(activeSection as any).heading || activeSection.title || 'Section'}
