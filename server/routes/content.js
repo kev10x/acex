@@ -32,6 +32,35 @@ const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos
 const CONTENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'content-audio');
 const CONTENT_TTS_VOICES = ['eve', 'ara', 'leo', 'rex', 'sal'];
 
+function toOrigin(value) {
+  try {
+    return new URL(String(value || '')).origin;
+  } catch (_) {
+    return '';
+  }
+}
+
+function getConfiguredPublicOrigin() {
+  return (
+    toOrigin(process.env.CLIENT_URL) ||
+    toOrigin(process.env.BASE_URL) ||
+    toOrigin(process.env.API_PUBLIC_BASE) ||
+    ''
+  );
+}
+
+function getRequestBaseUrl(req) {
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+  const forwardedHost = String(req.get('x-forwarded-host') || '').split(',')[0].trim();
+  const host = forwardedHost || String(req.get('host') || '').trim();
+  const proto = forwardedProto || (req.secure ? 'https' : req.protocol || '');
+
+  if (host && proto) {
+    return `${proto}://${host}`;
+  }
+  return getConfiguredPublicOrigin();
+}
+
 try {
   fsSync.mkdirSync(CONTENT_AUDIO_DIR, { recursive: true });
 } catch (_) {}
@@ -459,7 +488,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
         } catch (_) { /* non-fatal */ }
       }
       const dbId = String(template_id).replace(/^uploaded:/i, '');
-      templateImageUrls = listTemplateImageUrls(dbId, `${req.protocol}://${req.get('host')}`);
+      templateImageUrls = listTemplateImageUrls(dbId, getRequestBaseUrl(req));
     }
     let content = await contentService.generateContentWithAI({
       topics: String(topics).trim(),
@@ -592,7 +621,7 @@ router.get('/templates', requireAuth, requireFeature('content_creation'), async 
         const pptxTheme = await contentService.extractTemplateTheme(filePath);
         theme = contentService.pptxThemeToContentTheme(pptxTheme) || {};
       } catch (_) { /* file may not exist yet */ }
-      const images = listTemplateImageUrls(row.id, `${req.protocol}://${req.get('host')}`);
+      const images = listTemplateImageUrls(row.id, getRequestBaseUrl(req));
       return {
         id: `uploaded:${row.id}`,
         name: `${row.name} (uploaded template)`,
@@ -1786,7 +1815,7 @@ router.post('/template', requireAuth, requireFeature('content_creation'), (req, 
         if (templateId) {
           const mediaDir = getTemplateMediaDir(templateId);
           const filenames = await contentService.extractTemplateImages(tmplFilePath, mediaDir);
-          const base = `${req.protocol}://${req.get('host')}`;
+          const base = getRequestBaseUrl(req);
           extractedImages = filenames.map((f) => `${base}/uploads/content-template-media/${templateId}/${f}`);
         }
       } catch (_) { /* non-fatal */ }

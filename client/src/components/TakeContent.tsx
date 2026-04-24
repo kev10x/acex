@@ -4,6 +4,7 @@ import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
 import { useAuth } from '../contexts/AuthContext';
+import { getSectionBodyHtml } from '../utils/richText';
 
 type Step = 'code' | 'content' | 'submitting' | 'result';
 
@@ -655,7 +656,11 @@ const TakeContent: React.FC = () => {
                         </figure>
                       ))}
 
-                      <div className="whitespace-pre-wrap leading-relaxed" style={{ color: content?.theme?.text_color || '#374151' }}>{activeSection.body || ''}</div>
+                      <div
+                        className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
+                        style={{ color: content?.theme?.text_color || '#374151' }}
+                        dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(activeSection as any) }}
+                      />
 
                       {images.filter(({ visual }) => visual.image_url).map(({ visual, figNum }) => (
                         <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">

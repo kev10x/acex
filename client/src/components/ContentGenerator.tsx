@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace } from '../services/api';
 import MermaidDiagram from './MermaidDiagram';
+import RichTextEditor from './RichTextEditor';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
+import { getSectionBodyHtml, richHtmlToPlainText, sanitizeRichTextHtml } from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const isDiagramVisual = (visual: any) =>
@@ -561,7 +563,10 @@ const ContentGenerator: React.FC = () => {
     updateGeneratedContent((current) => {
       const sections = Array.isArray(current.sections) ? [...current.sections] : [];
       const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
-      const nextSection = { ...section, [field]: value };
+      const nextSection = { ...section, [field]: value } as any;
+      if (field === 'body') {
+        nextSection.body_html = sanitizeRichTextHtml(String((section as any).body_html || ''));
+      }
       const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
       nextSection.visuals = visuals.map((visual: any) =>
         shouldAutoSyncVisualPrompt(visual, section)
@@ -602,6 +607,28 @@ const ContentGenerator: React.FC = () => {
         ...section,
         background_image_url: String(url || '').trim(),
       };
+      return { ...current, sections };
+    });
+  };
+
+  const updateSectionBodyRich = (sectionIndex: number, html: string) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      const safeHtml = sanitizeRichTextHtml(html);
+      const plainBody = richHtmlToPlainText(safeHtml);
+      const nextSection = {
+        ...section,
+        body: plainBody,
+        body_html: safeHtml,
+      } as any;
+      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
+      nextSection.visuals = visuals.map((visual: any) =>
+        shouldAutoSyncVisualPrompt(visual, section)
+          ? { ...visual, prompt: buildVisualPromptFromContext(visual, nextSection) }
+          : visual
+      );
+      sections[sectionIndex] = nextSection;
       return { ...current, sections };
     });
   };
@@ -1362,12 +1389,10 @@ const ContentGenerator: React.FC = () => {
                     placeholder="Support line"
                     className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                   />
-                  <textarea
-                    value={sec.body || ''}
-                    onChange={(e) => updateSectionField(i, 'body', e.target.value)}
+                  <RichTextEditor
+                    value={getSectionBodyHtml(sec)}
+                    onChange={(html) => updateSectionBodyRich(i, html)}
                     placeholder="Section body"
-                    rows={5}
-                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                   />
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -1553,7 +1578,10 @@ const ContentGenerator: React.FC = () => {
                 ))}
 
                 {/* Body text */}
-                <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">{sec.body}</p>
+                <div
+                  className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
+                  dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(sec) }}
+                />
 
                 {/* Image figure — shown after body text */}
                 {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
