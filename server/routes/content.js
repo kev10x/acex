@@ -50,6 +50,11 @@ function getConfiguredPublicOrigin() {
 }
 
 function getRequestBaseUrl(req) {
+  const configuredOrigin = getConfiguredPublicOrigin();
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
   const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
   const forwardedHost = String(req.get('x-forwarded-host') || '').split(',')[0].trim();
   const host = forwardedHost || String(req.get('host') || '').trim();
@@ -58,7 +63,7 @@ function getRequestBaseUrl(req) {
   if (host && proto) {
     return `${proto}://${host}`;
   }
-  return getConfiguredPublicOrigin();
+  return '';
 }
 
 try {

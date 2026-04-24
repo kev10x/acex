@@ -18,6 +18,19 @@ const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
     backgroundRepeat: 'no-repeat',
   } as React.CSSProperties;
 };
+const toSecureSrc = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw || typeof window === 'undefined') return raw;
+  if (window.location.protocol !== 'https:' || !raw.startsWith('http://')) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.hostname === window.location.hostname) {
+      parsed.protocol = 'https:';
+      return parsed.toString();
+    }
+  } catch (_) {}
+  return raw;
+};
 
 const TakeContent: React.FC = () => {
   const { user } = useAuth();
@@ -644,7 +657,7 @@ const TakeContent: React.FC = () => {
                       {illustrations.map(({ visual, figNum }) => (
                         <figure key={figNum} className="my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                           {visual.image_url ? (
-                            <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                            <img src={toSecureSrc(visual.image_url)} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           ) : visual.mermaid_code ? (
                             <div className="p-4 bg-gray-50">
                               <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
@@ -664,7 +677,7 @@ const TakeContent: React.FC = () => {
 
                       {images.filter(({ visual }) => visual.image_url).map(({ visual, figNum }) => (
                         <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                          <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                          <img src={toSecureSrc(visual.image_url)} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
                             <span className="font-semibold">Figure {figNum}:</span> {visual.title}
                           </figcaption>

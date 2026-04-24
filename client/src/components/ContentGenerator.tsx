@@ -44,6 +44,20 @@ const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
     backgroundRepeat: 'no-repeat',
   } as React.CSSProperties;
 };
+const normalizeSecureMediaUrl = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw || typeof window === 'undefined') return raw;
+  if (window.location.protocol !== 'https:' || !raw.startsWith('http://')) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.hostname === window.location.hostname) {
+      parsed.protocol = 'https:';
+      return parsed.toString();
+    }
+  } catch (_) {}
+  return raw;
+};
+const toSecureSrc = (value?: string) => normalizeSecureMediaUrl(String(value || ''));
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -393,7 +407,7 @@ const ContentGenerator: React.FC = () => {
 
   useEffect(() => {
     const tmpl = templates.find((t) => t.id === templateId);
-    setTemplateImages(tmpl?.images || []);
+    setTemplateImages((tmpl?.images || []).map((url) => normalizeSecureMediaUrl(url)));
   }, [templateId, templates]);
 
   const loadModules = async () => {
@@ -1540,7 +1554,7 @@ const ContentGenerator: React.FC = () => {
                   >
                     {visual.image_url ? (
                       <img
-                        src={visual.image_url}
+                        src={toSecureSrc(visual.image_url)}
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
                         className="w-full object-contain max-h-64"
                       />
@@ -1601,7 +1615,7 @@ const ContentGenerator: React.FC = () => {
                       }`}
                     >
                       <img
-                        src={visual.image_url}
+                        src={toSecureSrc(visual.image_url)}
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
                         className="w-full object-cover max-h-48"
                       />
@@ -1669,7 +1683,7 @@ const ContentGenerator: React.FC = () => {
                   title={`Drag to use this image`}
                 >
                   <img
-                    src={url}
+                    src={toSecureSrc(url)}
                     alt={`Template image ${idx + 1}`}
                     className="w-full h-16 object-cover"
                     draggable={false}
