@@ -71,6 +71,21 @@ const normalizeSecureMediaUrl = (value: string) => {
   return raw;
 };
 const toSecureSrc = (value?: string) => normalizeSecureMediaUrl(String(value || ''));
+const getAlternateUploadPath = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.includes('/tools/uploads/')) return raw.replace('/tools/uploads/', '/uploads/');
+  if (raw.includes('/uploads/')) return raw.replace('/uploads/', '/tools/uploads/');
+  return '';
+};
+const handleImageFallback = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  const img = e.currentTarget;
+  if (img.dataset.fallbackTried === 'true') return;
+  const alt = getAlternateUploadPath(img.currentSrc || img.src);
+  if (!alt) return;
+  img.dataset.fallbackTried = 'true';
+  img.src = alt;
+};
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -1568,6 +1583,7 @@ const ContentGenerator: React.FC = () => {
                     {visual.image_url ? (
                       <img
                         src={toSecureSrc(visual.image_url)}
+                        onError={handleImageFallback}
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
                         className="w-full object-contain max-h-64"
                       />
@@ -1629,6 +1645,7 @@ const ContentGenerator: React.FC = () => {
                     >
                       <img
                         src={toSecureSrc(visual.image_url)}
+                        onError={handleImageFallback}
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
                         className="w-full object-cover max-h-48"
                       />
@@ -1697,6 +1714,7 @@ const ContentGenerator: React.FC = () => {
                 >
                   <img
                     src={toSecureSrc(url)}
+                    onError={handleImageFallback}
                     alt={`Template image ${idx + 1}`}
                     className="w-full h-16 object-cover"
                     draggable={false}

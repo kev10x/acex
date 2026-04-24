@@ -44,6 +44,21 @@ const toSecureSrc = (value?: string) => {
   } catch (_) {}
   return raw;
 };
+const getAlternateUploadPath = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.includes('/tools/uploads/')) return raw.replace('/tools/uploads/', '/uploads/');
+  if (raw.includes('/uploads/')) return raw.replace('/uploads/', '/tools/uploads/');
+  return '';
+};
+const handleImageFallback = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  const img = e.currentTarget;
+  if (img.dataset.fallbackTried === 'true') return;
+  const alt = getAlternateUploadPath(img.currentSrc || img.src);
+  if (!alt) return;
+  img.dataset.fallbackTried = 'true';
+  img.src = alt;
+};
 
 const TakeContent: React.FC = () => {
   const { user } = useAuth();
@@ -670,7 +685,7 @@ const TakeContent: React.FC = () => {
                       {illustrations.map(({ visual, figNum }) => (
                         <figure key={figNum} className="my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                           {visual.image_url ? (
-                            <img src={toSecureSrc(visual.image_url)} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                            <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           ) : visual.mermaid_code ? (
                             <div className="p-4 bg-gray-50">
                               <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
@@ -690,7 +705,7 @@ const TakeContent: React.FC = () => {
 
                       {images.filter(({ visual }) => visual.image_url).map(({ visual, figNum }) => (
                         <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                          <img src={toSecureSrc(visual.image_url)} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                          <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
                             <span className="font-semibold">Figure {figNum}:</span> {visual.title}
                           </figcaption>
