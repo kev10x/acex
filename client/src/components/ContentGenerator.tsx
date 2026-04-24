@@ -47,13 +47,26 @@ const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
 const normalizeSecureMediaUrl = (value: string) => {
   const raw = String(value || '').trim();
   if (!raw || typeof window === 'undefined') return raw;
-  if (window.location.protocol !== 'https:' || !raw.startsWith('http://')) return raw;
+  const basePath = window.location.pathname.startsWith('/tools') ? '/tools' : '';
+  const normalizePath = (pathname: string) => {
+    if (!basePath) return pathname;
+    if (pathname.startsWith('/uploads/')) return `${basePath}${pathname}`;
+    return pathname;
+  };
+  if (raw.startsWith('/')) {
+    return normalizePath(raw);
+  }
+  if (window.location.protocol !== 'https:' && !raw.startsWith('http://') && !raw.startsWith('https://')) return raw;
   try {
     const parsed = new URL(raw);
+    if (parsed.origin === window.location.origin) {
+      parsed.pathname = normalizePath(parsed.pathname);
+    }
     if (parsed.hostname === window.location.hostname) {
       parsed.protocol = 'https:';
       return parsed.toString();
     }
+    return parsed.toString();
   } catch (_) {}
   return raw;
 };

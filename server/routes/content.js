@@ -49,6 +49,18 @@ function getConfiguredPublicOrigin() {
   );
 }
 
+function getConfiguredPublicBasePath() {
+  const fromBasePath = String(process.env.BASE_PATH || '').trim().replace(/\/$/, '');
+  if (fromBasePath) return fromBasePath.startsWith('/') ? fromBasePath : `/${fromBasePath}`;
+  try {
+    const u = new URL(String(process.env.CLIENT_URL || ''));
+    const p = String(u.pathname || '').replace(/\/$/, '');
+    return p && p !== '/' ? p : '';
+  } catch (_) {
+    return '';
+  }
+}
+
 function getRequestBaseUrl(req) {
   const configuredOrigin = getConfiguredPublicOrigin();
   if (configuredOrigin) {
@@ -367,10 +379,12 @@ function getTemplateMediaDir(templateId) {
 
 function listTemplateImageUrls(templateId, baseUrl = '') {
   const dir = getTemplateMediaDir(templateId);
+  const publicBasePath = getConfiguredPublicBasePath();
+  const uploadPrefix = `${publicBasePath}/uploads/content-template-media/${templateId}`.replace(/\/{2,}/g, '/');
   try {
     return require('fs').readdirSync(dir)
       .filter((f) => (/\.(png|jpe?g|gif|webp|bmp|svg)$/i).test(f))
-      .map((f) => `${baseUrl}/uploads/content-template-media/${templateId}/${f}`);
+      .map((f) => `${baseUrl}${uploadPrefix}/${f}`);
   } catch (_) {
     return [];
   }
