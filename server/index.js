@@ -9,6 +9,7 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const basePath = (process.env.BASE_PATH || '').replace(/\/$/, '');
 
 function parseTrustProxy(value) {
   if (value == null || value === '') return null;
@@ -63,6 +64,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+if (basePath) {
+  app.use(basePath + '/uploads', express.static(path.join(__dirname, 'uploads')));
+}
 
 // API router (mount at /api and optionally at BASE_PATH + /api when proxy forwards full path e.g. /tools/api)
 const apiRouter = express.Router();
@@ -87,7 +91,6 @@ apiRouter.get('/health', (req, res) => {
 });
 
 app.use('/api', apiRouter);
-const basePath = (process.env.BASE_PATH || '').replace(/\/$/, '');
 if (basePath) {
   app.use(basePath + '/api', apiRouter);
   console.log('API also mounted at', basePath + '/api');
