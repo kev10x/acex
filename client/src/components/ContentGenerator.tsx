@@ -1528,7 +1528,7 @@ const ContentGenerator: React.FC = () => {
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
 
                 {/* Illustration figure — shown before body text */}
-                {sectionFigures[i].filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
+                {(sectionFigures[i] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
                   <figure
                     key={figNum}
                     onClick={() => setSelectedVisualKey(figureKey)}
@@ -1584,7 +1584,7 @@ const ContentGenerator: React.FC = () => {
                 />
 
                 {/* Image figure — shown after body text */}
-                {sectionFigures[i].filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
+                {(sectionFigures[i] || []).filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
                   visual.image_url ? (
                     <figure
                       key={figNum}

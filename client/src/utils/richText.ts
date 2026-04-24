@@ -29,73 +29,92 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, '&#39;');
 
 export const sanitizeRichTextHtml = (input: string): string => {
-  const raw = String(input || '');
-  if (!raw.trim()) return '';
+  try {
+    const raw = String(input || '');
+    if (!raw.trim()) return '';
 
-  if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
-    return escapeHtml(raw);
-  }
-
-  const parser = new window.DOMParser();
-  const doc = parser.parseFromString(raw, 'text/html');
-
-  const cleanNode = (node: Node) => {
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      const tag = el.tagName.toUpperCase();
-
-      if (!ALLOWED_TAGS.has(tag)) {
-        const parent = el.parentNode;
-        if (parent) {
-          while (el.firstChild) {
-            parent.insertBefore(el.firstChild, el);
-          }
-          parent.removeChild(el);
-        }
-        return;
-      }
-
-      Array.from(el.attributes).forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        if (name.startsWith('on') || name === 'style' || name === 'srcdoc') {
-          el.removeAttribute(attr.name);
-          return;
-        }
-        if (tag === 'A' && name === 'href') {
-          const href = attr.value.trim();
-          const isSafe = /^(https?:|mailto:)/i.test(href);
-          if (!isSafe) {
-            el.removeAttribute('href');
-          } else {
-            el.setAttribute('target', '_blank');
-            el.setAttribute('rel', 'noopener noreferrer');
-          }
-          return;
-        }
-        if (tag !== 'A' && name !== 'class') {
-          el.removeAttribute(attr.name);
-        }
-      });
+    if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
+      return escapeHtml(raw);
     }
 
-    Array.from(node.childNodes).forEach((child) => cleanNode(child));
-  };
+    const parser = new window.DOMParser();
+    const doc = parser.parseFromString(raw, 'text/html');
+    const root = doc?.body || doc?.documentElement;
+    if (!root) {
+      return escapeHtml(raw);
+    }
 
-  cleanNode(doc.body);
-  return doc.body.innerHTML.trim();
+    const cleanNode = (node: Node) => {
+      if (node.nodeType === 1) {
+        const el = node as HTMLElement;
+        const tag = el.tagName.toUpperCase();
+
+        if (!ALLOWED_TAGS.has(tag)) {
+          const parent = el.parentNode;
+          if (parent) {
+            while (el.firstChild) {
+              parent.insertBefore(el.firstChild, el);
+            }
+            parent.removeChild(el);
+          }
+          return;
+        }
+
+        Array.from(el.attributes).forEach((attr) => {
+          const name = attr.name.toLowerCase();
+          if (name.startsWith('on') || name === 'style' || name === 'srcdoc') {
+            el.removeAttribute(attr.name);
+            return;
+          }
+          if (tag === 'A' && name === 'href') {
+            const href = attr.value.trim();
+            const isSafe = /^(https?:|mailto:)/i.test(href);
+            if (!isSafe) {
+              el.removeAttribute('href');
+            } else {
+              el.setAttribute('target', '_blank');
+              el.setAttribute('rel', 'noopener noreferrer');
+            }
+            return;
+          }
+          if (tag !== 'A' && name !== 'class') {
+            el.removeAttribute(attr.name);
+          }
+        });
+      }
+
+      Array.from(node.childNodes).forEach((child) => cleanNode(child));
+    };
+
+    cleanNode(root);
+    if ('innerHTML' in root) {
+      return String((root as HTMLElement).innerHTML || '').trim();
+    }
+    return escapeHtml(raw);
+  } catch (_) {
+    return escapeHtml(String(input || ''));
+  }
 };
 
 export const richHtmlToPlainText = (input: string): string => {
-  const raw = String(input || '');
-  if (!raw.trim()) return '';
+  try {
+    const raw = String(input || '');
+    if (!raw.trim()) return '';
 
-  if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
-    return normalizeWhitespace(raw.replace(/<[^>]+>/g, ' '));
+    if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
+      return normalizeWhitespace(raw.replace(/<[^>]+>/g, ' '));
+    }
+
+    const parser = new window.DOMParser();
+    const doc = parser.parseFromString(raw, 'text/html');
+    const root = doc?.body || doc?.documentElement;
+    if (!root) {
+      return normalizeWhitespace(raw.replace(/<[^>]+>/g, ' '));
+    }
+    return normalizeWhitespace(root.textContent || '');
+  } catch (_) {
+    return normalizeWhitespace(String(input || '').replace(/<[^>]+>/g, ' '));
   }
-
-  const parser = new window.DOMParser();
-  const doc = parser.parseFromString(raw, 'text/html');
-  return normalizeWhitespace(doc.body.textContent || '');
 };
 
 export const plainTextToRichHtml = (input: string): string => {
