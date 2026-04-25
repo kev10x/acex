@@ -78,12 +78,12 @@ function buildVisualImagePrompt(prompt, {
   ].filter(Boolean).join(' ');
 
   const styleInstruction = visualKind === 'illustration'
-    ? 'Create a clean educational visual. Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Do not render words, letters, numbers, legends, or labels inside the image.'
+    ? 'Create a clean educational visual with a fully transparent background (alpha channel). Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Do not render words, letters, numbers, legends, or labels inside the image.'
     : visualKind === 'mascot'
-      ? 'Create a playful educational mascot character image, sticker/cutout style, centered, with transparent or plain background, no watermark, no logo, and no text overlays.'
-      : 'Create a clean educational supporting image suitable for lesson content. Do not render words, letters, numbers, labels, or text overlays inside the image.';
+      ? 'Create a playful educational mascot as a cartoonified human-like character (not an animal, not an object), sticker/cutout style, centered, with a fully transparent background (alpha channel), no watermark, no logo, and no text overlays.'
+      : 'Create a clean educational supporting image suitable for lesson content, with a fully transparent background (alpha channel). Do not render words, letters, numbers, labels, or text overlays inside the image.';
 
-  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays. Prefer symbolic/shape-based communication over written annotations.`
+  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays. Output a PNG-style transparent background image with no solid backdrop. Prefer symbolic/shape-based communication over written annotations.`
     .trim()
     .slice(0, 1800);
 }
@@ -141,6 +141,7 @@ async function generateImageForVisual(prompt, options = {}) {
           prompt: safePrompt,
           n: 1,
           size: OPENAI_IMAGE_SIZE,
+          background: 'transparent',
           response_format: 'b64_json',
         });
     const b64 = response.data?.[0]?.b64_json;
@@ -188,7 +189,8 @@ function buildMascotPromptFromContext(mascot = {}, section = {}) {
     mascot?.alt_text ? `Description: ${String(mascot.alt_text).trim()}.` : '',
     section?.support ? `Key point: ${String(section.support).trim()}.` : '',
     section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 260)}.` : '',
-    'Create a mascot-style character that fits this lesson and can sit near the key point card.',
+    'Create a mascot-style cartoonified human-like character that fits this lesson and can sit near the key point card.',
+    'The mascot must clearly look like a stylized human character, not an animal, icon, or abstract object.',
   ].filter(Boolean);
   return parts.join(' ').trim().slice(0, 360);
 }
@@ -197,8 +199,8 @@ function createFallbackMascot(sectionTitle, ordinal = 1) {
   const label = ordinal > 1 ? `Mascot ${ordinal}` : 'Mascot';
   return {
     title: `${label}: ${sectionTitle}`.slice(0, 120),
-    alt_text: `Playful mascot character for: ${sectionTitle}`.slice(0, 240),
-    prompt: `Create a playful educational mascot character for: ${sectionTitle}`.slice(0, 320),
+    alt_text: `Cartoonified human-like mascot character for: ${sectionTitle}`.slice(0, 240),
+    prompt: `Create a playful educational cartoonified human-like mascot character for: ${sectionTitle}`.slice(0, 320),
     image_url: '',
   };
 }
@@ -508,30 +510,30 @@ async function generateContentWithAI(opts) {
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const visualsInstruction = (includeDiagrams || includeImages || includeMascot)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
-  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image.` : ''}${includeImages ? `
-  - kind = "image" — a descriptive scene/photo-style visual.` : ''}
+  - kind = "illustration" - an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image. Use transparent background.` : ''}${includeImages ? `
+  - kind = "image" - a descriptive scene/photo-style visual. Use transparent background.` : ''}
   Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.
-${includeMascot ? `- mascot: object descriptor for a playful companion image for this section, with fields: title, alt_text, prompt.` : ''}`
-    : `- visuals: omit entirely — do not include a visuals field in any section.`;
+${includeMascot ? `- mascot: object descriptor for a playful cartoonified human-like companion image for this section, with fields: title, alt_text, prompt.` : ''}`
+    : `- visuals: omit entirely - do not include a visuals field in any section.`;
   const visualsExample = (includeDiagrams || includeImages || includeMascot)
     ? `"visuals": [${includeDiagrams ? `
         {
           "kind": "illustration",
           "title": "Diagram or chart caption (used as figure label)",
           "alt_text": "Accessible description of the diagram or chart",
-          "prompt": "Prompt for a clean educational chart/diagram image with concrete labels and values"
+          "prompt": "Prompt for a clean educational chart/diagram image with transparent background and concrete visual structure"
         }` : ''}${includeDiagrams && includeImages ? ',' : ''}${includeImages ? `
         {
           "kind": "image",
           "title": "Photo/scene caption",
           "alt_text": "Accessible description of image",
-          "prompt": "Prompt text for image generation"
+          "prompt": "Prompt text for image generation with transparent background"
         }` : ''}
       ],${includeMascot ? `
       "mascot": {
         "title": "Mascot caption",
-        "alt_text": "Playful mascot character that fits the section concept",
-        "prompt": "Prompt for a mascot style educational character image for this section"
+        "alt_text": "Cartoonified human-like mascot character that fits the section concept",
+        "prompt": "Prompt for a mascot style cartoonified human-like educational character image for this section with transparent background"
       }` : ''}
     `
     : '"visuals": []';
@@ -543,7 +545,7 @@ ${includeMascot ? `- mascot: object descriptor for a playful companion image for
         ? 'Include exactly one image descriptor in visuals for every section.'
         : 'Do not include a visuals field.';
   const mascotRule = includeMascot
-    ? 'Include exactly one mascot object for every section.'
+    ? 'Include exactly one mascot object for every section. Mascot must be described as a cartoonified human-like character.'
     : 'Do not include a mascot field.';
   const levelPromptBlock = level ? buildEducationLevelPromptBlock(level) : '';
   const writingGuidance = buildAcademicWritingGuidance(level || 'level_4');
@@ -590,7 +592,7 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} ${mascotRule} Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} ${mascotRule} When visuals or mascot prompts are present, they must explicitly request transparent background output. Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
   const prompt = buildPrompt();
 
   const messages = [
@@ -1397,3 +1399,5 @@ module.exports = {
   extractTemplateImages,
   pptxThemeToContentTheme,
 };
+
+
