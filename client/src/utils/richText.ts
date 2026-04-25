@@ -120,11 +120,63 @@ export const richHtmlToPlainText = (input: string): string => {
 export const plainTextToRichHtml = (input: string): string => {
   const text = normalizeWhitespace(String(input || ''));
   if (!text) return '';
+  const renderInline = (value: string) => {
+    let html = escapeHtml(String(value || ''));
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return html;
+  };
 
-  return text
-    .split(/\n{2,}/)
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
-    .join('');
+  const lines = text.split('\n').map((line) => line.replace(/\s+$/g, ''));
+  const blocks: string[] = [];
+  let idx = 0;
+
+  while (idx < lines.length) {
+    const line = lines[idx];
+    if (!line.trim()) {
+      idx += 1;
+      continue;
+    }
+
+    const bulletMatch = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bulletMatch) {
+      const items: string[] = [];
+      while (idx < lines.length) {
+        const m = lines[idx].match(/^\s*[-*]\s+(.+)$/);
+        if (!m) break;
+        items.push(renderInline(m[1]));
+        idx += 1;
+      }
+      blocks.push(`<ul>${items.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+      continue;
+    }
+
+    const numberedMatch = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (numberedMatch) {
+      const items: string[] = [];
+      while (idx < lines.length) {
+        const m = lines[idx].match(/^\s*\d+[.)]\s+(.+)$/);
+        if (!m) break;
+        items.push(renderInline(m[1]));
+        idx += 1;
+      }
+      blocks.push(`<ol>${items.map((item) => `<li>${item}</li>`).join('')}</ol>`);
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (idx < lines.length && lines[idx].trim()) {
+      if (/^\s*[-*]\s+(.+)$/.test(lines[idx]) || /^\s*\d+[.)]\s+(.+)$/.test(lines[idx])) break;
+      paragraphLines.push(lines[idx]);
+      idx += 1;
+    }
+    if (paragraphLines.length) {
+      blocks.push(`<p>${paragraphLines.map((p) => renderInline(p)).join('<br>')}</p>`);
+    }
+  }
+
+  return sanitizeRichTextHtml(blocks.join(''));
 };
 
 export const getSectionBodyHtml = (section: { body?: string; body_html?: string; support?: string; heading?: string; title?: string } | null | undefined): string => {

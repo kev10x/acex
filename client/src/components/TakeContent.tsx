@@ -3,7 +3,7 @@ import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2, Volume2 } fr
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { buildContextualSectionBodyHtml, ContextualBlockLayout, getSectionBodyHtml } from '../utils/richText';
+import { buildContextualSectionBodyHtml, ContextualBlockLayout, getSectionBodyHtml, plainTextToRichHtml } from '../utils/richText';
 
 type Step = 'code' | 'content' | 'submitting' | 'result';
 
@@ -90,20 +90,13 @@ const getSectionDisplayHtml = (section: any) => {
   return buildContextualSectionBodyHtml(section, mode);
 };
 const htmlToText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 const getSectionDisplayHtmlSafe = (section: any) => {
   const primary = String(getSectionDisplayHtml(section) || '');
   if (htmlToText(primary)) return primary;
   const plainBody = String(section?.body || '').trim();
-  if (plainBody) return `<p>${escapeHtml(plainBody)}</p>`;
+  if (plainBody) return plainTextToRichHtml(plainBody);
   const fallback = String(section?.support || section?.heading || section?.title || '').trim();
-  if (fallback) return `<p>${escapeHtml(fallback)}</p>`;
+  if (fallback) return plainTextToRichHtml(fallback);
   return '<p>Section text is still loading.</p>';
 };
 
