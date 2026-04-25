@@ -1592,61 +1592,127 @@ const ContentGenerator: React.FC = () => {
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
                 {isPlayfulTemplate && (() => {
                   const figureList = sectionFigures[i] || [];
-                  const images = figureList.filter(({ visual }) => !isDiagramVisual(visual) && visual?.image_url);
-                  const leadImage = images[0] || null;
+                  const imageFigures = figureList.filter(({ visual }) => visual?.image_url);
+                  const diagramFigures = imageFigures.filter(({ visual }) => isDiagramVisual(visual));
+                  const sceneFigures = imageFigures.filter(({ visual }) => !isDiagramVisual(visual));
+                  const mainFigure = diagramFigures[0] || sceneFigures[0] || null;
+                  const sideFigure = sceneFigures.find((f) => f.figureKey !== mainFigure?.figureKey) || imageFigures.find((f) => f.figureKey !== mainFigure?.figureKey) || null;
+                  const extraFigures = imageFigures.filter((f) => f.figureKey !== mainFigure?.figureKey && f.figureKey !== sideFigure?.figureKey);
                   const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
-                  const companionSrc = pickPlayfulCompanion(i, playfulAssetPool) || leadImage?.visual?.image_url || '';
+                  const companionSrc = pickPlayfulCompanion(i, playfulAssetPool) || sideFigure?.visual?.image_url || mainFigure?.visual?.image_url || '';
                   return (
-                    <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_240px]">
-                      <div />
-                      <aside className="space-y-3">
-                        <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
-                          {leadImage?.visual?.image_url ? (
+                    <>
+                      <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_240px]">
+                        <div className="space-y-3">
+                          {mainFigure?.visual?.image_url ? (
                             <figure
-                              onClick={() => setSelectedVisualKey(leadImage.figureKey)}
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(leadImage.figureKey); }}
+                              onClick={() => setSelectedVisualKey(mainFigure.figureKey)}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(mainFigure.figureKey); }}
                               onDragLeave={() => setDragOverKey(null)}
-                              onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, leadImage.visualIndex, e); }}
+                              onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, mainFigure.visualIndex, e); }}
                               className={`rounded-lg overflow-hidden cursor-pointer transition ${
-                                dragOverKey === leadImage.figureKey
+                                dragOverKey === mainFigure.figureKey
                                   ? 'ring-2 ring-teal-300'
-                                  : selectedVisualKey === leadImage.figureKey
+                                  : selectedVisualKey === mainFigure.figureKey
                                   ? 'ring-2 ring-emerald-300'
                                   : 'hover:ring-2 hover:ring-orange-200'
                               }`}
                             >
                               <img
-                                src={toSecureSrc(leadImage.visual.image_url)}
+                                src={toSecureSrc(mainFigure.visual.image_url)}
                                 onError={handleImageFallback}
-                                alt={leadImage.visual.alt_text || leadImage.visual.title || `Figure ${leadImage.figNum}`}
-                                className="w-full object-cover max-h-40"
+                                alt={mainFigure.visual.alt_text || mainFigure.visual.title || `Figure ${mainFigure.figNum}`}
+                                className="w-full object-contain max-h-72"
                               />
                               <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
-                                <span className="font-semibold">Figure {leadImage.figNum}:</span> {leadImage.visual.title}
+                                <span className="font-semibold">Figure {mainFigure.figNum}:</span> {mainFigure.visual.title}
                               </figcaption>
                             </figure>
                           ) : (
-                            <div className="h-24 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
-                              Drag a playful image here
+                            <div className="h-40 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                              Add a primary figure for this section
                             </div>
                           )}
                         </div>
-                        <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[130px]">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
-                          <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
-                          {companionSrc ? (
-                            <img
-                              src={toSecureSrc(companionSrc)}
-                              onError={handleImageFallback}
-                              alt=""
-                              aria-hidden="true"
-                              className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
-                              draggable={false}
-                            />
-                          ) : null}
-                        </div>
-                      </aside>
-                    </div>
+                        <aside className="space-y-3">
+                          <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
+                            {sideFigure?.visual?.image_url ? (
+                              <figure
+                                onClick={() => setSelectedVisualKey(sideFigure.figureKey)}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(sideFigure.figureKey); }}
+                                onDragLeave={() => setDragOverKey(null)}
+                                onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, sideFigure.visualIndex, e); }}
+                                className={`rounded-lg overflow-hidden cursor-pointer transition ${
+                                  dragOverKey === sideFigure.figureKey
+                                    ? 'ring-2 ring-teal-300'
+                                    : selectedVisualKey === sideFigure.figureKey
+                                    ? 'ring-2 ring-emerald-300'
+                                    : 'hover:ring-2 hover:ring-orange-200'
+                                }`}
+                              >
+                                <img
+                                  src={toSecureSrc(sideFigure.visual.image_url)}
+                                  onError={handleImageFallback}
+                                  alt={sideFigure.visual.alt_text || sideFigure.visual.title || `Figure ${sideFigure.figNum}`}
+                                  className="w-full object-cover max-h-40"
+                                />
+                                <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
+                                  <span className="font-semibold">Figure {sideFigure.figNum}:</span> {sideFigure.visual.title}
+                                </figcaption>
+                              </figure>
+                            ) : (
+                              <div className="h-24 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                                Add a support image
+                              </div>
+                            )}
+                          </div>
+                          <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[130px]">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
+                            <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
+                            {companionSrc ? (
+                              <img
+                                src={toSecureSrc(companionSrc)}
+                                onError={handleImageFallback}
+                                alt=""
+                                aria-hidden="true"
+                                className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
+                                draggable={false}
+                              />
+                            ) : null}
+                          </div>
+                        </aside>
+                      </div>
+                      <div
+                        className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
+                        dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(sec) }}
+                      />
+                      {extraFigures.map(({ visual, figNum, visualIndex, figureKey }) => (
+                        <figure
+                          key={figNum}
+                          onClick={() => setSelectedVisualKey(figureKey)}
+                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(figureKey); }}
+                          onDragLeave={() => setDragOverKey(null)}
+                          onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, visualIndex, e); }}
+                          className={`mt-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
+                            dragOverKey === figureKey
+                              ? 'border-teal-400 ring-2 ring-teal-200'
+                              : selectedVisualKey === figureKey
+                              ? 'border-emerald-400 ring-2 ring-emerald-200'
+                              : 'border-gray-200 hover:border-emerald-300'
+                          }`}
+                        >
+                          <img
+                            src={toSecureSrc(visual.image_url)}
+                            onError={handleImageFallback}
+                            alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                            className="w-full object-cover max-h-48"
+                          />
+                          <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
+                            <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
+                          </figcaption>
+                        </figure>
+                      ))}
+                    </>
                   );
                 })()}
                 {!isPlayfulTemplate && (
