@@ -176,7 +176,10 @@ export const plainTextToRichHtml = (input: string): string => {
     }
   }
 
-  return sanitizeRichTextHtml(blocks.join(''));
+  if (!blocks.length) {
+    return `<p>${escapeHtml(text)}</p>`;
+  }
+  return blocks.join('');
 };
 
 export const getSectionBodyHtml = (section: { body?: string; body_html?: string; support?: string; heading?: string; title?: string } | null | undefined): string => {

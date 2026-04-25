@@ -93,11 +93,11 @@ const htmlToText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/\s
 const getSectionDisplayHtmlSafe = (section: any) => {
   const primary = String(getSectionDisplayHtml(section) || '');
   if (htmlToText(primary)) return primary;
-  const plainBody = String(section?.body || '').trim();
+  const plainBody = String(section?.body || section?.raw_body || '').trim();
   if (plainBody) return plainTextToRichHtml(plainBody);
   const fallback = String(section?.support || section?.heading || section?.title || '').trim();
   if (fallback) return plainTextToRichHtml(fallback);
-  return '<p>Section text is still loading.</p>';
+  return plainTextToRichHtml('Section text is still loading.');
 };
 
 const TakeContent: React.FC = () => {

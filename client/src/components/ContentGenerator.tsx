@@ -6,6 +6,7 @@ import {
   buildContextualSectionBodyHtml,
   ContextualBlockLayout,
   getSectionBodyHtml,
+  plainTextToRichHtml,
   richHtmlToPlainText,
 } from '../utils/richText';
 
@@ -1132,6 +1133,13 @@ const ContentGenerator: React.FC = () => {
     const mode = String(section?.text_layout_mode || 'auto') as ContextualBlockLayout;
     if (mode === 'plain') return getSectionBodyHtml(section);
     return buildContextualSectionBodyHtml(section, mode);
+  };
+
+  const getSectionDisplayHtmlSafe = (section: any) => {
+    const html = String(getSectionDisplayHtml(section) || '');
+    if (richHtmlToPlainText(html).trim()) return html;
+    const fallback = String(section?.body || section?.raw_body || section?.support || section?.heading || section?.title || '').trim();
+    return plainTextToRichHtml(fallback || 'Section text is still loading.');
   };
 
   const getSectionEditorHtml = (section: any) => {
@@ -2510,7 +2518,7 @@ const ContentGenerator: React.FC = () => {
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Text</div>
                             <div
                               className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
-                              dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(sec) }}
+                              dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(sec) }}
                             />
                           </section>
                       </div>
@@ -2596,7 +2604,7 @@ const ContentGenerator: React.FC = () => {
                 {/* Body text */}
                 <div
                   className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
-                  dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(sec) }}
+                  dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(sec) }}
                 />
 
                 {/* Image figure — shown after body text */}
