@@ -806,9 +806,16 @@ export interface ContentSection {
   body_html?: string;
   background_image_url?: string;
   visuals?: ContentVisual[];
+  mascot?: ContentMascot | null;
 }
 export interface ContentVisual {
   kind: 'image' | 'illustration';
+  title?: string;
+  alt_text?: string;
+  prompt?: string;
+  image_url?: string;
+}
+export interface ContentMascot {
   title?: string;
   alt_text?: string;
   prompt?: string;
@@ -1310,6 +1317,9 @@ export interface ContentPlannerJob {
   level?: string | null;
   num_sections: number;
   template_id?: string | null;
+  include_diagrams?: boolean | null;
+  include_images?: boolean | null;
+  include_mascot?: boolean | null;
   rubric_id?: number | null;
   scheduled_for: string;
   status: 'scheduled' | 'processing' | 'completed' | 'failed' | 'cancelled';
@@ -1329,6 +1339,7 @@ export const contentAPI = {
     template_id?: string;
     include_diagrams?: boolean;
     include_images?: boolean;
+    include_mascot?: boolean;
   }) => api.post<{ success: boolean; content: GeneratedContent; generation_trace?: GenerationTrace | null }>('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
     api.post('/content/publish', data),
@@ -1344,6 +1355,12 @@ export const contentAPI = {
     section_heading?: string;
     section_body?: string;
   }) => api.post<{ success: boolean; visual: ContentVisual }>('/content/regenerate-visual', data),
+  regenerateMascot: (data: {
+    mascot: ContentMascot;
+    content_title?: string;
+    section_heading?: string;
+    section_body?: string;
+  }) => api.post<{ success: boolean; mascot: ContentMascot }>('/content/regenerate-mascot', data),
   submitQuiz: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/content/submit-quiz', data),
   getSectionAudio: (code: string, sectionIndex: number, voiceId = 'eve', language = 'en') =>
@@ -1380,6 +1397,7 @@ export const contentAPI = {
     scheduled_for: string;
     include_diagrams?: boolean;
     include_images?: boolean;
+    include_mascot?: boolean;
   }) => api.post('/content/planner/schedule', data),
   getPlannerJobs: () => api.get<{ success: boolean; jobs: ContentPlannerJob[] }>('/content/planner/jobs'),
   cancelPlannerJob: (id: number) => api.post(`/content/planner/${id}/cancel`),

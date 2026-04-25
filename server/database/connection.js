@@ -504,6 +504,9 @@ const initDatabase = async () => {
           template_id VARCHAR(60) DEFAULT 'classroom',
           rubric_id INT NULL,
           rubric_context TEXT NULL,
+          include_diagrams TINYINT(1) DEFAULT 1,
+          include_images TINYINT(1) DEFAULT 1,
+          include_mascot TINYINT(1) DEFAULT 0,
           scheduled_for TIMESTAMP NOT NULL,
           status VARCHAR(50) DEFAULT 'scheduled',
           error_message TEXT NULL,
@@ -1266,6 +1269,27 @@ const initDatabase = async () => {
         if ((contentVideoIdsCheck.rows?.[0]?.count || contentVideoIdsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE content_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
         }
+        const plannerIncludeDiagramsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'content_planner_jobs' AND column_name = 'include_diagrams'
+        `);
+        if ((plannerIncludeDiagramsCheck.rows?.[0]?.count || plannerIncludeDiagramsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_diagrams TINYINT(1) DEFAULT 1`);
+        }
+        const plannerIncludeImagesCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'content_planner_jobs' AND column_name = 'include_images'
+        `);
+        if ((plannerIncludeImagesCheck.rows?.[0]?.count || plannerIncludeImagesCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_images TINYINT(1) DEFAULT 1`);
+        }
+        const plannerIncludeMascotCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'content_planner_jobs' AND column_name = 'include_mascot'
+        `);
+        if ((plannerIncludeMascotCheck.rows?.[0]?.count || plannerIncludeMascotCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_mascot TINYINT(1) DEFAULT 0`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -1691,6 +1715,9 @@ const initDatabase = async () => {
           template_id VARCHAR(60) DEFAULT 'classroom',
           rubric_id INTEGER NULL REFERENCES rubrics(id) ON DELETE SET NULL,
           rubric_context TEXT NULL,
+          include_diagrams BOOLEAN DEFAULT TRUE,
+          include_images BOOLEAN DEFAULT TRUE,
+          include_mascot BOOLEAN DEFAULT FALSE,
           scheduled_for TIMESTAMP NOT NULL,
           status VARCHAR(50) DEFAULT 'scheduled',
           error_message TEXT NULL,
@@ -2351,6 +2378,27 @@ const initDatabase = async () => {
         `);
         if ((contentVideoIdsCheck.rows?.[0]?.count || contentVideoIdsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE content_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
+        }
+        const plannerIncludeDiagramsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'content_planner_jobs' AND column_name = 'include_diagrams'
+        `);
+        if ((plannerIncludeDiagramsCheck.rows?.[0]?.count || plannerIncludeDiagramsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_diagrams BOOLEAN DEFAULT TRUE`);
+        }
+        const plannerIncludeImagesCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'content_planner_jobs' AND column_name = 'include_images'
+        `);
+        if ((plannerIncludeImagesCheck.rows?.[0]?.count || plannerIncludeImagesCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_images BOOLEAN DEFAULT TRUE`);
+        }
+        const plannerIncludeMascotCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'content_planner_jobs' AND column_name = 'include_mascot'
+        `);
+        if ((plannerIncludeMascotCheck.rows?.[0]?.count || plannerIncludeMascotCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_mascot BOOLEAN DEFAULT FALSE`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

@@ -701,7 +701,7 @@ const TakeContent: React.FC = () => {
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                     .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url);
                   const keyPoint = String((activeSection as any).support || (activeSection as any).heading || activeSection.title || 'Remember this point').trim();
-                  const mascotHeroSrc = pickPlayfulCompanion(currentSection * 2, playfulAssetPool) || '';
+                  const mascotHeroSrc = String((activeSection as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(currentSection * 2, playfulAssetPool) || '';
                   const companionSrc = pickPlayfulCompanion(currentSection * 2 + 1, playfulAssetPool) || mascotHeroSrc || '';
 
                   if (isPlayfulTemplate) {

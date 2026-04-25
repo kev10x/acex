@@ -444,6 +444,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       num_sections: parseClampedInt(req.body?.num_sections, 5, 1, 20),
       include_diagrams: req.body?.include_diagrams !== false,
       include_images: req.body?.include_images !== false,
+      include_mascot: req.body?.include_mascot === true,
       topics_preview: String(req.body?.topics || '').trim().slice(0, 160) || null,
     },
   };
@@ -485,7 +486,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       temperature: taskConfig?.temperature ?? null,
       max_tokens: taskConfig?.maxTokens ?? null,
     });
-    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true } = req.body;
+    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true, include_mascot = false } = req.body;
     if (!topics || !String(topics).trim()) {
       return res.status(400).json({ error: 'topics is required' });
     }
@@ -522,12 +523,13 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       templateId: template_id,
       includeDiagrams: include_diagrams !== false,
       includeImages: include_images !== false,
+      includeMascot: include_mascot === true,
       uploadedTheme,
     });
     if (templateImageUrls.length > 0) {
       content = injectTemplateImages(content, templateImageUrls);
     }
-    if (include_images !== false) {
+    if (include_images !== false || include_mascot === true) {
       content = await contentService.enrichContentWithImages(content);
     }
     const successPayload = {
@@ -617,6 +619,33 @@ router.post('/regenerate-visual', requireAuth, requireFeature('content_creation'
   } catch (error) {
     console.error('Content visual regenerate error:', error);
     res.status(500).json({ error: error.message || 'Failed to regenerate visual with Grok' });
+  }
+});
+
+router.post('/regenerate-mascot', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const {
+      mascot,
+      content_title = '',
+      section_heading = '',
+      section_body = '',
+    } = req.body || {};
+
+    if (!mascot || typeof mascot !== 'object') {
+      return res.status(400).json({ error: 'mascot is required' });
+    }
+
+    const updatedMascot = await contentService.regenerateMascotWithGrok({
+      mascot,
+      contentTitle: String(content_title || '').trim(),
+      sectionHeading: String(section_heading || '').trim(),
+      sectionBody: String(section_body || '').trim(),
+    });
+
+    res.json({ success: true, mascot: updatedMascot });
+  } catch (error) {
+    console.error('Content mascot regenerate error:', error);
+    res.status(500).json({ error: error.message || 'Failed to regenerate mascot with Grok' });
   }
 });
 
@@ -1152,6 +1181,9 @@ router.post('/planner/schedule', requireAuth, requireFeature('content_creation')
       rubric_id,
       rubric_context,
       template_id = 'classroom',
+      include_diagrams = true,
+      include_images = true,
+      include_mascot = false,
       scheduled_for,
     } = req.body || {};
 
@@ -1175,38 +1207,89 @@ router.post('/planner/schedule', requireAuth, requireFeature('content_creation')
       if (isMySQL()) {
         insert = await query(
           `INSERT INTO content_planner_jobs
-            (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, scheduled_for, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [req.user.id, cleanedTopics, level || null, maxSections, template_id || 'classroom', rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+            (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, include_diagrams, include_images, include_mascot, scheduled_for, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            req.user.id,
+            cleanedTopics,
+            level || null,
+            maxSections,
+            template_id || 'classroom',
+            rubric_id || null,
+            rubric_context || null,
+            include_diagrams !== false ? 1 : 0,
+            include_images !== false ? 1 : 0,
+            include_mascot === true ? 1 : 0,
+            dbScheduled,
+            'scheduled',
+          ]
         );
       } else {
         insert = await query(
           `INSERT INTO content_planner_jobs
-            (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, scheduled_for, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, include_diagrams, include_images, include_mascot, scheduled_for, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING id`,
-          [req.user.id, cleanedTopics, level || null, maxSections, template_id || 'classroom', rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+          [
+            req.user.id,
+            cleanedTopics,
+            level || null,
+            maxSections,
+            template_id || 'classroom',
+            rubric_id || null,
+            rubric_context || null,
+            include_diagrams !== false,
+            include_images !== false,
+            include_mascot === true,
+            dbScheduled,
+            'scheduled',
+          ]
         );
       }
     } catch (insertErr) {
       const msg = String(insertErr?.message || '').toLowerCase();
-      const columnMissing = msg.includes('template_id') && (msg.includes('unknown column') || msg.includes('does not exist'));
-      if (!columnMissing) throw insertErr;
-      if (isMySQL()) {
-        insert = await query(
-          `INSERT INTO content_planner_jobs
-            (user_id, topics, level, num_sections, rubric_id, rubric_context, scheduled_for, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [req.user.id, cleanedTopics, level || null, maxSections, rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
-        );
-      } else {
-        insert = await query(
-          `INSERT INTO content_planner_jobs
-            (user_id, topics, level, num_sections, rubric_id, rubric_context, scheduled_for, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING id`,
-          [req.user.id, cleanedTopics, level || null, maxSections, rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
-        );
+      const missingColumnError = msg.includes('unknown column') || msg.includes('does not exist');
+      const includeColumnMissing = missingColumnError
+        && (msg.includes('include_diagrams') || msg.includes('include_images') || msg.includes('include_mascot'));
+      const templateColumnMissing = missingColumnError && msg.includes('template_id');
+      if (!includeColumnMissing && !templateColumnMissing) throw insertErr;
+      try {
+        if (isMySQL()) {
+          insert = await query(
+            `INSERT INTO content_planner_jobs
+              (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, scheduled_for, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [req.user.id, cleanedTopics, level || null, maxSections, template_id || 'classroom', rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+          );
+        } else {
+          insert = await query(
+            `INSERT INTO content_planner_jobs
+              (user_id, topics, level, num_sections, template_id, rubric_id, rubric_context, scheduled_for, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING id`,
+            [req.user.id, cleanedTopics, level || null, maxSections, template_id || 'classroom', rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+          );
+        }
+      } catch (templateFallbackErr) {
+        const fallbackMsg = String(templateFallbackErr?.message || '').toLowerCase();
+        const fallbackTemplateMissing = (fallbackMsg.includes('template_id') && (fallbackMsg.includes('unknown column') || fallbackMsg.includes('does not exist')));
+        if (!fallbackTemplateMissing) throw templateFallbackErr;
+        if (isMySQL()) {
+          insert = await query(
+            `INSERT INTO content_planner_jobs
+              (user_id, topics, level, num_sections, rubric_id, rubric_context, scheduled_for, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [req.user.id, cleanedTopics, level || null, maxSections, rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+          );
+        } else {
+          insert = await query(
+            `INSERT INTO content_planner_jobs
+              (user_id, topics, level, num_sections, rubric_id, rubric_context, scheduled_for, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id`,
+            [req.user.id, cleanedTopics, level || null, maxSections, rubric_id || null, rubric_context || null, dbScheduled, 'scheduled']
+          );
+        }
       }
     }
     const id = insert?.insertId ?? insert?.lastID ?? insert?.rows?.[0]?.id ?? null;
@@ -1224,6 +1307,9 @@ router.post('/planner/schedule', requireAuth, requireFeature('content_creation')
         level: level || null,
         num_sections: maxSections,
         template_id: template_id || 'classroom',
+        include_diagrams: include_diagrams !== false,
+        include_images: include_images !== false,
+        include_mascot: include_mascot === true,
       },
     });
   } catch (error) {
@@ -1242,7 +1328,8 @@ router.get('/planner/jobs', requireAuth, requireFeature('content_creation'), asy
       q = isMySQL()
         ? await query(
             `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
-                    template_id, published_content_id, published_code, created_at, updated_at
+                    template_id, include_diagrams, include_images, include_mascot,
+                    published_content_id, published_code, created_at, updated_at
              FROM content_planner_jobs
              WHERE user_id = ?
              ORDER BY created_at DESC
@@ -1251,7 +1338,8 @@ router.get('/planner/jobs', requireAuth, requireFeature('content_creation'), asy
           )
         : await query(
             `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
-                    template_id, published_content_id, published_code, created_at, updated_at
+                    template_id, include_diagrams, include_images, include_mascot,
+                    published_content_id, published_code, created_at, updated_at
              FROM content_planner_jobs
              WHERE user_id = $1
              ORDER BY created_at DESC
@@ -1260,27 +1348,56 @@ router.get('/planner/jobs', requireAuth, requireFeature('content_creation'), asy
           );
     } catch (selectErr) {
       const msg = String(selectErr?.message || '').toLowerCase();
-      const columnMissing = msg.includes('template_id') && (msg.includes('unknown column') || msg.includes('does not exist'));
-      if (!columnMissing) throw selectErr;
-      q = isMySQL()
-        ? await query(
-            `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
-                    published_content_id, published_code, created_at, updated_at
-             FROM content_planner_jobs
-             WHERE user_id = ?
-             ORDER BY created_at DESC
-             LIMIT 200`,
-            [req.user.id]
-          )
-        : await query(
-            `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
-                    published_content_id, published_code, created_at, updated_at
-             FROM content_planner_jobs
-             WHERE user_id = $1
-             ORDER BY created_at DESC
-             LIMIT 200`,
-            [req.user.id]
-          );
+      const missingColumnError = msg.includes('unknown column') || msg.includes('does not exist');
+      const includeColumnMissing = missingColumnError
+        && (msg.includes('include_diagrams') || msg.includes('include_images') || msg.includes('include_mascot'));
+      const templateColumnMissing = missingColumnError && msg.includes('template_id');
+      if (!includeColumnMissing && !templateColumnMissing) throw selectErr;
+      try {
+        q = isMySQL()
+          ? await query(
+              `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                      template_id, published_content_id, published_code, created_at, updated_at
+               FROM content_planner_jobs
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT 200`,
+              [req.user.id]
+            )
+          : await query(
+              `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                      template_id, published_content_id, published_code, created_at, updated_at
+               FROM content_planner_jobs
+               WHERE user_id = $1
+               ORDER BY created_at DESC
+               LIMIT 200`,
+              [req.user.id]
+            );
+      } catch (templateFallbackErr) {
+        const fallbackMsg = String(templateFallbackErr?.message || '').toLowerCase();
+        const fallbackTemplateMissing = fallbackMsg.includes('template_id')
+          && (fallbackMsg.includes('unknown column') || fallbackMsg.includes('does not exist'));
+        if (!fallbackTemplateMissing) throw templateFallbackErr;
+        q = isMySQL()
+          ? await query(
+              `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                      published_content_id, published_code, created_at, updated_at
+               FROM content_planner_jobs
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT 200`,
+              [req.user.id]
+            )
+          : await query(
+              `SELECT id, topics, level, num_sections, rubric_id, scheduled_for, status, error_message,
+                      published_content_id, published_code, created_at, updated_at
+               FROM content_planner_jobs
+               WHERE user_id = $1
+               ORDER BY created_at DESC
+               LIMIT 200`,
+              [req.user.id]
+            );
+      }
     }
     const rows = Array.isArray(q) ? q : (q.rows || []);
     res.json({ success: true, jobs: rows });

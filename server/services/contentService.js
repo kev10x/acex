@@ -79,7 +79,9 @@ function buildVisualImagePrompt(prompt, {
 
   const styleInstruction = visualKind === 'illustration'
     ? 'Create a clean educational visual. Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Do not render words, letters, numbers, legends, or labels inside the image.'
-    : 'Create a clean educational supporting image suitable for lesson content. Do not render words, letters, numbers, labels, or text overlays inside the image.';
+    : visualKind === 'mascot'
+      ? 'Create a playful educational mascot character image, sticker/cutout style, centered, with transparent or plain background, no watermark, no logo, and no text overlays.'
+      : 'Create a clean educational supporting image suitable for lesson content. Do not render words, letters, numbers, labels, or text overlays inside the image.';
 
   return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays. Prefer symbolic/shape-based communication over written annotations.`
     .trim()
@@ -175,6 +177,70 @@ async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHead
   return {
     ...currentVisual,
     kind,
+    image_url: imageUrl,
+  };
+}
+
+function buildMascotPromptFromContext(mascot = {}, section = {}) {
+  const parts = [
+    section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
+    mascot?.title ? `Mascot title: ${String(mascot.title).trim()}.` : '',
+    mascot?.alt_text ? `Description: ${String(mascot.alt_text).trim()}.` : '',
+    section?.support ? `Key point: ${String(section.support).trim()}.` : '',
+    section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 260)}.` : '',
+    'Create a mascot-style character that fits this lesson and can sit near the key point card.',
+  ].filter(Boolean);
+  return parts.join(' ').trim().slice(0, 360);
+}
+
+function createFallbackMascot(sectionTitle, ordinal = 1) {
+  const label = ordinal > 1 ? `Mascot ${ordinal}` : 'Mascot';
+  return {
+    title: `${label}: ${sectionTitle}`.slice(0, 120),
+    alt_text: `Playful mascot character for: ${sectionTitle}`.slice(0, 240),
+    prompt: `Create a playful educational mascot character for: ${sectionTitle}`.slice(0, 320),
+    image_url: '',
+  };
+}
+
+function normalizeSectionMascot(section, mascot, { includeMascot = false } = {}) {
+  const hasMascotInput = mascot && typeof mascot === 'object';
+  if (!includeMascot && !hasMascotInput) return null;
+  const sectionTitle = String(section?.heading || section?.title || 'Section').trim() || 'Section';
+  const fallback = createFallbackMascot(sectionTitle, 1);
+  const src = hasMascotInput ? mascot : {};
+  const normalizedBase = {
+    title: String(src.title || fallback.title).slice(0, 160),
+    alt_text: String(src.alt_text || fallback.alt_text).slice(0, 260),
+    image_url: typeof src.image_url === 'string' ? src.image_url : '',
+  };
+  const rebuiltPrompt = buildMascotPromptFromContext(normalizedBase, section);
+  return {
+    ...normalizedBase,
+    prompt: String(src.prompt || rebuiltPrompt).slice(0, 360),
+  };
+}
+
+async function regenerateMascotWithGrok({ mascot, contentTitle = '', sectionHeading = '', sectionBody = '' } = {}) {
+  if (!aiService.xai || !process.env.XAI_API_KEY) {
+    throw new Error('XAI_API_KEY is required for Grok mascot regeneration.');
+  }
+  const currentMascot = mascot && typeof mascot === 'object' ? mascot : {};
+  const sectionContext = { heading: sectionHeading, body: sectionBody };
+  const prompt = buildMascotPromptFromContext(currentMascot, sectionContext);
+  const imageUrl = await generateImageForVisual(prompt, {
+    provider: 'xai',
+    visualKind: 'mascot',
+    title: currentMascot.title || '',
+    sectionHeading,
+    sectionBody,
+    contentTitle,
+  });
+  if (!imageUrl) {
+    throw new Error('Grok mascot regeneration did not return an image.');
+  }
+  return {
+    ...currentMascot,
     image_url: imageUrl,
   };
 }
@@ -275,12 +341,50 @@ async function enrichContentWithImages(content) {
     );
   }
 
+  const mascotResults = new Map();
+  const mascotTasks = [];
+  sections.forEach((section, si) => {
+    const mascot = section?.mascot;
+    if (!mascot || typeof mascot !== 'object') return;
+    const hasImage = typeof mascot.image_url === 'string' && mascot.image_url.trim();
+    if (hasImage && !String(mascot.image_url).startsWith('data:image/svg')) return;
+    mascotTasks.push({
+      si,
+      prompt: mascot.prompt,
+      title: mascot.title,
+      sectionHeading: section.heading || section.title || '',
+      sectionBody: section.body || '',
+      contentTitle: content?.title || '',
+    });
+  });
+  for (let i = 0; i < mascotTasks.length; i += IMAGE_CONCURRENCY) {
+    const batch = mascotTasks.slice(i, i + IMAGE_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (task) => {
+        const url = await generateImageForVisual(task.prompt, {
+          title: task.title,
+          sectionHeading: task.sectionHeading,
+          sectionBody: task.sectionBody,
+          contentTitle: task.contentTitle,
+          visualKind: 'mascot',
+        });
+        if (url) mascotResults.set(`${task.si}`, url);
+      })
+    );
+  }
+
   const enrichedSections = sections.map((section, si) => {
     const visuals = (section.visuals || []).map((visual, vi) => {
       const url = results.get(`${si}:${vi}`);
       return url ? { ...visual, image_url: url } : visual;
     });
-    return { ...section, visuals };
+    const mascot = section?.mascot && typeof section.mascot === 'object'
+      ? (() => {
+          const mascotUrl = mascotResults.get(`${si}`);
+          return mascotUrl ? { ...section.mascot, image_url: mascotUrl } : section.mascot;
+        })()
+      : section?.mascot;
+    return { ...section, visuals, mascot };
   });
 
   return { ...content, sections: enrichedSections };
@@ -398,17 +502,18 @@ function repairJson(jsonStr) {
  * @returns {Promise<{ title, instructions, sections: [{ title, body }], quiz?: { questions } }>}
  */
 async function generateContentWithAI(opts) {
-  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', includeDiagrams = true, includeImages = true, uploadedTheme = null } = opts;
+  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', includeDiagrams = true, includeImages = true, includeMascot = false, uploadedTheme = null } = opts;
   const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
   const compactTopics = String(topics || '').trim().slice(0, 1200);
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
-  const visualsInstruction = (includeDiagrams || includeImages)
+  const visualsInstruction = (includeDiagrams || includeImages || includeMascot)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
   - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image.` : ''}${includeImages ? `
   - kind = "image" — a descriptive scene/photo-style visual.` : ''}
-  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.`
+  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.
+${includeMascot ? `- mascot: object descriptor for a playful companion image for this section, with fields: title, alt_text, prompt.` : ''}`
     : `- visuals: omit entirely — do not include a visuals field in any section.`;
-  const visualsExample = (includeDiagrams || includeImages)
+  const visualsExample = (includeDiagrams || includeImages || includeMascot)
     ? `"visuals": [${includeDiagrams ? `
         {
           "kind": "illustration",
@@ -422,7 +527,13 @@ async function generateContentWithAI(opts) {
           "alt_text": "Accessible description of image",
           "prompt": "Prompt text for image generation"
         }` : ''}
-      ]`
+      ],${includeMascot ? `
+      "mascot": {
+        "title": "Mascot caption",
+        "alt_text": "Playful mascot character that fits the section concept",
+        "prompt": "Prompt for a mascot style educational character image for this section"
+      }` : ''}
+    `
     : '"visuals": []';
   const visualsRule = includeDiagrams && includeImages
     ? 'Include exactly one illustration and one image descriptor in visuals for every section. For the illustration, choose the most educationally effective form: diagram, chart, graph, flowchart, concept map, or infographic. Avoid simplistic diagrams; each one must encode concrete domain information.'
@@ -431,6 +542,9 @@ async function generateContentWithAI(opts) {
       : includeImages
         ? 'Include exactly one image descriptor in visuals for every section.'
         : 'Do not include a visuals field.';
+  const mascotRule = includeMascot
+    ? 'Include exactly one mascot object for every section.'
+    : 'Do not include a mascot field.';
   const levelPromptBlock = level ? buildEducationLevelPromptBlock(level) : '';
   const writingGuidance = buildAcademicWritingGuidance(level || 'level_4');
   const buildPrompt = ({ compact = false } = {}) => `You are an expert educator creating course/lecture content for students. Use the assertion-evidence model of slide design (Carnegie Mellon): each slide has ONE clear message in a complete sentence, with minimal supporting text-no long bullet lists or text-heavy slides.
@@ -476,7 +590,7 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} ${mascotRule} Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
   const prompt = buildPrompt();
 
   const messages = [
@@ -614,7 +728,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
         lastReason = `Incomplete content: expected ${numSections} sections, received ${data.sections.length}`;
         continue;
       }
-      return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, uploadedTheme });
+      return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, includeMascot, uploadedTheme });
     } catch (parseErr) {
       // Try multiple repair strategies
       let data = null;
@@ -658,7 +772,7 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
             data = JSON.parse(repairedJson);
             if (data && data.title && data.sections && Array.isArray(data.sections) && data.sections.length >= numSections) {
               console.warn(`Content JSON repaired using strategy for model ${model}`);
-              return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, uploadedTheme });
+              return normalizeGeneratedContent(data, templateId, { includeDiagrams, includeImages, includeMascot, uploadedTheme });
             }
           }
         } catch (strategyErr) {
@@ -879,7 +993,7 @@ function applyTemplateToContent(content, templateId = 'classroom', uploadedTheme
   };
 }
 
-function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true, uploadedTheme = null } = {}) {
+function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true, includeMascot = false, uploadedTheme = null } = {}) {
   const sections = Array.isArray(content.sections) ? content.sections : [];
   const normalizedSections = sections.map((section, index) => {
     const heading = normalizeDashText(String(section.heading || section.title || `Section ${index + 1}`).trim());
@@ -893,6 +1007,7 @@ function normalizeGeneratedContent(content, templateId = 'classroom', { includeD
     return {
       ...normalizedSection,
       visuals: normalizeSectionVisuals(normalizedSection, section.visuals, { includeDiagrams, includeImages }),
+      mascot: normalizeSectionMascot(normalizedSection, section.mascot, { includeMascot }),
     };
   });
 
@@ -1267,6 +1382,7 @@ module.exports = {
   generateContentWithAI,
   enrichContentWithImages,
   regenerateVisualWithGrok,
+  regenerateMascotWithGrok,
   buildSectionNarrationText,
   localizeTextForSpeech,
   synthesizeSectionSpeech,

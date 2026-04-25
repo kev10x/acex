@@ -98,6 +98,7 @@ const ContentGenerator: React.FC = () => {
   const [includeVideo, setIncludeVideo] = useState(false);
   const [includeDiagrams, setIncludeDiagrams] = useState(true);
   const [includeImages, setIncludeImages] = useState(true);
+  const [includeMascot, setIncludeMascot] = useState(true);
   const [includeTextToSpeech, setIncludeTextToSpeech] = useState(true);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState('classroom');
@@ -127,11 +128,26 @@ const ContentGenerator: React.FC = () => {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [loadingPublishedContentId, setLoadingPublishedContentId] = useState<number | null>(null);
   const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<{
+    active: boolean;
+    task: 'content' | 'visual' | 'mascot';
+    percent: number;
+    label: string;
+    detail: string;
+  }>({
+    active: false,
+    task: 'content',
+    percent: 0,
+    label: '',
+    detail: '',
+  });
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recoveredContentJobIdRef = useRef<number | null>(null);
+  const generationProgressTimerRef = useRef<number | null>(null);
+  const generationProgressHideTimerRef = useRef<number | null>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
@@ -171,6 +187,124 @@ const ContentGenerator: React.FC = () => {
     loadModules();
   }, []);
 
+  const clearGenerationProgressTimer = () => {
+    if (generationProgressTimerRef.current) {
+      window.clearInterval(generationProgressTimerRef.current);
+      generationProgressTimerRef.current = null;
+    }
+    if (generationProgressHideTimerRef.current) {
+      window.clearTimeout(generationProgressHideTimerRef.current);
+      generationProgressHideTimerRef.current = null;
+    }
+  };
+
+  const startGenerationProgress = (task: 'content' | 'visual' | 'mascot', opts?: { includeImages?: boolean; includeMascot?: boolean }) => {
+    clearGenerationProgressTimer();
+    const includeHeavyVisuals = !!opts?.includeImages || !!opts?.includeMascot;
+    const cap = task === 'content' ? 94 : 90;
+    const startLabel = task === 'content'
+      ? 'Preparing generation request'
+      : task === 'visual'
+        ? 'Preparing visual regeneration'
+        : 'Preparing mascot regeneration';
+    const startDetail = task === 'content'
+      ? 'Building prompt and context'
+      : 'Gathering section context';
+
+    setGenerationProgress({
+      active: true,
+      task,
+      percent: 6,
+      label: startLabel,
+      detail: startDetail,
+    });
+
+    generationProgressTimerRef.current = window.setInterval(() => {
+      setGenerationProgress((prev) => {
+        if (!prev.active || prev.task !== task) return prev;
+        if (prev.percent >= cap) return prev;
+
+        const deltaBase = task === 'content' ? (includeHeavyVisuals ? 1.8 : 2.6) : 3.2;
+        const slowdown = prev.percent > 75 ? 0.45 : prev.percent > 55 ? 0.7 : 1;
+        const jitter = Math.random() * 0.9;
+        const nextPercent = Math.min(cap, prev.percent + (deltaBase + jitter) * slowdown);
+
+        let label = prev.label;
+        let detail = prev.detail;
+        if (task === 'content') {
+          if (nextPercent < 22) {
+            label = 'Preparing generation request';
+            detail = 'Building prompt and context';
+          } else if (nextPercent < 52) {
+            label = 'Generating sections';
+            detail = 'Writing content and quiz';
+          } else if (nextPercent < 80) {
+            label = includeHeavyVisuals ? 'Generating visuals' : 'Finalizing response';
+            detail = includeHeavyVisuals ? 'Creating figures and images' : 'Formatting the lesson output';
+          } else {
+            label = 'Finalizing response';
+            detail = 'Saving and rendering generated content';
+          }
+        } else if (task === 'visual') {
+          if (nextPercent < 45) {
+            label = 'Regenerating visual';
+            detail = 'Sending visual prompt to image model';
+          } else {
+            label = 'Finalizing visual';
+            detail = 'Updating section preview';
+          }
+        } else {
+          if (nextPercent < 45) {
+            label = 'Regenerating mascot';
+            detail = 'Sending mascot prompt to image model';
+          } else {
+            label = 'Finalizing mascot';
+            detail = 'Updating key point companion';
+          }
+        }
+
+        return { ...prev, percent: nextPercent, label, detail };
+      });
+    }, 900);
+  };
+
+  const updateGenerationProgress = (percent: number, label: string, detail = '') => {
+    setGenerationProgress((prev) => ({
+      ...prev,
+      active: true,
+      percent: Math.max(prev.percent, Math.min(96, percent)),
+      label,
+      detail,
+    }));
+  };
+
+  const completeGenerationProgress = (success: boolean, message?: string) => {
+    clearGenerationProgressTimer();
+    setGenerationProgress((prev) => ({
+      ...prev,
+      active: true,
+      percent: success ? 100 : Math.max(prev.percent, 12),
+      label: success ? 'Done' : 'Generation interrupted',
+      detail: message || (success ? 'Your content is ready' : 'Please try again'),
+    }));
+    generationProgressHideTimerRef.current = window.setTimeout(() => {
+      setGenerationProgress({
+        active: false,
+        task: 'content',
+        percent: 0,
+        label: '',
+        detail: '',
+      });
+      generationProgressHideTimerRef.current = null;
+    }, success ? 900 : 2200);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearGenerationProgressTimer();
+    };
+  }, []);
+
   const recoverBackgroundContentGeneration = async () => {
     try {
       const res = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine' });
@@ -200,6 +334,7 @@ const ContentGenerator: React.FC = () => {
         setIsGenerating(false);
         setError(null);
         setBackgroundGenerationNotice('Recovered your generated content from a background job.');
+        completeGenerationProgress(true, 'Recovered generated content from background job');
         await addToHistory(recoveredContent, recoveredTrace);
       }
     } catch (_) {
@@ -232,6 +367,7 @@ const ContentGenerator: React.FC = () => {
     template_id: templateId,
     include_diagrams: includeDiagrams,
     include_images: includeImages,
+    include_mascot: includeMascot,
     include_video: includeVideo,
     tts_enabled: includeTextToSpeech,
   });
@@ -282,6 +418,7 @@ const ContentGenerator: React.FC = () => {
     setTemplateId(input.template_id || 'classroom');
     setIncludeDiagrams(input.include_diagrams !== false);
     setIncludeImages(input.include_images !== false);
+    setIncludeMascot(input.include_mascot !== false);
     setIncludeVideo(!!input.include_video);
     setIncludeTextToSpeech(input.tts_enabled !== false && item.content?.tts_enabled !== false);
     setGeneratedContent(normalizeContentForEditor({
@@ -419,6 +556,7 @@ const ContentGenerator: React.FC = () => {
             template_id: item.template_id || 'classroom',
             include_diagrams: item.include_diagrams !== false,
             include_images: item.include_images !== false,
+            include_mascot: item.include_mascot !== false,
             include_video: !!item.include_video,
             tts_enabled: item.tts_enabled !== false,
           }
@@ -506,9 +644,11 @@ const ContentGenerator: React.FC = () => {
     setActivePublishedContentCode(null);
     setGeneratedContent(null);
     setGenerationTrace(null);
+    startGenerationProgress('content', { includeImages, includeMascot });
     try {
       let effectiveTemplateId = templateId;
       if (templateFile) {
+        updateGenerationProgress(14, 'Uploading template', 'Extracting template assets and theme');
         const uploadRes = await contentAPI.uploadTemplate(templateFile);
         const uploadedId = uploadRes?.data?.template?.id;
         if (uploadedId) {
@@ -516,6 +656,7 @@ const ContentGenerator: React.FC = () => {
           setTemplateId(uploadedId);
         }
       }
+      updateGenerationProgress(28, 'Generating sections', 'Drafting sections and quiz');
       const res = await contentAPI.generate({
         topics: topicsTrim,
         level: level || undefined,
@@ -524,18 +665,23 @@ const ContentGenerator: React.FC = () => {
         template_id: effectiveTemplateId || undefined,
         include_diagrams: includeDiagrams,
         include_images: includeImages,
+        include_mascot: includeMascot,
       });
       if (res.data.success && res.data.content) {
+        updateGenerationProgress(92, 'Finalizing response', 'Preparing editor preview');
         const contentWithSettings = withGenerationSettings(res.data.content);
         const trace = res.data.generation_trace || null;
         setGenerationTrace(trace);
         setGeneratedContent(contentWithSettings);
         await addToHistory(contentWithSettings, trace);
+        completeGenerationProgress(true, 'Content generated successfully');
       } else {
         setError('Failed to generate content');
+        completeGenerationProgress(false, 'Generation did not return content');
       }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to generate content');
+      completeGenerationProgress(false, e.response?.data?.error || e.message || 'Failed to generate content');
     } finally {
       setIsGenerating(false);
     }
@@ -795,6 +941,70 @@ const ContentGenerator: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  const updateMascotField = (sectionIndex: number, field: string, value: string) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      const mascot = { ...(section as any).mascot, [field]: value };
+      sections[sectionIndex] = { ...section, mascot };
+      return { ...current, sections };
+    });
+  };
+
+  const uploadMascotImage = (sectionIndex: number, file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (!dataUrl) return;
+      updateMascotField(sectionIndex, 'image_url', dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRegenerateMascot = async (sectionIndex: number) => {
+    if (!generatedContent) return;
+    const section = generatedContent.sections?.[sectionIndex];
+    if (!section) return;
+    const mascot = {
+      title: String((section as any)?.mascot?.title || `Mascot for ${section.heading || section.title || `Section ${sectionIndex + 1}`}`).trim(),
+      alt_text: String((section as any)?.mascot?.alt_text || 'Playful educational mascot').trim(),
+      prompt: String((section as any)?.mascot?.prompt || '').trim(),
+      image_url: String((section as any)?.mascot?.image_url || '').trim(),
+    };
+    const key = `mascot:${sectionIndex}`;
+    setRegeneratingVisualKey(key);
+    setError(null);
+    startGenerationProgress('mascot');
+    try {
+      const res = await contentAPI.regenerateMascot({
+        mascot,
+        content_title: generatedContent.title || '',
+        section_heading: section.heading || section.title || '',
+        section_body: section.body || '',
+      });
+      if (res.data?.success && res.data.mascot) {
+        updateGenerationProgress(90, 'Finalizing mascot', 'Refreshing section preview');
+        const nextContent = (() => {
+          const sections = Array.isArray(generatedContent.sections) ? [...generatedContent.sections] : [];
+          const currentSection = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+          sections[sectionIndex] = { ...currentSection, mascot: { ...(currentSection as any).mascot, ...res.data.mascot } };
+          return { ...generatedContent, sections };
+        })();
+        await persistContent(nextContent, { showSavingState: false });
+        completeGenerationProgress(true, 'Mascot regenerated');
+      } else {
+        setError('Grok did not return a replacement mascot.');
+        completeGenerationProgress(false, 'No mascot image was returned');
+      }
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to regenerate mascot with Grok');
+      completeGenerationProgress(false, e.response?.data?.error || e.message || 'Failed to regenerate mascot');
+    } finally {
+      setRegeneratingVisualKey(null);
+    }
+  };
+
   const handleRegenerateVisual = async (sectionIndex: number, visualIndex: number) => {
     if (!generatedContent) return;
     const section = generatedContent.sections?.[sectionIndex];
@@ -805,6 +1015,7 @@ const ContentGenerator: React.FC = () => {
     const key = `${sectionIndex}:${visualIndex}`;
     setRegeneratingVisualKey(key);
     setError(null);
+    startGenerationProgress('visual');
     try {
       const res = await contentAPI.regenerateVisual({
         visual,
@@ -813,6 +1024,7 @@ const ContentGenerator: React.FC = () => {
         section_body: section.body || '',
       });
       if (res.data?.success && res.data.visual) {
+        updateGenerationProgress(90, 'Finalizing visual', 'Refreshing section preview');
         const nextContent = (() => {
           const sections = Array.isArray(generatedContent.sections) ? [...generatedContent.sections] : [];
           const currentSection = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
@@ -823,11 +1035,14 @@ const ContentGenerator: React.FC = () => {
         })();
         await persistContent(nextContent, { showSavingState: false });
         setSelectedVisualKey(key);
+        completeGenerationProgress(true, 'Visual regenerated');
       } else {
         setError('Grok did not return a replacement visual.');
+        completeGenerationProgress(false, 'No visual image was returned');
       }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to regenerate visual with Grok');
+      completeGenerationProgress(false, e.response?.data?.error || e.message || 'Failed to regenerate visual');
     } finally {
       setRegeneratingVisualKey(null);
     }
@@ -856,6 +1071,7 @@ const ContentGenerator: React.FC = () => {
         scheduled_for: scheduledIso,
         include_diagrams: includeDiagrams,
         include_images: includeImages,
+        include_mascot: includeMascot,
       });
       await loadPlannerJobs();
     } catch (e: any) {
@@ -1220,6 +1436,15 @@ const ContentGenerator: React.FC = () => {
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
+                checked={includeMascot}
+                onChange={(e) => setIncludeMascot(e.target.checked)}
+                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+              />
+              <span className="text-sm text-gray-700">Generate mascots per section <span className="text-gray-400 text-xs">(AI-generated)</span></span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
                 checked={includeVideo}
                 onChange={(e) => setIncludeVideo(e.target.checked)}
                 className="w-4 h-4 text-teal-600 border-gray-300 rounded"
@@ -1268,6 +1493,23 @@ const ContentGenerator: React.FC = () => {
               Schedule planner generation
             </button>
           </div>
+          {generationProgress.active && (
+            <div className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-3">
+              <div className="mb-1 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-teal-800">
+                <span>{generationProgress.label}</span>
+                <span>{Math.round(generationProgress.percent)}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-teal-100">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 transition-all duration-700 ease-out"
+                  style={{ width: `${Math.max(0, Math.min(100, generationProgress.percent))}%` }}
+                />
+              </div>
+              {generationProgress.detail && (
+                <p className="mt-2 text-xs text-teal-900/80">{generationProgress.detail}</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1510,6 +1752,52 @@ const ContentGenerator: React.FC = () => {
                     placeholder="Section background image URL (optional)"
                     className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
                   />
+                  {includeMascot && (
+                    <div className="p-2 bg-white border border-orange-200 rounded text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-orange-700">Mascot</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRegenerateMascot(i)}
+                          disabled={regeneratingVisualKey === `mascot:${i}`}
+                          className="px-2 py-0.5 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          {regeneratingVisualKey === `mascot:${i}` ? 'Regenerating mascot...' : 'Regenerate mascot'}
+                        </button>
+                      </div>
+                      <input
+                        value={(sec as any)?.mascot?.title || ''}
+                        onChange={(e) => updateMascotField(i, 'title', e.target.value)}
+                        placeholder="Mascot title"
+                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                      />
+                      <input
+                        value={(sec as any)?.mascot?.alt_text || ''}
+                        onChange={(e) => updateMascotField(i, 'alt_text', e.target.value)}
+                        placeholder="Mascot alt text"
+                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                      />
+                      <textarea
+                        value={(sec as any)?.mascot?.prompt || ''}
+                        onChange={(e) => updateMascotField(i, 'prompt', e.target.value)}
+                        placeholder="Mascot generation prompt"
+                        rows={2}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-[11px]"
+                      />
+                      <input
+                        value={(sec as any)?.mascot?.image_url || ''}
+                        onChange={(e) => updateMascotField(i, 'image_url', e.target.value)}
+                        placeholder="Mascot image URL or data URL"
+                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                      />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => uploadMascotImage(i, e.target.files?.[0] || null)}
+                        className="w-full"
+                      />
+                    </div>
+                  )}
                   {Array.isArray(sec.visuals) && sec.visuals.length > 0 && (
                     <div className="space-y-2">
                       {sec.visuals.map((visual: any, vIdx: number) => (
@@ -1598,7 +1886,7 @@ const ContentGenerator: React.FC = () => {
                   const mainFigure = diagramFigures[0] || sceneFigures[0] || imageFigures[0] || null;
                   const extraFigures = imageFigures.filter((f) => f.figureKey !== mainFigure?.figureKey);
                   const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
-                  const mascotHeroSrc = pickPlayfulCompanion(i * 2, playfulAssetPool) || '';
+                  const mascotHeroSrc = String((sec as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(i * 2, playfulAssetPool) || '';
                   const companionSrc = pickPlayfulCompanion(i * 2 + 1, playfulAssetPool) || mascotHeroSrc || '';
                   return (
                     <>

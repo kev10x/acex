@@ -113,6 +113,7 @@ async function processPlannerJob(job) {
 
   const includeDiagrams = job.include_diagrams !== false && job.include_diagrams !== 0;
   const includeImages = job.include_images !== false && job.include_images !== 0;
+  const includeMascot = job.include_mascot === true || job.include_mascot === 1;
 
   let generated = await contentService.generateContentWithAI({
     topics: String(job.topics || '').trim(),
@@ -122,11 +123,16 @@ async function processPlannerJob(job) {
     templateId: String(job.template_id || 'classroom'),
     includeDiagrams,
     includeImages,
+    includeMascot,
   });
-  if (includeImages) {
+  if (includeImages || includeMascot) {
     generated = await contentService.enrichContentWithImages(generated);
   }
-  const normalizedContent = contentService.normalizeGeneratedContent(generated, job.template_id || 'classroom', { includeDiagrams, includeImages });
+  const normalizedContent = contentService.normalizeGeneratedContent(generated, job.template_id || 'classroom', {
+    includeDiagrams,
+    includeImages,
+    includeMascot,
+  });
   const published = await publishGeneratedContent(job.user_id, job.rubric_id, normalizedContent);
 
   await updatePlannerJobStatus(job.id, 'completed', {
