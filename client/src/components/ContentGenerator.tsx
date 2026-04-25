@@ -212,8 +212,23 @@ const ContentGenerator: React.FC = () => {
     tts_enabled: includeTextToSpeech,
   });
 
-  const withGenerationSettings = (content: GeneratedContent): GeneratedContent => ({
+  const normalizeContentForEditor = (content: GeneratedContent): GeneratedContent => ({
     ...content,
+    sections: Array.isArray(content.sections)
+      ? content.sections.map((sec: any) => {
+          const bodyHtml = getSectionBodyHtml(sec);
+          const plainBody = richHtmlToPlainText(bodyHtml) || String(sec?.body || '').trim();
+          return {
+            ...sec,
+            body_html: bodyHtml,
+            body: plainBody,
+          };
+        })
+      : [],
+  });
+
+  const withGenerationSettings = (content: GeneratedContent): GeneratedContent => ({
+    ...normalizeContentForEditor(content),
     tts_enabled: content.tts_enabled !== false && includeTextToSpeech,
   });
 
@@ -245,10 +260,10 @@ const ContentGenerator: React.FC = () => {
     setIncludeImages(input.include_images !== false);
     setIncludeVideo(!!input.include_video);
     setIncludeTextToSpeech(input.tts_enabled !== false && item.content?.tts_enabled !== false);
-    setGeneratedContent({
+    setGeneratedContent(normalizeContentForEditor({
       ...item.content,
       tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
-    });
+    }));
     setGenerationTrace(item.generation_trace || input.generation_trace || null);
     setSelectedVisualKey(null);
     setActiveHistoryId(item.id);
@@ -267,7 +282,7 @@ const ContentGenerator: React.FC = () => {
       if (!item?.content) {
         throw new Error('Published content could not be loaded');
       }
-      setGeneratedContent(item.content);
+      setGeneratedContent(normalizeContentForEditor(item.content));
       setSelectedVisualKey(null);
       setRubricId(item.rubric_id ?? null);
       setIncludeTextToSpeech(item.content.tts_enabled !== false);
@@ -298,7 +313,7 @@ const ContentGenerator: React.FC = () => {
           rubric_id: rubricId ?? null,
         });
         if (res.data?.item?.content) {
-          setGeneratedContent(res.data.item.content);
+          setGeneratedContent(normalizeContentForEditor(res.data.item.content));
           setActivePublishedContentCode(res.data.item.code);
           const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
@@ -318,7 +333,7 @@ const ContentGenerator: React.FC = () => {
           : await contentAPI.saveHistory(payload);
         if (res.data?.item?.content) {
           setActiveHistoryId(res.data.item.id);
-          setGeneratedContent(res.data.item.content);
+          setGeneratedContent(normalizeContentForEditor(res.data.item.content));
           await loadHistory();
           return res.data.item.content as GeneratedContent;
         }
@@ -537,7 +552,7 @@ const ContentGenerator: React.FC = () => {
           rubric_id: rubricId ?? null,
         });
         if (res.data?.item?.content) {
-          setGeneratedContent(res.data.item.content);
+          setGeneratedContent(normalizeContentForEditor(res.data.item.content));
           setActivePublishedContentCode(res.data.item.code);
           const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
