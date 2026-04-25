@@ -1547,6 +1547,7 @@ export const slideGenAPI = {
     content: GeneratedSlide[];
     backgrounds: Record<number, string>;
     templateBgs: TemplateBackground[];
+    templateImages?: TemplateImageAsset[];
   }): Promise<Blob> => {
     return api.post('/slide-gen/populate', params, { responseType: 'blob' })
       .then((r) => r.data as Blob);

@@ -761,8 +761,62 @@ async function injectBgsIntoBuffer(pptxBuffer, bgInjections, sessionMediaDir) {
 
 // ─── Build fresh slide deck (blank pptxgenjs + injected backgrounds) ──────────
 
-async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessionMediaDir) {
-  // Build a unified background lookup: id → { bgXml, isDark, imageFilename, parsed }
+function normaliseAssetText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function assetHasAnyToken(asset, tokens) {
+  const joined = [
+    asset?.label,
+    asset?.sourceZipEntry,
+    asset?.vision?.shortLabel,
+    asset?.vision?.description,
+  ].map((v) => normaliseAssetText(v)).join(' ');
+  return tokens.some((t) => joined.includes(t));
+}
+
+function chooseTemplateAssetsForSlides(templateImages, sessionMediaDir) {
+  if (!Array.isArray(templateImages) || !sessionMediaDir) {
+    return { logo: null, heroPool: [] };
+  }
+
+  const existing = templateImages.filter((img) => {
+    if (!img?.filename) return false;
+    const fullPath = path.join(sessionMediaDir, img.filename);
+    return fs.existsSync(fullPath);
+  });
+  if (!existing.length) return { logo: null, heroPool: [] };
+
+  const visualCandidates = existing.filter((img) => !(img.usedAsBackground || img?.vision?.likelyBackground));
+  const pool = visualCandidates.length ? visualCandidates : existing;
+
+  const logoTokens = ['logo', 'brand', 'wordmark', 'emblem', 'icon'];
+  const logo = pool.find((img) => assetHasAnyToken(img, logoTokens)) || null;
+  const heroPool = pool
+    .filter((img) => !logo || img.filename !== logo.filename)
+    .slice(0, 10);
+
+  return { logo, heroPool };
+}
+
+function chooseHeroAssetForSlide(heroPool, slideType, index) {
+  if (!heroPool.length) return null;
+  const type = String(slideType || '').toLowerCase();
+  if (type === 'title' || type === 'transition') return heroPool[index % heroPool.length];
+  if (type === 'learning_objectives' || type === 'summary') return heroPool[(index + 1) % heroPool.length];
+  return null;
+}
+
+// Build fresh slide deck (blank pptxgenjs + injected backgrounds)
+
+async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templateImagesOrSessionDir, maybeSessionMediaDir) {
+  // Backward-compatible signature:
+  // buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessionMediaDir)
+  // buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templateImages, sessionMediaDir)
+  const templateImages = Array.isArray(templateImagesOrSessionDir) ? templateImagesOrSessionDir : [];
+  const sessionMediaDir = Array.isArray(templateImagesOrSessionDir) ? maybeSessionMediaDir : templateImagesOrSessionDir;
+
+  // Build a unified background lookup: id -> { bgXml, isDark, imageFilename, parsed }
   const bgMap = new Map();
   for (const tb of (templateBgs || [])) bgMap.set(tb.id, tb);
   for (const [id, pb] of Object.entries(PPTX_BACKGROUNDS)) {
@@ -773,6 +827,9 @@ async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessi
   pptx.layout = 'LAYOUT_WIDE'; // 16:9
 
   const bgInjections = []; // slides needing post-process bg injection
+  const { logo, heroPool } = chooseTemplateAssetsForSlides(templateImages, sessionMediaDir);
+  const logoPath = logo?.filename && sessionMediaDir ? path.join(sessionMediaDir, logo.filename) : null;
+  const hasLogo = !!(logoPath && fs.existsSync(logoPath));
 
   for (let i = 0; i < content.length; i++) {
     const sc = content[i];
@@ -781,11 +838,15 @@ async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessi
     const isDark = bg?.isDark ?? false;
     const titleColor = isDark ? 'F8FAFC' : '1F2937';
     const bodyColor = isDark ? 'CBD5E1' : '374151';
+    const hero = chooseHeroAssetForSlide(heroPool, sc.slideType, i);
+    const heroPath = hero?.filename && sessionMediaDir ? path.join(sessionMediaDir, hero.filename) : null;
+    const hasHero = !!(heroPath && fs.existsSync(heroPath));
+    const textW = hasHero ? 8.7 : 9.2;
 
     const slide = pptx.addSlide();
 
     slide.addText(String(sc.title || ''), {
-      x: 0.4, y: 0.4, w: 9.2, h: 1.1,
+      x: 0.4, y: 0.4, w: textW, h: 1.1,
       fontSize: 28, bold: true, color: titleColor, fontFace: 'Calibri', valign: 'middle',
     });
 
@@ -793,8 +854,30 @@ async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessi
     if (bullets.length) {
       slide.addText(
         bullets.map((b) => ({ text: String(b), options: { bullet: true } })),
-        { x: 0.4, y: 1.7, w: 9.2, h: 3.5, fontSize: 18, color: bodyColor, fontFace: 'Calibri', valign: 'top' }
+        { x: 0.4, y: 1.7, w: textW, h: 3.5, fontSize: 18, color: bodyColor, fontFace: 'Calibri', valign: 'top' }
       );
+    }
+
+    if (hasHero) {
+      const type = String(sc.slideType || '').toLowerCase();
+      const isTitleLike = type === 'title' || type === 'transition';
+      const hx = 9.5;
+      const hy = isTitleLike ? 1.1 : 1.5;
+      const hw = 3.3;
+      const hh = isTitleLike ? 5.6 : 4.8;
+      slide.addImage({
+        path: heroPath,
+        x: hx, y: hy, w: hw, h: hh,
+        sizing: { type: 'contain', w: hw, h: hh }
+      });
+    }
+
+    if (hasLogo) {
+      slide.addImage({
+        path: logoPath,
+        x: 11.0, y: 0.15, w: 2.0, h: 0.6,
+        sizing: { type: 'contain', w: 2.0, h: 0.6 }
+      });
     }
 
     // Solid colour backgrounds can be applied by pptxgenjs directly
@@ -825,3 +908,4 @@ module.exports = {
   buildPopulatedPptx,
   PPTX_BACKGROUNDS,
 };
+

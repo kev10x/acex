@@ -19,7 +19,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { slideGenAPI, GeneratedSlide, SlideType, TemplateBackground } from '../services/api';
+import { slideGenAPI, GeneratedSlide, SlideType, TemplateBackground, TemplateImageAsset } from '../services/api';
 
 // ─── Preset background catalogue ─────────────────────────────────────────────
 
@@ -90,6 +90,7 @@ const SlideGenerator: React.FC = () => {
 
   const [sessionId, setSessionId]                   = useState('');
   const [templateBackgrounds, setTemplateBgs]       = useState<TemplateBackground[]>([]);
+  const [templateImages, setTemplateImages]         = useState<TemplateImageAsset[]>([]);
 
   const [topic, setTopic]         = useState('');
   const [subject, setSubject]     = useState('');
@@ -129,6 +130,7 @@ const SlideGenerator: React.FC = () => {
       const result = await slideGenAPI.analyse(file);
       setSessionId(result.sessionId);
       setTemplateBgs(result.backgrounds);
+      setTemplateImages(Array.isArray(result.images) ? result.images : []);
       setStep('generate');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to analyse template');
@@ -208,6 +210,7 @@ const SlideGenerator: React.FC = () => {
         content: generatedContent,
         backgrounds: slideBackgrounds,
         templateBgs: templateBackgrounds,
+        templateImages,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -232,6 +235,7 @@ const SlideGenerator: React.FC = () => {
     setStep('upload');
     setSessionId('');
     setTemplateBgs([]);
+    setTemplateImages([]);
     setGeneratedContent([]);
     setSlideBackgrounds({});
     setTopic('');
@@ -327,6 +331,11 @@ const SlideGenerator: React.FC = () => {
             {templateBackgrounds.length > 0 && (
               <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                 {templateBackgrounds.length} background{templateBackgrounds.length > 1 ? 's' : ''} extracted from template
+              </span>
+            )}
+            {templateImages.length > 0 && (
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                {templateImages.length} image asset{templateImages.length > 1 ? 's' : ''} auto-reused on export
               </span>
             )}
             {templateBackgrounds.length === 0 && (

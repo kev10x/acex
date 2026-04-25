@@ -97,10 +97,10 @@ router.post('/generate-content', requireAuth, async (req, res) => {
 /**
  * POST /slide-gen/populate
  * Build a fresh PPTX with generated content + chosen backgrounds, return as download.
- * Body: { sessionId, topic, content, backgrounds, templateBgs }
+ * Body: { sessionId, topic, content, backgrounds, templateBgs, templateImages }
  */
 router.post('/populate', requireAuth, async (req, res) => {
-  const { sessionId, content, backgrounds = {}, templateBgs = [], topic = 'presentation' } = req.body;
+  const { sessionId, content, backgrounds = {}, templateBgs = [], templateImages = [], topic = 'presentation' } = req.body;
 
   if (!validSessionId(sessionId)) {
     return res.status(400).json({ error: 'Invalid or missing sessionId' });
@@ -116,6 +116,7 @@ router.post('/populate', requireAuth, async (req, res) => {
       content,
       backgrounds,
       Array.isArray(templateBgs) ? templateBgs : [],
+      Array.isArray(templateImages) ? templateImages : [],
       sessionMediaDir
     );
 
