@@ -3,10 +3,24 @@ import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Tra
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
 import RichTextEditor from './RichTextEditor';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
-import { getSectionBodyHtml, richHtmlToPlainText, sanitizeRichTextHtml } from '../utils/richText';
+import {
+  buildContextualSectionBodyHtml,
+  ContextualBlockLayout,
+  getSectionBodyHtml,
+  richHtmlToPlainText,
+  sanitizeRichTextHtml,
+} from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const SECTION_COUNT_MAX = 120;
+const CONTEXTUAL_LAYOUT_OPTIONS: Array<{ value: ContextualBlockLayout; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'science', label: 'Science' },
+  { value: 'history', label: 'History' },
+  { value: 'language', label: 'Language' },
+  { value: 'business', label: 'Business' },
+  { value: 'plain', label: 'Plain' },
+];
 const isDiagramVisual = (visual: any) =>
   ['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(String(visual?.kind || '').trim().toLowerCase());
 const hasVisualSource = (visual: any) =>
@@ -1070,6 +1084,40 @@ const ContentGenerator: React.FC = () => {
     });
   };
 
+  const updateSectionTextLayoutMode = (sectionIndex: number, mode: ContextualBlockLayout) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      sections[sectionIndex] = {
+        ...section,
+        text_layout_mode: mode,
+      } as any;
+      return { ...current, sections };
+    });
+  };
+
+  const applyContextualLayoutToEditor = (sectionIndex: number) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex];
+      if (!section) return current;
+      const mode = String((section as any).text_layout_mode || 'auto') as ContextualBlockLayout;
+      const contextualHtml = buildContextualSectionBodyHtml(section, mode);
+      sections[sectionIndex] = {
+        ...section,
+        body_html: contextualHtml,
+        body: richHtmlToPlainText(contextualHtml),
+      } as any;
+      return { ...current, sections };
+    });
+  };
+
+  const getSectionDisplayHtml = (section: any) => {
+    const mode = String(section?.text_layout_mode || 'auto') as ContextualBlockLayout;
+    if (mode === 'plain') return getSectionBodyHtml(section);
+    return buildContextualSectionBodyHtml(section, mode);
+  };
+
   const uploadSectionBackground = (sectionIndex: number, file: File | null) => {
     if (!file) return;
     const reader = new FileReader();
@@ -2098,6 +2146,27 @@ const ContentGenerator: React.FC = () => {
                     placeholder="Support line"
                     className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                   />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-xs text-slate-600">
+                      Text layout
+                    </label>
+                    <select
+                      value={String((sec as any).text_layout_mode || 'auto')}
+                      onChange={(e) => updateSectionTextLayoutMode(i, e.target.value as ContextualBlockLayout)}
+                      className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                    >
+                      {CONTEXTUAL_LAYOUT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => applyContextualLayoutToEditor(i)}
+                      className="px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800"
+                    >
+                      Apply contextual blocks
+                    </button>
+                  </div>
                   <RichTextEditor
                     value={getSectionBodyHtml(sec)}
                     onChange={(html) => updateSectionBodyRich(i, html)}
@@ -2340,7 +2409,7 @@ const ContentGenerator: React.FC = () => {
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Text</div>
                             <div
                               className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
-                              dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(sec) }}
+                              dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(sec) }}
                             />
                           </section>
                       </div>
@@ -2426,7 +2495,7 @@ const ContentGenerator: React.FC = () => {
                 {/* Body text */}
                 <div
                   className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
-                  dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(sec) }}
+                  dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(sec) }}
                 />
 
                 {/* Image figure — shown after body text */}

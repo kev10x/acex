@@ -3,7 +3,7 @@ import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2, Volume2 } fr
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { getSectionBodyHtml } from '../utils/richText';
+import { buildContextualSectionBodyHtml, ContextualBlockLayout, getSectionBodyHtml } from '../utils/richText';
 
 type Step = 'code' | 'content' | 'submitting' | 'result';
 
@@ -65,6 +65,12 @@ const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
     .filter((url, i, arr) => arr.indexOf(url) === i);
   if (!uniquePool.length) return '';
   return uniquePool[(sectionIndex * 7) % uniquePool.length];
+};
+
+const getSectionDisplayHtml = (section: any) => {
+  const mode = String(section?.text_layout_mode || 'auto') as ContextualBlockLayout;
+  if (mode === 'plain') return getSectionBodyHtml(section);
+  return buildContextualSectionBodyHtml(section, mode);
 };
 
 const TakeContent: React.FC = () => {
@@ -747,7 +753,7 @@ const TakeContent: React.FC = () => {
                               <div
                                 className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
                                 style={{ color: content?.theme?.text_color || '#374151' }}
-                                dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(activeSection as any) }}
+                                dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(activeSection as any) }}
                               />
                             </section>
                         </div>
@@ -778,7 +784,7 @@ const TakeContent: React.FC = () => {
                       <div
                         className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
                         style={{ color: content?.theme?.text_color || '#374151' }}
-                        dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(activeSection as any) }}
+                        dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(activeSection as any) }}
                       />
                       {images.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}>
