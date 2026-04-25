@@ -1390,7 +1390,14 @@ export const contentAPI = {
   uploadTopicsFile: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return api.post<{ success: boolean; topics: string; file_name?: string }>('/content/topics/upload', form, {
+    return api.post<{
+      success: boolean;
+      topics: string;
+      file_name?: string;
+      suggested_sections?: number;
+      detected_outline_items?: number;
+      inference_note?: string;
+    }>('/content/topics/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },

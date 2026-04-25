@@ -401,6 +401,52 @@ function decodeXmlEntities(value) {
     .replace(/&apos;/g, "'");
 }
 
+function inferSuggestedSectionsFromText(rawText) {
+  const text = String(rawText || '');
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const sessionLike = lines.filter((line) =>
+    /^(session|lesson|week|module|unit)\s*\d+[\s:.-]/i.test(line) ||
+    /^\d+[\).:-]\s+\S+/.test(line)
+  );
+
+  const headingLike = lines.filter((line) =>
+    /^([A-Z][A-Za-z0-9 ,:'"()/-]{8,}|#+\s+\S.*)$/.test(line) && line.length <= 120
+  );
+
+  const enumeratedInBody = (text.match(/\b(session|lesson|week|module|unit)\s+\d+\b/gi) || []).length;
+  const uniqueSessionLike = Array.from(new Set(sessionLike.map((s) => s.toLowerCase())));
+  const directCount = Math.max(uniqueSessionLike.length, Math.min(enumeratedInBody, 20));
+
+  const fallbackByLength = (() => {
+    const words = text.split(/\s+/).filter(Boolean).length;
+    if (words < 250) return 4;
+    if (words < 600) return 6;
+    if (words < 1000) return 8;
+    if (words < 1600) return 10;
+    return 12;
+  })();
+
+  const headingInfluence = Math.min(headingLike.length, 20);
+  const suggested = Math.max(
+    1,
+    Math.min(20, directCount || Math.max(3, Math.min(headingInfluence, fallbackByLength)))
+  );
+
+  const note = directCount
+    ? `Detected ${directCount} session-like items from uploaded text.`
+    : `No explicit session list found. Estimated ${suggested} sections from outline/length.`;
+
+  return {
+    suggested_sections: suggested,
+    detected_outline_items: directCount || headingInfluence || 0,
+    inference_note: note,
+  };
+}
+
 async function extractTextFromDocxBuffer(buffer) {
   const xmlFiles = [];
   await new Promise((resolve, reject) => {
@@ -764,6 +810,7 @@ router.post('/topics/upload', requireAuth, requireFeature('content_creation'), (
         success: true,
         topics: normalized,
         file_name: originalName,
+        ...inferSuggestedSectionsFromText(normalized),
       });
     } catch (error) {
       console.error('Content topics upload parse error:', error);

@@ -92,9 +92,14 @@ const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
 
 const ContentGenerator: React.FC = () => {
   type StudioStep = 'plan' | 'generate' | 'polish';
+  type SectionMode = 'manual' | 'auto';
   const [topics, setTopics] = useState('');
   const [teachingGoal, setTeachingGoal] = useState('');
   const [studioStep, setStudioStep] = useState<StudioStep>('plan');
+  const [sectionMode, setSectionMode] = useState<SectionMode>('manual');
+  const [autoSectionSuggestion, setAutoSectionSuggestion] = useState<number | null>(null);
+  const [autoSectionNote, setAutoSectionNote] = useState('');
+  const [planConfirmed, setPlanConfirmed] = useState(false);
   const [level, setLevel] = useState('');
   const [numSections, setNumSections] = useState(5);
   const [rubricId, setRubricId] = useState<number | null>(null);
@@ -231,6 +236,21 @@ const ContentGenerator: React.FC = () => {
         : 0,
     };
   }, [generatedContent?.sections]);
+
+  useEffect(() => {
+    setPlanConfirmed(false);
+  }, [
+    topics,
+    teachingGoal,
+    level,
+    numSections,
+    sectionMode,
+    templateId,
+    rubricId,
+    includeDiagrams,
+    includeImages,
+    includeMascot,
+  ]);
 
   useEffect(() => {
     loadRubrics();
@@ -418,6 +438,9 @@ const ContentGenerator: React.FC = () => {
   const buildContentInput = () => ({
     topics: topics.trim(),
     teaching_goal: teachingGoal.trim(),
+    section_mode: sectionMode,
+    auto_section_suggestion: autoSectionSuggestion,
+    auto_section_note: autoSectionNote,
     level,
     num_sections: numSections,
     rubric_id: rubricId,
@@ -479,6 +502,9 @@ const ContentGenerator: React.FC = () => {
     setIncludeMascot(input.include_mascot !== false);
     setIncludeVideo(!!input.include_video);
     setIncludeTextToSpeech(input.tts_enabled !== false && item.content?.tts_enabled !== false);
+    setSectionMode(input.section_mode === 'auto' ? 'auto' : 'manual');
+    setAutoSectionSuggestion(Number.isFinite(Number(input.auto_section_suggestion)) ? Number(input.auto_section_suggestion) : null);
+    setAutoSectionNote(String(input.auto_section_note || ''));
     setGeneratedContent(normalizeContentForEditor({
       ...item.content,
       tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
@@ -697,6 +723,10 @@ const ContentGenerator: React.FC = () => {
       setError('Please enter topics to cover.');
       return;
     }
+    if (studioStep === 'generate' && !planConfirmed) {
+      setError('Please confirm the generation plan before starting.');
+      return;
+    }
     setError(null);
     setBackgroundGenerationNotice(null);
     setStudioStep('generate');
@@ -767,6 +797,15 @@ const ContentGenerator: React.FC = () => {
         return;
       }
       setTopics(parsedTopics);
+      const suggestedSections = Number(res.data?.suggested_sections || 0);
+      if (Number.isFinite(suggestedSections) && suggestedSections > 0) {
+        const clamped = Math.max(1, Math.min(20, suggestedSections));
+        setAutoSectionSuggestion(clamped);
+        setAutoSectionNote(String(res.data?.inference_note || ''));
+        if (sectionMode === 'auto') {
+          setNumSections(clamped);
+        }
+      }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to extract topics from uploaded file');
     } finally {
@@ -1509,14 +1548,42 @@ const ContentGenerator: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Number of sections</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={numSections}
-                onChange={(e) => setNumSections(parseInt(e.target.value, 10) || 5)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-              />
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSectionMode('manual')}
+                    className={`px-3 py-1.5 text-xs rounded border ${sectionMode === 'manual' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-slate-300'}`}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSectionMode('auto');
+                      if (autoSectionSuggestion) setNumSections(autoSectionSuggestion);
+                    }}
+                    className={`px-3 py-1.5 text-xs rounded border ${sectionMode === 'auto' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-slate-300'}`}
+                  >
+                    Auto from upload
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={numSections}
+                  onChange={(e) => setNumSections(parseInt(e.target.value, 10) || 5)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                />
+                {sectionMode === 'auto' && (
+                  <p className="text-xs text-slate-600">
+                    {autoSectionSuggestion
+                      ? `Auto suggestion: ${autoSectionSuggestion} sections. ${autoSectionNote || ''}`
+                      : 'Upload a PDF/DOCX topic list to detect suggested section count.'}
+                  </p>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Template / theme</label>
@@ -1636,13 +1703,41 @@ const ContentGenerator: React.FC = () => {
             <div className="space-y-3">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <div className="font-semibold text-slate-800 mb-1">Generation Summary</div>
-                <div>Level: {level || 'Any'} | Sections: {numSections} | Template: {templateId || 'classroom'}</div>
+                <div>Level: {level || 'Any'} | Sections: {numSections} ({sectionMode}) | Template: {templateId || 'classroom'}</div>
                 <div>Teaching goal: {teachingGoal || 'Not specified'}</div>
+                {sectionMode === 'auto' && autoSectionSuggestion ? (
+                  <div className="text-xs text-slate-600 mt-1">Detected from file: {autoSectionSuggestion} sections. You can edit below.</div>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Confirm before generation</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                  <label className="text-sm text-slate-700">
+                    Final section count
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={numSections}
+                      onChange={(e) => setNumSections(parseInt(e.target.value, 10) || 5)}
+                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+                    />
+                  </label>
+                  <label className="md:col-span-2 flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planConfirmed}
+                      onChange={(e) => setPlanConfirmed(e.target.checked)}
+                      className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                    />
+                    I confirm these settings and want to start generation now.
+                  </label>
+                </div>
               </div>
               <div className="flex flex-wrap items-end gap-3">
                 <button
                   onClick={handleGenerate}
-                  disabled={isGenerating}
+                  disabled={isGenerating || !planConfirmed}
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
                 >
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
