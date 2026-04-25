@@ -354,24 +354,51 @@ function isHexDark(hex) {
   return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
 }
 
+// Approximate hex values for Office theme scheme colour names
+const SCHEME_COLOR_HEX = {
+  dk1: '000000', dk2: '1F497D', lt1: 'FFFFFF', lt2: 'EEECE1',
+  accent1: '4F81BD', accent2: 'C0504D', accent3: '9BBB59',
+  accent4: '8064A2', accent5: '4BACC6', accent6: 'F79646',
+  hlink: '0563C1', folHlink: '954F72',
+};
+
 function extractBgXmlFromSlide(xml) {
   const m = String(xml || '').match(/<p:bg\b[\s\S]*?<\/p:bg>/);
   return m ? m[0] : null;
+}
+
+function resolveColorFromBlock(block) {
+  // Explicit hex
+  const hexM = block.match(/<a:srgbClr val="([0-9A-Fa-f]{6})"/i);
+  if (hexM) return hexM[1].toUpperCase();
+  // System color — use lastClr which stores the resolved hex
+  const sysM = block.match(/<a:sysClr[^>]*lastClr="([0-9A-Fa-f]{6})"/i);
+  if (sysM) return sysM[1].toUpperCase();
+  // Scheme color — approximate from known map
+  const schemeM = block.match(/<a:schemeClr val="([^"]+)"/);
+  if (schemeM) return SCHEME_COLOR_HEX[schemeM[1]] || '6B7280';
+  return null;
 }
 
 function parseBgElement(bgXml) {
   const s = String(bgXml || '');
 
   if (s.includes('<a:solidFill>')) {
-    const m = s.match(/<a:srgbClr val="([0-9A-Fa-f]{6})"/i);
-    if (m) return { type: 'color', hex: m[1].toUpperCase() };
+    const fillBlock = s.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+    if (fillBlock) {
+      const hex = resolveColorFromBlock(fillBlock[1]);
+      if (hex) return { type: 'color', hex };
+    }
   }
 
   if (s.includes('<a:gradFill>')) {
     const stops = [];
-    const gsRx = /<a:gs pos="(\d+)"[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/ig;
-    let m;
-    while ((m = gsRx.exec(s)) !== null) stops.push({ pos: parseInt(m[1]), hex: m[2].toUpperCase() });
+    const gsBlockRx = /<a:gs pos="(\d+)">([\s\S]*?)<\/a:gs>/g;
+    let gsM;
+    while ((gsM = gsBlockRx.exec(s)) !== null) {
+      const hex = resolveColorFromBlock(gsM[2]);
+      if (hex) stops.push({ pos: parseInt(gsM[1]), hex });
+    }
     if (stops.length >= 2) {
       const angM = s.match(/ang="(\d+)"/);
       return { type: 'gradient', stops, angleDeg: angM ? Math.round(parseInt(angM[1]) / 60000) : 135 };
@@ -393,7 +420,7 @@ function bgToPreviewCss(parsed) {
     const stops = parsed.stops.map((s) => `#${s.hex} ${(s.pos / 1000).toFixed(0)}%`);
     return `linear-gradient(${parsed.angleDeg}deg, ${stops.join(', ')})`;
   }
-  return '#9CA3AF'; // image placeholder — client replaces with actual URL
+  return '#9CA3AF'; // image — client replaces with actual URL
 }
 
 function parsedBgIsDark(parsed) {
@@ -410,36 +437,27 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
   try { fs.mkdirSync(mediaDir, { recursive: true }); } catch (_) {}
 
   const entries = await listZipEntries(zipPath);
-  const slideEntries = entries
-    .filter((e) => /^ppt\/slides\/slide\d+\.xml$/i.test(e))
-    .sort((a, b) => {
-      const n = (s) => parseInt((s.match(/\d+/) || ['0'])[0]);
-      return n(a) - n(b);
-    });
-
   const results = [];
   const seenXml = new Set();
   let imgIdx = 0;
 
-  for (const slideEntry of slideEntries) {
-    const slideNum = parseInt((slideEntry.match(/slide(\d+)/) || ['', '0'])[1]);
-    const slideXml = (await readZipEntry(zipPath, slideEntry))?.toString('utf8') || '';
+  const byNum = (a, b) => {
+    const n = (s) => parseInt((s.match(/(\d+)\.xml$/) || ['', '0'])[1]);
+    return n(a) - n(b);
+  };
 
-    // Try slide background first, then its layout
-    let bgXml = extractBgXmlFromSlide(slideXml);
+  // Process masters → layouts → slides so per-slide overrides appear last (dedup keeps first seen)
+  const masterEntries = entries.filter((e) => (/^ppt\/slideMasters\/slideMaster\d+\.xml$/i).test(e)).sort(byNum);
+  const layoutEntries = entries.filter((e) => (/^ppt\/slideLayouts\/slideLayout\d+\.xml$/i).test(e)).sort(byNum);
+  const slideEntries  = entries.filter((e) => (/^ppt\/slides\/slide\d+\.xml$/i).test(e)).sort(byNum);
 
-    if (!bgXml) {
-      const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
-      const relsXml = (await readZipEntry(zipPath, relsPath))?.toString('utf8') || '';
-      const layoutM = relsXml.match(/Type="[^"]*slideLayout"[^>]*Target="([^"]+)"/);
-      if (layoutM) {
-        const layoutPath = 'ppt/slideLayouts/' + path.basename(layoutM[1]);
-        const layoutXml = (await readZipEntry(zipPath, layoutPath))?.toString('utf8') || '';
-        bgXml = extractBgXmlFromSlide(layoutXml);
-      }
-    }
+  const sources = [...masterEntries, ...layoutEntries, ...slideEntries];
 
-    // Skip theme references (bgRef) and duplicates
+  for (const entryName of sources) {
+    const xml = (await readZipEntry(zipPath, entryName))?.toString('utf8') || '';
+    const bgXml = extractBgXmlFromSlide(xml);
+
+    // Skip theme-ref backgrounds (cannot be rendered without full theme resolution)
     if (!bgXml || bgXml.includes('<p:bgRef') || seenXml.has(bgXml)) continue;
     seenXml.add(bgXml);
 
@@ -449,10 +467,14 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
     let imageFilename = null;
 
     if (parsed.type === 'image' && parsed.rEmbedId) {
-      const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+      // Build rels path: same directory + _rels/ + basename + .rels
+      const dirPart = entryName.slice(0, entryName.lastIndexOf('/') + 1);
+      const basePart = entryName.slice(entryName.lastIndexOf('/') + 1);
+      const relsPath = `${dirPart}_rels/${basePart}.rels`;
       const relsXml = (await readZipEntry(zipPath, relsPath))?.toString('utf8') || '';
       const relM = new RegExp(`Id="${parsed.rEmbedId}"[^>]*Target="([^"]+)"`).exec(relsXml);
       if (relM) {
+        // All PPTX sub-dirs are one level under ppt/ so '../media/...' → 'ppt/media/...'
         const zipTarget = relM[1].startsWith('../') ? 'ppt/' + relM[1].slice(3) : relM[1];
         const imgBuf = await readZipEntry(zipPath, zipTarget);
         if (imgBuf) {
