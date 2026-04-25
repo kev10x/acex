@@ -78,12 +78,12 @@ function buildVisualImagePrompt(prompt, {
   ].filter(Boolean).join(' ');
 
   const styleInstruction = visualKind === 'illustration'
-    ? 'Create a clean educational visual with a fully transparent background (alpha channel). Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Do not render words, letters, numbers, legends, or labels inside the image.'
+    ? 'Create a clean educational visual with a plain solid background and clean edges (no alpha cutout artifacts). Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Do not render words, letters, numbers, legends, or labels inside the image.'
     : visualKind === 'mascot'
-      ? 'Create a playful educational mascot as a cartoonified human-like character (not an animal, not an object), sticker/cutout style, centered, with a fully transparent background (alpha channel), no watermark, no logo, and no text overlays.'
-      : 'Create a clean educational supporting image suitable for lesson content, with a fully transparent background (alpha channel). Do not render words, letters, numbers, labels, or text overlays inside the image.';
+      ? 'Create a playful educational mascot as a cartoonified human-like character (not an animal, not an object), sticker/cutout style, centered, with a plain solid background and clean edges (no alpha cutout artifacts), no watermark, no logo, and no text overlays.'
+      : 'Create a clean educational supporting image suitable for lesson content, with a plain solid background and clean edges (no alpha cutout artifacts). Do not render words, letters, numbers, labels, or text overlays inside the image.';
 
-  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays. Output a PNG-style transparent background image with no solid backdrop. Prefer symbolic/shape-based communication over written annotations.`
+  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays. Avoid checkerboard or jagged transparency artifacts. Prefer symbolic/shape-based communication over written annotations.`
     .trim()
     .slice(0, 1800);
 }
@@ -141,7 +141,6 @@ async function generateImageForVisual(prompt, options = {}) {
           prompt: safePrompt,
           n: 1,
           size: OPENAI_IMAGE_SIZE,
-          background: 'transparent',
           response_format: 'b64_json',
         });
     const b64 = response.data?.[0]?.b64_json;
@@ -510,8 +509,8 @@ async function generateContentWithAI(opts) {
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const visualsInstruction = (includeDiagrams || includeImages || includeMascot)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
-  - kind = "illustration" - an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image. Use transparent background.` : ''}${includeImages ? `
-  - kind = "image" - a descriptive scene/photo-style visual. Use transparent background.` : ''}
+  - kind = "illustration" - an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image. Ask for a plain solid background and clean edges.` : ''}${includeImages ? `
+  - kind = "image" - a descriptive scene/photo-style visual. Ask for a plain solid background and clean edges.` : ''}
   Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.
 ${includeMascot ? `- mascot: object descriptor for a playful cartoonified human-like companion image for this section, with fields: title, alt_text, prompt.` : ''}`
     : `- visuals: omit entirely - do not include a visuals field in any section.`;
@@ -521,19 +520,19 @@ ${includeMascot ? `- mascot: object descriptor for a playful cartoonified human-
           "kind": "illustration",
           "title": "Diagram or chart caption (used as figure label)",
           "alt_text": "Accessible description of the diagram or chart",
-          "prompt": "Prompt for a clean educational chart/diagram image with transparent background and concrete visual structure"
+          "prompt": "Prompt for a clean educational chart/diagram image with plain solid background and concrete visual structure"
         }` : ''}${includeDiagrams && includeImages ? ',' : ''}${includeImages ? `
         {
           "kind": "image",
           "title": "Photo/scene caption",
           "alt_text": "Accessible description of image",
-          "prompt": "Prompt text for image generation with transparent background"
+          "prompt": "Prompt text for image generation with plain solid background"
         }` : ''}
       ],${includeMascot ? `
       "mascot": {
         "title": "Mascot caption",
         "alt_text": "Cartoonified human-like mascot character that fits the section concept",
-        "prompt": "Prompt for a mascot style cartoonified human-like educational character image for this section with transparent background"
+        "prompt": "Prompt for a mascot style cartoonified human-like educational character image for this section with plain solid background"
       }` : ''}
     `
     : '"visuals": []';
@@ -592,7 +591,7 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} ${mascotRule} When visuals or mascot prompts are present, they must explicitly request transparent background output. Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} ${mascotRule} When visuals or mascot prompts are present, they must request a plain solid background and clean edges (no transparency artifacts). Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
   const prompt = buildPrompt();
 
   const messages = [

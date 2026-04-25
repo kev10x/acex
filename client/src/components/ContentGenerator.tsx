@@ -91,7 +91,10 @@ const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
 };
 
 const ContentGenerator: React.FC = () => {
+  type StudioStep = 'plan' | 'generate' | 'polish';
   const [topics, setTopics] = useState('');
+  const [teachingGoal, setTeachingGoal] = useState('');
+  const [studioStep, setStudioStep] = useState<StudioStep>('plan');
   const [level, setLevel] = useState('');
   const [numSections, setNumSections] = useState(5);
   const [rubricId, setRubricId] = useState<number | null>(null);
@@ -144,6 +147,7 @@ const ContentGenerator: React.FC = () => {
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [isUploadingTopicsFile, setIsUploadingTopicsFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const topicsFileInputRef = useRef<HTMLInputElement>(null);
@@ -179,6 +183,54 @@ const ContentGenerator: React.FC = () => {
       .filter((url, i, arr) => arr.indexOf(url) === i)
       .slice(0, 12);
   }, [generatedContent?.template_images, generatedContent?.sections, templateImages]);
+
+  const planOutline = useMemo(() => {
+    const chunks = String(topics || '')
+      .split(/\r?\n|,/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const fallback = chunks.length
+      ? chunks
+      : ['Introduction', 'Core concepts', 'Applications', 'Common mistakes', 'Review'];
+    return Array.from({ length: Math.max(1, numSections) }, (_, i) => fallback[i] || `Section ${i + 1}`);
+  }, [topics, numSections]);
+
+  const qualityChecks = useMemo(() => {
+    const sections = Array.isArray(generatedContent?.sections) ? generatedContent.sections : [];
+    const wordsPerSection = sections.map((s: any) =>
+      String(s?.body || '')
+        .replace(/<[^>]+>/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length
+    );
+    const shortCount = wordsPerSection.filter((w) => w < 90).length;
+    const missingSupportCount = sections.filter((s: any) => !String(s?.support || '').trim()).length;
+    const duplicateHeadingCount = (() => {
+      const seen = new Set<string>();
+      let duplicates = 0;
+      sections.forEach((s: any) => {
+        const h = String(s?.heading || s?.title || '').trim().toLowerCase();
+        if (!h) return;
+        if (seen.has(h)) duplicates += 1;
+        else seen.add(h);
+      });
+      return duplicates;
+    })();
+    const avgWords = wordsPerSection.length
+      ? Math.round(wordsPerSection.reduce((a, b) => a + b, 0) / wordsPerSection.length)
+      : 0;
+    return {
+      sectionCount: sections.length,
+      avgWords,
+      shortCount,
+      missingSupportCount,
+      duplicateHeadingCount,
+      passRate: sections.length
+        ? Math.max(0, Math.round(((sections.length - shortCount - duplicateHeadingCount) / sections.length) * 100))
+        : 0,
+    };
+  }, [generatedContent?.sections]);
 
   useEffect(() => {
     loadRubrics();
@@ -333,6 +385,8 @@ const ContentGenerator: React.FC = () => {
         recoveredContentJobIdRef.current = Number(latest.id || 0);
         setGeneratedContent(recoveredContent);
         setGenerationTrace(recoveredTrace);
+        setActiveSectionIndex(0);
+        setStudioStep('polish');
         setIsGenerating(false);
         setError(null);
         setBackgroundGenerationNotice('Recovered your generated content from a background job.');
@@ -363,6 +417,7 @@ const ContentGenerator: React.FC = () => {
 
   const buildContentInput = () => ({
     topics: topics.trim(),
+    teaching_goal: teachingGoal.trim(),
     level,
     num_sections: numSections,
     rubric_id: rubricId,
@@ -414,6 +469,7 @@ const ContentGenerator: React.FC = () => {
   const loadFromHistory = (item: ApiContentHistoryItem) => {
     const input = item.input || {};
     setTopics(input.topics || '');
+    setTeachingGoal(input.teaching_goal || '');
     setLevel(normalizeEducationLevelValue(input.level || '', ''));
     setNumSections(input.num_sections || 5);
     setRubricId(input.rubric_id || null);
@@ -433,6 +489,8 @@ const ContentGenerator: React.FC = () => {
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
     setPublishedLink(null);
+    setStudioStep('polish');
+    setActiveSectionIndex(0);
     setError(null);
   };
 
@@ -450,6 +508,8 @@ const ContentGenerator: React.FC = () => {
       setRubricId(item.rubric_id ?? null);
       setIncludeTextToSpeech(item.content.tts_enabled !== false);
       setGenerationTrace(null);
+      setStudioStep('polish');
+      setActiveSectionIndex(0);
       setActivePublishedContentId(item.id);
       setActivePublishedContentCode(item.code);
       setActiveHistoryId(null);
@@ -639,6 +699,7 @@ const ContentGenerator: React.FC = () => {
     }
     setError(null);
     setBackgroundGenerationNotice(null);
+    setStudioStep('generate');
     setIsGenerating(true);
     setSelectedVisualKey(null);
     setActiveHistoryId(null);
@@ -659,8 +720,11 @@ const ContentGenerator: React.FC = () => {
         }
       }
       updateGenerationProgress(28, 'Generating sections', 'Drafting sections and quiz');
+      const generationTopics = teachingGoal.trim()
+        ? `${topicsTrim}\n\nTeaching goal: ${teachingGoal.trim()}`
+        : topicsTrim;
       const res = await contentAPI.generate({
-        topics: topicsTrim,
+        topics: generationTopics,
         level: level || undefined,
         num_sections: numSections,
         rubric_id: rubricId || undefined,
@@ -675,6 +739,8 @@ const ContentGenerator: React.FC = () => {
         const trace = res.data.generation_trace || null;
         setGenerationTrace(trace);
         setGeneratedContent(contentWithSettings);
+        setActiveSectionIndex(0);
+        setStudioStep('polish');
         await addToHistory(contentWithSettings, trace);
         completeGenerationProgress(true, 'Content generated successfully');
       } else {
@@ -1086,8 +1152,11 @@ const ContentGenerator: React.FC = () => {
     setIsScheduling(true);
     try {
       const scheduledIso = new Date(scheduledFor).toISOString();
+      const scheduledTopics = teachingGoal.trim()
+        ? `${topicsTrim}\n\nTeaching goal: ${teachingGoal.trim()}`
+        : topicsTrim;
       await contentAPI.schedulePlanner({
-        topics: topicsTrim,
+        topics: scheduledTopics,
         level: level || undefined,
         num_sections: numSections,
         rubric_id: rubricId || undefined,
@@ -1181,6 +1250,29 @@ const ContentGenerator: React.FC = () => {
         <p className="text-gray-600 mb-6">
           Create course content from topics: slide decks, lecture notes, and an interactive student view. Optionally add AI-generated video and upload a PowerPoint template for slides.
         </p>
+        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {[
+              { id: 'plan' as const, label: '1. Plan', note: 'Set goals, level, and outline' },
+              { id: 'generate' as const, label: '2. Generate', note: 'Run AI generation in phases' },
+              { id: 'polish' as const, label: '3. Polish', note: 'Edit sections and quality-check' },
+            ].map((step) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => setStudioStep(step.id)}
+                className={`text-left rounded-lg border px-3 py-2 transition ${
+                  studioStep === step.id
+                    ? 'border-teal-400 bg-white shadow-sm'
+                    : 'border-slate-200 bg-white/60 hover:bg-white'
+                }`}
+              >
+                <div className="text-sm font-semibold text-slate-800">{step.label}</div>
+                <div className="text-xs text-slate-500">{step.note}</div>
+              </button>
+            ))}
+          </div>
+        </div>
 
         <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden" open={myContent.length > 0}>
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900">
@@ -1354,7 +1446,7 @@ const ContentGenerator: React.FC = () => {
         )}
 
         <div className="space-y-4">
-          <div>
+          <div className={studioStep === 'plan' ? '' : 'hidden'}>
             <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
               <label className="block text-sm font-medium text-gray-700">Topics to cover *</label>
               <input
@@ -1383,7 +1475,26 @@ const ContentGenerator: React.FC = () => {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={studioStep === 'plan' ? '' : 'hidden'}>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Teaching goal</label>
+            <input
+              value={teachingGoal}
+              onChange={(e) => setTeachingGoal(e.target.value)}
+              placeholder="e.g. exam readiness, conceptual mastery, discussion prep, project readiness"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+          {studioStep === 'plan' && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Planned Outline</div>
+              <ol className="list-decimal list-inside text-sm text-slate-700 space-y-1">
+                {planOutline.map((item, idx) => (
+                  <li key={`${item}-${idx}`}>{item}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${studioStep === 'plan' ? '' : 'hidden'}`}>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Level</label>
               <select
@@ -1444,7 +1555,7 @@ const ContentGenerator: React.FC = () => {
               )}
             </div>
           </div>
-          <div>
+          <div className={studioStep === 'plan' ? '' : 'hidden'}>
             <label className="block text-sm font-medium text-gray-700 mb-2">Rubric / memo (optional)</label>
             <select
               value={rubricId ?? ''}
@@ -1457,7 +1568,7 @@ const ContentGenerator: React.FC = () => {
               ))}
             </select>
           </div>
-          <div className="flex flex-wrap gap-4 items-center">
+          <div className={`flex flex-wrap gap-4 items-center ${studioStep === 'plan' ? '' : 'hidden'}`}>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -1509,33 +1620,82 @@ const ContentGenerator: React.FC = () => {
               <span className="text-sm text-gray-700">Enable text-to-speech for students</span>
             </label>
           </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
-            >
-              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              Generate content
-            </button>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-700">Planner time</label>
-              <input
-                type="datetime-local"
-                value={scheduledFor}
-                onChange={(e) => setScheduledFor(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
-              />
+          {studioStep === 'plan' && (
+            <div className="flex flex-wrap items-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStudioStep('generate')}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900"
+              >
+                Continue to Generate
+              </button>
             </div>
-            <button
-              onClick={handleSchedulePlanner}
-              disabled={isScheduling}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isScheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
-              Schedule planner generation
-            </button>
-          </div>
+          )}
+
+          {studioStep === 'generate' && (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <div className="font-semibold text-slate-800 mb-1">Generation Summary</div>
+                <div>Level: {level || 'Any'} | Sections: {numSections} | Template: {templateId || 'classroom'}</div>
+                <div>Teaching goal: {teachingGoal || 'Not specified'}</div>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <button
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                >
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  Generate content
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioStep('plan')}
+                  className="px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100"
+                >
+                  Back to Plan
+                </button>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-700">Planner time</label>
+                  <input
+                    type="datetime-local"
+                    value={scheduledFor}
+                    onChange={(e) => setScheduledFor(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <button
+                  onClick={handleSchedulePlanner}
+                  disabled={isScheduling}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isScheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
+                  Schedule planner generation
+                </button>
+              </div>
+            </div>
+          )}
+
+          {studioStep === 'polish' && (
+            <div className="flex flex-wrap items-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStudioStep('plan')}
+                className="px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100"
+              >
+                Back to Plan
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              >
+                {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                Regenerate from current plan
+              </button>
+            </div>
+          )}
           {generationProgress.active && (
             <div className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-3">
               <div className="mb-1 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-teal-800">
@@ -1556,7 +1716,7 @@ const ContentGenerator: React.FC = () => {
         </div>
       </div>
 
-      {generatedContent && (
+      {generatedContent && studioStep === 'polish' && (
         <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start">
         <div className="flex-1 min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-lg md:p-6">
           <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -1718,6 +1878,7 @@ const ContentGenerator: React.FC = () => {
             return (
           <div className="space-y-6">
             {sections.map((sec: any, i: number) => (
+              (studioStep === 'polish' && i !== activeSectionIndex) ? null : (
               <div
                 key={i}
                 className={`border rounded-xl p-4 transition ${dragOverKey === `section:${i}` ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white'}`}
@@ -1934,7 +2095,7 @@ const ContentGenerator: React.FC = () => {
                     <>
                       <div className="mb-4 space-y-3">
                           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
-                            <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
+                            <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                               {mainFigure?.visual?.image_url ? (
                                 <figure
                                   onClick={() => setSelectedVisualKey(mainFigure.figureKey)}
@@ -1966,7 +2127,7 @@ const ContentGenerator: React.FC = () => {
                               )}
                             </div>
                             <div className="space-y-3">
-                              <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
+                              <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                                 {mascotHeroSrc ? (
                                   <figure className="rounded-lg overflow-hidden">
                                     <img
@@ -2137,6 +2298,7 @@ const ContentGenerator: React.FC = () => {
                 </div>
                 </div>
               </div>
+              )
             ))}
             {generatedContent.quiz && generatedContent.quiz.questions && generatedContent.quiz.questions.length > 0 && (
               <div className="border border-gray-200 rounded-lg p-4">
@@ -2153,34 +2315,74 @@ const ContentGenerator: React.FC = () => {
           })()}
         </div>
 
-        {templateImages.length > 0 && (
-          <div className="w-full xl:w-56 shrink-0 bg-white rounded-xl border border-slate-200 shadow-lg p-4 xl:sticky xl:top-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Images className="w-4 h-4 text-teal-600" />
-              <span className="text-sm font-semibold text-gray-700">Template assets</span>
-            </div>
-            <p className="text-xs text-gray-500 mb-3">Drag an image onto a section or visual slot to use it.</p>
-            <div className="grid grid-cols-2 gap-2">
-              {templateImages.map((url, idx) => (
-                <div
-                  key={idx}
-                  draggable
-                  onDragStart={(e) => e.dataTransfer.setData('text/plain', url)}
-                  className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition"
-                  title={`Drag to use this image`}
+        <div className="w-full xl:w-64 shrink-0 space-y-4 xl:sticky xl:top-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-4">
+            <div className="text-sm font-semibold text-slate-800 mb-2">Section Navigator</div>
+            <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
+              {(generatedContent.sections || []).map((sec: any, idx: number) => (
+                <button
+                  key={`nav-${idx}`}
+                  type="button"
+                  onClick={() => {
+                    setActiveSectionIndex(idx);
+                    setStudioStep('polish');
+                  }}
+                  className={`w-full text-left rounded-lg border px-2 py-2 text-xs transition ${
+                    activeSectionIndex === idx
+                      ? 'border-teal-400 bg-teal-50 text-teal-900'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
                 >
-                  <img
-                    src={toSecureSrc(url)}
-                    onError={handleImageFallback}
-                    alt={`Template image ${idx + 1}`}
-                    className="w-full h-16 object-cover"
-                    draggable={false}
-                  />
-                </div>
+                  <div className="font-semibold">Section {idx + 1}</div>
+                  <div className="truncate">{String(sec?.heading || sec?.title || 'Untitled')}</div>
+                </button>
               ))}
             </div>
           </div>
-        )}
+
+          {studioStep === 'polish' && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-4">
+              <div className="text-sm font-semibold text-slate-800 mb-2">Academic Quality</div>
+              <div className="text-xs text-slate-600 space-y-2">
+                <div className="flex items-center justify-between"><span>Sections</span><span className="font-semibold">{qualityChecks.sectionCount}</span></div>
+                <div className="flex items-center justify-between"><span>Avg words/section</span><span className="font-semibold">{qualityChecks.avgWords}</span></div>
+                <div className="flex items-center justify-between"><span>Short sections (&lt;90 words)</span><span className={qualityChecks.shortCount ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{qualityChecks.shortCount}</span></div>
+                <div className="flex items-center justify-between"><span>Missing key points</span><span className={qualityChecks.missingSupportCount ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{qualityChecks.missingSupportCount}</span></div>
+                <div className="flex items-center justify-between"><span>Duplicate headings</span><span className={qualityChecks.duplicateHeadingCount ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{qualityChecks.duplicateHeadingCount}</span></div>
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between"><span>Quality score</span><span className="font-bold text-teal-700">{qualityChecks.passRate}%</span></div>
+              </div>
+            </div>
+          )}
+
+          {templateImages.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Images className="w-4 h-4 text-teal-600" />
+                <span className="text-sm font-semibold text-gray-700">Template assets</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Drag an image onto a section or visual slot to use it.</p>
+              <div className="grid grid-cols-2 gap-2">
+                {templateImages.map((url, idx) => (
+                  <div
+                    key={idx}
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData('text/plain', url)}
+                    className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition"
+                    title={`Drag to use this image`}
+                  >
+                    <img
+                      src={toSecureSrc(url)}
+                      onError={handleImageFallback}
+                      alt={`Template image ${idx + 1}`}
+                      className="w-full h-16 object-cover"
+                      draggable={false}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         </div>
       )}
 

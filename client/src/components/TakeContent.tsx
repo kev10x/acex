@@ -710,7 +710,7 @@ const TakeContent: React.FC = () => {
                       <>
                         <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
-                              <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
+                              <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                                 {mainFigure?.visual?.image_url ? (
                                   <figure className="rounded-lg overflow-hidden">
                                     <img src={toSecureSrc(mainFigure.visual.image_url)} onError={handleImageFallback} alt={mainFigure.visual.alt_text || mainFigure.visual.title || `Figure ${mainFigure.figNum}`} className="w-full object-contain max-h-52" />
@@ -725,7 +725,7 @@ const TakeContent: React.FC = () => {
                                 )}
                               </div>
                               <div className="space-y-3">
-                                <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
+                                <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                                   {mascotHeroSrc ? (
                                     <figure className="rounded-lg overflow-hidden">
                                       <img src={toSecureSrc(mascotHeroSrc)} onError={handleImageFallback} alt="Mascot visual" className="w-full object-contain max-h-28" />
