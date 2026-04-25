@@ -67,6 +67,20 @@ const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
   return uniquePool[(sectionIndex * 7) % uniquePool.length];
 };
 
+const dedupeFigures = (items: Array<{ visual: any; figNum: number }>) => {
+  const seen = new Set<string>();
+  return items.filter(({ visual }) => {
+    const key = [
+      String(visual?.kind || '').trim().toLowerCase(),
+      String(visual?.image_url || '').trim(),
+      String(visual?.title || '').trim().toLowerCase(),
+    ].join('|');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const getSectionDisplayHtml = (section: any) => {
   const mode = String(section?.text_layout_mode || 'auto') as ContextualBlockLayout;
   if (mode === 'plain') return getSectionBodyHtml(section);
@@ -702,16 +716,18 @@ const TakeContent: React.FC = () => {
                 )}
                 {(() => {
                   const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];
-                  const illustrations = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind === 'illustration');
-                  const images = visuals
+                  const illustrations = dedupeFigures(visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind === 'illustration'));
+                  const images = dedupeFigures(
+                    visuals
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
-                    .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url);
+                    .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url)
+                  );
                   const keyPoint = String((activeSection as any).support || (activeSection as any).heading || activeSection.title || 'Remember this point').trim();
                   const mascotHeroSrc = String((activeSection as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(currentSection * 2, playfulAssetPool) || '';
 
                   if (isPlayfulTemplate) {
                     const mainFigure = illustrations[0] || images[0] || null;
-                    const extraFigures = [...illustrations, ...images].filter((fig) => fig.figNum !== mainFigure?.figNum);
+                    const extraFigures = [...illustrations, ...images].filter((fig) => fig.figNum !== mainFigure?.figNum && fig.visual?.extra_figure === true);
                     return (
                       <>
                         <div className="space-y-3">

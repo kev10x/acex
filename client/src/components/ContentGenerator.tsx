@@ -105,6 +105,20 @@ const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
   return uniquePool[(sectionIndex * 7) % uniquePool.length];
 };
 
+const dedupeFigureEntries = (entries: Array<{ visual: any; figNum: number; visualIndex: number; figureKey: string }>) => {
+  const seen = new Set<string>();
+  return entries.filter(({ visual }) => {
+    const key = [
+      String(visual?.kind || '').trim().toLowerCase(),
+      String(visual?.image_url || '').trim(),
+      String(visual?.title || '').trim().toLowerCase(),
+    ].join('|');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const ContentGenerator: React.FC = () => {
   type StudioStep = 'plan' | 'generate' | 'polish';
   type SectionMode = 'manual' | 'auto';
@@ -2346,11 +2360,11 @@ const ContentGenerator: React.FC = () => {
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
                 {isPlayfulTemplate && (() => {
                   const figureList = sectionFigures[i] || [];
-                  const imageFigures = figureList.filter(({ visual }) => visual?.image_url);
+                  const imageFigures = dedupeFigureEntries(figureList.filter(({ visual }) => visual?.image_url));
                   const diagramFigures = imageFigures.filter(({ visual }) => isDiagramVisual(visual));
                   const sceneFigures = imageFigures.filter(({ visual }) => !isDiagramVisual(visual));
                   const mainFigure = diagramFigures[0] || sceneFigures[0] || imageFigures[0] || null;
-                  const extraFigures = imageFigures.filter((f) => f.figureKey !== mainFigure?.figureKey);
+                  const extraFigures = imageFigures.filter((f) => f.figureKey !== mainFigure?.figureKey && f.visual?.extra_figure === true);
                   const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
                   const mascotHeroSrc = String((sec as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(i * 2, playfulAssetPool) || '';
                   return (
