@@ -38,8 +38,8 @@ function validSessionId(id) {
 
 /**
  * POST /slide-gen/analyse
- * Upload a PPTX template; extract unique slide backgrounds into a gallery.
- * Returns { sessionId, backgrounds: [{id, label, isDark, previewCss, imageFilename, bgXml}] }
+ * Upload a PPTX template; extract unique slide backgrounds and media assets.
+ * Returns { sessionId, backgrounds: [...], images: [...] }
  */
 router.post('/analyse', requireAuth, (req, res) => {
   upload.single('template')(req, res, async (err) => {
@@ -51,14 +51,16 @@ router.post('/analyse', requireAuth, (req, res) => {
     const mediaDir = path.join(SESSION_DIR, sessionId);
 
     try {
-      const backgrounds = await slideGenService.extractTemplateBackgrounds(zipPath, mediaDir);
+      const { backgrounds, images } = await slideGenService.extractTemplateAssets(zipPath, mediaDir, {
+        useVision: true,
+      });
       // Keep zipPath and mediaDir on disk for populate + bg-asset serving
-      res.json({ sessionId, backgrounds });
+      res.json({ sessionId, backgrounds, images });
     } catch (error) {
       console.error('Slide analyse error:', error);
       fs.unlink(zipPath, () => {});
       fs.rm(mediaDir, { recursive: true, force: true }, () => {});
-      res.status(500).json({ error: 'Failed to extract template backgrounds' });
+      res.status(500).json({ error: 'Failed to extract template assets' });
     }
   });
 });

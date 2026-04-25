@@ -433,6 +433,28 @@ function parsedBgIsDark(parsed) {
   return false;
 }
 
+const TEMPLATE_IMAGE_EXT_RX = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
+function normalizeZipTarget(entryName, relTarget) {
+  const rawTarget = String(relTarget || '').replace(/\\/g, '/');
+  if (!rawTarget) return null;
+  if (/^[a-z]+:\/\//i.test(rawTarget)) return null; // external URL targets
+
+  if (rawTarget.startsWith('/')) return rawTarget.replace(/^\/+/, '');
+
+  const fromDir = entryName.includes('/') ? entryName.slice(0, entryName.lastIndexOf('/')) : '';
+  const base = fromDir ? fromDir.split('/') : [];
+  for (const part of rawTarget.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (base.length) base.pop();
+      continue;
+    }
+    base.push(part);
+  }
+  return base.join('/');
+}
+
 async function extractTemplateBackgrounds(zipPath, mediaDir) {
   try { fs.mkdirSync(mediaDir, { recursive: true }); } catch (_) {}
 
@@ -465,6 +487,7 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
     if (!parsed) continue;
 
     let imageFilename = null;
+    let sourceZipEntry = null;
 
     if (parsed.type === 'image' && parsed.rEmbedId) {
       // Build rels path: same directory + _rels/ + basename + .rels
@@ -474,12 +497,12 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
       const relsXml = (await readZipEntry(zipPath, relsPath))?.toString('utf8') || '';
       const relM = new RegExp(`Id="${parsed.rEmbedId}"[^>]*Target="([^"]+)"`).exec(relsXml);
       if (relM) {
-        // All PPTX sub-dirs are one level under ppt/ so '../media/...' → 'ppt/media/...'
-        const zipTarget = relM[1].startsWith('../') ? 'ppt/' + relM[1].slice(3) : relM[1];
-        const imgBuf = await readZipEntry(zipPath, zipTarget);
+        const zipTarget = normalizeZipTarget(entryName, relM[1]);
+        const imgBuf = zipTarget ? await readZipEntry(zipPath, zipTarget) : null;
         if (imgBuf) {
           const ext = path.extname(zipTarget).slice(1) || 'png';
           imageFilename = `bg-${imgIdx++}.${ext}`;
+          sourceZipEntry = zipTarget;
           try { fs.writeFileSync(path.join(mediaDir, imageFilename), imgBuf); } catch (_) {}
         }
       }
@@ -492,11 +515,123 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
       isDark: parsedBgIsDark(parsed),
       previewCss: bgToPreviewCss(parsed),
       imageFilename,
+      sourceZipEntry,
       parsed,
     });
   }
 
   return results;
+}
+
+function extensionToMime(ext) {
+  const clean = String(ext || '').toLowerCase().replace(/^\./, '');
+  if (clean === 'jpg' || clean === 'jpeg') return 'image/jpeg';
+  if (clean === 'png') return 'image/png';
+  if (clean === 'gif') return 'image/gif';
+  if (clean === 'webp') return 'image/webp';
+  if (clean === 'bmp') return 'image/bmp';
+  if (clean === 'svg') return 'image/svg+xml';
+  return 'image/png';
+}
+
+async function describeImageWithVision(buffer, mimeType) {
+  if (!buffer || !buffer.length) return null;
+  if (!aiService?.openai) return null;
+
+  const cfg = aiConfig.getTaskConfig('visionOCR', 'openai');
+  const b64 = buffer.toString('base64');
+
+  const result = await aiService.createCompletionWithRetry({
+    provider: 'openai',
+    model: cfg.model,
+    temperature: 0.1,
+    maxTokens: Math.min(cfg.maxTokens, 300),
+    messages: [
+      {
+        role: 'system',
+        content: 'You classify template images extracted from PowerPoint. Return only strict JSON.'
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'Return JSON object: {"shortLabel":"...","description":"...","likelyBackground":true|false}. Keep shortLabel <= 6 words and description <= 20 words.'
+          },
+          {
+            type: 'image_url',
+            image_url: { url: `data:${mimeType};base64,${b64}` }
+          }
+        ]
+      }
+    ]
+  }, 2);
+
+  const raw = String(result?.content || '').trim();
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  const parsed = JSON.parse(match[0]);
+  return {
+    shortLabel: String(parsed.shortLabel || '').trim(),
+    description: String(parsed.description || '').trim(),
+    likelyBackground: !!parsed.likelyBackground,
+  };
+}
+
+async function extractTemplateImages(zipPath, mediaDir, { backgroundZipEntries = new Set(), useVision = true, maxVisionAssets = 8 } = {}) {
+  try { fs.mkdirSync(mediaDir, { recursive: true }); } catch (_) {}
+
+  const entries = await listZipEntries(zipPath);
+  const imageEntries = entries
+    .filter((e) => /^ppt\/media\/.+/i.test(e) && TEMPLATE_IMAGE_EXT_RX.test(e))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+  const results = [];
+  for (const entryName of imageEntries) {
+    const imgBuf = await readZipEntry(zipPath, entryName);
+    if (!imgBuf || !imgBuf.length) continue;
+
+    const ext = path.extname(entryName).toLowerCase() || '.png';
+    const filename = `asset-${results.length}${ext}`;
+    try { fs.writeFileSync(path.join(mediaDir, filename), imgBuf); } catch (_) {}
+
+    const mimeType = extensionToMime(ext);
+    const asset = {
+      id: `img-${results.length}`,
+      label: path.basename(entryName),
+      filename,
+      sourceZipEntry: entryName,
+      mimeType,
+      sizeBytes: imgBuf.length,
+      usedAsBackground: backgroundZipEntries.has(entryName),
+      vision: null,
+    };
+
+    if (useVision && results.length < maxVisionAssets) {
+      try {
+        asset.vision = await describeImageWithVision(imgBuf, mimeType);
+      } catch (_) {
+        // Non-fatal: keep extraction result even if vision inference fails.
+      }
+    }
+
+    results.push(asset);
+  }
+
+  return results;
+}
+
+async function extractTemplateAssets(zipPath, mediaDir, options = {}) {
+  const backgrounds = await extractTemplateBackgrounds(zipPath, mediaDir);
+  const backgroundZipEntries = new Set(
+    backgrounds.map((b) => b.sourceZipEntry).filter(Boolean)
+  );
+  const images = await extractTemplateImages(zipPath, mediaDir, {
+    backgroundZipEntries,
+    useVision: options.useVision !== false,
+    maxVisionAssets: Number.isFinite(options.maxVisionAssets) ? options.maxVisionAssets : 8,
+  });
+  return { backgrounds, images };
 }
 
 // ─── Fresh slide generation (blank deck via pptxgenjs) ────────────────────────
@@ -683,6 +818,7 @@ module.exports = {
   generateSlideContent,
   generateFreshSlideContent,
   extractTemplateBackgrounds,
+  extractTemplateAssets,
   buildFreshSlidePptx,
   injectContentIntoSlide,
   injectBackgroundIntoSlide,

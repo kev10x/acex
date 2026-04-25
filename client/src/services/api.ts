@@ -1508,10 +1508,26 @@ export interface TemplateBackground {
   previewCss: string;
   imageFilename: string | null;
   bgXml: string;
+  sourceZipEntry?: string | null;
+}
+
+export interface TemplateImageAsset {
+  id: string;
+  label: string;
+  filename: string;
+  sourceZipEntry: string;
+  mimeType: string;
+  sizeBytes: number;
+  usedAsBackground: boolean;
+  vision?: {
+    shortLabel?: string;
+    description?: string;
+    likelyBackground?: boolean;
+  } | null;
 }
 
 export const slideGenAPI = {
-  analyse: (file: File): Promise<{ sessionId: string; backgrounds: TemplateBackground[] }> => {
+  analyse: (file: File): Promise<{ sessionId: string; backgrounds: TemplateBackground[]; images?: TemplateImageAsset[] }> => {
     const form = new FormData();
     form.append('template', file);
     return api.post('/slide-gen/analyse', form, { headers: { 'Content-Type': 'multipart/form-data' } })
