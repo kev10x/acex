@@ -35,7 +35,7 @@ const toSecureSrc = (value?: string) => {
     if (parsed.origin === window.location.origin) {
       parsed.pathname = normalizePath(parsed.pathname);
     }
-    if (parsed.hostname === window.location.hostname) {
+    if (parsed.hostname === window.location.hostname && window.location.protocol === 'https:') {
       parsed.protocol = 'https:';
       return parsed.toString();
     }
@@ -122,6 +122,7 @@ const TakeContent: React.FC = () => {
   const [cpAudioIdx, setCpAudioIdx] = useState<number | null>(null);
   const [cpAudioUrl, setCpAudioUrl] = useState<string | null>(null);
   const [cpAudioError, setCpAudioError] = useState<string | null>(null);
+  const [showRenderDebugger, setShowRenderDebugger] = useState(false);
 
   const sections = content?.sections || [];
   const sectionCount = sections.length;
@@ -160,6 +161,33 @@ const TakeContent: React.FC = () => {
   const contiguousViewedIndex = getContiguousViewedIndex();
   const maxUnlockedSection = Math.min(sectionCount - 1, Math.max(0, contiguousViewedIndex + 1));
   const checkpointUnlocked = sectionCount === 0 || contiguousViewedIndex >= sectionCount - 1;
+  const activeSectionDebug = useMemo(() => {
+    if (!activeSection) return null;
+    const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];
+    const displayHtml = String(getSectionDisplayHtml(activeSection as any) || '');
+    const editorHtml = String(getSectionBodyHtml(activeSection as any) || '');
+    const displayText = displayHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const editorText = editorHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return {
+      sectionIndex: currentSection + 1,
+      heading: String((activeSection as any)?.heading || (activeSection as any)?.title || '').trim(),
+      textLayoutMode: String((activeSection as any)?.text_layout_mode || 'auto'),
+      support: String((activeSection as any)?.support || '').trim(),
+      bodyLength: String((activeSection as any)?.body || '').trim().length,
+      bodyHtmlLength: String((activeSection as any)?.body_html || '').trim().length,
+      editorTextLength: editorText.length,
+      displayTextLength: displayText.length,
+      mascotImageUrl: String((activeSection as any)?.mascot?.image_url || '').trim(),
+      visualCount: visuals.length,
+      visuals: visuals.map((visual, visualIndex) => ({
+        visualIndex,
+        kind: String(visual?.kind || '').trim(),
+        hasImageUrl: !!String(visual?.image_url || '').trim(),
+        isPlaceholder: isPlaceholderVisual(visual),
+        title: String(visual?.title || '').trim(),
+      })),
+    };
+  }, [activeSection, currentSection]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -579,7 +607,7 @@ const TakeContent: React.FC = () => {
         fontFamily: content?.theme?.font_family || undefined,
       }}
     >
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full max-w-[1800px] mx-auto">
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="p-6 border-b border-gray-200">
             <h1 className="text-2xl font-bold" style={{ color: content?.theme?.heading_color || '#111827' }}>{content?.title}</h1>
@@ -599,6 +627,19 @@ const TakeContent: React.FC = () => {
                 <div className="text-xs text-gray-600 mb-1">Progress: {progressPercent}%</div>
                 <div className="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
                   <div className="h-full bg-teal-500" style={{ width: `${progressPercent}%` }} />
+                </div>
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRenderDebugger((prev) => !prev)}
+                    className={`px-2 py-1 text-xs rounded border ${
+                      showRenderDebugger
+                        ? 'border-amber-400 bg-amber-50 text-amber-900'
+                        : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {showRenderDebugger ? 'Hide debugger' : 'Show debugger'}
+                  </button>
                 </div>
               </div>
             </div>
@@ -820,6 +861,16 @@ const TakeContent: React.FC = () => {
                     </>
                   );
                 })()}
+                {showRenderDebugger && activeSectionDebug && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-amber-900">
+                      Render debugger
+                    </summary>
+                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-amber-950">
+                      {JSON.stringify(activeSectionDebug, null, 2)}
+                    </pre>
+                  </details>
+                )}
 
                 <div className="mt-6 flex items-center justify-between gap-2">
                   <button
@@ -847,7 +898,7 @@ const TakeContent: React.FC = () => {
             )}
 
             {isCheckpointView && hasQuiz && (
-              <div className="max-w-[65ch]">
+              <div className="w-full">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Knowledge checkpoint</h2>
                 <p className="text-sm text-gray-600 mb-4">Complete this checkpoint to finish the lesson.</p>
                 {ttsEnabled && (
@@ -961,4 +1012,3 @@ const TakeContent: React.FC = () => {
 };
 
 export default TakeContent;
-

@@ -72,7 +72,7 @@ const normalizeSecureMediaUrl = (value: string) => {
     if (parsed.origin === window.location.origin) {
       parsed.pathname = normalizePath(parsed.pathname);
     }
-    if (parsed.hostname === window.location.hostname) {
+    if (parsed.hostname === window.location.hostname && window.location.protocol === 'https:') {
       parsed.protocol = 'https:';
       return parsed.toString();
     }
@@ -185,6 +185,7 @@ const ContentGenerator: React.FC = () => {
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [showRenderDebugger, setShowRenderDebugger] = useState(false);
   const [isUploadingTopicsFile, setIsUploadingTopicsFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const topicsFileInputRef = useRef<HTMLInputElement>(null);
@@ -1141,6 +1142,38 @@ const ContentGenerator: React.FC = () => {
     return getSectionDisplayHtml(section);
   };
 
+  const getSectionDebugInfo = (section: any, sectionIndex: number) => {
+    const editorHtml = String(getSectionEditorHtml(section) || '');
+    const displayHtml = String(getSectionDisplayHtml(section) || '');
+    const editorText = richHtmlToPlainText(editorHtml).trim();
+    const displayText = richHtmlToPlainText(displayHtml).trim();
+    const bodyHtmlRaw = String(section?.body_html || '').trim();
+    const bodyRaw = String(section?.body || '').trim();
+    const visuals = Array.isArray(section?.visuals) ? section.visuals : [];
+    return {
+      sectionIndex: sectionIndex + 1,
+      heading: String(section?.heading || section?.title || '').trim(),
+      textLayoutMode: String(section?.text_layout_mode || 'auto'),
+      bodyLength: bodyRaw.length,
+      bodyHtmlLength: bodyHtmlRaw.length,
+      editorHtmlLength: editorHtml.length,
+      displayHtmlLength: displayHtml.length,
+      editorTextLength: editorText.length,
+      displayTextLength: displayText.length,
+      bodyPreview: bodyRaw.slice(0, 180),
+      displayPreview: displayText.slice(0, 180),
+      mascotImageUrl: String(section?.mascot?.image_url || '').trim(),
+      visuals: visuals.map((visual: any, visualIndex: number) => ({
+        visualIndex,
+        kind: String(visual?.kind || '').trim(),
+        hasImageUrl: !!String(visual?.image_url || '').trim(),
+        isPlaceholder: isPlaceholderFigure(visual),
+        title: String(visual?.title || '').trim(),
+        promptPreview: String(visual?.prompt || '').trim().slice(0, 160),
+      })),
+    };
+  };
+
   const uploadSectionBackground = (sectionIndex: number, file: File | null) => {
     if (!file) return;
     const reader = new FileReader();
@@ -1437,7 +1470,7 @@ const ContentGenerator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="w-full max-w-[1800px] mx-auto p-4 xl:p-6">
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3 mb-6">
           <Presentation className="w-8 h-8 text-teal-600" />
@@ -1446,6 +1479,19 @@ const ContentGenerator: React.FC = () => {
         <p className="text-gray-600 mb-6">
           Create course content from topics: slide decks, lecture notes, and an interactive student view. Optionally add AI-generated video and upload a PowerPoint template for slides.
         </p>
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowRenderDebugger((prev) => !prev)}
+            className={`px-3 py-1.5 text-xs rounded border ${
+              showRenderDebugger
+                ? 'border-amber-400 bg-amber-50 text-amber-900'
+                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            {showRenderDebugger ? 'Hide render debugger' : 'Show render debugger'}
+          </button>
+        </div>
         <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {[
@@ -2575,6 +2621,16 @@ const ContentGenerator: React.FC = () => {
                   ) : null
                 ))}
                   </>
+                )}
+                {showRenderDebugger && (
+                  <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-amber-900">
+                      Render debugger
+                    </summary>
+                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-amber-950">
+                      {JSON.stringify(getSectionDebugInfo(sec, i), null, 2)}
+                    </pre>
+                  </details>
                 )}
                 </div>
                 </div>
