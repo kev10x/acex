@@ -402,7 +402,12 @@ function injectTemplateImages(content, imageUrls) {
       return visual;
     }),
   }));
-  return { ...content, sections };
+  const existingPool = Array.isArray(content?.template_images) ? content.template_images : [];
+  const mergedPool = [...existingPool, ...imageUrls]
+    .map((url) => String(url || '').trim())
+    .filter(Boolean)
+    .filter((url, i, arr) => arr.indexOf(url) === i);
+  return { ...content, sections, template_images: mergedPool };
 }
 const templateStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, templateDir),

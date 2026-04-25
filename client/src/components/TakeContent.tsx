@@ -58,6 +58,14 @@ const handleImageFallback = (e: React.SyntheticEvent<HTMLImageElement>) => {
   img.dataset.fallbackTried = 'true';
   img.src = alt;
 };
+const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
+  const uniquePool = pool
+    .map((url) => String(url || '').trim())
+    .filter(Boolean)
+    .filter((url, i, arr) => arr.indexOf(url) === i);
+  if (!uniquePool.length) return '';
+  return uniquePool[(sectionIndex * 7) % uniquePool.length];
+};
 
 const TakeContent: React.FC = () => {
   const { user } = useAuth();
@@ -105,6 +113,19 @@ const TakeContent: React.FC = () => {
   const isCheckpointView = hasQuiz && currentSection >= checkpointIndex;
   const currentSectionViewed = currentSection < sectionCount ? visitedSections.includes(currentSection) : true;
   const ttsEnabled = content?.tts_enabled !== false;
+  const activeSection = !isCheckpointView && sectionCount > 0 ? sections[Math.min(Math.max(currentSection, 0), maxContentIndex)] : null;
+  const isPlayfulTemplate = String(content?.template_id || '').trim().toLowerCase() === 'playful';
+  const playfulAssetPool = useMemo(() => {
+    const templatePool = Array.isArray(content?.template_images) ? content.template_images : [];
+    const visualPool = (content?.sections || [])
+      .flatMap((sec: any) => Array.isArray(sec?.visuals) ? sec.visuals : [])
+      .filter((visual: any) => String(visual?.kind || '').toLowerCase() !== 'illustration')
+      .map((visual: any) => String(visual?.image_url || '').trim())
+      .filter(Boolean);
+    return [...templatePool, ...visualPool]
+      .filter((url, i, arr) => arr.indexOf(url) === i)
+      .slice(0, 12);
+  }, [content?.template_images, content?.sections]);
 
   const getContiguousViewedIndex = () => {
     if (sectionCount === 0) return -1;
@@ -526,8 +547,6 @@ const TakeContent: React.FC = () => {
     );
   }
 
-  const activeSection = !isCheckpointView && sectionCount > 0 ? sections[Math.min(Math.max(currentSection, 0), maxContentIndex)] : null;
-
   return (
     <div
       className="min-h-screen py-8 px-4"
@@ -678,7 +697,76 @@ const TakeContent: React.FC = () => {
                 {(() => {
                   const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];
                   const illustrations = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind === 'illustration');
-                  const images = visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 })).filter(({ visual }) => visual.kind !== 'illustration');
+                  const images = visuals
+                    .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
+                    .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url);
+                  const leadImage = images[0] || null;
+                  const trailingImages = images.slice(1);
+                  const keyPoint = String((activeSection as any).support || (activeSection as any).heading || activeSection.title || 'Remember this point').trim();
+                  const companionSrc = pickPlayfulCompanion(currentSection, playfulAssetPool) || leadImage?.visual?.image_url || '';
+
+                  if (isPlayfulTemplate) {
+                    return (
+                      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_250px]">
+                        <div>
+                          {illustrations.map(({ visual, figNum }) => (
+                            <figure key={figNum} className={`my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}>
+                              {visual.image_url ? (
+                                <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                              ) : null}
+                              <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
+                                <span className="font-semibold">Figure {figNum}:</span> {visual.title}
+                              </figcaption>
+                            </figure>
+                          ))}
+                          <div
+                            className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
+                            style={{ color: content?.theme?.text_color || '#374151' }}
+                            dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(activeSection as any) }}
+                          />
+                          {trailingImages.map(({ visual, figNum }) => (
+                            <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                              <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                              <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
+                                <span className="font-semibold">Figure {figNum}:</span> {visual.title}
+                              </figcaption>
+                            </figure>
+                          ))}
+                        </div>
+                        <aside className="space-y-3">
+                          <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
+                            {leadImage?.visual?.image_url ? (
+                              <figure className="rounded-lg overflow-hidden">
+                                <img src={toSecureSrc(leadImage.visual.image_url)} onError={handleImageFallback} alt={leadImage.visual.alt_text || leadImage.visual.title || `Figure ${leadImage.figNum}`} className="w-full object-cover max-h-44" />
+                                <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
+                                  <span className="font-semibold">Figure {leadImage.figNum}:</span> {leadImage.visual.title}
+                                </figcaption>
+                              </figure>
+                            ) : (
+                              <div className="h-24 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                                Image placeholder
+                              </div>
+                            )}
+                          </div>
+                          <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[130px]">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
+                            <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
+                            {companionSrc ? (
+                              <img
+                                src={toSecureSrc(companionSrc)}
+                                onError={handleImageFallback}
+                                alt=""
+                                aria-hidden="true"
+                                className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
+                                draggable={false}
+                              />
+                            ) : null}
+                          </div>
+                        </aside>
+                      </div>
+                    );
+                  }
+
                   return (
                     <>
                       {illustrations.map(({ visual, figNum }) => (
@@ -691,14 +779,12 @@ const TakeContent: React.FC = () => {
                           </figcaption>
                         </figure>
                       ))}
-
                       <div
                         className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
                         style={{ color: content?.theme?.text_color || '#374151' }}
                         dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(activeSection as any) }}
                       />
-
-                      {images.filter(({ visual }) => visual.image_url).map(({ visual, figNum }) => (
+                      {images.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}>
                           <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>

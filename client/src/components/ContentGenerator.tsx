@@ -81,6 +81,14 @@ const handleImageFallback = (e: React.SyntheticEvent<HTMLImageElement>) => {
   img.dataset.fallbackTried = 'true';
   img.src = alt;
 };
+const pickPlayfulCompanion = (sectionIndex: number, pool: string[]) => {
+  const uniquePool = pool
+    .map((url) => String(url || '').trim())
+    .filter(Boolean)
+    .filter((url, i, arr) => arr.indexOf(url) === i);
+  if (!uniquePool.length) return '';
+  return uniquePool[(sectionIndex * 7) % uniquePool.length];
+};
 
 const ContentGenerator: React.FC = () => {
   const [topics, setTopics] = useState('');
@@ -137,6 +145,22 @@ const ContentGenerator: React.FC = () => {
       }))
     );
   }, [generatedContent?.sections]);
+  const isPlayfulTemplate = useMemo(
+    () => String(generatedContent?.template_id || templateId || '').trim().toLowerCase() === 'playful',
+    [generatedContent?.template_id, templateId]
+  );
+  const playfulAssetPool = useMemo(() => {
+    const fromContent = Array.isArray(generatedContent?.template_images) ? generatedContent.template_images : [];
+    const fromTemplate = Array.isArray(templateImages) ? templateImages : [];
+    const fromVisuals = (generatedContent?.sections || [])
+      .flatMap((sec: any) => Array.isArray(sec?.visuals) ? sec.visuals : [])
+      .filter((visual: any) => !isDiagramVisual(visual))
+      .map((visual: any) => String(visual?.image_url || '').trim())
+      .filter(Boolean);
+    return [...fromContent, ...fromTemplate, ...fromVisuals]
+      .filter((url, i, arr) => arr.indexOf(url) === i)
+      .slice(0, 12);
+  }, [generatedContent?.template_images, generatedContent?.sections, templateImages]);
 
   useEffect(() => {
     loadRubrics();
@@ -1418,7 +1442,7 @@ const ContentGenerator: React.FC = () => {
                 style={buildSectionBackgroundStyle((sec as any).background_image_url)}
               >
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="grid grid-cols-1 gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div className="relative z-10 grid grid-cols-1 gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Section {i + 1} editor</span>
                     <button
@@ -1562,10 +1586,71 @@ const ContentGenerator: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="relative z-10 rounded-lg border border-slate-200 bg-white p-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Student preview</div>
                 <h3 className="font-semibold text-gray-800 mb-1 text-base">{sec.heading || sec.title || 'Section'}</h3>
                 {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
+                {isPlayfulTemplate && (() => {
+                  const figureList = sectionFigures[i] || [];
+                  const images = figureList.filter(({ visual }) => !isDiagramVisual(visual) && visual?.image_url);
+                  const leadImage = images[0] || null;
+                  const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
+                  const companionSrc = pickPlayfulCompanion(i, playfulAssetPool) || leadImage?.visual?.image_url || '';
+                  return (
+                    <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_240px]">
+                      <div />
+                      <aside className="space-y-3">
+                        <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
+                          {leadImage?.visual?.image_url ? (
+                            <figure
+                              onClick={() => setSelectedVisualKey(leadImage.figureKey)}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(leadImage.figureKey); }}
+                              onDragLeave={() => setDragOverKey(null)}
+                              onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, leadImage.visualIndex, e); }}
+                              className={`rounded-lg overflow-hidden cursor-pointer transition ${
+                                dragOverKey === leadImage.figureKey
+                                  ? 'ring-2 ring-teal-300'
+                                  : selectedVisualKey === leadImage.figureKey
+                                  ? 'ring-2 ring-emerald-300'
+                                  : 'hover:ring-2 hover:ring-orange-200'
+                              }`}
+                            >
+                              <img
+                                src={toSecureSrc(leadImage.visual.image_url)}
+                                onError={handleImageFallback}
+                                alt={leadImage.visual.alt_text || leadImage.visual.title || `Figure ${leadImage.figNum}`}
+                                className="w-full object-cover max-h-40"
+                              />
+                              <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
+                                <span className="font-semibold">Figure {leadImage.figNum}:</span> {leadImage.visual.title}
+                              </figcaption>
+                            </figure>
+                          ) : (
+                            <div className="h-24 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                              Drag a playful image here
+                            </div>
+                          )}
+                        </div>
+                        <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[130px]">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
+                          <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
+                          {companionSrc ? (
+                            <img
+                              src={toSecureSrc(companionSrc)}
+                              onError={handleImageFallback}
+                              alt=""
+                              aria-hidden="true"
+                              className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
+                              draggable={false}
+                            />
+                          ) : null}
+                        </div>
+                      </aside>
+                    </div>
+                  );
+                })()}
+                {!isPlayfulTemplate && (
+                  <>
 
                 {/* Illustration figure — shown before body text */}
                 {(sectionFigures[i] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
@@ -1671,6 +1756,8 @@ const ContentGenerator: React.FC = () => {
                     </figure>
                   ) : null
                 ))}
+                  </>
+                )}
                 </div>
                 </div>
               </div>

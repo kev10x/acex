@@ -830,6 +830,7 @@ export interface GeneratedContent {
   tts_enabled?: boolean;
   template_id?: string;
   template_name?: string;
+  template_images?: string[];
   theme?: {
     font_family?: string;
     bg_color?: string;
