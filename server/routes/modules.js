@@ -108,11 +108,32 @@ async function mysqlIndexExists(tableName, indexName) {
   }
 }
 
+async function mysqlColumnExists(tableName, columnName) {
+  try {
+    if (tableName !== 'module_items') return false;
+    const result = await query(
+      `SELECT COUNT(*) AS count
+       FROM information_schema.COLUMNS
+       WHERE table_schema = DATABASE()
+         AND table_name = ?
+         AND column_name = ?`,
+      [tableName, columnName]
+    );
+    const row = rowList(result)[0] || {};
+    return Number(row.count || 0) > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Auto-migration: add section_index column and update unique constraint
 ;(async () => {
   try {
     if (isMySQL()) {
-      try { await query('ALTER TABLE module_items ADD COLUMN section_index INT NOT NULL DEFAULT -1'); } catch (_) {}
+      const hasSectionIndex = await mysqlColumnExists('module_items', 'section_index');
+      if (!hasSectionIndex) {
+        await query('ALTER TABLE module_items ADD COLUMN section_index INT NOT NULL DEFAULT -1');
+      }
       if (await mysqlIndexExists('module_items', 'uniq_module_item')) {
         try { await query('ALTER TABLE module_items DROP INDEX uniq_module_item'); } catch (_) {}
       }
