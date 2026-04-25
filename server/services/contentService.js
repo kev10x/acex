@@ -78,10 +78,10 @@ function buildVisualImagePrompt(prompt, {
   ].filter(Boolean).join(' ');
 
   const styleInstruction = visualKind === 'illustration'
-    ? 'Create a clean educational visual. Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Keep it clean with no visible text labels.'
-    : 'Create a clean educational supporting image suitable for lesson content.';
+    ? 'Create a clean educational visual. Use a diagram, chart, graph, or infographic when that best explains the concept, comparison, trend, category breakdown, process, or relationship. Avoid decorative scenes when a chart would teach more clearly. Do not render words, letters, numbers, legends, or labels inside the image.'
+    : 'Create a clean educational supporting image suitable for lesson content. Do not render words, letters, numbers, labels, or text overlays inside the image.';
 
-  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays.`
+  return `${styleInstruction} ${context} Professional, accurate, suitable for all ages, visually clear, no watermark, no logo, no text overlays. Prefer symbolic/shape-based communication over written annotations.`
     .trim()
     .slice(0, 1800);
 }
@@ -404,7 +404,7 @@ async function generateContentWithAI(opts) {
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const visualsInstruction = (includeDiagrams || includeImages)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
-  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Use real topic-specific labels and values, not placeholders.` : ''}${includeImages ? `
+  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image.` : ''}${includeImages ? `
   - kind = "image" — a descriptive scene/photo-style visual.` : ''}
   Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.`
     : `- visuals: omit entirely — do not include a visuals field in any section.`;
@@ -444,7 +444,7 @@ ${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` 
 Generate a structured course with exactly ${numSections} sections. For each section provide:
 - heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
 - support: ONE short line or key takeaway for the slide only (optional). Keep it minimal so slides are not text-heavy.
-- body: Full explanation for lecture notes and detailed reading (3-6 substantive paragraphs) in clear academic writing. Use \\n for paragraph breaks. Where it improves clarity, include structured lists using Markdown-style bullets ("- item") and numbered lists ("1. item"), especially for processes, criteria, comparisons, or key takeaways.
+- body: Full explanation for lecture notes and detailed reading (3-6 substantive paragraphs) in clear academic writing. MUST contain meaningful text (minimum 90 words) and never be empty. Use \\n for paragraph breaks. Where it improves clarity, include structured lists using Markdown-style bullets ("- item") and numbered lists ("1. item"), especially for processes, criteria, comparisons, or key takeaways.
 ${visualsInstruction}
 
 Include one optional short knowledge-check quiz at the end (3-5 multiple choice questions with correct_answer and options).
@@ -714,9 +714,11 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
   </defs>
   <rect width="1280" height="720" fill="url(#g)"/>
   <rect x="64" y="64" width="1152" height="592" rx="24" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.45)"/>
-  <text x="100" y="190" font-family="Segoe UI, Arial, sans-serif" font-size="44" fill="#FFFFFF" font-weight="700">${escapeSvgText(label)}</text>
-  <text x="100" y="260" font-family="Segoe UI, Arial, sans-serif" font-size="34" fill="#FFFFFF">${escapeSvgText(sectionTitle).slice(0, 72)}</text>
   <circle cx="1080" cy="180" r="74" fill="#${palette.accent}" opacity="0.65"/>
+  <circle cx="980" cy="520" r="52" fill="#${palette.accent}" opacity="0.42"/>
+  <rect x="100" y="160" width="260" height="260" rx="24" fill="rgba(255,255,255,0.22)"/>
+  <rect x="400" y="160" width="300" height="180" rx="24" fill="rgba(255,255,255,0.16)"/>
+  <rect x="740" y="160" width="380" height="320" rx="24" fill="rgba(255,255,255,0.14)"/>
   <rect x="100" y="330" width="680" height="26" rx="13" fill="rgba(255,255,255,0.65)"/>
   <rect x="100" y="375" width="900" height="18" rx="9" fill="rgba(255,255,255,0.48)"/>
   <rect x="100" y="410" width="760" height="18" rx="9" fill="rgba(255,255,255,0.48)"/>
@@ -740,8 +742,8 @@ function buildVisualPromptFromContext(visual, section = {}) {
     section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
     section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
     kind === 'illustration'
-      ? 'Create a clean educational diagram or infographic for this concept.'
-      : 'Create a clean educational supporting image for this concept.',
+      ? 'Create a clean educational diagram or infographic for this concept, with no in-image text, labels, or numbers.'
+      : 'Create a clean educational supporting image for this concept, with no in-image text or overlays.',
   ].filter(Boolean);
   return parts.join(' ').trim().slice(0, 360);
 }
@@ -816,6 +818,25 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
   return normalized.slice(0, 4);
 }
 
+function ensureSectionBodyText(section = {}, index = 0) {
+  const rawBody = String(section?.body || '').trim();
+  const minChars = 220;
+  if (rawBody.length >= minChars) return rawBody;
+
+  const heading = String(section?.heading || section?.title || `Section ${index + 1}`).trim();
+  const support = String(section?.support || '').trim();
+  const starter = rawBody || support;
+
+  const fallbackParts = [
+    starter,
+    `This section expands on "${heading}" with clear explanation, examples, and practical interpretation.`,
+    support ? `Key takeaway: ${support}.` : '',
+    'Focus on why the concept matters, how it works in context, and where it is applied in real scenarios.',
+  ].filter(Boolean);
+
+  return fallbackParts.join('\n\n').trim();
+}
+
 function getTemplateById(templateId) {
   const key = String(templateId || 'classroom').trim().toLowerCase();
   return CONTENT_TEMPLATES[key] || CONTENT_TEMPLATES.classroom;
@@ -848,6 +869,7 @@ function normalizeGeneratedContent(content, templateId = 'classroom', { includeD
     const normalizedSection = {
       ...section,
       heading,
+      body: ensureSectionBodyText(section, index),
     };
     return {
       ...normalizedSection,
@@ -1036,6 +1058,7 @@ async function buildPptx(content, options = {}) {
     const sec = sections[i];
     const heading = getSectionAssertion(sec);
     const body = getSectionBody(sec) || getSectionSupport(sec);
+    const support = getSectionSupport(sec);
     const visuals = Array.isArray(sec.visuals) ? sec.visuals : [];
     const imageVisual = visuals.find(v => v.image_url && String(v.image_url).trim());
 
@@ -1047,6 +1070,12 @@ async function buildPptx(content, options = {}) {
       x: m, y: m, w: contentW, h: TITLE_H,
       fontSize: 24, bold: true, valign: 'middle', wrap: true, color: headingColor
     });
+    if (support) {
+      slide.addText(support, {
+        x: m, y: m + TITLE_H - 0.1, w: contentW, h: 0.35,
+        fontSize: 12, italic: true, valign: 'top', wrap: true, color: accentColor
+      });
+    }
 
     // Body paragraphs as bullets (up to 6, capped at 220 chars each)
     const paras = body.split(/\n+/).map(p => p.trim()).filter(Boolean).slice(0, 6);
