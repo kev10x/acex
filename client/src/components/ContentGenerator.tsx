@@ -2405,7 +2405,7 @@ const ContentGenerator: React.FC = () => {
                   return (
                     <>
                       <div className="mb-4 space-y-3">
-                          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
+                          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
                             <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                               {mainFigure?.visual?.image_url ? (
                                 <figure
@@ -2425,7 +2425,7 @@ const ContentGenerator: React.FC = () => {
                                     src={toSecureSrc(mainFigure.visual.image_url)}
                                     onError={handleImageFallback}
                                     alt={mainFigure.visual.alt_text || mainFigure.visual.title || `Figure ${mainFigure.figNum}`}
-                                    className="w-full object-contain max-h-52"
+                                    className="w-full object-contain max-h-72"
                                   />
                                   <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
                                     <span className="font-semibold">Figure {mainFigure.figNum}:</span> {mainFigure.visual.title}
@@ -2445,7 +2445,7 @@ const ContentGenerator: React.FC = () => {
                                       src={toSecureSrc(mascotHeroSrc)}
                                       onError={handleImageFallback}
                                       alt="Mascot visual"
-                                      className="w-full object-contain max-h-28"
+                                      className="w-full object-contain max-h-36"
                                     />
                                   </figure>
                                 ) : (

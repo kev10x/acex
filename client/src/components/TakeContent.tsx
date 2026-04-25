@@ -89,6 +89,23 @@ const getSectionDisplayHtml = (section: any) => {
   if (mode === 'plain') return getSectionBodyHtml(section);
   return buildContextualSectionBodyHtml(section, mode);
 };
+const htmlToText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+const getSectionDisplayHtmlSafe = (section: any) => {
+  const primary = String(getSectionDisplayHtml(section) || '');
+  if (htmlToText(primary)) return primary;
+  const plainBody = String(section?.body || '').trim();
+  if (plainBody) return `<p>${escapeHtml(plainBody)}</p>`;
+  const fallback = String(section?.support || section?.heading || section?.title || '').trim();
+  if (fallback) return `<p>${escapeHtml(fallback)}</p>`;
+  return '<p>Section text is still loading.</p>';
+};
 
 const TakeContent: React.FC = () => {
   const { user } = useAuth();
@@ -779,11 +796,11 @@ const TakeContent: React.FC = () => {
                     return (
                       <>
                         <div className="space-y-3">
-                            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
+                            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
                               <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                                 {mainFigure?.visual?.image_url ? (
                                   <figure className="rounded-lg overflow-hidden">
-                                    <img src={toSecureSrc(mainFigure.visual.image_url)} onError={handleImageFallback} alt={mainFigure.visual.alt_text || mainFigure.visual.title || `Figure ${mainFigure.figNum}`} className="w-full object-contain max-h-52" />
+                                    <img src={toSecureSrc(mainFigure.visual.image_url)} onError={handleImageFallback} alt={mainFigure.visual.alt_text || mainFigure.visual.title || `Figure ${mainFigure.figNum}`} className="w-full object-contain max-h-72" />
                                     <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
                                       <span className="font-semibold">Figure {mainFigure.figNum}:</span> {mainFigure.visual.title}
                                     </figcaption>
@@ -798,7 +815,7 @@ const TakeContent: React.FC = () => {
                                 <div className="border border-slate-200 rounded-lg bg-transparent p-2">
                                   {mascotHeroSrc ? (
                                     <figure className="rounded-lg overflow-hidden">
-                                      <img src={toSecureSrc(mascotHeroSrc)} onError={handleImageFallback} alt="Mascot visual" className="w-full object-contain max-h-28" />
+                                      <img src={toSecureSrc(mascotHeroSrc)} onError={handleImageFallback} alt="Mascot visual" className="w-full object-contain max-h-36" />
                                     </figure>
                                   ) : (
                                     <div className="h-24 rounded-lg border border-dashed border-slate-300 text-xs text-slate-600 flex items-center justify-center">
@@ -812,12 +829,12 @@ const TakeContent: React.FC = () => {
                                 </div>
                               </div>
                             </div>
-                            <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 min-h-[240px]">
+                            <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 min-h-[120px]">
                               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Text</div>
                               <div
                                 className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
                                 style={{ color: content?.theme?.text_color || '#374151' }}
-                                dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(activeSection as any) }}
+                                dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(activeSection as any) }}
                               />
                             </section>
                         </div>
@@ -848,7 +865,7 @@ const TakeContent: React.FC = () => {
                       <div
                         className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
                         style={{ color: content?.theme?.text_color || '#374151' }}
-                        dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(activeSection as any) }}
+                        dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(activeSection as any) }}
                       />
                       {displayImages.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}>
