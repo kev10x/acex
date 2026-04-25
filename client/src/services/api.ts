@@ -1494,13 +1494,6 @@ export type SlideType =
   | 'transition'
   | 'unknown';
 
-export interface SlideAnalysis {
-  slideIndex: number;
-  slideType: SlideType;
-  description: string;
-  detectedText: string;
-}
-
 export interface GeneratedSlide {
   slideIndex: number;
   slideType: SlideType;
@@ -1508,18 +1501,27 @@ export interface GeneratedSlide {
   bullets: string[];
 }
 
+export interface TemplateBackground {
+  id: string;
+  label: string;
+  isDark: boolean;
+  previewCss: string;
+  imageFilename: string | null;
+  bgXml: string;
+}
+
 export const slideGenAPI = {
-  analyse: (file: File): Promise<{ sessionId: string; slideCount: number; slides: SlideAnalysis[] }> => {
+  analyse: (file: File): Promise<{ sessionId: string; backgrounds: TemplateBackground[] }> => {
     const form = new FormData();
     form.append('template', file);
     return api.post('/slide-gen/analyse', form, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then((r) => r.data);
   },
   generateContent: (params: {
-    slides: SlideAnalysis[];
     topic: string;
     subject?: string;
     level?: string;
+    slideCount?: number;
   }): Promise<{ content: GeneratedSlide[] }> => {
     return api.post('/slide-gen/generate-content', params).then((r) => r.data);
   },
@@ -1528,6 +1530,7 @@ export const slideGenAPI = {
     topic: string;
     content: GeneratedSlide[];
     backgrounds: Record<number, string>;
+    templateBgs: TemplateBackground[];
   }): Promise<Blob> => {
     return api.post('/slide-gen/populate', params, { responseType: 'blob' })
       .then((r) => r.data as Blob);

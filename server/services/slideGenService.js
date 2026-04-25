@@ -4,6 +4,7 @@ const yauzl = require('yauzl');
 const archiver = require('archiver');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
+const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
 
 // ─── ZIP helpers ──────────────────────────────────────────────────────────────
 
@@ -344,11 +345,323 @@ function buildPopulatedPptx(zipPath, modifiedSlides) {
   });
 }
 
+// ─── Background extraction from PPTX templates ───────────────────────────────
+
+function isHexDark(hex) {
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+}
+
+function extractBgXmlFromSlide(xml) {
+  const m = String(xml || '').match(/<p:bg\b[\s\S]*?<\/p:bg>/);
+  return m ? m[0] : null;
+}
+
+function parseBgElement(bgXml) {
+  const s = String(bgXml || '');
+
+  if (s.includes('<a:solidFill>')) {
+    const m = s.match(/<a:srgbClr val="([0-9A-Fa-f]{6})"/i);
+    if (m) return { type: 'color', hex: m[1].toUpperCase() };
+  }
+
+  if (s.includes('<a:gradFill>')) {
+    const stops = [];
+    const gsRx = /<a:gs pos="(\d+)"[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/ig;
+    let m;
+    while ((m = gsRx.exec(s)) !== null) stops.push({ pos: parseInt(m[1]), hex: m[2].toUpperCase() });
+    if (stops.length >= 2) {
+      const angM = s.match(/ang="(\d+)"/);
+      return { type: 'gradient', stops, angleDeg: angM ? Math.round(parseInt(angM[1]) / 60000) : 135 };
+    }
+  }
+
+  if (s.includes('<a:blip')) {
+    const m = s.match(/r:embed="([^"]+)"/);
+    return { type: 'image', rEmbedId: m ? m[1] : null };
+  }
+
+  return null;
+}
+
+function bgToPreviewCss(parsed) {
+  if (!parsed) return '#E5E7EB';
+  if (parsed.type === 'color') return `#${parsed.hex}`;
+  if (parsed.type === 'gradient') {
+    const stops = parsed.stops.map((s) => `#${s.hex} ${(s.pos / 1000).toFixed(0)}%`);
+    return `linear-gradient(${parsed.angleDeg}deg, ${stops.join(', ')})`;
+  }
+  return '#9CA3AF'; // image placeholder — client replaces with actual URL
+}
+
+function parsedBgIsDark(parsed) {
+  if (!parsed) return false;
+  if (parsed.type === 'color') return isHexDark(parsed.hex);
+  if (parsed.type === 'gradient') {
+    const darkCount = parsed.stops.filter((s) => isHexDark(s.hex)).length;
+    return darkCount >= Math.ceil(parsed.stops.length / 2);
+  }
+  return false;
+}
+
+async function extractTemplateBackgrounds(zipPath, mediaDir) {
+  try { fs.mkdirSync(mediaDir, { recursive: true }); } catch (_) {}
+
+  const entries = await listZipEntries(zipPath);
+  const slideEntries = entries
+    .filter((e) => /^ppt\/slides\/slide\d+\.xml$/i.test(e))
+    .sort((a, b) => {
+      const n = (s) => parseInt((s.match(/\d+/) || ['0'])[0]);
+      return n(a) - n(b);
+    });
+
+  const results = [];
+  const seenXml = new Set();
+  let imgIdx = 0;
+
+  for (const slideEntry of slideEntries) {
+    const slideNum = parseInt((slideEntry.match(/slide(\d+)/) || ['', '0'])[1]);
+    const slideXml = (await readZipEntry(zipPath, slideEntry))?.toString('utf8') || '';
+
+    // Try slide background first, then its layout
+    let bgXml = extractBgXmlFromSlide(slideXml);
+
+    if (!bgXml) {
+      const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+      const relsXml = (await readZipEntry(zipPath, relsPath))?.toString('utf8') || '';
+      const layoutM = relsXml.match(/Type="[^"]*slideLayout"[^>]*Target="([^"]+)"/);
+      if (layoutM) {
+        const layoutPath = 'ppt/slideLayouts/' + path.basename(layoutM[1]);
+        const layoutXml = (await readZipEntry(zipPath, layoutPath))?.toString('utf8') || '';
+        bgXml = extractBgXmlFromSlide(layoutXml);
+      }
+    }
+
+    // Skip theme references (bgRef) and duplicates
+    if (!bgXml || bgXml.includes('<p:bgRef') || seenXml.has(bgXml)) continue;
+    seenXml.add(bgXml);
+
+    const parsed = parseBgElement(bgXml);
+    if (!parsed) continue;
+
+    let imageFilename = null;
+
+    if (parsed.type === 'image' && parsed.rEmbedId) {
+      const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+      const relsXml = (await readZipEntry(zipPath, relsPath))?.toString('utf8') || '';
+      const relM = new RegExp(`Id="${parsed.rEmbedId}"[^>]*Target="([^"]+)"`).exec(relsXml);
+      if (relM) {
+        const zipTarget = relM[1].startsWith('../') ? 'ppt/' + relM[1].slice(3) : relM[1];
+        const imgBuf = await readZipEntry(zipPath, zipTarget);
+        if (imgBuf) {
+          const ext = path.extname(zipTarget).slice(1) || 'png';
+          imageFilename = `bg-${imgIdx++}.${ext}`;
+          try { fs.writeFileSync(path.join(mediaDir, imageFilename), imgBuf); } catch (_) {}
+        }
+      }
+    }
+
+    results.push({
+      id: `tpl-${results.length}`,
+      label: `Style ${results.length + 1}`,
+      bgXml,
+      isDark: parsedBgIsDark(parsed),
+      previewCss: bgToPreviewCss(parsed),
+      imageFilename,
+      parsed,
+    });
+  }
+
+  return results;
+}
+
+// ─── Fresh slide generation (blank deck via pptxgenjs) ────────────────────────
+
+async function generateFreshSlideContent({ topic, subject = '', level = 'undergraduate', slideCount = 8 }) {
+  const cfg = aiConfig.getTaskConfig('contentGeneration');
+
+  const prompt = `Design and generate content for a ${level} lesson on "${topic}"${subject ? ` (${subject})` : ''}.
+Create exactly ${slideCount} slides with a logical educational flow.
+Choose slide types from: title | learning_objectives | content | question | activity | summary | quiz | transition
+
+For each slide generate:
+- slideIndex (0-based, 0 to ${slideCount - 1})
+- slideType
+- title (clear, assertive heading)
+- bullets (3-5 concise points under 15 words each)
+
+Return ONLY valid JSON:
+[{"slideIndex":0,"slideType":"title","title":"...","bullets":["..."]}]`;
+
+  const result = await aiService.createCompletionWithRetry({
+    provider: cfg.provider,
+    model: cfg.model,
+    temperature: 0.6,
+    maxTokens: Math.min(cfg.maxTokens, 4000),
+    messages: [
+      { role: 'system', content: 'You generate educational presentation slide content. Return only a valid JSON array.' },
+      { role: 'user', content: prompt }
+    ]
+  }, 3);
+
+  const raw = String(result?.content || '').trim();
+  try {
+    const match = raw.match(/\[[\s\S]*\]/);
+    return JSON.parse(match ? match[0] : raw);
+  } catch (_) {
+    return Array.from({ length: slideCount }, (_, i) => ({
+      slideIndex: i,
+      slideType: i === 0 ? 'title' : i === slideCount - 1 ? 'summary' : 'content',
+      title: i === 0 ? topic : `Slide ${i + 1}`,
+      bullets: ['Content generation failed — please retry.']
+    }));
+  }
+}
+
+// ─── Read ZIP entries from a Buffer (for post-processing pptxgenjs output) ───
+
+function readAllZipEntriesFromBuffer(buffer) {
+  return new Promise((resolve, reject) => {
+    const map = new Map();
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipfile) => {
+      if (err || !zipfile) return reject(err || new Error('Cannot read ZIP buffer'));
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        if (/\/$/.test(entry.fileName)) { zipfile.readEntry(); return; }
+        zipfile.openReadStream(entry, (sErr, stream) => {
+          if (sErr || !stream) { map.set(entry.fileName, Buffer.alloc(0)); zipfile.readEntry(); return; }
+          const chunks = [];
+          stream.on('data', (d) => chunks.push(Buffer.from(d)));
+          stream.on('end', () => { map.set(entry.fileName, Buffer.concat(chunks)); zipfile.readEntry(); });
+          stream.on('error', () => { map.set(entry.fileName, Buffer.alloc(0)); zipfile.readEntry(); });
+        });
+      });
+      zipfile.on('end', () => resolve(map));
+      zipfile.on('error', reject);
+    });
+  });
+}
+
+// ─── Inject non-solid backgrounds into a pptxgenjs output buffer ─────────────
+
+async function injectBgsIntoBuffer(pptxBuffer, bgInjections, sessionMediaDir) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const allEntries = await readAllZipEntriesFromBuffer(pptxBuffer);
+      const overrides = new Map();
+      const newMedia = new Map();
+
+      for (const { slideNum, bgXml, imageFilename } of bgInjections) {
+        const slideKey = `ppt/slides/slide${slideNum}.xml`;
+        const relsKey = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+
+        let slideXml = allEntries.get(slideKey)?.toString('utf8') || '';
+        let relsXml = allEntries.get(relsKey)?.toString('utf8') || '';
+        if (!slideXml) continue;
+
+        let finalBgXml = bgXml;
+
+        if (imageFilename && sessionMediaDir) {
+          const imgPath = path.join(sessionMediaDir, imageFilename);
+          if (fs.existsSync(imgPath)) {
+            const imgBuf = fs.readFileSync(imgPath);
+            const ext = path.extname(imageFilename).slice(1) || 'png';
+            const mediaName = `bg-slide${slideNum}.${ext}`;
+            newMedia.set(`ppt/media/${mediaName}`, imgBuf);
+
+            const RID = 'rId50';
+            finalBgXml = bgXml.replace(/r:embed="[^"]*"/, `r:embed="${RID}"`);
+            const newRel = `<Relationship Id="${RID}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName}"/>`;
+            relsXml = relsXml.replace('</Relationships>', newRel + '</Relationships>');
+            overrides.set(relsKey, Buffer.from(relsXml, 'utf8'));
+          }
+        }
+
+        const bgPattern = /<p:bg\b[\s\S]*?<\/p:bg>/;
+        slideXml = bgPattern.test(slideXml)
+          ? slideXml.replace(bgPattern, finalBgXml)
+          : slideXml.replace(/(<p:spTree\b)/, finalBgXml + '\n$1');
+        overrides.set(slideKey, Buffer.from(slideXml, 'utf8'));
+      }
+
+      const chunks = [];
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      archive.on('data', (c) => chunks.push(c));
+      archive.on('end', () => resolve(Buffer.concat(chunks)));
+      archive.on('error', reject);
+
+      for (const [name, buf] of allEntries) archive.append(overrides.get(name) || buf, { name });
+      for (const [name, buf] of newMedia) archive.append(buf, { name });
+
+      archive.finalize();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// ─── Build fresh slide deck (blank pptxgenjs + injected backgrounds) ──────────
+
+async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessionMediaDir) {
+  // Build a unified background lookup: id → { bgXml, isDark, imageFilename, parsed }
+  const bgMap = new Map();
+  for (const tb of (templateBgs || [])) bgMap.set(tb.id, tb);
+  for (const [id, pb] of Object.entries(PPTX_BACKGROUNDS)) {
+    bgMap.set(id, { bgXml: pb.bgXml, isDark: pb.isDark, imageFilename: null, parsed: { type: pb.isDark ? 'dark' : 'light' } });
+  }
+
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE'; // 16:9
+
+  const bgInjections = []; // slides needing post-process bg injection
+
+  for (let i = 0; i < content.length; i++) {
+    const sc = content[i];
+    const bgId = slideBackgrounds?.[sc.slideIndex];
+    const bg = bgId ? bgMap.get(bgId) : null;
+    const isDark = bg?.isDark ?? false;
+    const titleColor = isDark ? 'F8FAFC' : '1F2937';
+    const bodyColor = isDark ? 'CBD5E1' : '374151';
+
+    const slide = pptx.addSlide();
+
+    slide.addText(String(sc.title || ''), {
+      x: 0.4, y: 0.4, w: 9.2, h: 1.1,
+      fontSize: 28, bold: true, color: titleColor, fontFace: 'Calibri', valign: 'middle',
+    });
+
+    const bullets = (sc.bullets || []).filter(Boolean).slice(0, 6);
+    if (bullets.length) {
+      slide.addText(
+        bullets.map((b) => ({ text: String(b), options: { bullet: true } })),
+        { x: 0.4, y: 1.7, w: 9.2, h: 3.5, fontSize: 18, color: bodyColor, fontFace: 'Calibri', valign: 'top' }
+      );
+    }
+
+    // Solid colour backgrounds can be applied by pptxgenjs directly
+    if (bg?.parsed?.type === 'color') {
+      slide.background = { color: bg.parsed.hex };
+    } else if (bg?.bgXml) {
+      // Gradients and image fills need post-processing
+      bgInjections.push({ slideNum: i + 1, bgXml: bg.bgXml, imageFilename: bg.imageFilename || null });
+    }
+  }
+
+  const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' });
+  if (!bgInjections.length) return pptxBuffer;
+  return injectBgsIntoBuffer(pptxBuffer, bgInjections, sessionMediaDir);
+}
+
 module.exports = {
   readAllSlideXmls,
   extractSlideText,
   analyseSlideTypes,
   generateSlideContent,
+  generateFreshSlideContent,
+  extractTemplateBackgrounds,
+  buildFreshSlidePptx,
   injectContentIntoSlide,
   injectBackgroundIntoSlide,
   buildPopulatedPptx,
