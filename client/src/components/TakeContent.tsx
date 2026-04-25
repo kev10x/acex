@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2, Volume2 } from 'lucide-react';
 import { contentAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
-import MermaidDiagram from './MermaidDiagram';
 import { useAuth } from '../contexts/AuthContext';
 import { getSectionBodyHtml } from '../utils/richText';
 
@@ -683,13 +682,9 @@ const TakeContent: React.FC = () => {
                   return (
                     <>
                       {illustrations.map(({ visual, figNum }) => (
-                        <figure key={figNum} className="my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                        <figure key={figNum} className={`my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}>
                           {visual.image_url ? (
                             <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
-                          ) : visual.mermaid_code ? (
-                            <div className="p-4 bg-gray-50">
-                              <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
-                            </div>
                           ) : null}
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
                             <span className="font-semibold">Figure {figNum}:</span> {visual.title}
@@ -704,7 +699,7 @@ const TakeContent: React.FC = () => {
                       />
 
                       {images.filter(({ visual }) => visual.image_url).map(({ visual, figNum }) => (
-                        <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                        <figure key={figNum} className={`mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}>
                           <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
                             <span className="font-semibold">Figure {figNum}:</span> {visual.title}

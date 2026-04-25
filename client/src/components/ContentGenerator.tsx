@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace } from '../services/api';
-import MermaidDiagram from './MermaidDiagram';
 import RichTextEditor from './RichTextEditor';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { getSectionBodyHtml, richHtmlToPlainText, sanitizeRichTextHtml } from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const isDiagramVisual = (visual: any) =>
-  !!String(visual?.mermaid_code || '').trim() ||
   ['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(String(visual?.kind || '').trim().toLowerCase());
 const hasVisualSource = (visual: any) =>
   !!String(visual?.image_url || '').trim() || isDiagramVisual(visual);
@@ -20,9 +18,6 @@ const buildVisualPromptFromContext = (visual: any, section: any) => {
     visual?.alt_text ? `Description: ${String(visual.alt_text).trim()}.` : '',
     section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
     section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
-    kind === 'illustration' && visual?.mermaid_code
-      ? `Graph structure to visualize: ${String(visual.mermaid_code).replace(/\s+/g, ' ').slice(0, 420)}.`
-      : '',
     kind === 'illustration'
       ? 'Create a clean educational diagram or infographic for this concept.'
       : 'Create a clean educational supporting image for this concept.',
@@ -697,7 +692,7 @@ const ContentGenerator: React.FC = () => {
             title: 'Custom diagram',
             alt_text: 'Custom diagram',
             prompt: '',
-            mermaid_code: 'graph TD\n  A[Start] --> B[Step]\n  B --> C[Outcome]',
+            image_url: '',
           }
         : {
             kind: 'image',
@@ -1172,7 +1167,7 @@ const ContentGenerator: React.FC = () => {
                 onChange={(e) => setIncludeDiagrams(e.target.checked)}
                 className="w-4 h-4 text-teal-600 border-gray-300 rounded"
               />
-              <span className="text-sm text-gray-700">Include diagrams</span>
+              <span className="text-sm text-gray-700">Include charts/diagrams <span className="text-gray-400 text-xs">(AI-generated)</span></span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -1442,7 +1437,7 @@ const ContentGenerator: React.FC = () => {
                       onClick={() => addCustomVisual(i, 'illustration')}
                       className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
                     >
-                      Add custom diagram
+                      Add custom chart/diagram
                     </button>
                     <button
                       type="button"
@@ -1535,30 +1530,18 @@ const ContentGenerator: React.FC = () => {
                             rows={3}
                             className="w-full mb-1 px-2 py-1 border border-gray-300 rounded text-[11px]"
                           />
-                          {isDiagramVisual(visual) ? (
-                            <textarea
-                              value={visual.mermaid_code || ''}
-                              onChange={(e) => updateVisualField(i, vIdx, 'mermaid_code', e.target.value)}
-                              placeholder="Mermaid diagram code"
-                              rows={4}
-                              className="w-full px-2 py-1 border border-gray-300 rounded font-mono"
-                            />
-                          ) : (
-                            <>
-                              <input
-                                value={visual.image_url || ''}
-                                onChange={(e) => updateVisualField(i, vIdx, 'image_url', e.target.value)}
-                                placeholder="Image URL or data URL"
-                                className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
-                              />
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => uploadVisualImage(i, vIdx, e.target.files?.[0] || null)}
-                                className="w-full"
-                              />
-                            </>
-                          )}
+                          <input
+                            value={visual.image_url || ''}
+                            onChange={(e) => updateVisualField(i, vIdx, 'image_url', e.target.value)}
+                            placeholder="Image URL or data URL"
+                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                          />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => uploadVisualImage(i, vIdx, e.target.files?.[0] || null)}
+                            className="w-full"
+                          />
                         </div>
                       ))}
                     </div>
@@ -1578,7 +1561,7 @@ const ContentGenerator: React.FC = () => {
                       selectedVisualKey === figureKey
                         ? 'border-emerald-400 ring-2 ring-emerald-200'
                         : 'border-gray-200 hover:border-emerald-300'
-                    }`}
+                    } ${visualIndex % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}
                   >
                     {visual.image_url ? (
                       <img
@@ -1587,10 +1570,6 @@ const ContentGenerator: React.FC = () => {
                         alt={visual.alt_text || visual.title || `Figure ${figNum}`}
                         className="w-full object-contain max-h-64"
                       />
-                    ) : visual.mermaid_code ? (
-                      <div className="p-4 bg-gray-50">
-                        <MermaidDiagram code={visual.mermaid_code} className="min-h-[160px]" />
-                      </div>
                     ) : null}
                     <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                       <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
@@ -1641,7 +1620,7 @@ const ContentGenerator: React.FC = () => {
                           : selectedVisualKey === figureKey
                           ? 'border-emerald-400 ring-2 ring-emerald-200'
                           : 'border-gray-200 hover:border-emerald-300'
-                      }`}
+                      } ${visualIndex % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}
                     >
                       <img
                         src={toSecureSrc(visual.image_url)}

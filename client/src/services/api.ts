@@ -813,7 +813,6 @@ export interface ContentVisual {
   alt_text?: string;
   prompt?: string;
   image_url?: string;
-  mermaid_code?: string;
 }
 export interface ContentQuizQuestion {
   number: number;

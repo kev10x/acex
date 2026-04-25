@@ -97,9 +97,6 @@ function buildVisualRegenerationPrompt(visual, {
     String(currentVisual.prompt || '').trim(),
     currentVisual.title ? `Visual title: ${String(currentVisual.title).trim()}.` : '',
     currentVisual.alt_text ? `Accessibility description: ${String(currentVisual.alt_text).trim()}.` : '',
-    inferredKind === 'illustration' && currentVisual.mermaid_code
-      ? `Existing diagram structure to reinterpret visually: ${String(currentVisual.mermaid_code).replace(/\s+/g, ' ').slice(0, 700)}.`
-      : '',
     inferredKind === 'image' && currentVisual.image_url
       ? 'Reimagine the current image as a fresher, more polished educational visual while keeping the same teaching intent.'
       : '',
@@ -179,7 +176,6 @@ async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHead
     ...currentVisual,
     kind,
     image_url: imageUrl,
-    mermaid_code: undefined,
   };
 }
 
@@ -242,11 +238,12 @@ async function enrichContentWithImages(content) {
   const sections = content?.sections;
   if (!Array.isArray(sections)) return content;
 
-  // Collect all image visuals that need generation, cap concurrent image calls.
+  // Collect all visuals that need generation, cap concurrent image calls.
   const tasks = [];
   sections.forEach((section, si) => {
     (section.visuals || []).forEach((visual, vi) => {
-      if (visual.kind === 'image' && !(visual.image_url && !visual.image_url.startsWith('data:image/svg'))) {
+      if (!(visual.image_url && !visual.image_url.startsWith('data:image/svg'))) {
+        const kind = inferVisualKind(visual);
         tasks.push({
           si,
           vi,
@@ -255,6 +252,7 @@ async function enrichContentWithImages(content) {
           sectionHeading: section.heading || section.title || '',
           sectionBody: section.body || '',
           contentTitle: content?.title || '',
+          kind,
         });
       }
     });
@@ -270,7 +268,7 @@ async function enrichContentWithImages(content) {
           sectionHeading: task.sectionHeading,
           sectionBody: task.sectionBody,
           contentTitle: task.contentTitle,
-          visualKind: 'image',
+          visualKind: task.kind === 'illustration' ? 'illustration' : 'image',
         });
         if (url) results.set(`${task.si}:${task.vi}`, url);
       })
@@ -406,9 +404,9 @@ async function generateContentWithAI(opts) {
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
   const visualsInstruction = (includeDiagrams || includeImages)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
-  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. MUST include mermaid_code: valid Mermaid.js syntax (graph TD, flowchart LR, sequenceDiagram, classDiagram, pie, xychart-beta, etc.). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Use real topic-specific labels and values, not placeholders (never use "A/B/C" or abstract unlabeled nodes). Aim for meaningful complexity: at least 5 nodes/items or 4 data points where applicable.` : ''}${includeImages ? `
-  - kind = "image" — a descriptive scene/photo-style visual. No mermaid_code needed.` : ''}
-  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.${includeDiagrams ? '\n  mermaid_code (illustration only): valid Mermaid.js syntax.' : ''}`
+  - kind = "illustration" — an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Use real topic-specific labels and values, not placeholders.` : ''}${includeImages ? `
+  - kind = "image" — a descriptive scene/photo-style visual.` : ''}
+  Each visual must include: title (short caption used as "Figure N: caption"), alt_text, prompt.`
     : `- visuals: omit entirely — do not include a visuals field in any section.`;
   const visualsExample = (includeDiagrams || includeImages)
     ? `"visuals": [${includeDiagrams ? `
@@ -416,8 +414,7 @@ async function generateContentWithAI(opts) {
           "kind": "illustration",
           "title": "Diagram or chart caption (used as figure label)",
           "alt_text": "Accessible description of the diagram or chart",
-          "prompt": "Prompt text for illustration/chart generation",
-          "mermaid_code": "xychart-beta\\n  title \"Assessment Outcome by Criterion\"\\n  x-axis [\"Methodology\", \"Argument\", \"Evidence\", \"Structure\"]\\n  bar [62, 74, 58, 81]"
+          "prompt": "Prompt for a clean educational chart/diagram image with concrete labels and values"
         }` : ''}${includeDiagrams && includeImages ? ',' : ''}${includeImages ? `
         {
           "kind": "image",
@@ -742,9 +739,6 @@ function buildVisualPromptFromContext(visual, section = {}) {
     visual?.alt_text ? `Description: ${String(visual.alt_text).trim()}.` : '',
     section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
     section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
-    kind === 'illustration' && visual?.mermaid_code
-      ? `Graph structure to visualize: ${String(visual.mermaid_code).replace(/\s+/g, ' ').slice(0, 420)}.`
-      : '',
     kind === 'illustration'
       ? 'Create a clean educational diagram or infographic for this concept.'
       : 'Create a clean educational supporting image for this concept.',
@@ -760,19 +754,12 @@ function shouldRefreshLegacyPrompt(visual, section, fallbackPrompt = '') {
   const normalizedFallback = String(fallbackPrompt || '').trim().toLowerCase();
   if (normalizedFallback && normalizedCurrent === normalizedFallback) return true;
 
-  if (inferVisualKind(visual) === 'illustration' && typeof visual?.mermaid_code === 'string' && visual.mermaid_code.trim()) {
-    if (!/graph structure to visualize:/i.test(currentPrompt)) return true;
-  }
-
   return /^(create a clean educational diagram illustrating:|create an educational scene image representing:)/i.test(currentPrompt);
 }
 
 function inferVisualKind(visual) {
   const rawKind = String(visual?.kind || '').trim().toLowerCase();
   if (['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(rawKind)) {
-    return 'illustration';
-  }
-  if (typeof visual?.mermaid_code === 'string' && visual.mermaid_code.trim()) {
     return 'illustration';
   }
   const combinedText = [
@@ -784,33 +771,6 @@ function inferVisualKind(visual) {
     return 'illustration';
   }
   return 'image';
-}
-
-function isWeakMermaidCode(code) {
-  const text = String(code || '').trim();
-  if (!text) return true;
-  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
-  if (lines.length < 4) return true;
-  if (/example comparison|x-axis\s*\[\s*"a"\s*,\s*"b"\s*,\s*"c"\s*\]/i.test(text)) return true;
-  if (/\b[A-C]\b/.test(text) && !/[a-z]{4,}/i.test(text)) return true;
-  const nodeMatches = text.match(/\[[^\]]+\]/g) || [];
-  return nodeMatches.length > 0 && nodeMatches.length < 4;
-}
-
-function buildSectionMermaidFallback(sectionTitle) {
-  const safeTitle = String(sectionTitle || 'Topic').replace(/"/g, '\\"').slice(0, 60);
-  return [
-    'flowchart TD',
-    `  C1["${safeTitle}: core concept"]`,
-    '  C2["Context and assumptions"]',
-    '  C3["Key mechanism or process"]',
-    '  C4["Evidence, example, or application"]',
-    '  C5["Common misconceptions and checks"]',
-    '  C1 --> C2',
-    '  C2 --> C3',
-    '  C3 --> C4',
-    '  C4 --> C5',
-  ].join('\n');
 }
 
 function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, includeImages = true } = {}) {
@@ -831,9 +791,6 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
         kind,
         title: String(v.title || fallback.title).slice(0, 160),
         alt_text: String(v.alt_text || fallback.alt_text).slice(0, 260),
-        mermaid_code: kind === 'illustration' && typeof v.mermaid_code === 'string' && v.mermaid_code.trim()
-          ? (isWeakMermaidCode(v.mermaid_code) ? buildSectionMermaidFallback(sectionTitle) : v.mermaid_code.trim())
-          : undefined,
         image_url: typeof v.image_url === 'string' && v.image_url.trim()
           ? v.image_url
           : fallback.image_url,
@@ -1079,11 +1036,11 @@ async function buildPptx(content, options = {}) {
     const sec = sections[i];
     const heading = getSectionAssertion(sec);
     const body = getSectionBody(sec) || getSectionSupport(sec);
-
-    const imageVisual = (sec.visuals || []).find(v => v.image_url && String(v.image_url).trim());
-    const mermaidVisual = (sec.visuals || []).find(v => v.mermaid_code && String(v.mermaid_code).trim());
+    const visuals = Array.isArray(sec.visuals) ? sec.visuals : [];
+    const imageVisual = visuals.find(v => v.image_url && String(v.image_url).trim());
 
     const slide = pptx.addSlide();
+    const layoutVariant = i % 3; // rotate layouts for less uniform output
 
     // Title
     slide.addText(heading, {
@@ -1096,42 +1053,71 @@ async function buildPptx(content, options = {}) {
     const bulletText = paras.map(p => p.length > 220 ? p.slice(0, 217) + '\u2026' : p).join('\n');
 
     if (imageVisual) {
-      // Two-column: bullets left (~55 %), image right (~42 %)
-      const textW = contentW * 0.55;
-      const imgX = m + textW + 0.2;
-      const imgW = contentW - textW - 0.2;
-
-      slide.addText(bulletText, {
-        x: m, y: BODY_Y, w: textW, h: BODY_H,
-        fontSize: 14, valign: 'top', wrap: true, color: textColor,
-        bullet: { type: 'bullet', indent: 10 }
-      });
-
       const imgUrl = imageVisual.image_url;
       const imgSpec = imgUrl.startsWith('data:') ? { data: imgUrl } : { url: imgUrl };
-      slide.addImage({
-        ...imgSpec,
-        x: imgX, y: BODY_Y, w: imgW, h: BODY_H - 0.3,
-        sizing: { type: 'contain', w: imgW, h: BODY_H - 0.3 }
-      });
+
+      if (layoutVariant === 0) {
+        // Split: text left, image right
+        const textW = contentW * 0.55;
+        const imgX = m + textW + 0.2;
+        const imgW = contentW - textW - 0.2;
+        slide.addText(bulletText, {
+          x: m, y: BODY_Y, w: textW, h: BODY_H,
+          fontSize: 14, valign: 'top', wrap: true, color: textColor,
+          bullet: { type: 'bullet', indent: 10 }
+        });
+        slide.addImage({
+          ...imgSpec,
+          x: imgX, y: BODY_Y, w: imgW, h: BODY_H - 0.3,
+          sizing: { type: 'contain', w: imgW, h: BODY_H - 0.3 }
+        });
+      } else if (layoutVariant === 1) {
+        // Hero image top, text band below
+        const imgH = BODY_H * 0.56;
+        slide.addImage({
+          ...imgSpec,
+          x: m, y: BODY_Y, w: contentW, h: imgH,
+          sizing: { type: 'cover', w: contentW, h: imgH }
+        });
+        slide.addShape(pptx.ShapeType.rect, {
+          x: m, y: BODY_Y + imgH + 0.1, w: contentW, h: BODY_H - imgH - 0.1,
+          fill: { color: 'F8FAFC', transparency: 8 },
+          line: { color: accentColor, transparency: 65, pt: 1 }
+        });
+        slide.addText(bulletText, {
+          x: m + 0.15, y: BODY_Y + imgH + 0.2, w: contentW - 0.3, h: BODY_H - imgH - 0.3,
+          fontSize: 13, valign: 'top', wrap: true, color: textColor,
+          bullet: { type: 'bullet', indent: 10 }
+        });
+      } else {
+        // Split: image left, text right
+        const imgW = contentW * 0.45;
+        const textX = m + imgW + 0.2;
+        const textW = contentW - imgW - 0.2;
+        slide.addImage({
+          ...imgSpec,
+          x: m, y: BODY_Y, w: imgW, h: BODY_H - 0.3,
+          sizing: { type: 'contain', w: imgW, h: BODY_H - 0.3 }
+        });
+        slide.addText(bulletText, {
+          x: textX, y: BODY_Y, w: textW, h: BODY_H,
+          fontSize: 14, valign: 'top', wrap: true, color: textColor,
+          bullet: { type: 'bullet', indent: 10 }
+        });
+      }
+
       if (imageVisual.title) {
         slide.addText(imageVisual.title, {
-          x: imgX, y: BODY_Y + BODY_H - 0.3, w: imgW, h: 0.28,
+          x: m, y: h - m - 0.28, w: contentW, h: 0.28,
           fontSize: 9, align: 'center', italic: true, wrap: true, color: accentColor
         });
       }
     } else {
       slide.addText(bulletText, {
-        x: m, y: BODY_Y, w: contentW, h: BODY_H - (mermaidVisual ? 0.4 : 0),
+        x: m, y: BODY_Y, w: contentW, h: BODY_H,
         fontSize: 14, valign: 'top', wrap: true, color: textColor,
         bullet: { type: 'bullet', indent: 10 }
       });
-      if (mermaidVisual) {
-        slide.addText(`[Diagram: ${mermaidVisual.title || 'see interactive version'}]`, {
-          x: m, y: h - m - 0.35, w: contentW, h: 0.32,
-          fontSize: 10, italic: true, valign: 'middle', wrap: true, color: accentColor
-        });
-      }
     }
   }
 
