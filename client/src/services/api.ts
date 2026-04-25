@@ -1397,6 +1397,8 @@ export const contentAPI = {
       suggested_sections?: number;
       detected_outline_items?: number;
       inference_note?: string;
+      confidence?: 'high' | 'medium' | 'low';
+      inference_method?: 'ai' | 'heuristic';
     }>('/content/topics/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });

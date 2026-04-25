@@ -14,6 +14,7 @@ const yauzl = require('yauzl');
 const { query } = require('../database/connection');
 const { requireAuth, requireFeature } = require('../middleware/auth');
 const contentService = require('../services/contentService');
+const aiService = require('../services/aiService');
 const feedbackVideoService = require('../services/feedbackVideoService');
 const { runContentPlannerCycle } = require('../services/contentPlannerService');
 const { buildContentScormPackage } = require('../services/contentExport');
@@ -444,7 +445,101 @@ function inferSuggestedSectionsFromText(rawText) {
     suggested_sections: suggested,
     detected_outline_items: directCount || headingInfluence || 0,
     inference_note: note,
+    confidence: directCount ? 'high' : 'medium',
+    inference_method: 'heuristic',
   };
+}
+
+function parseAiJsonObject(rawText) {
+  const text = String(rawText || '').trim();
+  if (!text) return null;
+  const cleaned = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace < 0 || lastBrace <= firstBrace) return null;
+  const jsonCandidate = cleaned.slice(firstBrace, lastBrace + 1);
+  try {
+    return JSON.parse(jsonCandidate);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function inferSuggestedSectionsWithAI(rawText, heuristicResult = null) {
+  const provider = aiService.openai ? 'openai' : aiService.anthropic ? 'anthropic' : null;
+  if (!provider) return null;
+
+  const taskCfg = aiConfig.getTaskConfig('contentGeneration', provider);
+  const model = taskCfg?.model || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku-20241022');
+  const preview = String(rawText || '').slice(0, 14000);
+  if (!preview.trim()) return null;
+
+  const heuristicSummary = heuristicResult
+    ? `Heuristic suggestion: ${heuristicResult.suggested_sections} sections; detected outline items: ${heuristicResult.detected_outline_items}.`
+    : '';
+
+  try {
+    const completion = await aiService.createCompletionWithRetry({
+      provider,
+      model,
+      temperature: 0.1,
+      maxTokens: 500,
+      messages: [
+        {
+          role: 'system',
+          content: 'You analyze academic teaching documents and estimate section/session count for lesson generation. Return ONLY a valid JSON object.'
+        },
+        {
+          role: 'user',
+          content: `Analyze the uploaded document text and estimate how many sections should be generated.
+
+Rules:
+- suggested_sections must be an integer from 1 to 20.
+- detected_outline_items must be an integer >= 0.
+- confidence must be one of: high, medium, low.
+- inference_note should briefly explain the evidence from document structure (sessions/modules/numbered outline/headings).
+- Prefer explicit document structure over length heuristics.
+
+${heuristicSummary}
+
+Return exactly this JSON shape:
+{
+  "suggested_sections": 8,
+  "detected_outline_items": 8,
+  "confidence": "high",
+  "inference_note": "Detected 8 explicit modules in the uploaded outline."
+}
+
+Document text:
+${preview}`
+        }
+      ],
+    }, 2);
+
+    const parsed = parseAiJsonObject(completion?.content);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const suggested = Math.max(1, Math.min(20, Number(parsed.suggested_sections) || 0));
+    if (!suggested) return null;
+    const outlineItems = Math.max(0, Number(parsed.detected_outline_items) || 0);
+    const confidence = ['high', 'medium', 'low'].includes(String(parsed.confidence).toLowerCase())
+      ? String(parsed.confidence).toLowerCase()
+      : 'medium';
+    const inferenceNote = String(parsed.inference_note || '').trim() || 'AI inferred section count from document structure.';
+    return {
+      suggested_sections: suggested,
+      detected_outline_items: outlineItems,
+      confidence,
+      inference_note: inferenceNote.slice(0, 260),
+      inference_method: 'ai',
+    };
+  } catch (error) {
+    console.warn('AI section inference failed, using heuristic fallback:', error?.message || error);
+    return null;
+  }
 }
 
 async function extractTextFromDocxBuffer(buffer) {
@@ -806,11 +901,15 @@ router.post('/topics/upload', requireAuth, requireFeature('content_creation'), (
         .trim()
         .slice(0, 20000);
 
+      const heuristic = inferSuggestedSectionsFromText(normalized);
+      const aiInferred = await inferSuggestedSectionsWithAI(normalized, heuristic);
+      const sectionInference = aiInferred || heuristic;
+
       return res.json({
         success: true,
         topics: normalized,
         file_name: originalName,
-        ...inferSuggestedSectionsFromText(normalized),
+        ...sectionInference,
       });
     } catch (error) {
       console.error('Content topics upload parse error:', error);

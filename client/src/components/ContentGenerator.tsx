@@ -801,7 +801,12 @@ const ContentGenerator: React.FC = () => {
       if (Number.isFinite(suggestedSections) && suggestedSections > 0) {
         const clamped = Math.max(1, Math.min(20, suggestedSections));
         setAutoSectionSuggestion(clamped);
-        setAutoSectionNote(String(res.data?.inference_note || ''));
+        const method = String(res.data?.inference_method || '').trim();
+        const confidence = String(res.data?.confidence || '').trim();
+        const prefix = method
+          ? `${method.toUpperCase()}${confidence ? ` (${confidence})` : ''}: `
+          : '';
+        setAutoSectionNote(`${prefix}${String(res.data?.inference_note || '')}`.trim());
         if (sectionMode === 'auto') {
           setNumSections(clamped);
         }
