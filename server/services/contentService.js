@@ -476,7 +476,7 @@ Respond with a JSON object only (no markdown), in this exact format:
   }
 }
 
-Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} Quiz questions must have options and correct_answer. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
+Rules: heading must be a complete sentence (message, not just a topic). support is brief. body has the full teaching content in academically appropriate language and structure. ${visualsRule} Quiz questions must have options and correct_answer. Do not use em dashes in any text fields. Ensure all ${numSections} sections are fully written and not truncated.${compact ? ' Keep the JSON lean and avoid extra prose outside the required fields.' : ''}`;
   const prompt = buildPrompt();
 
   const messages = [
@@ -837,6 +837,23 @@ function ensureSectionBodyText(section = {}, index = 0) {
   return fallbackParts.join('\n\n').trim();
 }
 
+function normalizeDashText(value) {
+  return String(value || '').replace(/[\u2013\u2014]/g, '-');
+}
+
+function normalizeQuizText(quiz = {}) {
+  const questions = Array.isArray(quiz?.questions) ? quiz.questions : [];
+  return {
+    ...quiz,
+    questions: questions.map((q) => ({
+      ...q,
+      question: normalizeDashText(q?.question || ''),
+      correct_answer: normalizeDashText(q?.correct_answer || ''),
+      options: Array.isArray(q?.options) ? q.options.map((opt) => normalizeDashText(opt)) : q?.options,
+    })),
+  };
+}
+
 function getTemplateById(templateId) {
   const key = String(templateId || 'classroom').trim().toLowerCase();
   return CONTENT_TEMPLATES[key] || CONTENT_TEMPLATES.classroom;
@@ -865,11 +882,13 @@ function applyTemplateToContent(content, templateId = 'classroom', uploadedTheme
 function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true, uploadedTheme = null } = {}) {
   const sections = Array.isArray(content.sections) ? content.sections : [];
   const normalizedSections = sections.map((section, index) => {
-    const heading = String(section.heading || section.title || `Section ${index + 1}`).trim();
+    const heading = normalizeDashText(String(section.heading || section.title || `Section ${index + 1}`).trim());
+    const support = normalizeDashText(String(section?.support || '').trim());
     const normalizedSection = {
       ...section,
       heading,
-      body: ensureSectionBodyText(section, index),
+      support,
+      body: normalizeDashText(ensureSectionBodyText(section, index)),
     };
     return {
       ...normalizedSection,
@@ -879,7 +898,10 @@ function normalizeGeneratedContent(content, templateId = 'classroom', { includeD
 
   const withSections = {
     ...content,
+    title: normalizeDashText(content?.title || ''),
+    instructions: normalizeDashText(content?.instructions || ''),
     sections: normalizedSections,
+    quiz: normalizeQuizText(content?.quiz || {}),
   };
   const selectedTemplateId = content?.template_id || templateId || 'classroom';
   return applyTemplateToContent(withSections, selectedTemplateId, uploadedTheme);
