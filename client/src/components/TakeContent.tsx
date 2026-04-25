@@ -701,48 +701,56 @@ const TakeContent: React.FC = () => {
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                     .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url);
                   const keyPoint = String((activeSection as any).support || (activeSection as any).heading || activeSection.title || 'Remember this point').trim();
-                  const companionSrc = pickPlayfulCompanion(currentSection, playfulAssetPool) || images[0]?.visual?.image_url || '';
+                  const mascotHeroSrc = pickPlayfulCompanion(currentSection * 2, playfulAssetPool) || '';
+                  const companionSrc = pickPlayfulCompanion(currentSection * 2 + 1, playfulAssetPool) || mascotHeroSrc || '';
 
                   if (isPlayfulTemplate) {
-                    const sideFigure = illustrations[0] || images[0] || null;
-                    const extraFigures = [...illustrations, ...images].filter((fig) => fig.figNum !== sideFigure?.figNum);
+                    const mainFigure = illustrations[0] || images[0] || null;
+                    const extraFigures = [...illustrations, ...images].filter((fig) => fig.figNum !== mainFigure?.figNum);
                     return (
                       <>
-                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[88px_minmax(0,1fr)]">
-                          <aside className="rounded-lg border border-slate-200 bg-slate-50 p-2 flex items-center justify-center">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 [writing-mode:vertical-rl] rotate-180">
-                              Nav · Section {Math.min(currentSection + 1, sectionCount)}
-                            </div>
-                          </aside>
-                          <div className="space-y-3">
+                        <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
                               <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
-                                {sideFigure?.visual?.image_url ? (
+                                {mainFigure?.visual?.image_url ? (
                                   <figure className="rounded-lg overflow-hidden">
-                                    <img src={toSecureSrc(sideFigure.visual.image_url)} onError={handleImageFallback} alt={sideFigure.visual.alt_text || sideFigure.visual.title || `Figure ${sideFigure.figNum}`} className="w-full object-contain max-h-52" />
+                                    <img src={toSecureSrc(mainFigure.visual.image_url)} onError={handleImageFallback} alt={mainFigure.visual.alt_text || mainFigure.visual.title || `Figure ${mainFigure.figNum}`} className="w-full object-contain max-h-52" />
                                     <figcaption className="px-3 py-2 text-xs text-slate-700 bg-white">
-                                      <span className="font-semibold">Figure {sideFigure.figNum}:</span> {sideFigure.visual.title}
+                                      <span className="font-semibold">Figure {mainFigure.figNum}:</span> {mainFigure.visual.title}
                                     </figcaption>
                                   </figure>
                                 ) : (
                                   <div className="h-32 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
-                                    Image placeholder
+                                    Main figure placeholder
                                   </div>
                                 )}
                               </div>
-                              <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[170px]">
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
-                                <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
-                                {companionSrc ? (
-                                  <img
-                                    src={toSecureSrc(companionSrc)}
-                                    onError={handleImageFallback}
-                                    alt=""
-                                    aria-hidden="true"
-                                    className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
-                                    draggable={false}
-                                  />
-                                ) : null}
+                              <div className="space-y-3">
+                                <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
+                                  {mascotHeroSrc ? (
+                                    <figure className="rounded-lg overflow-hidden">
+                                      <img src={toSecureSrc(mascotHeroSrc)} onError={handleImageFallback} alt="Mascot visual" className="w-full object-contain max-h-28" />
+                                    </figure>
+                                  ) : (
+                                    <div className="h-24 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                                      Mascot placeholder
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[170px]">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
+                                  <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
+                                  {companionSrc ? (
+                                    <img
+                                      src={toSecureSrc(companionSrc)}
+                                      onError={handleImageFallback}
+                                      alt=""
+                                      aria-hidden="true"
+                                      className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
+                                      draggable={false}
+                                    />
+                                  ) : null}
+                                </div>
                               </div>
                             </div>
                             <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 min-h-[240px]">
@@ -753,7 +761,6 @@ const TakeContent: React.FC = () => {
                                 dangerouslySetInnerHTML={{ __html: getSectionBodyHtml(activeSection as any) }}
                               />
                             </section>
-                          </div>
                         </div>
                         {extraFigures.map(({ visual, figNum }) => (
                           <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
@@ -936,3 +943,4 @@ const TakeContent: React.FC = () => {
 };
 
 export default TakeContent;
+
