@@ -1118,6 +1118,12 @@ const ContentGenerator: React.FC = () => {
     return buildContextualSectionBodyHtml(section, mode);
   };
 
+  const getSectionEditorHtml = (section: any) => {
+    const rich = getSectionBodyHtml(section);
+    if (String(rich || '').trim()) return rich;
+    return getSectionDisplayHtml(section);
+  };
+
   const uploadSectionBackground = (sectionIndex: number, file: File | null) => {
     if (!file) return;
     const reader = new FileReader();
@@ -2168,7 +2174,7 @@ const ContentGenerator: React.FC = () => {
                     </button>
                   </div>
                   <RichTextEditor
-                    value={getSectionBodyHtml(sec)}
+                    value={getSectionEditorHtml(sec)}
                     onChange={(html) => updateSectionBodyRich(i, html)}
                     placeholder="Section body"
                   />
