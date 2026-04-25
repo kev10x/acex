@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
-import RichTextEditor from './RichTextEditor';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import {
   buildContextualSectionBodyHtml,
   ContextualBlockLayout,
   getSectionBodyHtml,
   richHtmlToPlainText,
-  sanitizeRichTextHtml,
 } from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
@@ -1034,7 +1032,7 @@ const ContentGenerator: React.FC = () => {
       const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
       const nextSection = { ...section, [field]: value } as any;
       if (field === 'body') {
-        nextSection.body_html = sanitizeRichTextHtml(String((section as any).body_html || ''));
+        nextSection.body_html = '';
       }
       const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
       nextSection.visuals = visuals.map((visual: any) =>
@@ -1080,28 +1078,6 @@ const ContentGenerator: React.FC = () => {
     });
   };
 
-  const updateSectionBodyRich = (sectionIndex: number, html: string) => {
-    updateGeneratedContent((current) => {
-      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
-      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
-      const safeHtml = sanitizeRichTextHtml(html);
-      const plainBody = richHtmlToPlainText(safeHtml);
-      const nextSection = {
-        ...section,
-        body: plainBody,
-        body_html: safeHtml,
-      } as any;
-      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
-      nextSection.visuals = visuals.map((visual: any) =>
-        shouldAutoSyncVisualPrompt(visual, section)
-          ? { ...visual, prompt: buildVisualPromptFromContext(visual, nextSection) }
-          : visual
-      );
-      sections[sectionIndex] = nextSection;
-      return { ...current, sections };
-    });
-  };
-
   const updateSectionTextLayoutMode = (sectionIndex: number, mode: ContextualBlockLayout) => {
     updateGeneratedContent((current) => {
       const sections = Array.isArray(current.sections) ? [...current.sections] : [];
@@ -1123,7 +1099,7 @@ const ContentGenerator: React.FC = () => {
       const contextualHtml = buildContextualSectionBodyHtml(section, mode);
       sections[sectionIndex] = {
         ...section,
-        body_html: contextualHtml,
+        body_html: '',
         body: richHtmlToPlainText(contextualHtml),
       } as any;
       return { ...current, sections };
@@ -1137,9 +1113,11 @@ const ContentGenerator: React.FC = () => {
   };
 
   const getSectionEditorHtml = (section: any) => {
-    const rich = getSectionBodyHtml(section);
-    if (String(rich || '').trim()) return rich;
-    return getSectionDisplayHtml(section);
+    const plain = String(section?.body || '').trim();
+    if (plain) return plain;
+    const rich = richHtmlToPlainText(String(section?.body_html || ''));
+    if (String(rich || '').trim()) return String(rich || '');
+    return richHtmlToPlainText(getSectionDisplayHtml(section));
   };
 
   const getSectionDebugInfo = (section: any, sectionIndex: number) => {
@@ -1516,7 +1494,7 @@ const ContentGenerator: React.FC = () => {
           </div>
         </div>
 
-        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden" open={myContent.length > 0}>
+        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900">
             My published content links ({myContent.length})
           </summary>
@@ -1565,7 +1543,7 @@ const ContentGenerator: React.FC = () => {
           </div>
         </details>
 
-        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden" open={history.length > 0}>
+        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
             <History className="w-4 h-4" />
             Content generator history ({history.length})
@@ -1627,10 +1605,13 @@ const ContentGenerator: React.FC = () => {
         </details>
 
         {plannerJobs.length > 0 && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h3 className="text-sm font-semibold text-blue-900 mb-2">Planner queue</h3>
-            <ul className="space-y-2">
-              {plannerJobs.map((job) => {
+          <details className="mb-6 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-blue-900">
+              Planner queue ({plannerJobs.length})
+            </summary>
+            <div className="px-4 pb-4">
+              <ul className="space-y-2">
+                {plannerJobs.map((job) => {
                 const link = job.published_code
                   ? `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${job.published_code}`
                   : null;
@@ -1639,8 +1620,8 @@ const ContentGenerator: React.FC = () => {
                   job.status === 'failed' ? 'text-red-700' :
                   job.status === 'cancelled' ? 'text-gray-700' :
                   'text-blue-700';
-                return (
-                  <li key={job.id} className="text-sm text-gray-700 border border-blue-100 rounded p-2 bg-white">
+                  return (
+                    <li key={job.id} className="text-sm text-gray-700 border border-blue-100 rounded p-2 bg-white">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <span className="font-medium truncate max-w-[380px]" title={job.topics}>{job.topics}</span>
                       <span className={`text-xs font-semibold uppercase ${statusColor}`}>{job.status}</span>
@@ -1673,11 +1654,12 @@ const ContentGenerator: React.FC = () => {
                         </button>
                       )}
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </details>
         )}
 
         {error && (
@@ -2236,10 +2218,12 @@ const ContentGenerator: React.FC = () => {
                       Apply contextual blocks
                     </button>
                   </div>
-                  <RichTextEditor
+                  <textarea
                     value={getSectionEditorHtml(sec)}
-                    onChange={(html) => updateSectionBodyRich(i, html)}
+                    onChange={(e) => updateSectionField(i, 'body', e.target.value)}
                     placeholder="Section body"
+                    rows={10}
+                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm leading-relaxed focus:ring-2 focus:ring-teal-500"
                   />
                   <div className="flex flex-wrap gap-2">
                     <button
