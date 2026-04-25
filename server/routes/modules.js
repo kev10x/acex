@@ -3786,7 +3786,7 @@ router.post(
         temperature: contentConfig.temperature,
         max_tokens: contentConfig.maxTokens,
       });
-      let generatedContent = await contentService.generateContentWithAI({
+      let generatedContent = await contentService.generateContentWithAIResilient({
         topics: topicsPrompt,
         level: requestedLevel || 'level_7',
         numSections,

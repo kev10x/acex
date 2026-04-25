@@ -19,6 +19,17 @@ const XAI_TTS_ENDPOINT = 'https://api.x.ai/v1/tts';
 const XAI_TTS_DEFAULT_VOICE = 'eve';
 const XAI_TTS_MAX_CHARS = 15000;
 const TTS_TRANSLATION_MODEL = process.env.TTS_TRANSLATION_MODEL || 'gpt-4o-mini';
+const RESILIENT_CHUNK_SIZE = Math.max(2, Number.parseInt(process.env.CONTENT_RESILIENT_CHUNK_SIZE || '8', 10) || 8);
+const RESILIENT_CHUNK_THRESHOLD = Math.max(8, Number.parseInt(process.env.CONTENT_RESILIENT_CHUNK_THRESHOLD || '18', 10) || 18);
+const RESILIENT_CHUNK_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.CONTENT_RESILIENT_CHUNK_MAX_RETRIES || '3', 10) || 3);
+const RESILIENT_INTER_BATCH_DELAY_MS = Math.max(0, Number.parseInt(process.env.CONTENT_RESILIENT_INTER_BATCH_DELAY_MS || '700', 10) || 700);
+const RESILIENT_IMAGE_RETRIES = Math.max(1, Number.parseInt(process.env.CONTENT_IMAGE_RETRIES || '3', 10) || 3);
+const RESILIENT_IMAGE_RETRY_DELAY_MS = Math.max(150, Number.parseInt(process.env.CONTENT_IMAGE_RETRY_DELAY_MS || '450', 10) || 450);
+
+function sleep(ms) {
+  if (!ms || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function normalizeSpeechLanguage(language) {
   const normalized = String(language || 'en').trim().toLowerCase();
@@ -181,6 +192,20 @@ async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHead
   };
 }
 
+async function generateImageForVisualWithRetry(prompt, options = {}, retryOptions = {}) {
+  const attempts = Math.max(1, Number.parseInt(String(retryOptions.maxAttempts || RESILIENT_IMAGE_RETRIES), 10) || RESILIENT_IMAGE_RETRIES);
+  const baseDelayMs = Math.max(100, Number.parseInt(String(retryOptions.delayMs || RESILIENT_IMAGE_RETRY_DELAY_MS), 10) || RESILIENT_IMAGE_RETRY_DELAY_MS);
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const url = await generateImageForVisual(prompt, options);
+    if (url) return url;
+    if (attempt < attempts) {
+      await sleep(baseDelayMs * attempt);
+    }
+  }
+  return null;
+}
+
 function buildMascotPromptFromContext(mascot = {}, section = {}) {
   const parts = [
     section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
@@ -301,9 +326,15 @@ async function synthesizeSectionSpeech(text, { voiceId = XAI_TTS_DEFAULT_VOICE, 
  * After content generation, fill in image_url for every `image` visual using the configured image provider.
  * Runs in parallel per section, non-fatal (skips on error).
  */
-async function enrichContentWithImages(content) {
+async function enrichContentWithImages(content, options = {}) {
   const sections = content?.sections;
   if (!Array.isArray(sections)) return content;
+  const {
+    onProgress = null,
+    imageRetries = RESILIENT_IMAGE_RETRIES,
+    imageRetryDelayMs = RESILIENT_IMAGE_RETRY_DELAY_MS,
+    interBatchDelayMs = 120,
+  } = options || {};
 
   // Collect all visuals that need generation, cap concurrent image calls.
   const tasks = [];
@@ -325,21 +356,42 @@ async function enrichContentWithImages(content) {
     });
   });
 
+  let totalWork = tasks.length;
+  let completedWork = 0;
+  const reportProgress = (stage, extra = {}) => {
+    if (typeof onProgress !== 'function') return;
+    onProgress({
+      stage,
+      completed: completedWork,
+      total: totalWork,
+      ...extra,
+    });
+  };
+
   const results = new Map();
+  reportProgress('visual_images', { message: `Generating ${tasks.length} visual image(s).` });
   for (let i = 0; i < tasks.length; i += IMAGE_CONCURRENCY) {
     const batch = tasks.slice(i, i + IMAGE_CONCURRENCY);
     await Promise.all(
       batch.map(async (task) => {
-        const url = await generateImageForVisual(task.prompt, {
+        const url = await generateImageForVisualWithRetry(task.prompt, {
           title: task.title,
           sectionHeading: task.sectionHeading,
           sectionBody: task.sectionBody,
           contentTitle: task.contentTitle,
           visualKind: task.kind === 'illustration' ? 'illustration' : 'image',
+        }, {
+          maxAttempts: imageRetries,
+          delayMs: imageRetryDelayMs,
         });
         if (url) results.set(`${task.si}:${task.vi}`, url);
+        completedWork += 1;
       })
     );
+    reportProgress('visual_images');
+    if (i + IMAGE_CONCURRENCY < tasks.length) {
+      await sleep(interBatchDelayMs);
+    }
   }
 
   const mascotResults = new Map();
@@ -358,20 +410,30 @@ async function enrichContentWithImages(content) {
       contentTitle: content?.title || '',
     });
   });
+  totalWork = tasks.length + mascotTasks.length;
+  reportProgress('mascots', { message: `Generating ${mascotTasks.length} mascot image(s).` });
   for (let i = 0; i < mascotTasks.length; i += IMAGE_CONCURRENCY) {
     const batch = mascotTasks.slice(i, i + IMAGE_CONCURRENCY);
     await Promise.all(
       batch.map(async (task) => {
-        const url = await generateImageForVisual(task.prompt, {
+        const url = await generateImageForVisualWithRetry(task.prompt, {
           title: task.title,
           sectionHeading: task.sectionHeading,
           sectionBody: task.sectionBody,
           contentTitle: task.contentTitle,
           visualKind: 'mascot',
+        }, {
+          maxAttempts: imageRetries,
+          delayMs: imageRetryDelayMs,
         });
         if (url) mascotResults.set(`${task.si}`, url);
+        completedWork += 1;
       })
     );
+    reportProgress('mascots');
+    if (i + IMAGE_CONCURRENCY < mascotTasks.length) {
+      await sleep(interBatchDelayMs);
+    }
   }
 
   const enrichedSections = sections.map((section, si) => {
@@ -788,6 +850,185 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
     }
   }
   throw new Error(`Content generation failed: ${lastReason || 'no valid content from any configured model'}`);
+}
+
+async function generateContentWithAIResilient(opts = {}) {
+  const {
+    topics,
+    level = '',
+    numSections = 5,
+    rubricContext = '',
+    title: suggestedTitle = '',
+    templateId = 'classroom',
+    includeDiagrams = true,
+    includeImages = true,
+    includeMascot = false,
+    uploadedTheme = null,
+    forceChunking = false,
+    chunkSize = RESILIENT_CHUNK_SIZE,
+    chunkThreshold = RESILIENT_CHUNK_THRESHOLD,
+    maxChunkRetries = RESILIENT_CHUNK_MAX_RETRIES,
+    interBatchDelayMs = RESILIENT_INTER_BATCH_DELAY_MS,
+    onProgress = null,
+  } = opts;
+
+  const totalSections = Math.max(1, Number.parseInt(String(numSections || 5), 10) || 5);
+  const resolvedChunkSize = Math.max(2, Number.parseInt(String(chunkSize || RESILIENT_CHUNK_SIZE), 10) || RESILIENT_CHUNK_SIZE);
+  const resolvedChunkThreshold = Math.max(2, Number.parseInt(String(chunkThreshold || RESILIENT_CHUNK_THRESHOLD), 10) || RESILIENT_CHUNK_THRESHOLD);
+  const shouldChunk = forceChunking || totalSections > resolvedChunkThreshold;
+
+  if (!shouldChunk) {
+    return generateContentWithAI({
+      topics,
+      level,
+      numSections: totalSections,
+      rubricContext,
+      title: suggestedTitle,
+      templateId,
+      includeDiagrams,
+      includeImages,
+      includeMascot,
+      uploadedTheme,
+    });
+  }
+
+  const totalChunks = Math.ceil(totalSections / resolvedChunkSize);
+  const mergedSections = [];
+  const chunkResults = [];
+  let mergedTitle = String(suggestedTitle || '').trim();
+  let mergedInstructions = '';
+  let bestQuiz = null;
+
+  if (typeof onProgress === 'function') {
+    onProgress({
+      stage: 'planning',
+      total_chunks: totalChunks,
+      completed_chunks: 0,
+      generated_sections: 0,
+      total_sections: totalSections,
+      message: `Preparing chunked generation for ${totalSections} sections.`,
+    });
+  }
+
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const startSection = chunkIndex * resolvedChunkSize + 1;
+    const targetCount = Math.min(resolvedChunkSize, totalSections - mergedSections.length);
+    const endSection = startSection + targetCount - 1;
+    const previousHeadings = mergedSections
+      .map((section, idx) => `${idx + 1}. ${String(section?.heading || section?.title || '').trim()}`)
+      .filter(Boolean)
+      .slice(-18);
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        stage: 'text_generation',
+        total_chunks: totalChunks,
+        completed_chunks: chunkIndex,
+        current_chunk: chunkIndex + 1,
+        chunk_range: `${startSection}-${endSection}`,
+        generated_sections: mergedSections.length,
+        total_sections: totalSections,
+        message: `Generating sections ${startSection}-${endSection} of ${totalSections}.`,
+      });
+    }
+
+    let chunkContent = null;
+    let lastChunkError = null;
+    for (let attempt = 1; attempt <= maxChunkRetries; attempt += 1) {
+      try {
+        const chunkTopics = [
+          String(topics || '').trim(),
+          '',
+          `Generation job context: part ${chunkIndex + 1} of ${totalChunks} for a ${totalSections}-section course.`,
+          `Generate exactly ${targetCount} sections for this part (sections ${startSection} to ${endSection}).`,
+          previousHeadings.length
+            ? `Already generated sections (avoid repeating these):\n${previousHeadings.join('\n')}`
+            : '',
+          'Keep conceptual continuity with prior sections, but do not restate previous headings verbatim.',
+        ].filter(Boolean).join('\n');
+
+        chunkContent = await generateContentWithAI({
+          topics: chunkTopics,
+          level,
+          numSections: targetCount,
+          rubricContext,
+          title: mergedTitle || suggestedTitle || '',
+          templateId,
+          includeDiagrams,
+          includeImages: false,
+          includeMascot: false,
+          uploadedTheme,
+        });
+
+        const chunkSections = Array.isArray(chunkContent?.sections) ? chunkContent.sections.slice(0, targetCount) : [];
+        if (chunkSections.length < targetCount) {
+          throw new Error(`Chunk returned ${chunkSections.length}/${targetCount} sections`);
+        }
+        chunkContent = { ...chunkContent, sections: chunkSections };
+        lastChunkError = null;
+        break;
+      } catch (error) {
+        lastChunkError = error;
+        if (attempt < maxChunkRetries) {
+          const retryDelay = interBatchDelayMs + attempt * 300;
+          await sleep(retryDelay);
+        }
+      }
+    }
+
+    if (!chunkContent) {
+      throw new Error(
+        `Chunk generation failed for sections ${startSection}-${endSection}: ${lastChunkError?.message || 'Unknown error'}`
+      );
+    }
+
+    if (!mergedTitle) {
+      mergedTitle = String(chunkContent.title || suggestedTitle || 'Course Content').trim();
+    }
+    if (!mergedInstructions) {
+      mergedInstructions = String(chunkContent.instructions || '').trim();
+    }
+    const chunkQuiz = chunkContent?.quiz;
+    const chunkQuizLen = Array.isArray(chunkQuiz?.questions) ? chunkQuiz.questions.length : 0;
+    const bestQuizLen = Array.isArray(bestQuiz?.questions) ? bestQuiz.questions.length : 0;
+    if (chunkQuizLen > bestQuizLen) {
+      bestQuiz = chunkQuiz;
+    }
+
+    mergedSections.push(...chunkContent.sections);
+    chunkResults.push(chunkContent);
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        stage: 'text_generation',
+        total_chunks: totalChunks,
+        completed_chunks: chunkIndex + 1,
+        current_chunk: chunkIndex + 1,
+        chunk_range: `${startSection}-${endSection}`,
+        generated_sections: mergedSections.length,
+        total_sections: totalSections,
+        message: `Completed sections ${startSection}-${endSection}.`,
+      });
+    }
+
+    if (chunkIndex < totalChunks - 1) {
+      await sleep(interBatchDelayMs);
+    }
+  }
+
+  const merged = {
+    title: mergedTitle || String(chunkResults?.[0]?.title || suggestedTitle || 'Course Content').trim(),
+    instructions: mergedInstructions || String(chunkResults?.[0]?.instructions || '').trim(),
+    sections: mergedSections.slice(0, totalSections),
+    quiz: bestQuiz || {},
+  };
+
+  return normalizeGeneratedContent(merged, templateId, {
+    includeDiagrams,
+    includeImages,
+    includeMascot,
+    uploadedTheme,
+  });
 }
 
 function stableColorFromText(seed) {
@@ -1381,6 +1622,7 @@ function escapeHtml(text) {
 
 module.exports = {
   generateContentWithAI,
+  generateContentWithAIResilient,
   enrichContentWithImages,
   regenerateVisualWithGrok,
   regenerateMascotWithGrok,

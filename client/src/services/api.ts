@@ -1340,7 +1340,7 @@ export const contentAPI = {
     include_diagrams?: boolean;
     include_images?: boolean;
     include_mascot?: boolean;
-  }) => api.post<{ success: boolean; content: GeneratedContent; generation_trace?: GenerationTrace | null }>('/content/generate', data),
+  }) => api.post<{ success: boolean; content: GeneratedContent; generation_trace?: GenerationTrace | null; generation_job_id?: number | null }>('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
     api.post('/content/publish', data),
   getMy: () => api.get<{ success: boolean; items: PublishedContentItem[] }>('/content/my'),

@@ -4,6 +4,8 @@ const contentService = require('./contentService');
 
 const POLL_INTERVAL_MS = Math.max(5000, Number(process.env.CONTENT_PLANNER_POLL_INTERVAL_MS || 15000));
 const CLAIM_LIMIT = Math.max(1, Number(process.env.CONTENT_PLANNER_CLAIM_LIMIT || 5));
+const PLANNER_CONCURRENCY = Math.max(1, Number(process.env.CONTENT_PLANNER_CONCURRENCY || 1));
+const MAX_CONTENT_SECTIONS = Math.max(20, Number.parseInt(process.env.CONTENT_MAX_SECTIONS || '120', 10) || 120);
 
 let plannerTimer = null;
 let cycleInProgress = false;
@@ -92,7 +94,7 @@ async function publishGeneratedContent(userId, rubricId, content) {
 async function processPlannerJob(job) {
   await updatePlannerJobStatus(job.id, 'processing', { error_message: null });
 
-  const numSections = Math.min(Math.max(parseInt(String(job.num_sections || 5), 10) || 5, 1), 20);
+  const numSections = Math.min(Math.max(parseInt(String(job.num_sections || 5), 10) || 5, 1), MAX_CONTENT_SECTIONS);
   let rubricContext = String(job.rubric_context || '');
   if (!rubricContext && job.rubric_id) {
     const rubricResult = isMySQL()
@@ -115,7 +117,7 @@ async function processPlannerJob(job) {
   const includeImages = job.include_images !== false && job.include_images !== 0;
   const includeMascot = job.include_mascot === true || job.include_mascot === 1;
 
-  let generated = await contentService.generateContentWithAI({
+  let generated = await contentService.generateContentWithAIResilient({
     topics: String(job.topics || '').trim(),
     level: String(job.level || ''),
     numSections,
@@ -125,7 +127,7 @@ async function processPlannerJob(job) {
     includeImages,
     includeMascot,
   });
-  if (includeImages || includeMascot) {
+  if (includeDiagrams || includeImages || includeMascot) {
     generated = await contentService.enrichContentWithImages(generated);
   }
   const normalizedContent = contentService.normalizeGeneratedContent(generated, job.template_id || 'classroom', {
@@ -170,15 +172,33 @@ async function runContentPlannerCycle() {
   cycleInProgress = true;
   try {
     const jobs = await claimDueJobs();
-    await Promise.all(
-      jobs.map((job) =>
-        processPlannerJob(job).catch(async (error) => {
+    if (PLANNER_CONCURRENCY <= 1) {
+      for (const job of jobs) {
+        try {
+          await processPlannerJob(job);
+        } catch (error) {
           await updatePlannerJobStatus(job.id, 'failed', {
             error_message: String(error?.message || 'Planner job failed').slice(0, 2000),
           });
-        })
-      )
-    );
+        }
+      }
+    } else {
+      const queue = jobs.slice();
+      const workers = Array.from({ length: Math.min(PLANNER_CONCURRENCY, queue.length) }, () => (async () => {
+        while (queue.length > 0) {
+          const job = queue.shift();
+          if (!job) break;
+          try {
+            await processPlannerJob(job);
+          } catch (error) {
+            await updatePlannerJobStatus(job.id, 'failed', {
+              error_message: String(error?.message || 'Planner job failed').slice(0, 2000),
+            });
+          }
+        }
+      })());
+      await Promise.all(workers);
+    }
   } finally {
     cycleInProgress = false;
   }

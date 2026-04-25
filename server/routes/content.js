@@ -31,6 +31,7 @@ const { resolvePromptRegistryVersion } = require('../services/promptRegistryServ
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
+const MAX_CONTENT_SECTIONS = Math.max(20, Number.parseInt(process.env.CONTENT_MAX_SECTIONS || '120', 10) || 120);
 const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos');
 const CONTENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'content-audio');
 const CONTENT_TTS_VOICES = ['eve', 'ara', 'leo', 'rex', 'sal'];
@@ -410,7 +411,7 @@ function inferSuggestedSectionsFromText(rawText) {
     .filter(Boolean);
 
   const sessionLike = lines.filter((line) =>
-    /^(session|lesson|week|module|unit)\s*\d+[\s:.-]/i.test(line) ||
+    /^(slide|session|lesson|week|module|unit)\s*\d+[\s:.-]/i.test(line) ||
     /^\d+[\).:-]\s+\S+/.test(line)
   );
 
@@ -418,9 +419,9 @@ function inferSuggestedSectionsFromText(rawText) {
     /^([A-Z][A-Za-z0-9 ,:'"()/-]{8,}|#+\s+\S.*)$/.test(line) && line.length <= 120
   );
 
-  const enumeratedInBody = (text.match(/\b(session|lesson|week|module|unit)\s+\d+\b/gi) || []).length;
+  const enumeratedInBody = (text.match(/\b(slide|session|lesson|week|module|unit)\s+\d+\b/gi) || []).length;
   const uniqueSessionLike = Array.from(new Set(sessionLike.map((s) => s.toLowerCase())));
-  const directCount = Math.max(uniqueSessionLike.length, Math.min(enumeratedInBody, 20));
+  const directCount = Math.max(uniqueSessionLike.length, Math.min(enumeratedInBody, MAX_CONTENT_SECTIONS));
 
   const fallbackByLength = (() => {
     const words = text.split(/\s+/).filter(Boolean).length;
@@ -431,14 +432,14 @@ function inferSuggestedSectionsFromText(rawText) {
     return 12;
   })();
 
-  const headingInfluence = Math.min(headingLike.length, 20);
+  const headingInfluence = Math.min(headingLike.length, MAX_CONTENT_SECTIONS);
   const suggested = Math.max(
     1,
-    Math.min(20, directCount || Math.max(3, Math.min(headingInfluence, fallbackByLength)))
+    Math.min(MAX_CONTENT_SECTIONS, directCount || Math.max(3, Math.min(headingInfluence, fallbackByLength)))
   );
 
   const note = directCount
-    ? `Detected ${directCount} session-like items from uploaded text.`
+    ? `Detected ${directCount} slide/session-like items from uploaded text.`
     : `No explicit session list found. Estimated ${suggested} sections from outline/length.`;
 
   return {
@@ -498,7 +499,7 @@ async function inferSuggestedSectionsWithAI(rawText, heuristicResult = null) {
           content: `Analyze the uploaded document text and estimate how many sections should be generated.
 
 Rules:
-- suggested_sections must be an integer from 1 to 20.
+- suggested_sections must be an integer from 1 to ${MAX_CONTENT_SECTIONS}.
 - detected_outline_items must be an integer >= 0.
 - confidence must be one of: high, medium, low.
 - inference_note should briefly explain the evidence from document structure (sessions/modules/numbered outline/headings).
@@ -522,7 +523,7 @@ ${preview}`
 
     const parsed = parseAiJsonObject(completion?.content);
     if (!parsed || typeof parsed !== 'object') return null;
-    const suggested = Math.max(1, Math.min(20, Number(parsed.suggested_sections) || 0));
+    const suggested = Math.max(1, Math.min(MAX_CONTENT_SECTIONS, Number(parsed.suggested_sections) || 0));
     if (!suggested) return null;
     const outlineItems = Math.max(0, Number(parsed.detected_outline_items) || 0);
     const confidence = ['high', 'medium', 'low'].includes(String(parsed.confidence).toLowerCase())
@@ -645,6 +646,8 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
   const projectedCostUsd = 0.12;
   let promptTrace = null;
   let generationJobId = null;
+  let lastProgressPercent = -1;
+  let lastProgressEmitMs = 0;
   const telemetryBase = {
     event: 'content_generate',
     generation_type: 'content_generation',
@@ -655,7 +658,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       rubric_id: req.body?.rubric_id || null,
       template_id: req.body?.template_id || 'classroom',
       level: String(req.body?.level || '').trim() || null,
-      num_sections: parseClampedInt(req.body?.num_sections, 5, 1, 20),
+      num_sections: parseClampedInt(req.body?.num_sections, 5, 1, MAX_CONTENT_SECTIONS),
       include_diagrams: req.body?.include_diagrams !== false,
       include_images: req.body?.include_images !== false,
       include_mascot: req.body?.include_mascot === true,
@@ -690,6 +693,45 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     if (generationJobId) {
       await updateGenerationJob(generationJobId, { started_at: new Date() });
     }
+
+    const reportJobProgress = (progress = {}) => {
+      if (!generationJobId) return;
+      const percent = Math.max(0, Math.min(99, Number(progress?.percent || 0)));
+      const now = Date.now();
+      const allowEmit =
+        percent >= 99 ||
+        percent >= lastProgressPercent + 2 ||
+        (now - lastProgressEmitMs) > 1200;
+      if (!allowEmit) return;
+      lastProgressPercent = Math.max(lastProgressPercent, percent);
+      lastProgressEmitMs = now;
+      updateGenerationJob(generationJobId, {
+        result: {
+          success: false,
+          progress: {
+            stage: String(progress?.stage || 'content_generation'),
+            task: String(progress?.task || 'content'),
+            percent,
+            label: String(progress?.label || 'Generating content'),
+            detail: String(progress?.detail || '').slice(0, 260),
+            generated_sections: Number(progress?.generated_sections || 0) || 0,
+            total_sections: Number(progress?.total_sections || 0) || 0,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      }).catch((err) => {
+        console.warn('[content] Failed to persist generation progress:', err?.message || err);
+      });
+    };
+
+    reportJobProgress({
+      stage: 'planning',
+      task: 'content',
+      percent: 6,
+      label: 'Preparing generation request',
+      detail: 'Validating request and budget.',
+    });
+
     promptTrace = await resolvePromptRegistryVersion({
       user_id: req.user.id,
       generation_type: 'content_generation',
@@ -704,6 +746,16 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     if (!topics || !String(topics).trim()) {
       return res.status(400).json({ error: 'topics is required' });
     }
+    const requestedSections = Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), MAX_CONTENT_SECTIONS);
+    reportJobProgress({
+      stage: 'planning',
+      task: 'content',
+      percent: 12,
+      label: 'Building generation plan',
+      detail: `Preparing ${requestedSections} section(s).`,
+      generated_sections: 0,
+      total_sections: requestedSections,
+    });
     let rubricContext = rubric_context || '';
     if (rubric_id && !rubric_context) {
       const q = isMySQL()
@@ -729,23 +781,108 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       const dbId = String(template_id).replace(/^uploaded:/i, '');
       templateImageUrls = listTemplateImageUrls(dbId, getRequestBaseUrl(req));
     }
-    let content = await contentService.generateContentWithAI({
+    let content = await contentService.generateContentWithAIResilient({
       topics: String(topics).trim(),
       level: level || '',
-      numSections: Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), 20),
+      numSections: requestedSections,
       rubricContext,
       templateId: template_id,
       includeDiagrams: include_diagrams !== false,
       includeImages: include_images !== false,
       includeMascot: include_mascot === true,
       uploadedTheme,
+      onProgress: (progress) => {
+        const stage = String(progress?.stage || '');
+        const totalSections = Number(progress?.total_sections || requestedSections) || requestedSections;
+        const generatedSections = Number(progress?.generated_sections || 0) || 0;
+        if (stage === 'planning') {
+          reportJobProgress({
+            stage: 'planning',
+            task: 'content',
+            percent: 16,
+            label: 'Planning sections',
+            detail: String(progress?.message || 'Structuring the lesson outline.'),
+            generated_sections: generatedSections,
+            total_sections: totalSections,
+          });
+          return;
+        }
+        if (stage === 'text_generation') {
+          const ratio = totalSections > 0 ? Math.max(0, Math.min(1, generatedSections / totalSections)) : 0;
+          const percent = 20 + ratio * 56;
+          const currentChunk = Number(progress?.current_chunk || 0) || 0;
+          const totalChunks = Number(progress?.total_chunks || 0) || 0;
+          const chunkRange = String(progress?.chunk_range || '').trim();
+          const chunkPrefix = currentChunk > 0 && totalChunks > 0
+            ? `Chunk ${currentChunk}/${totalChunks}${chunkRange ? ` (Sections ${chunkRange})` : ''}. `
+            : '';
+          reportJobProgress({
+            stage: 'text_generation',
+            task: 'content',
+            percent,
+            label: 'Generating sections',
+            detail: `${chunkPrefix}${String(progress?.message || `Generated ${generatedSections}/${totalSections} sections.`)}`.trim(),
+            generated_sections: generatedSections,
+            total_sections: totalSections,
+          });
+          return;
+        }
+      },
     });
     if (templateImageUrls.length > 0) {
       content = injectTemplateImages(content, templateImageUrls);
     }
-    if (include_images !== false || include_mascot === true) {
-      content = await contentService.enrichContentWithImages(content);
+    if (include_diagrams !== false || include_images !== false || include_mascot === true) {
+      reportJobProgress({
+        stage: 'visual_generation',
+        task: include_mascot === true ? 'mascot' : 'visual',
+        percent: 78,
+        label: 'Generating visuals',
+        detail: 'Creating image assets for sections.',
+        generated_sections: requestedSections,
+        total_sections: requestedSections,
+      });
+      content = await contentService.enrichContentWithImages(content, {
+        onProgress: (progress) => {
+          const stage = String(progress?.stage || '');
+          const completed = Number(progress?.completed || 0) || 0;
+          const total = Number(progress?.total || 0) || 0;
+          const ratio = total > 0 ? Math.max(0, Math.min(1, completed / total)) : 0;
+          if (stage === 'visual_images') {
+            reportJobProgress({
+              stage: 'visual_generation',
+              task: 'visual',
+              percent: 78 + ratio * 14,
+              label: 'Generating visuals',
+              detail: String(progress?.message || `Generated visual assets ${completed}/${total}.`),
+              generated_sections: requestedSections,
+              total_sections: requestedSections,
+            });
+            return;
+          }
+          if (stage === 'mascots') {
+            reportJobProgress({
+              stage: 'mascot_generation',
+              task: 'mascot',
+              percent: 88 + ratio * 8,
+              label: 'Generating mascots',
+              detail: String(progress?.message || `Generated mascot assets ${completed}/${total}.`),
+              generated_sections: requestedSections,
+              total_sections: requestedSections,
+            });
+          }
+        },
+      });
     }
+    reportJobProgress({
+      stage: 'finalizing',
+      task: 'content',
+      percent: 98,
+      label: 'Finalizing response',
+      detail: 'Preparing content payload.',
+      generated_sections: Array.isArray(content?.sections) ? content.sections.length : requestedSections,
+      total_sections: requestedSections,
+    });
     const successPayload = {
       ...telemetryBase,
       status: 'success',
@@ -1468,7 +1605,7 @@ router.post('/planner/schedule', requireAuth, requireFeature('content_creation')
       return res.status(400).json({ error: 'scheduled_for must be now or a future datetime' });
     }
 
-    const maxSections = Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), 20);
+    const maxSections = Math.min(Math.max(parseInt(num_sections, 10) || 5, 1), MAX_CONTENT_SECTIONS);
     const dbScheduled = scheduleTime.toISOString().slice(0, 19).replace('T', ' ');
 
     let insert;

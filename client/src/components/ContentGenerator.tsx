@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
 import RichTextEditor from './RichTextEditor';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { getSectionBodyHtml, richHtmlToPlainText, sanitizeRichTextHtml } from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
+const SECTION_COUNT_MAX = 120;
 const isDiagramVisual = (visual: any) =>
   ['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(String(visual?.kind || '').trim().toLowerCase());
 const hasVisualSource = (visual: any) =>
@@ -159,6 +160,9 @@ const ContentGenerator: React.FC = () => {
   const recoveredContentJobIdRef = useRef<number | null>(null);
   const generationProgressTimerRef = useRef<number | null>(null);
   const generationProgressHideTimerRef = useRef<number | null>(null);
+  const generationJobPollTimerRef = useRef<number | null>(null);
+  const activeGenerationJobIdRef = useRef<number | null>(null);
+  const generationJobPollBusyRef = useRef(false);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
@@ -272,6 +276,14 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
+  const clearGenerationJobPoller = () => {
+    if (generationJobPollTimerRef.current) {
+      window.clearInterval(generationJobPollTimerRef.current);
+      generationJobPollTimerRef.current = null;
+    }
+    generationJobPollBusyRef.current = false;
+  };
+
   const startGenerationProgress = (task: 'content' | 'visual' | 'mascot', opts?: { includeImages?: boolean; includeMascot?: boolean }) => {
     clearGenerationProgressTimer();
     const includeHeavyVisuals = !!opts?.includeImages || !!opts?.includeMascot;
@@ -352,8 +364,70 @@ const ContentGenerator: React.FC = () => {
     }));
   };
 
+  const mapBackendProgressToUi = (progress: any) => {
+    if (!progress || typeof progress !== 'object') return;
+    const percent = Number(progress.percent || 0);
+    const label = String(progress.label || '').trim();
+    const detail = String(progress.detail || '').trim();
+    const taskRaw = String(progress.task || '').toLowerCase();
+    const task: 'content' | 'visual' | 'mascot' =
+      taskRaw === 'mascot' ? 'mascot' : taskRaw === 'visual' ? 'visual' : 'content';
+    setGenerationProgress((prev) => ({
+      ...prev,
+      active: true,
+      task,
+      percent: Math.max(prev.percent, Math.min(99, Number.isFinite(percent) ? percent : prev.percent)),
+      label: label || prev.label || 'Generating content',
+      detail: detail || prev.detail,
+    }));
+  };
+
+  const chooseLikelyActiveContentJob = (items: GenerationJobItem[]) => {
+    const now = Date.now();
+    const candidates = (Array.isArray(items) ? items : [])
+      .filter((job) => job?.job_type === 'content_generation')
+      .filter((job) => ['scheduled', 'processing', 'retrying', 'completed'].includes(String(job?.status || '')))
+      .sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
+    if (!candidates.length) return null;
+    if (activeGenerationJobIdRef.current) {
+      const exact = candidates.find((job) => Number(job.id) === Number(activeGenerationJobIdRef.current));
+      if (exact) return exact;
+    }
+    const fresh = candidates.find((job) => {
+      const createdAt = new Date(job?.created_at || 0).getTime();
+      return Number.isFinite(createdAt) && createdAt > now - 15 * 60 * 1000;
+    });
+    return fresh || candidates[0];
+  };
+
+  const pollGenerationJobProgress = async () => {
+    if (generationJobPollBusyRef.current) return;
+    generationJobPollBusyRef.current = true;
+    try {
+      const res = await modulesAPI.getGenerationJobs({ limit: 20, scope: 'mine' });
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const job = chooseLikelyActiveContentJob(items);
+      if (!job) return;
+      activeGenerationJobIdRef.current = Number(job.id) || activeGenerationJobIdRef.current;
+      mapBackendProgressToUi(job?.result?.progress || null);
+    } catch (_) {
+      // best effort polling only
+    } finally {
+      generationJobPollBusyRef.current = false;
+    }
+  };
+
+  const startGenerationJobPoller = () => {
+    clearGenerationJobPoller();
+    pollGenerationJobProgress();
+    generationJobPollTimerRef.current = window.setInterval(() => {
+      pollGenerationJobProgress();
+    }, 1500);
+  };
+
   const completeGenerationProgress = (success: boolean, message?: string) => {
     clearGenerationProgressTimer();
+    clearGenerationJobPoller();
     setGenerationProgress((prev) => ({
       ...prev,
       active: true,
@@ -376,6 +450,7 @@ const ContentGenerator: React.FC = () => {
   useEffect(() => {
     return () => {
       clearGenerationProgressTimer();
+      clearGenerationJobPoller();
     };
   }, []);
 
@@ -494,7 +569,7 @@ const ContentGenerator: React.FC = () => {
     setTopics(input.topics || '');
     setTeachingGoal(input.teaching_goal || '');
     setLevel(normalizeEducationLevelValue(input.level || '', ''));
-    setNumSections(input.num_sections || 5);
+    setNumSections(Math.max(1, Math.min(SECTION_COUNT_MAX, input.num_sections || 5)));
     setRubricId(input.rubric_id || null);
     setTemplateId(input.template_id || 'classroom');
     setIncludeDiagrams(input.include_diagrams !== false);
@@ -737,7 +812,9 @@ const ContentGenerator: React.FC = () => {
     setActivePublishedContentCode(null);
     setGeneratedContent(null);
     setGenerationTrace(null);
+    activeGenerationJobIdRef.current = null;
     startGenerationProgress('content', { includeImages, includeMascot });
+    startGenerationJobPoller();
     try {
       let effectiveTemplateId = templateId;
       if (templateFile) {
@@ -763,6 +840,9 @@ const ContentGenerator: React.FC = () => {
         include_images: includeImages,
         include_mascot: includeMascot,
       });
+      if (Number.isFinite(Number(res.data?.generation_job_id))) {
+        activeGenerationJobIdRef.current = Number(res.data?.generation_job_id);
+      }
       if (res.data.success && res.data.content) {
         updateGenerationProgress(92, 'Finalizing response', 'Preparing editor preview');
         const contentWithSettings = withGenerationSettings(res.data.content);
@@ -781,6 +861,7 @@ const ContentGenerator: React.FC = () => {
       setError(e.response?.data?.error || e.message || 'Failed to generate content');
       completeGenerationProgress(false, e.response?.data?.error || e.message || 'Failed to generate content');
     } finally {
+      clearGenerationJobPoller();
       setIsGenerating(false);
     }
   };
@@ -799,7 +880,7 @@ const ContentGenerator: React.FC = () => {
       setTopics(parsedTopics);
       const suggestedSections = Number(res.data?.suggested_sections || 0);
       if (Number.isFinite(suggestedSections) && suggestedSections > 0) {
-        const clamped = Math.max(1, Math.min(20, suggestedSections));
+        const clamped = Math.max(1, Math.min(SECTION_COUNT_MAX, suggestedSections));
         setAutoSectionSuggestion(clamped);
         const method = String(res.data?.inference_method || '').trim();
         const confidence = String(res.data?.confidence || '').trim();
@@ -1576,9 +1657,12 @@ const ContentGenerator: React.FC = () => {
                 <input
                   type="number"
                   min={1}
-                  max={20}
+                  max={SECTION_COUNT_MAX}
                   value={numSections}
-                  onChange={(e) => setNumSections(parseInt(e.target.value, 10) || 5)}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10) || 5;
+                    setNumSections(Math.max(1, Math.min(SECTION_COUNT_MAX, value)));
+                  }}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
                 />
                 {sectionMode === 'auto' && (
@@ -1722,9 +1806,12 @@ const ContentGenerator: React.FC = () => {
                     <input
                       type="number"
                       min={1}
-                      max={20}
+                      max={SECTION_COUNT_MAX}
                       value={numSections}
-                      onChange={(e) => setNumSections(parseInt(e.target.value, 10) || 5)}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10) || 5;
+                        setNumSections(Math.max(1, Math.min(SECTION_COUNT_MAX, value)));
+                      }}
                       className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
                     />
                   </label>
