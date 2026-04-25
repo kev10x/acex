@@ -81,6 +81,9 @@ const dedupeFigures = (items: Array<{ visual: any; figNum: number }>) => {
   });
 };
 
+const isPlaceholderVisual = (visual: any) =>
+  String(visual?.image_url || '').trim().startsWith('data:image/svg+xml');
+
 const getSectionDisplayHtml = (section: any) => {
   const mode = String(section?.text_layout_mode || 'auto') as ContextualBlockLayout;
   if (mode === 'plain') return getSectionBodyHtml(section);
@@ -722,12 +725,16 @@ const TakeContent: React.FC = () => {
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                     .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url)
                   );
+                  const contextualIllustrations = illustrations.filter(({ visual }) => !isPlaceholderVisual(visual));
+                  const contextualImages = images.filter(({ visual }) => !isPlaceholderVisual(visual));
+                  const displayIllustrations = contextualIllustrations.length ? contextualIllustrations : illustrations;
+                  const displayImages = contextualImages.length ? contextualImages : images;
                   const keyPoint = String((activeSection as any).support || (activeSection as any).heading || activeSection.title || 'Remember this point').trim();
                   const mascotHeroSrc = String((activeSection as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(currentSection * 2, playfulAssetPool) || '';
 
                   if (isPlayfulTemplate) {
-                    const mainFigure = illustrations[0] || images[0] || null;
-                    const extraFigures = [...illustrations, ...images].filter((fig) => fig.figNum !== mainFigure?.figNum && fig.visual?.extra_figure === true);
+                    const mainFigure = displayIllustrations[0] || displayImages[0] || null;
+                    const extraFigures = [...displayIllustrations, ...displayImages].filter((fig) => fig.figNum !== mainFigure?.figNum && fig.visual?.extra_figure === true);
                     return (
                       <>
                         <div className="space-y-3">
@@ -787,7 +794,7 @@ const TakeContent: React.FC = () => {
 
                   return (
                     <>
-                      {illustrations.map(({ visual, figNum }) => (
+                      {displayIllustrations.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}>
                           {visual.image_url ? (
                             <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
@@ -802,7 +809,7 @@ const TakeContent: React.FC = () => {
                         style={{ color: content?.theme?.text_color || '#374151' }}
                         dangerouslySetInnerHTML={{ __html: getSectionDisplayHtml(activeSection as any) }}
                       />
-                      {images.map(({ visual, figNum }) => (
+                      {displayImages.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}>
                           <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>

@@ -129,7 +129,10 @@ export const plainTextToRichHtml = (input: string): string => {
 
 export const getSectionBodyHtml = (section: { body?: string; body_html?: string; support?: string; heading?: string; title?: string } | null | undefined): string => {
   const rich = String(section?.body_html || '').trim();
-  if (rich) return sanitizeRichTextHtml(rich);
+  if (rich) {
+    const richPlain = richHtmlToPlainText(rich);
+    if (richPlain) return sanitizeRichTextHtml(rich);
+  }
   const plain = String(section?.body || '').trim();
   if (plain) return plainTextToRichHtml(plain);
   const fallback = String(section?.support || section?.heading || section?.title || '').trim();

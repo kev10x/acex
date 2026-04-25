@@ -119,6 +119,9 @@ const dedupeFigureEntries = (entries: Array<{ visual: any; figNum: number; visua
   });
 };
 
+const isPlaceholderFigure = (visual: any) =>
+  String(visual?.image_url || '').trim().startsWith('data:image/svg+xml');
+
 const ContentGenerator: React.FC = () => {
   type StudioStep = 'plan' | 'generate' | 'polish';
   type SectionMode = 'manual' | 'auto';
@@ -2361,10 +2364,12 @@ const ContentGenerator: React.FC = () => {
                 {isPlayfulTemplate && (() => {
                   const figureList = sectionFigures[i] || [];
                   const imageFigures = dedupeFigureEntries(figureList.filter(({ visual }) => visual?.image_url));
-                  const diagramFigures = imageFigures.filter(({ visual }) => isDiagramVisual(visual));
-                  const sceneFigures = imageFigures.filter(({ visual }) => !isDiagramVisual(visual));
-                  const mainFigure = diagramFigures[0] || sceneFigures[0] || imageFigures[0] || null;
-                  const extraFigures = imageFigures.filter((f) => f.figureKey !== mainFigure?.figureKey && f.visual?.extra_figure === true);
+                  const contextualFigures = imageFigures.filter(({ visual }) => !isPlaceholderFigure(visual));
+                  const candidateFigures = contextualFigures.length ? contextualFigures : imageFigures;
+                  const diagramFigures = candidateFigures.filter(({ visual }) => isDiagramVisual(visual));
+                  const sceneFigures = candidateFigures.filter(({ visual }) => !isDiagramVisual(visual));
+                  const mainFigure = diagramFigures[0] || sceneFigures[0] || candidateFigures[0] || null;
+                  const extraFigures = candidateFigures.filter((f) => f.figureKey !== mainFigure?.figureKey && f.visual?.extra_figure === true);
                   const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
                   const mascotHeroSrc = String((sec as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(i * 2, playfulAssetPool) || '';
                   return (
