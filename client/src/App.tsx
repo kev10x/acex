@@ -44,6 +44,7 @@ const ModuleOrganizer = lazy(() => import('./components/ModuleOrganizer'));
 const StudentModules = lazy(() => import('./components/StudentModules'));
 const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'));
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
+const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
 
@@ -78,14 +79,15 @@ type TabType =
   | 'content'
   | 'modules'
   | 'moodle'
+  | 'slide-gen'
   | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
 type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
   student: ['modules', 'mcq', 'results']
 };
 
@@ -136,6 +138,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     label: 'Model Training',
     description: 'Export curated data for training and quality-improvement workflows.',
     icon: Brain
+  },
+  'slide-gen': {
+    label: 'Slide Populator',
+    description: 'Upload a PowerPoint template and let AI populate each slide with matching content.',
+    icon: Presentation
   },
   assessments: {
     label: 'Assessment Generator',
@@ -229,6 +236,7 @@ function WorkspaceShell({
       {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
+      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGenerator />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
@@ -297,7 +305,7 @@ function AppContent() {
       labs:
         normalizedRole === 'student'
           ? []
-          : (['mcq', 'training'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
+          : (['mcq', 'training', 'slide-gen'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
       admin: normalizedRole === 'management' ? (['admin'] as TabType[]) : []
     }),
     [allowAssessmentCreation, allowContentCreation, allowPracticalCreation, normalizedRole]

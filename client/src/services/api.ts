@@ -1482,6 +1482,44 @@ export const modulesAPI = {
     api.get<{ success: boolean; items: StudentHomeworkProgressItem[] }>('/modules/student/homework-progress'),
 };
 
+// ── Slide Template Populator (Labs) ──────────────────────────
+export type SlideType =
+  | 'title'
+  | 'learning_objectives'
+  | 'content'
+  | 'question'
+  | 'activity'
+  | 'summary'
+  | 'quiz'
+  | 'transition'
+  | 'unknown';
+
+export interface SlideAnalysis {
+  slideIndex: number;
+  slideType: SlideType;
+  description: string;
+  detectedText: string;
+}
+
+export const slideGenAPI = {
+  analyse: (file: File): Promise<{ sessionId: string; slideCount: number; slides: SlideAnalysis[] }> => {
+    const form = new FormData();
+    form.append('template', file);
+    return api.post('/slide-gen/analyse', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then((r) => r.data);
+  },
+  populate: (params: {
+    sessionId: string;
+    topic: string;
+    subject?: string;
+    level?: string;
+    slides: SlideAnalysis[];
+  }): Promise<Blob> => {
+    return api.post('/slide-gen/populate', params, { responseType: 'blob' })
+      .then((r) => r.data as Blob);
+  }
+};
+
 // ── Moodle integration API ─────────────────────────────────────
 export interface MoodleConnection {
   moodle_url: string;

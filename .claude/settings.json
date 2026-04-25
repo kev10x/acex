@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.js$\")",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
