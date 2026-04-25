@@ -1,6 +1,6 @@
 /**
  * Slide Template Populator (Labs): upload a PPTX template, AI analyses each slide's
- * purpose, then populates the template with AI-generated content for a given topic.
+ * purpose, generates content, then user applies background styles before export.
  */
 
 const express = require('express');
@@ -18,10 +18,7 @@ try { fs.mkdirSync(SESSION_DIR, { recursive: true }); } catch (_) {}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, SESSION_DIR),
-  filename: (req, file, cb) => {
-    const id = crypto.randomUUID();
-    cb(null, `${id}.pptx`);
-  }
+  filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}.pptx`)
 });
 
 const upload = multer({
@@ -35,9 +32,13 @@ const upload = multer({
   }
 });
 
+function validSessionId(id) {
+  return typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id);
+}
+
 /**
  * POST /slide-gen/analyse
- * Upload a PPTX template and get AI-classified slide types back.
+ * Upload a PPTX and get AI-classified slide types.
  */
 router.post('/analyse', requireAuth, (req, res) => {
   upload.single('template')(req, res, async (err) => {
@@ -51,11 +52,10 @@ router.post('/analyse', requireAuth, (req, res) => {
       const slides = await slideGenService.readAllSlideXmls(zipPath);
       if (!slides.length) {
         fs.unlink(zipPath, () => {});
-        return res.status(422).json({ error: 'No slides found in the uploaded PPTX. Make sure it is a valid PowerPoint file.' });
+        return res.status(422).json({ error: 'No slides found. Make sure the file is a valid PowerPoint (.pptx).' });
       }
 
       const analysis = await slideGenService.analyseSlideTypes(slides);
-
       res.json({ sessionId, slideCount: slides.length, slides: analysis });
     } catch (error) {
       console.error('Slide analysis error:', error);
@@ -66,19 +66,45 @@ router.post('/analyse', requireAuth, (req, res) => {
 });
 
 /**
- * POST /slide-gen/populate
- * Generate content and return a populated PPTX for download.
+ * POST /slide-gen/generate-content
+ * AI-generate title + bullets for each slide type. Does not need the session file.
  */
-router.post('/populate', requireAuth, async (req, res) => {
-  const { sessionId, topic, subject, level, slides: clientSlides } = req.body;
+router.post('/generate-content', requireAuth, async (req, res) => {
+  const { slides, topic, subject, level } = req.body;
 
-  if (!sessionId || !topic) {
-    return res.status(400).json({ error: 'sessionId and topic are required' });
+  if (!Array.isArray(slides) || !slides.length) {
+    return res.status(400).json({ error: 'slides array is required' });
+  }
+  if (!topic || !String(topic).trim()) {
+    return res.status(400).json({ error: 'topic is required' });
   }
 
-  // Sanitise sessionId — must be a UUID (no path traversal)
-  if (!/^[0-9a-f-]{36}$/i.test(sessionId)) {
-    return res.status(400).json({ error: 'Invalid session ID' });
+  try {
+    const content = await slideGenService.generateSlideContent(slides, {
+      topic: String(topic).trim().slice(0, 200),
+      subject: String(subject || '').trim().slice(0, 100),
+      level: String(level || 'undergraduate').trim()
+    });
+    res.json({ content });
+  } catch (error) {
+    console.error('Slide content generation error:', error);
+    res.status(500).json({ error: 'Failed to generate slide content' });
+  }
+});
+
+/**
+ * POST /slide-gen/populate
+ * Inject pre-generated content and chosen backgrounds, return populated PPTX.
+ * body: { sessionId, content: [{slideIndex, title, bullets}], backgrounds: {[slideIndex]: bgId}, topic }
+ */
+router.post('/populate', requireAuth, async (req, res) => {
+  const { sessionId, content, backgrounds = {}, topic = 'presentation' } = req.body;
+
+  if (!validSessionId(sessionId)) {
+    return res.status(400).json({ error: 'Invalid or missing sessionId' });
+  }
+  if (!Array.isArray(content) || !content.length) {
+    return res.status(400).json({ error: 'content array is required' });
   }
 
   const zipPath = path.join(SESSION_DIR, `${sessionId}.pptx`);
@@ -88,47 +114,45 @@ router.post('/populate', requireAuth, async (req, res) => {
 
   try {
     const originalSlides = await slideGenService.readAllSlideXmls(zipPath);
+    const contentMap = new Map((content || []).map((c) => [c.slideIndex, c]));
 
-    // Use client-corrected slide types when provided
-    const analysisToUse = Array.isArray(clientSlides) && clientSlides.length
-      ? clientSlides
-      : await slideGenService.analyseSlideTypes(originalSlides);
-
-    const generated = await slideGenService.generateSlideContent(analysisToUse, {
-      topic: String(topic).trim().slice(0, 200),
-      subject: String(subject || '').trim().slice(0, 100),
-      level: String(level || 'undergraduate').trim()
-    });
-
-    // Build a map from slideIndex to generated content
-    const contentMap = new Map(generated.map((g) => [g.slideIndex, g]));
-
-    // Inject content into each slide XML
     const modifiedSlides = originalSlides.map((slide) => {
-      const content = contentMap.get(slide.index);
-      if (!content) return { entryName: slide.entryName, modifiedXml: slide.xml };
-      const modifiedXml = slideGenService.injectContentIntoSlide(slide.xml, {
-        title: content.title,
-        bullets: Array.isArray(content.bullets) ? content.bullets : []
-      });
-      return { entryName: slide.entryName, modifiedXml };
+      const c = contentMap.get(slide.index);
+      const bgId = String(backgrounds?.[slide.index] || '');
+      const bgMeta = slideGenService.PPTX_BACKGROUNDS[bgId] || null;
+      const textColor = bgMeta?.textColor || null;
+
+      let xml = slide.xml;
+
+      // Inject content (with text colour matching the background)
+      if (c) {
+        xml = slideGenService.injectContentIntoSlide(xml, {
+          title: c.title,
+          bullets: Array.isArray(c.bullets) ? c.bullets : [],
+          textColor
+        });
+      }
+
+      // Inject background
+      if (bgId) {
+        xml = slideGenService.injectBackgroundIntoSlide(xml, bgId);
+      }
+
+      return { entryName: slide.entryName, modifiedXml: xml };
     });
 
     const pptxBuffer = await slideGenService.buildPopulatedPptx(zipPath, modifiedSlides);
 
     const safeTitle = String(topic).replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_').slice(0, 60) || 'presentation';
-    const filename = `${safeTitle}_populated.pptx`;
-
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_populated.pptx"`);
     res.setHeader('Content-Length', pptxBuffer.length);
     res.send(pptxBuffer);
 
-    // Clean up session file after response
     fs.unlink(zipPath, () => {});
   } catch (error) {
     console.error('Slide populate error:', error);
-    res.status(500).json({ error: 'Failed to generate populated presentation' });
+    res.status(500).json({ error: 'Failed to build presentation' });
   }
 });
 

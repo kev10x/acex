@@ -1501,6 +1501,13 @@ export interface SlideAnalysis {
   detectedText: string;
 }
 
+export interface GeneratedSlide {
+  slideIndex: number;
+  slideType: SlideType;
+  title: string;
+  bullets: string[];
+}
+
 export const slideGenAPI = {
   analyse: (file: File): Promise<{ sessionId: string; slideCount: number; slides: SlideAnalysis[] }> => {
     const form = new FormData();
@@ -1508,12 +1515,19 @@ export const slideGenAPI = {
     return api.post('/slide-gen/analyse', form, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then((r) => r.data);
   },
-  populate: (params: {
-    sessionId: string;
+  generateContent: (params: {
+    slides: SlideAnalysis[];
     topic: string;
     subject?: string;
     level?: string;
-    slides: SlideAnalysis[];
+  }): Promise<{ content: GeneratedSlide[] }> => {
+    return api.post('/slide-gen/generate-content', params).then((r) => r.data);
+  },
+  populate: (params: {
+    sessionId: string;
+    topic: string;
+    content: GeneratedSlide[];
+    backgrounds: Record<number, string>;
   }): Promise<Blob> => {
     return api.post('/slide-gen/populate', params, { responseType: 'blob' })
       .then((r) => r.data as Blob);

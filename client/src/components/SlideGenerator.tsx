@@ -15,46 +15,94 @@ import {
   RefreshCw,
   Trophy,
   Upload,
+  X,
   Zap,
 } from 'lucide-react';
-import { slideGenAPI, SlideAnalysis, SlideType } from '../services/api';
+import { slideGenAPI, SlideAnalysis, GeneratedSlide, SlideType } from '../services/api';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Background catalogue ─────────────────────────────────────────────────────
+
+interface BgStyle {
+  id: string;
+  label: string;
+  css: string;
+  isDark: boolean;
+  category: 'light' | 'dark' | 'gradient';
+}
+
+const BACKGROUNDS: BgStyle[] = [
+  // Light
+  { id: 'clean-white', label: 'Clean White',   css: '#FFFFFF',                                           isDark: false, category: 'light' },
+  { id: 'warm-sand',   label: 'Warm Sand',     css: '#FEF9C3',                                           isDark: false, category: 'light' },
+  { id: 'soft-blue',   label: 'Soft Blue',     css: '#EFF6FF',                                           isDark: false, category: 'light' },
+  { id: 'soft-green',  label: 'Soft Green',    css: '#F0FDF4',                                           isDark: false, category: 'light' },
+  { id: 'mint',        label: 'Mint',          css: 'linear-gradient(135deg,#F0FDF4,#CCFBF1)',           isDark: false, category: 'light' },
+  { id: 'lavender',    label: 'Lavender',      css: 'linear-gradient(135deg,#F5F3FF,#EDE9FE)',           isDark: false, category: 'light' },
+  // Dark
+  { id: 'dark-navy',   label: 'Dark Navy',     css: '#0F172A',                                           isDark: true,  category: 'dark' },
+  { id: 'charcoal',    label: 'Charcoal',      css: '#1F2937',                                           isDark: true,  category: 'dark' },
+  { id: 'deep-purple', label: 'Deep Purple',   css: '#1E1B4B',                                           isDark: true,  category: 'dark' },
+  { id: 'forest',      label: 'Forest',        css: '#052E16',                                           isDark: true,  category: 'dark' },
+  // Gradient
+  { id: 'ocean',       label: 'Ocean',         css: 'linear-gradient(135deg,#1E3A8A,#0E7490)',           isDark: true,  category: 'gradient' },
+  { id: 'sunset',      label: 'Sunset',        css: 'linear-gradient(135deg,#92400E,#831843)',           isDark: true,  category: 'gradient' },
+  { id: 'aurora',      label: 'Aurora',        css: 'linear-gradient(135deg,#312E81,#065F46)',           isDark: true,  category: 'gradient' },
+  { id: 'slate-sky',   label: 'Slate Sky',     css: 'linear-gradient(135deg,#1E293B,#0369A1)',           isDark: true,  category: 'gradient' },
+  { id: 'rose',        label: 'Rose',          css: 'linear-gradient(135deg,#881337,#9A3412)',           isDark: true,  category: 'gradient' },
+];
+
+const BG_CATEGORIES: { key: BgStyle['category']; label: string }[] = [
+  { key: 'light',    label: 'Light' },
+  { key: 'dark',     label: 'Dark' },
+  { key: 'gradient', label: 'Gradient' },
+];
+
+const BG_MAP = new Map(BACKGROUNDS.map((b) => [b.id, b]));
+
+// ─── Slide type metadata ──────────────────────────────────────────────────────
 
 const SLIDE_TYPE_META: Record<SlideType, { label: string; colour: string; icon: React.ReactNode }> = {
-  title:               { label: 'Title',               colour: 'bg-indigo-100 text-indigo-700 border-indigo-200',  icon: <Presentation className="h-3.5 w-3.5" /> },
-  learning_objectives: { label: 'Objectives',          colour: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <BookOpen className="h-3.5 w-3.5" /> },
-  content:             { label: 'Content',             colour: 'bg-blue-100 text-blue-700 border-blue-200',        icon: <FileText className="h-3.5 w-3.5" /> },
-  question:            { label: 'Question',            colour: 'bg-amber-100 text-amber-700 border-amber-200',     icon: <HelpCircle className="h-3.5 w-3.5" /> },
-  activity:            { label: 'Activity',            colour: 'bg-orange-100 text-orange-700 border-orange-200',  icon: <Zap className="h-3.5 w-3.5" /> },
-  summary:             { label: 'Summary',             colour: 'bg-teal-100 text-teal-700 border-teal-200',        icon: <ClipboardList className="h-3.5 w-3.5" /> },
-  quiz:                { label: 'Quiz',                colour: 'bg-rose-100 text-rose-700 border-rose-200',        icon: <Trophy className="h-3.5 w-3.5" /> },
-  transition:          { label: 'Transition',          colour: 'bg-slate-100 text-slate-600 border-slate-200',     icon: <ChevronDown className="h-3.5 w-3.5" /> },
-  unknown:             { label: 'Unknown',             colour: 'bg-gray-100 text-gray-600 border-gray-200',        icon: <FileQuestion className="h-3.5 w-3.5" /> },
+  title:               { label: 'Title',        colour: 'bg-indigo-100 text-indigo-700 border-indigo-200',    icon: <Presentation className="h-3 w-3" /> },
+  learning_objectives: { label: 'Objectives',   colour: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <BookOpen className="h-3 w-3" /> },
+  content:             { label: 'Content',      colour: 'bg-blue-100 text-blue-700 border-blue-200',          icon: <FileText className="h-3 w-3" /> },
+  question:            { label: 'Question',     colour: 'bg-amber-100 text-amber-700 border-amber-200',       icon: <HelpCircle className="h-3 w-3" /> },
+  activity:            { label: 'Activity',     colour: 'bg-orange-100 text-orange-700 border-orange-200',    icon: <Zap className="h-3 w-3" /> },
+  summary:             { label: 'Summary',      colour: 'bg-teal-100 text-teal-700 border-teal-200',          icon: <ClipboardList className="h-3 w-3" /> },
+  quiz:                { label: 'Quiz',         colour: 'bg-rose-100 text-rose-700 border-rose-200',          icon: <Trophy className="h-3 w-3" /> },
+  transition:          { label: 'Transition',   colour: 'bg-slate-100 text-slate-600 border-slate-200',       icon: <ChevronDown className="h-3 w-3" /> },
+  unknown:             { label: 'Unknown',      colour: 'bg-gray-100 text-gray-500 border-gray-200',          icon: <FileQuestion className="h-3 w-3" /> },
 };
 
 const ALL_SLIDE_TYPES: SlideType[] = [
-  'title', 'learning_objectives', 'content', 'question', 'activity', 'summary', 'quiz', 'transition', 'unknown'
+  'title','learning_objectives','content','question','activity','summary','quiz','transition','unknown'
 ];
-
-const LEVELS = ['primary school', 'high school', 'undergraduate', 'postgraduate', 'professional'];
+const LEVELS = ['primary school','high school','undergraduate','postgraduate','professional'];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-type Step = 'upload' | 'review' | 'done';
+type Step = 'upload' | 'review' | 'style' | 'done';
 
 const SlideGenerator: React.FC = () => {
-  const [step, setStep] = useState<Step>('upload');
+  const [step, setStep]           = useState<Step>('upload');
   const [analysing, setAnalysing] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
 
-  const [sessionId, setSessionId] = useState<string>('');
-  const [slides, setSlides] = useState<SlideAnalysis[]>([]);
+  // Analyse result
+  const [sessionId, setSessionId]       = useState('');
+  const [slideAnalysis, setSlideAnalysis] = useState<SlideAnalysis[]>([]);
 
-  const [topic, setTopic] = useState('');
+  // Topic form
+  const [topic, setTopic]     = useState('');
   const [subject, setSubject] = useState('');
-  const [level, setLevel] = useState('undergraduate');
+  const [level, setLevel]     = useState('undergraduate');
+
+  // Style step
+  const [generatedContent, setGeneratedContent]   = useState<GeneratedSlide[]>([]);
+  const [slideBackgrounds, setSlideBackgrounds]   = useState<Record<number, string>>({});
+  const [dragOverSlide, setDragOverSlide]         = useState<number | null>(null);
+  const [activeBgCategory, setActiveBgCategory]   = useState<BgStyle['category']>('dark');
 
   const [downloadFilename, setDownloadFilename] = useState('');
 
@@ -68,7 +116,7 @@ const SlideGenerator: React.FC = () => {
     try {
       const result = await slideGenAPI.analyse(file);
       setSessionId(result.sessionId);
-      setSlides(result.slides);
+      setSlideAnalysis(result.slides);
       setStep('review');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to analyse template');
@@ -87,19 +135,74 @@ const SlideGenerator: React.FC = () => {
   // ── Slide type correction ─────────────────────────────────────────────────
 
   const updateSlideType = (slideIndex: number, newType: SlideType) => {
-    setSlides((prev) =>
-      prev.map((s) => (s.slideIndex === slideIndex ? { ...s, slideType: newType } : s))
-    );
+    setSlideAnalysis((prev) => prev.map((s) => s.slideIndex === slideIndex ? { ...s, slideType: newType } : s));
   };
 
-  // ── Generate ──────────────────────────────────────────────────────────────
+  // ── Generate content ──────────────────────────────────────────────────────
 
   const handleGenerate = async () => {
     if (!topic.trim()) { setError('Please enter a topic'); return; }
     setError(null);
     setGenerating(true);
     try {
-      const blob = await slideGenAPI.populate({ sessionId, topic, subject, level, slides });
+      const { content } = await slideGenAPI.generateContent({ slides: slideAnalysis, topic, subject, level });
+      setGeneratedContent(content);
+      setSlideBackgrounds({});
+      setStep('style');
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to generate content');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // ── Drag and drop (backgrounds → slides) ─────────────────────────────────
+
+  const handleBgDragStart = (e: React.DragEvent, bgId: string) => {
+    e.dataTransfer.setData('bg-id', bgId);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleSlideDragOver = (e: React.DragEvent, slideIndex: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragOverSlide(slideIndex);
+  };
+
+  const handleSlideDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverSlide(null);
+    }
+  };
+
+  const handleSlideDrop = (e: React.DragEvent, slideIndex: number) => {
+    e.preventDefault();
+    const bgId = e.dataTransfer.getData('bg-id');
+    if (bgId) setSlideBackgrounds((prev) => ({ ...prev, [slideIndex]: bgId }));
+    setDragOverSlide(null);
+  };
+
+  const clearBackground = (slideIndex: number) => {
+    setSlideBackgrounds((prev) => {
+      const next = { ...prev };
+      delete next[slideIndex];
+      return next;
+    });
+  };
+
+  const applyToAll = (bgId: string) => {
+    const all: Record<number, string> = {};
+    generatedContent.forEach((s) => { all[s.slideIndex] = bgId; });
+    setSlideBackgrounds(all);
+  };
+
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  const handleExport = async () => {
+    setError(null);
+    setExporting(true);
+    try {
+      const blob = await slideGenAPI.populate({ sessionId, topic, content: generatedContent, backgrounds: slideBackgrounds });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       const safeTopic = topic.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_').slice(0, 60) || 'presentation';
@@ -111,9 +214,9 @@ const SlideGenerator: React.FC = () => {
       setDownloadFilename(filename);
       setStep('done');
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Failed to generate presentation');
+      setError(err?.response?.data?.error || err?.message || 'Export failed');
     } finally {
-      setGenerating(false);
+      setExporting(false);
     }
   };
 
@@ -122,7 +225,9 @@ const SlideGenerator: React.FC = () => {
   const reset = () => {
     setStep('upload');
     setSessionId('');
-    setSlides([]);
+    setSlideAnalysis([]);
+    setGeneratedContent([]);
+    setSlideBackgrounds({});
     setTopic('');
     setSubject('');
     setLevel('undergraduate');
@@ -130,44 +235,46 @@ const SlideGenerator: React.FC = () => {
     setDownloadFilename('');
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Step labels ───────────────────────────────────────────────────────────
 
+  const STEP_LABELS: Record<Step, string> = {
+    upload: '1. Upload template',
+    review: '2. Review & generate',
+    style:  '3. Apply backgrounds',
+    done:   '4. Download',
+  };
+
+  const stepOrder: Step[] = ['upload', 'review', 'style', 'done'];
+  const currentIdx = stepOrder.indexOf(step);
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Slide Template Populator</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Upload a PowerPoint template, let AI detect the purpose of each slide, then auto-fill it with content for your topic.
+            Upload a PPTX template → AI fills each slide → drag backgrounds from the gallery onto slides → export.
           </p>
         </div>
         {step !== 'upload' && (
-          <button
-            onClick={reset}
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Start over
+          <button onClick={reset} className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <RefreshCw className="h-4 w-4" /> Start over
           </button>
         )}
       </div>
 
-      {/* Progress steps */}
-      <div className="flex items-center gap-2 text-sm">
-        {(['upload', 'review', 'done'] as Step[]).map((s, i) => {
-          const labels: Record<Step, string> = { upload: '1. Upload template', review: '2. Review & generate', done: '3. Download' };
-          const isDone = (step === 'review' && s === 'upload') || (step === 'done');
-          const isActive = step === s;
-          return (
-            <React.Fragment key={s}>
-              {i > 0 && <span className="text-gray-300">›</span>}
-              <span className={`font-medium ${isActive ? 'text-amber-700' : isDone ? 'text-emerald-600' : 'text-gray-400'}`}>
-                {labels[s]}
-              </span>
-            </React.Fragment>
-          );
-        })}
+      {/* Progress breadcrumb */}
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        {stepOrder.map((s, i) => (
+          <React.Fragment key={s}>
+            {i > 0 && <span className="text-gray-300">›</span>}
+            <span className={`font-medium ${step === s ? 'text-amber-700' : i < currentIdx ? 'text-emerald-600' : 'text-gray-400'}`}>
+              {STEP_LABELS[s]}
+            </span>
+          </React.Fragment>
+        ))}
       </div>
 
       {/* Error */}
@@ -182,7 +289,7 @@ const SlideGenerator: React.FC = () => {
       {step === 'upload' && (
         <div
           {...getRootProps()}
-          className={`cursor-pointer rounded-xl border-2 border-dashed p-12 text-center transition-colors ${
+          className={`cursor-pointer rounded-xl border-2 border-dashed p-14 text-center transition-colors ${
             isDragActive ? 'border-amber-400 bg-amber-50' : 'border-gray-300 bg-gray-50 hover:border-amber-300 hover:bg-amber-50/40'
           } ${analysing ? 'pointer-events-none opacity-60' : ''}`}
         >
@@ -195,14 +302,10 @@ const SlideGenerator: React.FC = () => {
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3">
-              <div className="rounded-full bg-amber-100 p-4">
-                <Upload className="h-7 w-7 text-amber-600" />
-              </div>
+              <div className="rounded-full bg-amber-100 p-4"><Upload className="h-7 w-7 text-amber-600" /></div>
               <div>
-                <p className="text-sm font-semibold text-gray-900">
-                  {isDragActive ? 'Drop your PPTX template here' : 'Drag & drop your PPTX template'}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">or click to browse — .pptx files only, up to 20 MB</p>
+                <p className="text-sm font-semibold text-gray-900">{isDragActive ? 'Drop your PPTX here' : 'Drag & drop a PowerPoint template'}</p>
+                <p className="mt-1 text-xs text-gray-500">.pptx only · up to 20 MB</p>
               </div>
             </div>
           )}
@@ -212,35 +315,25 @@ const SlideGenerator: React.FC = () => {
       {/* ── Step 2: Review ── */}
       {step === 'review' && (
         <div className="space-y-6">
-          {/* Slide analysis grid */}
           <div>
-            <h3 className="mb-3 text-sm font-semibold text-gray-800">
-              Detected slides — {slides.length} slide{slides.length !== 1 ? 's' : ''}
-            </h3>
-            <p className="mb-4 text-xs text-gray-500">
-              AI has classified each slide below. Correct any misclassifications using the dropdowns before generating.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold text-gray-800">{slideAnalysis.length} slides detected</h3>
+            <p className="mb-4 text-xs text-gray-500">Correct any misclassified types before generating.</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {slides.map((slide) => {
+              {slideAnalysis.map((slide) => {
                 const meta = SLIDE_TYPE_META[slide.slideType] || SLIDE_TYPE_META.unknown;
                 return (
                   <div key={slide.slideIndex} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-xs font-medium text-gray-400">Slide {slide.slideIndex + 1}</span>
                       <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${meta.colour}`}>
-                        {meta.icon}
-                        {meta.label}
+                        {meta.icon}{meta.label}
                       </span>
                     </div>
                     {slide.detectedText && (
-                      <p className="mb-3 line-clamp-2 text-xs text-gray-500 italic">
-                        "{slide.detectedText.slice(0, 120)}{slide.detectedText.length > 120 ? '…' : ''}"
+                      <p className="mb-2 line-clamp-2 text-xs italic text-gray-500">
+                        "{slide.detectedText.slice(0, 100)}{slide.detectedText.length > 100 ? '…' : ''}"
                       </p>
                     )}
-                    {slide.description && (
-                      <p className="mb-3 text-xs text-gray-600">{slide.description}</p>
-                    )}
-                    {/* Type override */}
                     <select
                       value={slide.slideType}
                       onChange={(e) => updateSlideType(slide.slideIndex, e.target.value as SlideType)}
@@ -256,18 +349,13 @@ const SlideGenerator: React.FC = () => {
             </div>
           </div>
 
-          {/* Topic / subject / level inputs */}
-          <div className="rounded-xl border border-amber-100 bg-amber-50 p-6">
+          <div className="rounded-xl border border-amber-100 bg-amber-50 p-5">
             <h3 className="mb-4 text-sm font-semibold text-gray-900">Lesson details</h3>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="sm:col-span-3">
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Topic <span className="text-red-500">*</span>
-                </label>
+                <label className="mb-1 block text-xs font-medium text-gray-700">Topic <span className="text-red-500">*</span></label>
                 <input
-                  type="text"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
+                  type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
                   placeholder="e.g. Photosynthesis, World War II, Algebraic Expressions"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
                 />
@@ -275,9 +363,7 @@ const SlideGenerator: React.FC = () => {
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">Subject (optional)</label>
                 <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
+                  type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
                   placeholder="e.g. Biology, History"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
                 />
@@ -285,32 +371,18 @@ const SlideGenerator: React.FC = () => {
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">Education level</label>
                 <select
-                  value={level}
-                  onChange={(e) => setLevel(e.target.value)}
+                  value={level} onChange={(e) => setLevel(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
                 >
-                  {LEVELS.map((l) => (
-                    <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
-                  ))}
+                  {LEVELS.map((l) => <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>)}
                 </select>
               </div>
               <div className="flex items-end">
                 <button
-                  onClick={handleGenerate}
-                  disabled={generating || !topic.trim()}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={handleGenerate} disabled={generating || !topic.trim()}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {generating ? (
-                    <>
-                      <Loader className="h-4 w-4 animate-spin" />
-                      Generating…
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="h-4 w-4" />
-                      Generate content
-                    </>
-                  )}
+                  {generating ? <><Loader className="h-4 w-4 animate-spin" />Generating…</> : <><Zap className="h-4 w-4" />Generate content</>}
                 </button>
               </div>
             </div>
@@ -318,26 +390,183 @@ const SlideGenerator: React.FC = () => {
         </div>
       )}
 
-      {/* ── Step 3: Done ── */}
+      {/* ── Step 3: Style ── */}
+      {step === 'style' && (
+        <div className="flex gap-5" style={{ minHeight: '600px' }}>
+
+          {/* Left — generated slides */}
+          <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1" style={{ maxHeight: '78vh' }}>
+            <p className="shrink-0 text-xs text-gray-500">
+              Drag a background from the gallery onto any slide. Slides without a background will use the template's original styling.
+            </p>
+            {generatedContent.map((slide) => {
+              const bgId = slideBackgrounds[slide.slideIndex];
+              const bg = bgId ? BG_MAP.get(bgId) : null;
+              const isOver = dragOverSlide === slide.slideIndex;
+              const typeMeta = SLIDE_TYPE_META[slide.slideType] || SLIDE_TYPE_META.unknown;
+              const textClass = bg?.isDark ? 'text-white' : 'text-gray-900';
+              const subTextClass = bg?.isDark ? 'text-white/75' : 'text-gray-600';
+
+              return (
+                <div
+                  key={slide.slideIndex}
+                  onDragOver={(e) => handleSlideDragOver(e, slide.slideIndex)}
+                  onDragLeave={handleSlideDragLeave}
+                  onDrop={(e) => handleSlideDrop(e, slide.slideIndex)}
+                  className={`shrink-0 overflow-hidden rounded-xl border-2 shadow-sm transition-all ${
+                    isOver
+                      ? 'border-amber-400 ring-2 ring-amber-300 ring-offset-1'
+                      : bg
+                        ? 'border-transparent'
+                        : 'border-dashed border-gray-300'
+                  }`}
+                  style={{ background: bg?.css || '#FFFFFF', aspectRatio: '16/9' }}
+                >
+                  <div className="flex h-full flex-col justify-between p-5">
+                    {/* Top row: slide # + type badge + clear button */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium opacity-60 ${textClass}`}>
+                          {slide.slideIndex + 1}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          bg ? (bg.isDark ? 'border-white/20 bg-white/10 text-white' : 'border-black/10 bg-black/5 text-gray-700') : typeMeta.colour
+                        }`}>
+                          {typeMeta.icon}{typeMeta.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {bg && (
+                          <span className={`text-xs opacity-60 ${textClass}`}>{bg.label}</span>
+                        )}
+                        {bg && (
+                          <button
+                            onClick={() => clearBackground(slide.slideIndex)}
+                            className={`rounded p-0.5 transition-opacity hover:opacity-100 ${bg.isDark ? 'text-white/60 hover:bg-white/10' : 'text-gray-400 hover:bg-black/5'}`}
+                            title="Remove background"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Slide content */}
+                    <div className="flex-1 py-3">
+                      {slide.title ? (
+                        <p className={`text-sm font-bold leading-snug ${textClass}`}>{slide.title}</p>
+                      ) : null}
+                      <ul className={`mt-2 space-y-0.5 ${subTextClass}`}>
+                        {(slide.bullets || []).slice(0, 4).map((b, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-xs">
+                            <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" />
+                            <span className="line-clamp-1">{b}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Drop hint when no background */}
+                    {!bg && (
+                      <p className="text-center text-xs text-gray-400">
+                        {isOver ? '⬇ Drop background here' : 'Drop a background here'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Right — background gallery + export */}
+          <div className="flex w-64 shrink-0 flex-col gap-4">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h3 className="mb-3 text-sm font-semibold text-gray-800">Background Gallery</h3>
+              <p className="mb-3 text-xs text-gray-500">Drag a style onto a slide, or click "Apply to all".</p>
+
+              {/* Category tabs */}
+              <div className="mb-3 flex rounded-lg bg-gray-100 p-0.5">
+                {BG_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.key}
+                    onClick={() => setActiveBgCategory(cat.key)}
+                    className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                      activeBgCategory === cat.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Swatches */}
+              <div className="grid grid-cols-2 gap-2">
+                {BACKGROUNDS.filter((b) => b.category === activeBgCategory).map((bg) => {
+                  const usedCount = Object.values(slideBackgrounds).filter((id) => id === bg.id).length;
+                  return (
+                    <div
+                      key={bg.id}
+                      draggable
+                      onDragStart={(e) => handleBgDragStart(e, bg.id)}
+                      className="group cursor-grab select-none rounded-lg border border-gray-200 p-1.5 transition-shadow hover:shadow-md active:cursor-grabbing"
+                      title={`Drag onto a slide${usedCount ? ` · applied to ${usedCount}` : ''}`}
+                    >
+                      {/* Swatch preview */}
+                      <div
+                        className="mb-1.5 w-full rounded"
+                        style={{ background: bg.css, aspectRatio: '16/9' }}
+                      />
+                      <p className="truncate text-center text-xs font-medium text-gray-700">{bg.label}</p>
+                      {usedCount > 0 && (
+                        <p className="text-center text-[10px] text-amber-600">{usedCount} slide{usedCount > 1 ? 's' : ''}</p>
+                      )}
+                      {/* Apply to all on hover */}
+                      <button
+                        onClick={() => applyToAll(bg.id)}
+                        className="mt-1 hidden w-full rounded bg-gray-100 px-1 py-0.5 text-[10px] text-gray-600 hover:bg-amber-100 hover:text-amber-700 group-hover:block"
+                      >
+                        Apply to all
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Export button */}
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {exporting
+                ? <><Loader className="h-4 w-4 animate-spin" />Building PPTX…</>
+                : <><Download className="h-4 w-4" />Export PPTX</>}
+            </button>
+            <p className="text-center text-xs text-gray-400">
+              {Object.keys(slideBackgrounds).length}/{generatedContent.length} slides styled
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 4: Done ── */}
       {step === 'done' && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-10 text-center">
           <CheckCircle className="mx-auto mb-4 h-12 w-12 text-emerald-500" />
-          <h3 className="text-lg font-semibold text-gray-900">Your presentation is ready</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Presentation ready</h3>
           <p className="mt-1 text-sm text-gray-600">
-            The populated PPTX has been downloaded as <span className="font-medium">{downloadFilename}</span>.
+            Downloaded as <span className="font-medium">{downloadFilename}</span>.
           </p>
           <p className="mt-2 text-xs text-gray-500">
-            Open it in PowerPoint or LibreOffice — the original design is preserved and each slide has been filled with content matched to its purpose.
+            Open in PowerPoint or LibreOffice — each slide has been filled and styled while preserving the original layout.
           </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <button
-              onClick={reset}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Populate another template
-            </button>
-          </div>
+          <button
+            onClick={reset}
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            <RefreshCw className="h-4 w-4" /> Populate another template
+          </button>
         </div>
       )}
     </div>

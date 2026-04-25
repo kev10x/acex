@@ -240,6 +240,44 @@ Return JSON: [{"slideIndex":0,"slideType":"...","title":"...","bullets":["...","
   }
 }
 
+// ─── Background styles ────────────────────────────────────────────────────────
+
+function solidFillBg(hex) {
+  return `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${hex}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>`;
+}
+
+function gradientFillBg(hex1, hex2, angleDeg = 135) {
+  const ang = Math.round(angleDeg * 60000);
+  return `<p:bg><p:bgPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="${hex1}"/></a:gs><a:gs pos="100000"><a:srgbClr val="${hex2}"/></a:gs></a:gsLst><a:lin ang="${ang}" scaled="0"/></a:gradFill><a:effectLst/></p:bgPr></p:bg>`;
+}
+
+const PPTX_BACKGROUNDS = {
+  'clean-white':  { isDark: false, textColor: '1F2937', bgXml: solidFillBg('FFFFFF') },
+  'warm-sand':    { isDark: false, textColor: '78350F', bgXml: solidFillBg('FEF9C3') },
+  'soft-blue':    { isDark: false, textColor: '1E3A8A', bgXml: solidFillBg('EFF6FF') },
+  'soft-green':   { isDark: false, textColor: '14532D', bgXml: solidFillBg('F0FDF4') },
+  'dark-navy':    { isDark: true,  textColor: 'F8FAFC', bgXml: solidFillBg('0F172A') },
+  'charcoal':     { isDark: true,  textColor: 'F9FAFB', bgXml: solidFillBg('1F2937') },
+  'deep-purple':  { isDark: true,  textColor: 'EDE9FE', bgXml: solidFillBg('1E1B4B') },
+  'forest':       { isDark: true,  textColor: 'DCFCE7', bgXml: solidFillBg('052E16') },
+  'ocean':        { isDark: true,  textColor: 'E0F2FE', bgXml: gradientFillBg('1E3A8A', '0E7490') },
+  'sunset':       { isDark: true,  textColor: 'FEF3C7', bgXml: gradientFillBg('92400E', '831843') },
+  'aurora':       { isDark: true,  textColor: 'D1FAE5', bgXml: gradientFillBg('312E81', '065F46') },
+  'slate-sky':    { isDark: true,  textColor: 'BAE6FD', bgXml: gradientFillBg('1E293B', '0369A1') },
+  'rose':         { isDark: true,  textColor: 'FFE4E6', bgXml: gradientFillBg('881337', '9A3412') },
+  'mint':         { isDark: false, textColor: '065F46', bgXml: gradientFillBg('F0FDF4', 'CCFBF1') },
+  'lavender':     { isDark: false, textColor: '4C1D95', bgXml: gradientFillBg('F5F3FF', 'EDE9FE') },
+};
+
+function injectBackgroundIntoSlide(xml, bgId) {
+  const bg = PPTX_BACKGROUNDS[bgId];
+  if (!bg) return xml;
+  const bgPattern = /<p:bg\b[\s\S]*?<\/p:bg>/;
+  if (bgPattern.test(xml)) return xml.replace(bgPattern, bg.bgXml);
+  // Insert before <p:spTree if no existing background
+  return xml.replace(/(<p:spTree\b)/, bg.bgXml + '\n$1');
+}
+
 // ─── XML injection ────────────────────────────────────────────────────────────
 
 function escapeXml(str) {
@@ -250,30 +288,32 @@ function escapeXml(str) {
     .replace(/"/g, '&quot;');
 }
 
-function buildPara(text) {
-  return `<a:p><a:r><a:t>${escapeXml(text)}</a:t></a:r></a:p>`;
+function buildPara(text, textColor) {
+  const safe = escapeXml(text);
+  if (textColor) {
+    return `<a:p><a:r><a:rPr lang="en-US" dirty="0" smtClean="0"><a:solidFill><a:srgbClr val="${textColor}"/></a:solidFill></a:rPr><a:t>${safe}</a:t></a:r></a:p>`;
+  }
+  return `<a:p><a:r><a:t>${safe}</a:t></a:r></a:p>`;
 }
 
 // Replace paragraphs inside a txBody, preserving bodyPr / lstStyle preamble.
-function replaceTxBodyContent(txBodyXml, lines) {
-  // Keep everything up to (but not including) the first <a:p
+function replaceTxBodyContent(txBodyXml, lines, textColor) {
   const cutPoint = txBodyXml.indexOf('<a:p');
   const preamble = cutPoint >= 0 ? txBodyXml.slice(0, cutPoint) : txBodyXml.replace(/<\/p:txBody>\s*$/, '');
-  const newParas = lines.map(buildPara).join('');
+  const newParas = lines.map((l) => buildPara(l, textColor)).join('');
   return `${preamble}${newParas}</p:txBody>`;
 }
 
-function injectContentIntoSlide(xml, { title, bullets = [] }) {
-  // Replace each <p:sp> shape individually
+function injectContentIntoSlide(xml, { title, bullets = [], textColor = null }) {
   return xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (shapeXml) => {
     const phMatch = shapeXml.match(/<p:ph[^/]*?(?:type="([^"]*)")?[^/]*?\/?>/);
     const phType = phMatch ? (phMatch[1] || 'body') : null;
 
     if ((phType === 'title' || phType === 'ctrTitle') && title) {
-      return shapeXml.replace(/<p:txBody[\s\S]*?<\/p:txBody>/, (tb) => replaceTxBodyContent(tb, [title]));
+      return shapeXml.replace(/<p:txBody[\s\S]*?<\/p:txBody>/, (tb) => replaceTxBodyContent(tb, [title], textColor));
     }
     if ((phType === 'body' || phType === 'subTitle') && bullets.length > 0) {
-      return shapeXml.replace(/<p:txBody[\s\S]*?<\/p:txBody>/, (tb) => replaceTxBodyContent(tb, bullets));
+      return shapeXml.replace(/<p:txBody[\s\S]*?<\/p:txBody>/, (tb) => replaceTxBodyContent(tb, bullets, textColor));
     }
     return shapeXml;
   });
@@ -310,5 +350,7 @@ module.exports = {
   analyseSlideTypes,
   generateSlideContent,
   injectContentIntoSlide,
-  buildPopulatedPptx
+  injectBackgroundIntoSlide,
+  buildPopulatedPptx,
+  PPTX_BACKGROUNDS,
 };
