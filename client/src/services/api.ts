@@ -803,6 +803,7 @@ export interface ContentSection {
   /** One short supporting line for slides. */
   support?: string;
   body: string;
+  raw_body?: string;
   body_html?: string;
   background_image_url?: string;
   visuals?: ContentVisual[];
@@ -1320,6 +1321,7 @@ export interface ContentPlannerJob {
   include_diagrams?: boolean | null;
   include_images?: boolean | null;
   include_mascot?: boolean | null;
+  include_beautify_text?: boolean | null;
   rubric_id?: number | null;
   scheduled_for: string;
   status: 'scheduled' | 'processing' | 'completed' | 'failed' | 'cancelled';
@@ -1340,6 +1342,7 @@ export const contentAPI = {
     include_diagrams?: boolean;
     include_images?: boolean;
     include_mascot?: boolean;
+    include_beautify_text?: boolean;
   }) => api.post<{ success: boolean; content: GeneratedContent; generation_trace?: GenerationTrace | null; generation_job_id?: number | null }>('/content/generate', data),
   publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
     api.post('/content/publish', data),
@@ -1414,6 +1417,7 @@ export const contentAPI = {
     include_diagrams?: boolean;
     include_images?: boolean;
     include_mascot?: boolean;
+    include_beautify_text?: boolean;
   }) => api.post('/content/planner/schedule', data),
   getPlannerJobs: () => api.get<{ success: boolean; jobs: ContentPlannerJob[] }>('/content/planner/jobs'),
   cancelPlannerJob: (id: number) => api.post(`/content/planner/${id}/cancel`),

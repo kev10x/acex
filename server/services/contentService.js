@@ -25,6 +25,9 @@ const RESILIENT_CHUNK_MAX_RETRIES = Math.max(1, Number.parseInt(process.env.CONT
 const RESILIENT_INTER_BATCH_DELAY_MS = Math.max(0, Number.parseInt(process.env.CONTENT_RESILIENT_INTER_BATCH_DELAY_MS || '700', 10) || 700);
 const RESILIENT_IMAGE_RETRIES = Math.max(1, Number.parseInt(process.env.CONTENT_IMAGE_RETRIES || '3', 10) || 3);
 const RESILIENT_IMAGE_RETRY_DELAY_MS = Math.max(150, Number.parseInt(process.env.CONTENT_IMAGE_RETRY_DELAY_MS || '450', 10) || 450);
+const CONTENT_TEXT_BEAUTIFY_MODEL = process.env.CONTENT_TEXT_BEAUTIFY_MODEL || 'gpt-4o-mini';
+const CONTENT_TEXT_BEAUTIFY_MAX_TOKENS = Math.max(400, Number.parseInt(process.env.CONTENT_TEXT_BEAUTIFY_MAX_TOKENS || '1400', 10) || 1400);
+const CONTENT_TEXT_BEAUTIFY_CONCURRENCY = Math.max(1, Math.min(4, Number.parseInt(process.env.CONTENT_TEXT_BEAUTIFY_CONCURRENCY || '2', 10) || 2));
 
 function sleep(ms) {
   if (!ms || ms <= 0) return Promise.resolve();
@@ -1197,6 +1200,120 @@ function normalizeDashText(value) {
   return String(value || '').replace(/[\u2013\u2014]/g, '-');
 }
 
+function countWords(value) {
+  return String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+async function beautifySectionBodyWithAI(section = {}, { level = '' } = {}) {
+  const originalBody = String(section?.body || '').trim();
+  if (!originalBody) return originalBody;
+
+  const provider = aiService.openai ? 'openai' : aiService.anthropic ? 'anthropic' : null;
+  if (!provider) return originalBody;
+
+  const heading = String(section?.heading || section?.title || '').trim();
+  const support = String(section?.support || '').trim();
+  const levelHint = String(level || '').trim();
+
+  const messages = [
+    {
+      role: 'system',
+      content: 'You are an expert academic editor for lesson notes. Rewrite for clarity and flow only. Preserve facts, quantities, formulas, and meaning exactly. Do not add new claims. Do not remove key details. Keep it plain text with paragraph breaks and optional bullet/numbered lists. Never use em dashes.'
+    },
+    {
+      role: 'user',
+      content: [
+        heading ? `Section heading: ${heading}` : '',
+        support ? `Key point: ${support}` : '',
+        levelHint ? `Education level: ${levelHint}` : '',
+        '',
+        'Rewrite the section text for readability and academic polish. Keep all facts intact.',
+        '',
+        'Original text:',
+        originalBody,
+      ].filter(Boolean).join('\n')
+    }
+  ];
+
+  try {
+    const completion = await aiService.createCompletionWithRetry({
+      provider,
+      model: CONTENT_TEXT_BEAUTIFY_MODEL,
+      temperature: 0.25,
+      maxTokens: CONTENT_TEXT_BEAUTIFY_MAX_TOKENS,
+      messages,
+    }, 2);
+
+    const rewritten = normalizeDashText(String(completion?.content || '').trim());
+    if (!rewritten) return originalBody;
+
+    const originalWords = countWords(originalBody);
+    const rewrittenWords = countWords(rewritten);
+    const minAllowedWords = Math.max(40, Math.floor(originalWords * 0.55));
+    if (rewrittenWords < minAllowedWords) {
+      return originalBody;
+    }
+    return rewritten;
+  } catch (error) {
+    console.warn('Section text beautification failed (non-fatal):', error?.message || error);
+    return originalBody;
+  }
+}
+
+async function beautifyContentTextWithAI(content = {}, options = {}) {
+  const sections = Array.isArray(content?.sections) ? content.sections : [];
+  if (!sections.length) return content;
+
+  const level = String(options?.level || '').trim();
+  const onProgress = typeof options?.onProgress === 'function' ? options.onProgress : null;
+  const concurrency = Math.max(1, Math.min(4, Number.parseInt(String(options?.concurrency || CONTENT_TEXT_BEAUTIFY_CONCURRENCY), 10) || CONTENT_TEXT_BEAUTIFY_CONCURRENCY));
+  let completed = 0;
+  const total = sections.length;
+  const updatedSections = [...sections];
+
+  const report = (message = '') => {
+    if (!onProgress) return;
+    onProgress({
+      stage: 'text_beautify',
+      completed,
+      total,
+      message: message || `Beautified text for ${completed}/${total} section(s).`,
+    });
+  };
+
+  report('Beautifying section text for readability.');
+
+  for (let i = 0; i < total; i += concurrency) {
+    const batch = updatedSections.slice(i, i + concurrency);
+    const rewrittenBatch = await Promise.all(
+      batch.map((section) => beautifySectionBodyWithAI(section, { level }))
+    );
+
+    rewrittenBatch.forEach((rewritten, idx) => {
+      const sectionIndex = i + idx;
+      const current = updatedSections[sectionIndex] || {};
+      const currentBody = String(current?.body || '').trim();
+      const nextBody = String(rewritten || '').trim() || currentBody;
+      updatedSections[sectionIndex] = {
+        ...current,
+        raw_body: String(current?.raw_body || currentBody),
+        body: nextBody,
+      };
+      completed += 1;
+    });
+
+    report();
+  }
+
+  return {
+    ...content,
+    sections: updatedSections,
+  };
+}
+
 function normalizeQuizText(quiz = {}) {
   const questions = Array.isArray(quiz?.questions) ? quiz.questions : [];
   return {
@@ -1245,6 +1362,7 @@ function normalizeGeneratedContent(content, templateId = 'classroom', { includeD
       heading,
       support,
       body: normalizeDashText(ensureSectionBodyText(section, index)),
+      raw_body: normalizeDashText(String(section?.raw_body || section?.body || '').trim()),
     };
     return {
       ...normalizedSection,
@@ -1623,6 +1741,7 @@ function escapeHtml(text) {
 module.exports = {
   generateContentWithAI,
   generateContentWithAIResilient,
+  beautifyContentTextWithAI,
   enrichContentWithImages,
   regenerateVisualWithGrok,
   regenerateMascotWithGrok,

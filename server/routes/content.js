@@ -662,6 +662,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       include_diagrams: req.body?.include_diagrams !== false,
       include_images: req.body?.include_images !== false,
       include_mascot: req.body?.include_mascot === true,
+      include_beautify_text: req.body?.include_beautify_text !== false,
       topics_preview: String(req.body?.topics || '').trim().slice(0, 160) || null,
     },
   };
@@ -742,7 +743,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       temperature: taskConfig?.temperature ?? null,
       max_tokens: taskConfig?.maxTokens ?? null,
     });
-    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true, include_mascot = false } = req.body;
+    const { topics, level, num_sections = 5, rubric_id, rubric_context, template_id = 'classroom', include_diagrams = true, include_images = true, include_mascot = false, include_beautify_text = true } = req.body;
     if (!topics || !String(topics).trim()) {
       return res.status(400).json({ error: 'topics is required' });
     }
@@ -832,11 +833,39 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     if (templateImageUrls.length > 0) {
       content = injectTemplateImages(content, templateImageUrls);
     }
+    if (include_beautify_text !== false) {
+      reportJobProgress({
+        stage: 'text_beautify',
+        task: 'content',
+        percent: 77,
+        label: 'Polishing lesson text',
+        detail: 'Applying AI readability pass.',
+        generated_sections: requestedSections,
+        total_sections: requestedSections,
+      });
+      content = await contentService.beautifyContentTextWithAI(content, {
+        level: level || '',
+        onProgress: (progress) => {
+          const completed = Number(progress?.completed || 0) || 0;
+          const total = Number(progress?.total || requestedSections) || requestedSections;
+          const ratio = total > 0 ? Math.max(0, Math.min(1, completed / total)) : 0;
+          reportJobProgress({
+            stage: 'text_beautify',
+            task: 'content',
+            percent: 77 + ratio * 7,
+            label: 'Polishing lesson text',
+            detail: String(progress?.message || `Polished section text ${completed}/${total}.`),
+            generated_sections: requestedSections,
+            total_sections: requestedSections,
+          });
+        },
+      });
+    }
     if (include_diagrams !== false || include_images !== false || include_mascot === true) {
       reportJobProgress({
         stage: 'visual_generation',
         task: include_mascot === true ? 'mascot' : 'visual',
-        percent: 78,
+        percent: 84,
         label: 'Generating visuals',
         detail: 'Creating image assets for sections.',
         generated_sections: requestedSections,
@@ -852,7 +881,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
             reportJobProgress({
               stage: 'visual_generation',
               task: 'visual',
-              percent: 78 + ratio * 14,
+              percent: 84 + ratio * 10,
               label: 'Generating visuals',
               detail: String(progress?.message || `Generated visual assets ${completed}/${total}.`),
               generated_sections: requestedSections,
@@ -864,7 +893,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
             reportJobProgress({
               stage: 'mascot_generation',
               task: 'mascot',
-              percent: 88 + ratio * 8,
+              percent: 94 + ratio * 3,
               label: 'Generating mascots',
               detail: String(progress?.message || `Generated mascot assets ${completed}/${total}.`),
               generated_sections: requestedSections,

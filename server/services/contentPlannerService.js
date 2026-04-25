@@ -116,6 +116,7 @@ async function processPlannerJob(job) {
   const includeDiagrams = job.include_diagrams !== false && job.include_diagrams !== 0;
   const includeImages = job.include_images !== false && job.include_images !== 0;
   const includeMascot = job.include_mascot === true || job.include_mascot === 1;
+  const includeBeautifyText = job.include_beautify_text !== false && job.include_beautify_text !== 0;
 
   let generated = await contentService.generateContentWithAIResilient({
     topics: String(job.topics || '').trim(),
@@ -127,6 +128,11 @@ async function processPlannerJob(job) {
     includeImages,
     includeMascot,
   });
+  if (includeBeautifyText) {
+    generated = await contentService.beautifyContentTextWithAI(generated, {
+      level: String(job.level || ''),
+    });
+  }
   if (includeDiagrams || includeImages || includeMascot) {
     generated = await contentService.enrichContentWithImages(generated);
   }

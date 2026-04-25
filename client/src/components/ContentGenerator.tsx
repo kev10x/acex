@@ -137,6 +137,7 @@ const ContentGenerator: React.FC = () => {
   const [includeDiagrams, setIncludeDiagrams] = useState(true);
   const [includeImages, setIncludeImages] = useState(true);
   const [includeMascot, setIncludeMascot] = useState(true);
+  const [includeBeautifyText, setIncludeBeautifyText] = useState(true);
   const [includeTextToSpeech, setIncludeTextToSpeech] = useState(true);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState('classroom');
@@ -284,6 +285,7 @@ const ContentGenerator: React.FC = () => {
     includeDiagrams,
     includeImages,
     includeMascot,
+    includeBeautifyText,
   ]);
 
   useEffect(() => {
@@ -553,6 +555,7 @@ const ContentGenerator: React.FC = () => {
     include_diagrams: includeDiagrams,
     include_images: includeImages,
     include_mascot: includeMascot,
+    include_beautify_text: includeBeautifyText,
     include_video: includeVideo,
     tts_enabled: includeTextToSpeech,
   });
@@ -605,6 +608,7 @@ const ContentGenerator: React.FC = () => {
     setIncludeDiagrams(input.include_diagrams !== false);
     setIncludeImages(input.include_images !== false);
     setIncludeMascot(input.include_mascot !== false);
+    setIncludeBeautifyText(input.include_beautify_text !== false);
     setIncludeVideo(!!input.include_video);
     setIncludeTextToSpeech(input.tts_enabled !== false && item.content?.tts_enabled !== false);
     setSectionMode(input.section_mode === 'auto' ? 'auto' : 'manual');
@@ -750,6 +754,7 @@ const ContentGenerator: React.FC = () => {
             include_diagrams: item.include_diagrams !== false,
             include_images: item.include_images !== false,
             include_mascot: item.include_mascot !== false,
+            include_beautify_text: item.include_beautify_text !== false,
             include_video: !!item.include_video,
             tts_enabled: item.tts_enabled !== false,
           }
@@ -869,6 +874,7 @@ const ContentGenerator: React.FC = () => {
         include_diagrams: includeDiagrams,
         include_images: includeImages,
         include_mascot: includeMascot,
+        include_beautify_text: includeBeautifyText,
       });
       if (Number.isFinite(Number(res.data?.generation_job_id))) {
         activeGenerationJobIdRef.current = Number(res.data?.generation_job_id);
@@ -1085,6 +1091,22 @@ const ContentGenerator: React.FC = () => {
       sections[sectionIndex] = {
         ...section,
         text_layout_mode: mode,
+      } as any;
+      return { ...current, sections };
+    });
+  };
+
+  const restoreOriginalSectionText = (sectionIndex: number) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex];
+      if (!section) return current;
+      const rawBody = String((section as any)?.raw_body || '').trim();
+      if (!rawBody) return current;
+      sections[sectionIndex] = {
+        ...section,
+        body: rawBody,
+        body_html: '',
       } as any;
       return { ...current, sections };
     });
@@ -1372,6 +1394,7 @@ const ContentGenerator: React.FC = () => {
         include_diagrams: includeDiagrams,
         include_images: includeImages,
         include_mascot: includeMascot,
+        include_beautify_text: includeBeautifyText,
       });
       await loadPlannerJobs();
     } catch (e: any) {
@@ -1854,6 +1877,15 @@ const ContentGenerator: React.FC = () => {
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
+                checked={includeBeautifyText}
+                onChange={(e) => setIncludeBeautifyText(e.target.checked)}
+                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+              />
+              <span className="text-sm text-gray-700">Beautify section text with AI <span className="text-gray-400 text-xs">(preserve meaning)</span></span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
                 checked={includeVideo}
                 onChange={(e) => setIncludeVideo(e.target.checked)}
                 className="w-4 h-4 text-teal-600 border-gray-300 rounded"
@@ -2225,6 +2257,20 @@ const ContentGenerator: React.FC = () => {
                     rows={10}
                     className="w-full px-3 py-2 border border-gray-300 rounded text-sm leading-relaxed focus:ring-2 focus:ring-teal-500"
                   />
+                  <div className="flex items-center gap-2">
+                    {!!String((sec as any)?.raw_body || '').trim() && String((sec as any)?.raw_body || '').trim() !== String(sec?.body || '').trim() && (
+                      <button
+                        type="button"
+                        onClick={() => restoreOriginalSectionText(i)}
+                        className="px-2 py-1 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
+                      >
+                        Use original text
+                      </button>
+                    )}
+                    {includeBeautifyText && (
+                      <span className="text-[11px] text-slate-500">AI beautify enabled</span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
