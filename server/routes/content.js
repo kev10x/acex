@@ -9,6 +9,8 @@ const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const yauzl = require('yauzl');
 const { query } = require('../database/connection');
 const { requireAuth, requireFeature } = require('../middleware/auth');
 const contentService = require('../services/contentService');
@@ -390,6 +392,65 @@ function listTemplateImageUrls(templateId, baseUrl = '') {
   }
 }
 
+function decodeXmlEntities(value) {
+  return String(value || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+async function extractTextFromDocxBuffer(buffer) {
+  const xmlFiles = [];
+  await new Promise((resolve, reject) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (openErr, zipfile) => {
+      if (openErr || !zipfile) return reject(openErr || new Error('Failed to open DOCX'));
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        const name = String(entry.fileName || '');
+        const isTextXml = /^word\/(document|header\d+|footer\d+)\.xml$/i.test(name);
+        if (!isTextXml) {
+          zipfile.readEntry();
+          return;
+        }
+        zipfile.openReadStream(entry, (streamErr, stream) => {
+          if (streamErr || !stream) {
+            zipfile.readEntry();
+            return;
+          }
+          const chunks = [];
+          stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          stream.on('end', () => {
+            xmlFiles.push(Buffer.concat(chunks).toString('utf8'));
+            zipfile.readEntry();
+          });
+          stream.on('error', () => zipfile.readEntry());
+        });
+      });
+      zipfile.on('end', resolve);
+      zipfile.on('error', reject);
+    });
+  });
+
+  const joinedXml = xmlFiles.join('\n');
+  if (!joinedXml.trim()) return '';
+
+  const plain = decodeXmlEntities(
+    joinedXml
+      .replace(/<w:p\b[^>]*>/g, '\n')
+      .replace(/<\/w:p>/g, '\n')
+      .replace(/<w:tab\/>/g, ' ')
+      .replace(/<w:br\/>/g, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\r/g, ' ')
+      .replace(/\t/g, ' ')
+      .replace(/[ ]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+  );
+  return plain.trim();
+}
+
 function injectTemplateImages(content, imageUrls) {
   if (!imageUrls || imageUrls.length === 0) return content;
   let idx = 0;
@@ -421,6 +482,18 @@ const uploadTemplate = multer({
     cb(null, !!ok);
   },
 }).single('template');
+
+const topicsUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const name = String(file.originalname || '').toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+    const isPdf = mime === 'application/pdf' || name.endsWith('.pdf');
+    const isDocx = mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx');
+    cb(null, isPdf || isDocx);
+  },
+}).single('file');
 
 /**
  * Generate course content with AI. Body: topics, level?, num_sections?, rubric_id?, rubric_context?, include_video? (boolean)
@@ -647,6 +720,56 @@ router.post('/regenerate-mascot', requireAuth, requireFeature('content_creation'
     console.error('Content mascot regenerate error:', error);
     res.status(500).json({ error: error.message || 'Failed to regenerate mascot with Grok' });
   }
+});
+
+router.post('/topics/upload', requireAuth, requireFeature('content_creation'), (req, res) => {
+  topicsUpload(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ error: uploadErr.message || 'Failed to upload file' });
+    }
+    try {
+      const file = req.file;
+      if (!file || !file.buffer) {
+        return res.status(400).json({ error: 'Please choose a PDF or DOCX file' });
+      }
+
+      const originalName = String(file.originalname || '');
+      const lowerName = originalName.toLowerCase();
+      const mime = String(file.mimetype || '').toLowerCase();
+      const isPdf = mime === 'application/pdf' || lowerName.endsWith('.pdf');
+      const isDocx = mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || lowerName.endsWith('.docx');
+
+      let extracted = '';
+      if (isPdf) {
+        const parsed = await pdfParse(file.buffer);
+        extracted = String(parsed?.text || '').trim();
+      } else if (isDocx) {
+        extracted = await extractTextFromDocxBuffer(file.buffer);
+      } else {
+        return res.status(400).json({ error: 'Unsupported file type. Please upload a PDF or DOCX.' });
+      }
+
+      if (!extracted) {
+        return res.status(400).json({ error: 'No readable text was found in the uploaded file.' });
+      }
+
+      const normalized = extracted
+        .replace(/\r/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+        .slice(0, 20000);
+
+      return res.json({
+        success: true,
+        topics: normalized,
+        file_name: originalName,
+      });
+    } catch (error) {
+      console.error('Content topics upload parse error:', error);
+      return res.status(500).json({ error: error.message || 'Failed to extract topics from file' });
+    }
+  });
 });
 
 router.get('/templates', requireAuth, requireFeature('content_creation'), async (req, res) => {

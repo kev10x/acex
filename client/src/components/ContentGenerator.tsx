@@ -144,7 +144,9 @@ const ContentGenerator: React.FC = () => {
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [isUploadingTopicsFile, setIsUploadingTopicsFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const topicsFileInputRef = useRef<HTMLInputElement>(null);
   const recoveredContentJobIdRef = useRef<number | null>(null);
   const generationProgressTimerRef = useRef<number | null>(null);
   const generationProgressHideTimerRef = useRef<number | null>(null);
@@ -684,6 +686,28 @@ const ContentGenerator: React.FC = () => {
       completeGenerationProgress(false, e.response?.data?.error || e.message || 'Failed to generate content');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleTopicsFileSelected = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+    setIsUploadingTopicsFile(true);
+    try {
+      const res = await contentAPI.uploadTopicsFile(file);
+      const parsedTopics = String(res.data?.topics || '').trim();
+      if (!parsedTopics) {
+        setError('No readable topics were extracted from the uploaded file.');
+        return;
+      }
+      setTopics(parsedTopics);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to extract topics from uploaded file');
+    } finally {
+      setIsUploadingTopicsFile(false);
+      if (topicsFileInputRef.current) {
+        topicsFileInputRef.current.value = '';
+      }
     }
   };
 
@@ -1331,7 +1355,26 @@ const ContentGenerator: React.FC = () => {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Topics to cover *</label>
+            <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+              <label className="block text-sm font-medium text-gray-700">Topics to cover *</label>
+              <input
+                ref={topicsFileInputRef}
+                type="file"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => handleTopicsFileSelected(e.target.files?.[0] || null)}
+              />
+              <button
+                type="button"
+                onClick={() => topicsFileInputRef.current?.click()}
+                disabled={isUploadingTopicsFile}
+                className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                title="Upload a PDF or DOCX file with topic lists"
+              >
+                {isUploadingTopicsFile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {isUploadingTopicsFile ? 'Extracting topics...' : 'Upload topic list (PDF/DOCX)'}
+              </button>
+            </div>
             <textarea
               value={topics}
               onChange={(e) => setTopics(e.target.value)}
@@ -1887,12 +1930,11 @@ const ContentGenerator: React.FC = () => {
                   const extraFigures = imageFigures.filter((f) => f.figureKey !== mainFigure?.figureKey);
                   const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
                   const mascotHeroSrc = String((sec as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(i * 2, playfulAssetPool) || '';
-                  const companionSrc = pickPlayfulCompanion(i * 2 + 1, playfulAssetPool) || mascotHeroSrc || '';
                   return (
                     <>
                       <div className="mb-4 space-y-3">
                           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
-                            <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
+                            <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
                               {mainFigure?.visual?.image_url ? (
                                 <figure
                                   onClick={() => setSelectedVisualKey(mainFigure.figureKey)}
@@ -1904,7 +1946,7 @@ const ContentGenerator: React.FC = () => {
                                       ? 'ring-2 ring-teal-300'
                                       : selectedVisualKey === mainFigure.figureKey
                                       ? 'ring-2 ring-emerald-300'
-                                      : 'hover:ring-2 hover:ring-orange-200'
+                                      : 'hover:ring-2 hover:ring-slate-200'
                                   }`}
                                 >
                                   <img
@@ -1918,13 +1960,13 @@ const ContentGenerator: React.FC = () => {
                                   </figcaption>
                                 </figure>
                               ) : (
-                                <div className="h-32 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                                <div className="h-32 rounded-lg border border-dashed border-slate-300 text-xs text-slate-600 flex items-center justify-center">
                                   Add a main figure image
                                 </div>
                               )}
                             </div>
                             <div className="space-y-3">
-                              <div className="border border-orange-200 rounded-lg bg-orange-50 p-2">
+                              <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
                                 {mascotHeroSrc ? (
                                   <figure className="rounded-lg overflow-hidden">
                                     <img
@@ -1935,24 +1977,14 @@ const ContentGenerator: React.FC = () => {
                                     />
                                   </figure>
                                 ) : (
-                                  <div className="h-24 rounded-lg border border-dashed border-orange-300 text-xs text-orange-700 flex items-center justify-center">
+                                  <div className="h-24 rounded-lg border border-dashed border-slate-300 text-xs text-slate-600 flex items-center justify-center">
                                     Add a mascot image
                                   </div>
                                 )}
                               </div>
-                              <div className="relative border border-amber-200 rounded-lg bg-amber-50 p-3 min-h-[170px]">
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">Key point</div>
-                                <p className="text-sm font-medium text-amber-900 pr-16">{keyPoint}</p>
-                                {companionSrc ? (
-                                  <img
-                                    src={toSecureSrc(companionSrc)}
-                                    onError={handleImageFallback}
-                                    alt=""
-                                    aria-hidden="true"
-                                    className="pointer-events-none select-none absolute bottom-1 right-1 w-14 md:w-16 drop-shadow"
-                                    draggable={false}
-                                  />
-                                ) : null}
+                              <div className="relative border border-slate-200 rounded-lg bg-white p-3 min-h-[170px]">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Key point</div>
+                                <p className="text-sm font-medium text-slate-900">{keyPoint}</p>
                               </div>
                             </div>
                           </div>

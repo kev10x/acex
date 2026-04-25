@@ -1387,6 +1387,13 @@ export const contentAPI = {
     form.append('template', file);
     return api.post('/content/template', form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
+  uploadTopicsFile: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<{ success: boolean; topics: string; file_name?: string }>('/content/topics/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   schedulePlanner: (data: {
     topics: string;
     level?: string;
