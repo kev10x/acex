@@ -887,6 +887,7 @@ async function generateContentWithAIResilient(opts = {}) {
     maxChunkRetries = RESILIENT_CHUNK_MAX_RETRIES,
     interBatchDelayMs = RESILIENT_INTER_BATCH_DELAY_MS,
     onProgress = null,
+    onChunkComplete = null,
   } = opts;
 
   const totalSections = Math.max(1, Number.parseInt(String(numSections || 5), 10) || 5);
@@ -932,10 +933,16 @@ async function generateContentWithAIResilient(opts = {}) {
     const startSection = chunkIndex * resolvedChunkSize + 1;
     const targetCount = Math.min(resolvedChunkSize, totalSections - mergedSections.length);
     const endSection = startSection + targetCount - 1;
+    // Structured continuity: heading + one-sentence key idea, last 10 sections only.
     const previousHeadings = mergedSections
-      .map((section, idx) => `${idx + 1}. ${String(section?.heading || section?.title || '').trim()}`)
-      .filter(Boolean)
-      .slice(-18);
+      .slice(-10)
+      .map((section, relIdx) => {
+        const absIdx = mergedSections.length - Math.min(10, mergedSections.length) + relIdx;
+        const heading = String(section?.heading || section?.title || '').trim();
+        const keyIdea = String(section?.support || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        return `${absIdx + 1}. ${heading}${keyIdea ? ` — ${keyIdea}` : ''}`;
+      })
+      .filter(Boolean);
 
     if (typeof onProgress === 'function') {
       onProgress({
@@ -1016,6 +1023,20 @@ async function generateContentWithAIResilient(opts = {}) {
 
     mergedSections.push(...chunkContent.sections);
     chunkResults.push(chunkContent);
+
+    if (typeof onChunkComplete === 'function') {
+      try {
+        onChunkComplete({
+          chunkIndex,
+          completedChunks: chunkIndex + 1,
+          totalChunks,
+          partial_sections: mergedSections.map((s) => ({
+            heading: s?.heading || s?.title || '',
+            support: s?.support || '',
+          })),
+        });
+      } catch (_) {}
+    }
 
     if (typeof onProgress === 'function') {
       onProgress({

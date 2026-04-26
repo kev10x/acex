@@ -25,8 +25,10 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
-const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
+const { createGenerationJob, updateGenerationJob, JOB_STATUS, getGenerationJobById } = require('../services/generationJobService');
 const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
+const { JWT_SECRET } = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -837,6 +839,27 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
           return;
         }
       },
+      onChunkComplete: (chunkInfo) => {
+        if (!generationJobId) return;
+        updateGenerationJob(generationJobId, {
+          result: {
+            success: false,
+            partial_sections: chunkInfo.partial_sections || [],
+            progress: {
+              stage: 'text_generation',
+              task: 'content',
+              percent: Math.round(20 + (chunkInfo.completedChunks / Math.max(1, chunkInfo.totalChunks)) * 56),
+              label: 'Generating sections',
+              detail: `Completed chunk ${chunkInfo.completedChunks}/${chunkInfo.totalChunks}`,
+              generated_sections: Array.isArray(chunkInfo.partial_sections) ? chunkInfo.partial_sections.length : 0,
+              total_sections: requestedSections,
+              updated_at: new Date().toISOString(),
+            },
+          },
+        }).catch((err) => {
+          console.warn('[content] Failed to persist partial chunk:', err?.message || err);
+        });
+      },
     });
     if (templateImageUrls.length > 0) {
       content = injectTemplateImages(content, templateImageUrls);
@@ -981,6 +1004,96 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     console.error('Content generate error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate content' });
   }
+});
+
+/**
+ * SSE stream for a specific generation job's progress.
+ * Accepts token via ?token= query param because browsers cannot set Authorization headers on EventSource.
+ */
+router.get('/jobs/:jobId/progress-stream', async (req, res) => {
+  // Authenticate via query param token (SSE cannot use Authorization headers in browsers)
+  const token = req.query?.token || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+  let userId;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    userId = decoded.userId;
+  } catch (_) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  const jobId = Number(req.params.jobId);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+  const POLL_MS = 800;
+  const MAX_POLLS = Math.ceil((20 * 60 * 1000) / POLL_MS); // 20 min ceiling
+
+  let polls = 0;
+  let closed = false;
+
+  const send = (event, data) => {
+    if (closed) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const cleanup = () => { closed = true; };
+  req.on('close', cleanup);
+  req.on('aborted', cleanup);
+
+  const tick = async () => {
+    if (closed) return;
+    polls += 1;
+    if (polls > MAX_POLLS) {
+      send('error', { message: 'Stream timeout' });
+      cleanup();
+      res.end();
+      return;
+    }
+
+    try {
+      const job = await getGenerationJobById(jobId, userId);
+      if (!job) {
+        send('error', { message: 'Job not found' });
+        cleanup();
+        res.end();
+        return;
+      }
+
+      let result = null;
+      try { result = typeof job.result_json === 'string' ? JSON.parse(job.result_json) : job.result_json; } catch (_) {}
+
+      send('progress', {
+        job_id: Number(job.id),
+        status: job.status,
+        progress: result?.progress || null,
+        partial_sections: result?.partial_sections || null,
+        error_message: job.error_message || null,
+      });
+
+      if (TERMINAL.has(String(job.status))) {
+        send('done', { status: job.status });
+        cleanup();
+        res.end();
+        return;
+      }
+    } catch (err) {
+      send('error', { message: err?.message || 'Poll error' });
+    }
+
+    if (!closed) setTimeout(tick, POLL_MS);
+  };
+
+  send('connected', { job_id: jobId });
+  tick();
 });
 
 router.post('/regenerate-visual', requireAuth, requireFeature('content_creation'), async (req, res) => {

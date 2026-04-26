@@ -139,7 +139,7 @@ const ContentGenerator: React.FC = () => {
   const [includeDiagrams, setIncludeDiagrams] = useState(true);
   const [includeImages, setIncludeImages] = useState(true);
   const [includeMascot, setIncludeMascot] = useState(true);
-  const [includeBeautifyText, setIncludeBeautifyText] = useState(true);
+  const [includeBeautifyText, setIncludeBeautifyText] = useState(false);
   const [includeTextToSpeech, setIncludeTextToSpeech] = useState(true);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState('classroom');
@@ -200,6 +200,7 @@ const ContentGenerator: React.FC = () => {
   const generationJobPollTimerRef = useRef<number | null>(null);
   const activeGenerationJobIdRef = useRef<number | null>(null);
   const generationJobPollBusyRef = useRef(false);
+  const jobStreamCleanupRef = useRef<(() => void) | null>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
@@ -320,6 +321,10 @@ const ContentGenerator: React.FC = () => {
       generationJobPollTimerRef.current = null;
     }
     generationJobPollBusyRef.current = false;
+    if (jobStreamCleanupRef.current) {
+      jobStreamCleanupRef.current();
+      jobStreamCleanupRef.current = null;
+    }
   };
 
   const startGenerationProgress = (task: 'content' | 'visual' | 'mascot', opts?: { includeImages?: boolean; includeMascot?: boolean }) => {
@@ -449,18 +454,45 @@ const ContentGenerator: React.FC = () => {
       activeGenerationJobIdRef.current = Number(job.id) || activeGenerationJobIdRef.current;
       mapBackendProgressToUi(job?.result?.progress || null);
     } catch (_) {
-      // best effort polling only
+      // best effort fallback only
     } finally {
       generationJobPollBusyRef.current = false;
     }
   };
 
-  const startGenerationJobPoller = () => {
+  const startJobProgressStream = (jobId: number) => {
     clearGenerationJobPoller();
-    pollGenerationJobProgress();
-    generationJobPollTimerRef.current = window.setInterval(() => {
+    jobStreamCleanupRef.current = contentAPI.streamJobProgress(jobId, {
+      onProgress: (data) => {
+        mapBackendProgressToUi(data.progress);
+      },
+      onDone: () => {
+        // Generation complete — the main API call handler will finalize the UI
+      },
+      onError: () => {
+        // SSE failed — fall back to polling
+        if (jobStreamCleanupRef.current) {
+          jobStreamCleanupRef.current = null;
+        }
+        pollGenerationJobProgress();
+        generationJobPollTimerRef.current = window.setInterval(() => {
+          pollGenerationJobProgress();
+        }, 1500);
+      },
+    });
+  };
+
+  const startGenerationJobPoller = () => {
+    const jobId = activeGenerationJobIdRef.current;
+    if (jobId) {
+      startJobProgressStream(jobId);
+    } else {
+      clearGenerationJobPoller();
       pollGenerationJobProgress();
-    }, 1500);
+      generationJobPollTimerRef.current = window.setInterval(() => {
+        pollGenerationJobProgress();
+      }, 1500);
+    }
   };
 
   const completeGenerationProgress = (success: boolean, message?: string) => {
@@ -504,6 +536,17 @@ const ContentGenerator: React.FC = () => {
 
       if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
         setBackgroundGenerationNotice('A content generation is still running in the background. This page will auto-recover it when it finishes.');
+        const jobId = Number(latest.id);
+        if (jobId && jobStreamCleanupRef.current === null) {
+          jobStreamCleanupRef.current = contentAPI.streamJobProgress(jobId, {
+            onProgress: (data) => mapBackendProgressToUi(data.progress),
+            onDone: () => {
+              jobStreamCleanupRef.current = null;
+              recoverBackgroundContentGeneration();
+            },
+            onError: () => { jobStreamCleanupRef.current = null; },
+          });
+        }
         return;
       }
 
@@ -533,8 +576,9 @@ const ContentGenerator: React.FC = () => {
 
   useEffect(() => {
     recoverBackgroundContentGeneration();
+    // Keep a 15s fallback poll for the case where SSE stream fails to connect
     const timer = setInterval(() => {
-      recoverBackgroundContentGeneration();
+      if (!jobStreamCleanupRef.current) recoverBackgroundContentGeneration();
     }, 15000);
     return () => clearInterval(timer);
   }, [isGenerating, generatedContent]);
@@ -890,7 +934,10 @@ const ContentGenerator: React.FC = () => {
         include_beautify_text: includeBeautifyText,
       });
       if (Number.isFinite(Number(res.data?.generation_job_id))) {
-        activeGenerationJobIdRef.current = Number(res.data?.generation_job_id);
+        const jobId = Number(res.data.generation_job_id);
+        activeGenerationJobIdRef.current = jobId;
+        // generation is done at this point, but kick off SSE so recovery flow can use it
+        startJobProgressStream(jobId);
       }
       if (res.data.success && res.data.content) {
         updateGenerationProgress(92, 'Finalizing response', 'Preparing editor preview');
@@ -1951,7 +1998,7 @@ const ContentGenerator: React.FC = () => {
                 onChange={(e) => setIncludeBeautifyText(e.target.checked)}
                 className="w-4 h-4 text-teal-600 border-gray-300 rounded"
               />
-              <span className="text-sm text-gray-700">Beautify section text with AI <span className="text-gray-400 text-xs">(preserve meaning)</span></span>
+              <span className="text-sm text-gray-700">Beautify section text with AI <span className="text-gray-400 text-xs">(extra pass, adds cost)</span></span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -2700,36 +2747,56 @@ const ContentGenerator: React.FC = () => {
                   <>
 
                 {/* Illustration figure — shown before body text */}
-                {(sectionFigures[i] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
+                {(sectionFigures[i] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => {
+                  const isFailed = isPlaceholderFigure(visual);
+                  return (
                   <figure
                     key={figNum}
                     onClick={() => setSelectedVisualKey(figureKey)}
                     className={`my-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
-                      selectedVisualKey === figureKey
+                      isFailed
+                        ? 'border-amber-300 bg-amber-50'
+                        : selectedVisualKey === figureKey
                         ? 'border-emerald-400 ring-2 ring-emerald-200'
                         : 'border-gray-200 hover:border-emerald-300'
                     } ${visualIndex % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}
                   >
                     {visual.image_url ? (
-                      <img
-                        src={toSecureSrc(visual.image_url)}
-                        onError={handleImageFallback}
-                        alt={visual.alt_text || visual.title || `Figure ${figNum}`}
-                        className="w-full object-contain max-h-64"
-                      />
+                      <div className="relative">
+                        <img
+                          src={toSecureSrc(visual.image_url)}
+                          onError={handleImageFallback}
+                          alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                          className="w-full object-contain max-h-64"
+                        />
+                        {isFailed && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-amber-50/80">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleRegenerateVisual(i, visualIndex); }}
+                              disabled={regeneratingVisualKey === figureKey}
+                              className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              {regeneratingVisualKey === figureKey ? 'Retrying...' : 'Image failed — Retry'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     ) : null}
                     <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                       <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedVisualKey(figureKey);
-                        }}
-                        className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
-                      >
-                        Select
-                      </button>
+                      {!isFailed && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVisualKey(figureKey);
+                          }}
+                          className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
+                        >
+                          Select
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2744,7 +2811,8 @@ const ContentGenerator: React.FC = () => {
                       </button>
                     </figcaption>
                   </figure>
-                ))}
+                  );
+                })}
 
                 {/* Body text */}
                 <div
@@ -2753,8 +2821,10 @@ const ContentGenerator: React.FC = () => {
                 />
 
                 {/* Image figure — shown after body text */}
-                {(sectionFigures[i] || []).filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
-                  visual.image_url ? (
+                {(sectionFigures[i] || []).filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => {
+                  if (!visual.image_url) return null;
+                  const isFailed = isPlaceholderFigure(visual);
+                  return (
                     <figure
                       key={figNum}
                       onClick={() => setSelectedVisualKey(figureKey)}
@@ -2762,31 +2832,49 @@ const ContentGenerator: React.FC = () => {
                       onDragLeave={() => setDragOverKey(null)}
                       onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, visualIndex, e); }}
                       className={`mt-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
-                        dragOverKey === figureKey
+                        isFailed
+                          ? 'border-amber-300 bg-amber-50'
+                          : dragOverKey === figureKey
                           ? 'border-teal-400 ring-2 ring-teal-200'
                           : selectedVisualKey === figureKey
                           ? 'border-emerald-400 ring-2 ring-emerald-200'
                           : 'border-gray-200 hover:border-emerald-300'
                       } ${visualIndex % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}
                     >
-                      <img
-                        src={toSecureSrc(visual.image_url)}
-                        onError={handleImageFallback}
-                        alt={visual.alt_text || visual.title || `Figure ${figNum}`}
-                        className="w-full object-cover max-h-48"
-                      />
+                      <div className="relative">
+                        <img
+                          src={toSecureSrc(visual.image_url)}
+                          onError={handleImageFallback}
+                          alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                          className="w-full object-cover max-h-48"
+                        />
+                        {isFailed && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-amber-50/80">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleRegenerateVisual(i, visualIndex); }}
+                              disabled={regeneratingVisualKey === figureKey}
+                              className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              {regeneratingVisualKey === figureKey ? 'Retrying...' : 'Image failed — Retry'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                         <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedVisualKey(figureKey);
-                          }}
-                          className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
-                        >
-                          Select
-                        </button>
+                        {!isFailed && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedVisualKey(figureKey);
+                            }}
+                            className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
+                          >
+                            Select
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -2801,8 +2889,8 @@ const ContentGenerator: React.FC = () => {
                         </button>
                       </figcaption>
                     </figure>
-                  ) : null
-                ))}
+                  );
+                })}
                   </>
                 )}
                 {showRenderDebugger && (

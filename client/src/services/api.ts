@@ -1442,6 +1442,48 @@ export const contentAPI = {
   }) => api.post('/content/progress', data),
   getProgress: (code: string, studentName: string) =>
     api.get(`/content/progress/${code}`, { params: { student_name: studentName } }),
+  streamJobProgress: (
+    jobId: number,
+    callbacks: {
+      onProgress?: (data: { status: string; progress: any; partial_sections: any[] | null }) => void;
+      onDone?: (status: string) => void;
+      onError?: (message: string) => void;
+    }
+  ): (() => void) => {
+    const token = localStorage.getItem('token');
+    const url = `${API_BASE_URL}/content/jobs/${jobId}/progress-stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    const es = new EventSource(url);
+
+    es.addEventListener('connected', () => {});
+    es.addEventListener('progress', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        callbacks.onProgress?.(data);
+      } catch (_) {}
+    });
+    es.addEventListener('done', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        callbacks.onDone?.(data.status);
+      } catch (_) {}
+      es.close();
+    });
+    es.addEventListener('error', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse((e as any).data || '{}');
+        callbacks.onError?.(data.message || 'Stream error');
+      } catch (_) {
+        callbacks.onError?.('Stream error');
+      }
+      es.close();
+    });
+    es.onerror = () => {
+      callbacks.onError?.('Connection lost');
+      es.close();
+    };
+
+    return () => es.close();
+  },
 };
 
 export const modulesAPI = {

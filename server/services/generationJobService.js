@@ -185,9 +185,47 @@ async function listGenerationJobs({ user_id, limit = 50 } = {}) {
   return rowsOf(result);
 }
 
+async function getGenerationJobById(jobId, userId = null) {
+  const id = Number(jobId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  if (isMySQL()) {
+    const result = userId != null
+      ? await query(
+          `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
+                  retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
+           FROM generation_jobs WHERE id = ? AND user_id = ? LIMIT 1`,
+          [id, Number(userId)]
+        )
+      : await query(
+          `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
+                  retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
+           FROM generation_jobs WHERE id = ? LIMIT 1`,
+          [id]
+        );
+    return rowsOf(result)[0] || null;
+  }
+
+  const result = userId != null
+    ? await query(
+        `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
+                retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
+         FROM generation_jobs WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [id, Number(userId)]
+      )
+    : await query(
+        `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
+                retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
+         FROM generation_jobs WHERE id = $1 LIMIT 1`,
+        [id]
+      );
+  return rowsOf(result)[0] || null;
+}
+
 module.exports = {
   JOB_STATUS,
   createGenerationJob,
   updateGenerationJob,
   listGenerationJobs,
+  getGenerationJobById,
 };
