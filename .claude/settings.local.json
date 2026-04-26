@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(node -e \"require\\('./server/services/contentService.js'\\); console.log\\('OK'\\)\")",
-      "Bash(node -e \"require\\('./server/routes/content.js'\\); console.log\\('OK'\\)\")"
+      "Bash(node -e \"require\\('./server/routes/content.js'\\); console.log\\('OK'\\)\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

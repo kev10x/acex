@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import {
   buildContextualSectionBodyHtml,
@@ -184,6 +184,8 @@ const ContentGenerator: React.FC = () => {
     detail: '',
   });
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<'content' | 'slideshow'>('content');
+  const [slideshowSection, setSlideshowSection] = useState(0);
   const [pptxProvider, setPptxProvider] = useState<'anthropic' | 'openai'>('anthropic');
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -216,7 +218,7 @@ const ContentGenerator: React.FC = () => {
     [generatedContent?.template_id, templateId]
   );
   const playfulAssetPool = useMemo(() => {
-    const fromContent = Array.isArray(generatedContent?.template_images) ? generatedContent.template_images : [];
+    const fromContent = Array.isArray(generatedContent?.template_images) ? generatedContent!.template_images : [];
     const fromTemplate = Array.isArray(templateImages) ? templateImages : [];
     const fromVisuals = (generatedContent?.sections || [])
       .flatMap((sec: any) => Array.isArray(sec?.visuals) ? sec.visuals : [])
@@ -240,7 +242,7 @@ const ContentGenerator: React.FC = () => {
   }, [topics, numSections]);
 
   const qualityChecks = useMemo(() => {
-    const sections = Array.isArray(generatedContent?.sections) ? generatedContent.sections : [];
+    const sections = Array.isArray(generatedContent?.sections) ? generatedContent!.sections : [];
     const wordsPerSection = sections.map((s: any) =>
       String(s?.body || '')
         .replace(/<[^>]+>/g, ' ')
@@ -851,6 +853,7 @@ const ContentGenerator: React.FC = () => {
     setStudioStep('generate');
     setIsGenerating(true);
     setSelectedVisualKey(null);
+    setSlideshowSection(0);
     setActiveHistoryId(null);
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
@@ -1514,8 +1517,8 @@ const ContentGenerator: React.FC = () => {
     setDragOverKey(null);
     updateGeneratedContent((c) => {
       const sections = [...(c.sections || [])];
-      const visuals = [...(sections[sectionIndex]?.visuals || []), {
-        kind: 'image',
+      const visuals: ContentVisual[] = [...(sections[sectionIndex]?.visuals || []), {
+        kind: 'image' as const,
         title: 'Template image',
         alt_text: '',
         prompt: '',
@@ -2106,9 +2109,27 @@ const ContentGenerator: React.FC = () => {
         <div className="flex-1 min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-lg md:p-6">
           <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Edit and preview content</h2>
-                <p className="mt-1 text-sm text-slate-600">Refine this version before students see it.</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Edit and preview content</h2>
+                  <p className="mt-1 text-sm text-slate-600">Refine this version before students see it.</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('content')}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'content' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    Content
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPreviewMode('slideshow'); setSlideshowSection(0); }}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'slideshow' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    Slideshow
+                  </button>
+                </div>
               </div>
               <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
                 {generatedContent.sections?.length || 0} sections
@@ -2269,7 +2290,61 @@ const ContentGenerator: React.FC = () => {
           <div className="mb-4 text-xs text-gray-600">
             Text-to-speech status: <span className={`font-semibold ${generatedContent.tts_enabled !== false ? 'text-teal-700' : 'text-slate-500'}`}>{generatedContent.tts_enabled !== false ? 'Enabled' : 'Disabled'}</span>
           </div>
-          {(() => {
+          {previewMode === 'slideshow' && (() => {
+            const sections = generatedContent.sections || [];
+            const totalSlides = sections.length;
+            const clampedSlide = Math.min(Math.max(slideshowSection, 0), Math.max(0, totalSlides - 1));
+            const sec = sections[clampedSlide] as any;
+            if (!sec) return null;
+            const theme = generatedContent.theme || {};
+            return (
+              <div className="flex flex-col w-full mb-6">
+                <div className="flex items-center justify-between mb-3 text-xs text-gray-400">
+                  <span className="font-medium truncate max-w-xs">{generatedContent.title}</span>
+                  <span>{clampedSlide + 1} / {totalSlides}</span>
+                </div>
+                <div className="rounded-2xl shadow-lg overflow-hidden border border-gray-100" style={{ background: theme.surface_color || '#FFFFFF' }}>
+                  <div className="p-8 md:p-12 space-y-4">
+                    <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ color: theme.heading_color || '#111827' }}>
+                      {sec.heading || sec.title || `Section ${clampedSlide + 1}`}
+                    </h2>
+                    {sec.support && (
+                      <p className="text-xl font-medium" style={{ color: theme.accent_color || '#0D9488' }}>{sec.support}</p>
+                    )}
+                    {(sectionFigures[clampedSlide] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum }) => (
+                      <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50 shadow-sm">
+                        {visual.image_url ? (
+                          <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />
+                        ) : visual.mermaid_code ? (
+                          <pre className="p-4 bg-gray-50 text-xs font-mono overflow-auto max-h-40 text-gray-600 whitespace-pre-wrap">{visual.mermaid_code}</pre>
+                        ) : null}
+                        {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: theme.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                      </figure>
+                    ))}
+                    <p className="whitespace-pre-wrap leading-relaxed text-base" style={{ color: theme.text_color || '#374151' }}>{sec.body || ''}</p>
+                    {(sectionFigures[clampedSlide] || []).filter(({ visual }) => !isDiagramVisual(visual) && visual.image_url).map(({ visual, figNum }) => (
+                      <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-white shadow-sm">
+                        <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />
+                        {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: theme.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                      </figure>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <button type="button" onClick={() => setSlideshowSection((p) => Math.max(0, p - 1))} disabled={clampedSlide <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40">← Previous</button>
+                  <div className="flex gap-1.5 items-center">
+                    {sections.map((_: any, idx: number) => (
+                      <button key={idx} type="button" onClick={() => setSlideshowSection(idx)}
+                        title={(sections[idx] as any).heading || (sections[idx] as any).title || `Section ${idx + 1}`}
+                        className={`rounded-full transition-all ${idx === clampedSlide ? 'w-4 h-3 bg-teal-600' : 'w-2.5 h-2.5 bg-gray-300 hover:bg-teal-300'}`} />
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setSlideshowSection((p) => Math.min(totalSlides - 1, p + 1))} disabled={clampedSlide >= totalSlides - 1} className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40">Next →</button>
+                </div>
+              </div>
+            );
+          })()}
+          {previewMode === 'content' && (() => {
             const sections = generatedContent.sections || [];
             return (
           <div className="space-y-6">

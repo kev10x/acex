@@ -133,6 +133,7 @@ const TakeContent: React.FC = () => {
   const [cpAudioUrl, setCpAudioUrl] = useState<string | null>(null);
   const [cpAudioError, setCpAudioError] = useState<string | null>(null);
   const [showRenderDebugger, setShowRenderDebugger] = useState(false);
+  const [viewMode, setViewMode] = useState<'content' | 'slideshow'>('content');
 
   const sections = content?.sections || [];
   const sectionCount = sections.length;
@@ -150,7 +151,7 @@ const TakeContent: React.FC = () => {
   const activeSection = !isCheckpointView && sectionCount > 0 ? sections[Math.min(Math.max(currentSection, 0), maxContentIndex)] : null;
   const isPlayfulTemplate = String(content?.template_id || '').trim().toLowerCase() === 'playful';
   const playfulAssetPool = useMemo(() => {
-    const templatePool = Array.isArray(content?.template_images) ? content.template_images : [];
+    const templatePool = Array.isArray(content?.template_images) ? content!.template_images : [];
     const visualPool = (content?.sections || [])
       .flatMap((sec: any) => Array.isArray(sec?.visuals) ? sec.visuals : [])
       .filter((visual: any) => String(visual?.kind || '').toLowerCase() !== 'illustration')
@@ -653,6 +654,23 @@ const TakeContent: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">View as:</span>
+              <button
+                type="button"
+                onClick={() => setViewMode('content')}
+                className={`px-3 py-1 text-xs rounded-full font-medium transition ${viewMode === 'content' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Content
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('slideshow')}
+                className={`px-3 py-1 text-xs rounded-full font-medium transition ${viewMode === 'slideshow' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Slideshow
+              </button>
+            </div>
           </div>
 
           {videoStatus && (
@@ -713,6 +731,97 @@ const TakeContent: React.FC = () => {
 
               <div>
             {!isCheckpointView && activeSection && (
+              viewMode === 'slideshow' ? (
+                <div className="w-full min-w-0 flex flex-col">
+                  <div className="flex items-center justify-between mb-3 text-xs text-gray-400">
+                    <span className="font-medium truncate max-w-xs">{content?.title}</span>
+                    <span>{currentSection + 1} / {sectionCount}</span>
+                  </div>
+                  <div
+                    className="rounded-2xl shadow-lg overflow-hidden border border-gray-100"
+                    style={{ background: content?.theme?.surface_color || '#FFFFFF' }}
+                  >
+                    <div className="p-8 md:p-12 space-y-4">
+                      <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ color: content?.theme?.heading_color || '#111827' }}>
+                        {(activeSection as any).heading || activeSection.title || 'Section'}
+                      </h2>
+                      {(activeSection as any).support && (
+                        <p className="text-xl font-medium" style={{ color: content?.theme?.accent_color || '#0D9488' }}>
+                          {String((activeSection as any).support).trim()}
+                        </p>
+                      )}
+                      {ttsEnabled && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={handlePlaySectionAudio} disabled={audioLoading}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm">
+                            {audioLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
+                            {audioLoading ? 'Generating audio...' : 'Listen'}
+                          </button>
+                          <select value={audioVoice} onChange={(e) => setAudioVoice(e.target.value)} className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs">
+                            <option value="eve">Eve</option><option value="ara">Ara</option><option value="leo">Leo</option><option value="rex">Rex</option><option value="sal">Sal</option>
+                          </select>
+                          <select value={audioLanguage} onChange={(e) => setAudioLanguage(e.target.value)} className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs">
+                            <option value="en">English</option><option value="af">Afrikaans</option><option value="zu">isiZulu</option><option value="xh">Xhosa</option>
+                          </select>
+                        </div>
+                      )}
+                      {audioError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{audioError}</div>}
+                      {audioUrl && <audio controls autoPlay className="w-full" src={audioUrl}>Your browser does not support audio playback.</audio>}
+                      {(() => {
+                        const visuals: any[] = Array.isArray((activeSection as any).visuals) ? (activeSection as any).visuals : [];
+                        const illustrations = dedupeFigures(
+                          visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
+                            .filter(({ visual }) => visual.kind === 'illustration' && !isPlaceholderVisual(visual))
+                        );
+                        const images = dedupeFigures(
+                          visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
+                            .filter(({ visual }) => visual.kind !== 'illustration' && visual.image_url && !isPlaceholderVisual(visual))
+                        );
+                        return (
+                          <>
+                            {illustrations.map(({ visual, figNum }) => (
+                              <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50 shadow-sm">
+                                {visual.image_url && <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />}
+                                {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                              </figure>
+                            ))}
+                            <div
+                              className="leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3"
+                              style={{ color: content?.theme?.text_color || '#374151' }}
+                              dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(activeSection as any) }}
+                            />
+                            {images.map(({ visual, figNum }) => (
+                              <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-white shadow-sm">
+                                <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />
+                                {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                              </figure>
+                            ))}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-2">
+                    <button type="button" onClick={goToPrevious} disabled={currentSection <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40">← Previous</button>
+                    <div className="flex gap-1.5 items-center">
+                      {sections.map((sec, idx) => (
+                        <button key={idx} type="button" onClick={() => canOpenSection(idx) && handleOpenSection(idx)} disabled={!canOpenSection(idx)}
+                          title={(sec as any).heading || sec.title || `Section ${idx + 1}`}
+                          className={`rounded-full transition-all ${idx === currentSection ? 'w-4 h-3 bg-teal-600' : visitedSections.includes(idx) ? 'w-2.5 h-2.5 bg-teal-300' : 'w-2.5 h-2.5 bg-gray-200'}`} />
+                      ))}
+                      {hasQuiz && (
+                        <button type="button" onClick={() => checkpointUnlocked && setCurrentSection(checkpointIndex)} disabled={!checkpointUnlocked} title="Knowledge checkpoint"
+                          className={`rounded-full transition-all ${isCheckpointView ? 'w-4 h-3 bg-amber-500' : checkpointUnlocked ? 'w-2.5 h-2.5 bg-amber-300' : 'w-2.5 h-2.5 bg-gray-200'}`} />
+                      )}
+                    </div>
+                    <button type="button" onClick={goToNext}
+                      disabled={(!hasQuiz && currentSection >= maxContentIndex) || (!currentSectionViewed && currentSection < sectionCount)}
+                      className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40">
+                      {!currentSectionViewed && currentSection < sectionCount ? 'View to continue' : hasQuiz && currentSection >= maxContentIndex ? 'Checkpoint →' : 'Next →'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <section
                 className="w-full min-w-0 rounded-xl border border-gray-200 p-4"
                 style={buildSectionBackgroundStyle((activeSection as any).background_image_url)}
@@ -905,6 +1014,7 @@ const TakeContent: React.FC = () => {
                   </button>
                 </div>
               </section>
+              )
             )}
 
             {isCheckpointView && hasQuiz && (
