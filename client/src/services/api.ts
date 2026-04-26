@@ -852,6 +852,8 @@ export interface ContentTemplate {
   id: string;
   name: string;
   kind?: 'builtin' | 'uploaded';
+  uploaded_template_id?: number;
+  created_at?: string;
   images?: string[];
   theme: {
     font_family?: string;
@@ -1378,8 +1380,8 @@ export const contentAPI = {
     }),
   getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),
   getVideoContent: (code: string) => api.get(`/content/video/${code}/content`, { responseType: 'blob' }),
-  exportPptx: (content: GeneratedContent) =>
-    api.post('/content/export/pptx', { content }, { responseType: 'blob' }),
+  exportPptx: (content: GeneratedContent, provider?: 'anthropic' | 'openai') =>
+    api.post('/content/export/pptx', { content, provider }, { responseType: 'blob' }),
   exportLectureNotes: (content: GeneratedContent) =>
     api.post('/content/export/lecture-notes', { content }, { responseType: 'blob' }),
   exportScorm: (content: GeneratedContent) =>
@@ -1390,6 +1392,7 @@ export const contentAPI = {
     form.append('template', file);
     return api.post('/content/template', form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
+  deleteTemplate: (templateId: string) => api.delete(`/content/template/${encodeURIComponent(templateId)}`),
   uploadTopicsFile: (file: File) => {
     const form = new FormData();
     form.append('file', file);

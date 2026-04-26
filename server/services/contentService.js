@@ -28,6 +28,17 @@ const RESILIENT_IMAGE_RETRY_DELAY_MS = Math.max(150, Number.parseInt(process.env
 const CONTENT_TEXT_BEAUTIFY_MODEL = process.env.CONTENT_TEXT_BEAUTIFY_MODEL || 'gpt-4o-mini';
 const CONTENT_TEXT_BEAUTIFY_MAX_TOKENS = Math.max(400, Number.parseInt(process.env.CONTENT_TEXT_BEAUTIFY_MAX_TOKENS || '1400', 10) || 1400);
 const CONTENT_TEXT_BEAUTIFY_CONCURRENCY = Math.max(1, Math.min(4, Number.parseInt(process.env.CONTENT_TEXT_BEAUTIFY_CONCURRENCY || '2', 10) || 2));
+const PPTX_TEMPLATE_MAX_BYTES = 30 * 1024 * 1024;
+const ANTHROPIC_PPTX_BETAS = [
+  'code-execution-2025-08-25',
+  'files-api-2025-04-14',
+  'skills-2025-10-02',
+];
+const ANTHROPIC_PPTX_MODEL = process.env.ANTHROPIC_PPTX_MODEL || process.env.CONTENT_PPTX_MODEL || 'claude-opus-4-7';
+const ANTHROPIC_PPTX_MAX_TOKENS = Number(process.env.ANTHROPIC_PPTX_MAX_TOKENS || 16000);
+const OPENAI_PPTX_MODEL = process.env.OPENAI_PPTX_MODEL || 'gpt-5.2';
+const OPENAI_PPTX_MAX_TOKENS = Number(process.env.OPENAI_PPTX_MAX_TOKENS || 16000);
+const PPTX_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
 
 function sleep(ms) {
   if (!ms || ms <= 0) return Promise.resolve();
@@ -568,10 +579,11 @@ function repairJson(jsonStr) {
  * @returns {Promise<{ title, instructions, sections: [{ title, body }], quiz?: { questions } }>}
  */
 async function generateContentWithAI(opts) {
-  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', includeDiagrams = true, includeImages = true, includeMascot = false, uploadedTheme = null } = opts;
+  const { topics, level = '', numSections = 5, rubricContext = '', title: suggestedTitle = '', templateId = 'classroom', templateContext = '', includeDiagrams = true, includeImages = true, includeMascot = false, uploadedTheme = null } = opts;
   const config = aiConfig.getTaskConfig('contentGeneration', 'openai');
   const compactTopics = String(topics || '').trim().slice(0, 1200);
   const compactRubricContext = String(rubricContext || '').trim().slice(0, 1200);
+  const compactTemplateContext = String(templateContext || getBuiltInTemplateGenerationContext(templateId) || '').trim().slice(0, 1800);
   const visualsInstruction = (includeDiagrams || includeImages || includeMascot)
     ? `- visuals: array of visual descriptors (only include the types listed below):${includeDiagrams ? `
   - kind = "illustration" - an explanatory visual relevant to the section, such as a diagram, chart, graph, flowchart, architecture diagram, concept map, or infographic. This must be prompt-driven image generation (not Mermaid). Prefer charts/graphs when the section involves quantities, comparisons, proportions, categories, rankings, or trends. Do not place words, labels, legends, numbers, or long text directly inside the generated image. Ask for a plain solid background and clean edges.` : ''}${includeImages ? `
@@ -620,6 +632,7 @@ ${compactTopics}
 ${levelPromptBlock ? `${levelPromptBlock}\n` : ''}
 ${writingGuidance}
 ${compactRubricContext ? `CONTEXT FROM RUBRIC/MEMO:\n${compactRubricContext}\n` : ''}
+${compactTemplateContext ? `TEMPLATE / DECK SHAPE TO FIT:\n${compactTemplateContext}\nUse this to choose the shape of the content. If the template suggests grids, comparisons, timelines, dividers, quotes, or a limited number of content slides, make the section headings/support lines fit those layouts. Do not mention the template to learners.\n` : ''}
 
 Generate a structured course with exactly ${numSections} sections. For each section provide:
 - heading: ONE complete sentence that states the main idea (like a newspaper headline). This will be the slide title. Example: "Triple therapy reduced gastric ulcer recurrence by 60% over traditional ranitidine treatments."
@@ -863,6 +876,7 @@ async function generateContentWithAIResilient(opts = {}) {
     rubricContext = '',
     title: suggestedTitle = '',
     templateId = 'classroom',
+    templateContext = '',
     includeDiagrams = true,
     includeImages = true,
     includeMascot = false,
@@ -888,6 +902,7 @@ async function generateContentWithAIResilient(opts = {}) {
       rubricContext,
       title: suggestedTitle,
       templateId,
+      templateContext,
       includeDiagrams,
       includeImages,
       includeMascot,
@@ -957,6 +972,7 @@ async function generateContentWithAIResilient(opts = {}) {
           rubricContext,
           title: mergedTitle || suggestedTitle || '',
           templateId,
+          templateContext,
           includeDiagrams,
           includeImages: false,
           includeMascot: false,
@@ -1332,6 +1348,19 @@ function getTemplateById(templateId) {
   return CONTENT_TEMPLATES[key] || CONTENT_TEMPLATES.classroom;
 }
 
+function getBuiltInTemplateGenerationContext(templateId) {
+  const templateToken = String(templateId || 'classroom').trim();
+  if (/^uploaded:\d+$/i.test(templateToken)) return '';
+  const template = getTemplateById(templateToken);
+  if (!template) return '';
+  const theme = template.theme || {};
+  return [
+    `Built-in template: ${template.name || template.id}.`,
+    theme.heading_color || theme.accent_color ? `Visual emphasis colors: heading ${theme.heading_color || 'default'}, accent ${theme.accent_color || 'default'}.` : '',
+    'Prefer concise assertion-evidence slide headings, short support lines, and content that can fit a standard title slide plus one focused content slide per section.',
+  ].filter(Boolean).join('\n');
+}
+
 function applyTemplateToContent(content, templateId = 'classroom', uploadedTheme = null) {
   const templateToken = String(templateId || 'classroom').trim();
   if (/^uploaded:\d+$/i.test(templateToken)) {
@@ -1350,6 +1379,87 @@ function applyTemplateToContent(content, templateId = 'classroom', uploadedTheme
     template_name: template.name,
     theme: { ...template.theme },
   };
+}
+
+function decodeXmlText(text) {
+  return String(text || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function extractTextFromSlideXml(xml) {
+  return [...String(xml || '').matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+    .map((m) => decodeXmlText(m[1]).replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function inferTemplateLayoutHint(texts, xml) {
+  const joined = texts.join(' ').toLowerCase();
+  const shapeCount = (String(xml || '').match(/<p:sp\b/g) || []).length;
+  const picCount = (String(xml || '').match(/<p:pic\b/g) || []).length;
+  const numericLabels = texts.filter((t) => /^(0?\d+|[a-d])[\).:-]?$/i.test(t.trim())).length;
+  if (/thank|closing|questions|contact/.test(joined)) return 'closing';
+  if (/agenda|overview|contents/.test(joined)) return 'agenda/section overview';
+  if (/quote|“|”|call out|callout/.test(joined)) return 'quote/callout';
+  if (/timeline|phase|step|process|sequence/.test(joined) || numericLabels >= 3) return 'timeline/sequence';
+  if (/compare|versus|vs\.?|pros|cons/.test(joined)) return 'comparison/split';
+  if (picCount > 0 && shapeCount <= 5) return 'image-led';
+  if (shapeCount >= 8) return 'multi-cell grid';
+  if (shapeCount >= 5) return 'two-column or card layout';
+  if (texts.length <= 2) return 'title or section divider';
+  return 'single-heading plus body';
+}
+
+async function readZipEntryNames(zipPath) {
+  return new Promise((resolve) => {
+    if (!zipPath || !fs.existsSync(zipPath)) return resolve([]);
+    yauzl.open(zipPath, { lazyEntries: true }, (openErr, zipfile) => {
+      if (openErr || !zipfile) return resolve([]);
+      const names = [];
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        names.push(entry.fileName);
+        zipfile.readEntry();
+      });
+      zipfile.on('end', () => resolve(names));
+      zipfile.on('error', () => resolve(names));
+    });
+  });
+}
+
+async function summarizePptxTemplateForGeneration(templatePath) {
+  validatePptxTemplateFile(templatePath);
+  const names = await readZipEntryNames(templatePath);
+  const slideNames = names
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+    .sort((a, b) => Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0) - Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0));
+  const theme = await extractTemplateTheme(templatePath);
+  const slides = [];
+  for (const slideName of slideNames.slice(0, 18)) {
+    const xml = await readZipEntryText(templatePath, slideName);
+    const texts = extractTextFromSlideXml(xml).slice(0, 8);
+    slides.push({
+      n: Number(slideName.match(/slide(\d+)\.xml/i)?.[1] || slides.length + 1),
+      hint: inferTemplateLayoutHint(texts, xml),
+      text: texts
+        .filter((text) => !/click to edit|lorem ipsum/i.test(text))
+        .slice(0, 5)
+        .join(' | ')
+        .slice(0, 240),
+    });
+  }
+  const layoutSummary = slides.map((slide) =>
+    `Slide ${slide.n}: ${slide.hint}${slide.text ? `; visible text: ${slide.text}` : ''}`
+  ).join('\n');
+  return [
+    `Uploaded PowerPoint template with ${slideNames.length} slide${slideNames.length === 1 ? '' : 's'}.`,
+    theme?.headingColor || theme?.accentColor ? `Theme colors/fonts: heading ${theme.headingColor || 'unknown'}, text ${theme.textColor || 'unknown'}, accent ${theme.accentColor || 'unknown'}, head font ${theme.headFont || 'unknown'}, body font ${theme.bodyFont || 'unknown'}.` : '',
+    layoutSummary,
+    'Generate content that naturally fits these slide shapes. Favor section count and content structures that align with the reusable layouts; avoid text-heavy paragraphs in slide-facing fields.',
+  ].filter(Boolean).join('\n').slice(0, 2200);
 }
 
 function normalizeGeneratedContent(content, templateId = 'classroom', { includeDiagrams = true, includeImages = true, includeMascot = false, uploadedTheme = null } = {}) {
@@ -1502,6 +1612,346 @@ const THEME = { primary: '028090', secondary: '00A896', accent: '02C39A', light:
 const SHADOW = () => ({ type: 'outer', blur: 6, offset: 2, color: '000000', opacity: 0.15, angle: 135 });
 const TXT = (opts) => ({ fontSize: 18, bold: false, align: 'left', valign: 'top', wrap: true, breakLine: true, margin: 0, ...opts });
 
+function isRetryableProviderError(error) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
+function getRetryDelayMs(error, attempt) {
+  const retryAfter = error?.response?.headers?.['retry-after'] || error?.headers?.['retry-after'];
+  const retryAfterMs = Number.parseInt(retryAfter, 10) * 1000;
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) return retryAfterMs;
+  return 500 * Math.pow(2, attempt);
+}
+
+async function withProviderRetry(operation, maxAttempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableProviderError(error) || attempt >= maxAttempts - 1) break;
+      await sleep(getRetryDelayMs(error, attempt));
+    }
+  }
+  throw lastError;
+}
+
+function validatePptxTemplateFile(templatePath) {
+  if (!templatePath) return;
+  const ext = path.extname(String(templatePath)).toLowerCase();
+  if (ext !== '.pptx') {
+    throw new Error('PowerPoint template must be a .pptx file.');
+  }
+  const stat = fs.statSync(templatePath);
+  if (!stat.isFile()) {
+    throw new Error('PowerPoint template file could not be read.');
+  }
+  if (stat.size > PPTX_TEMPLATE_MAX_BYTES) {
+    throw new Error('PowerPoint template must be 30 MB or smaller.');
+  }
+}
+
+function isValidPptxBuffer(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return false;
+  return buffer[0] === 0x50 && buffer[1] === 0x4b;
+}
+
+function isValidPptxZipBuffer(buffer) {
+  if (!isValidPptxBuffer(buffer)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (error, zipfile) => {
+      if (error || !zipfile) return resolve(false);
+      zipfile.on('error', () => resolve(false));
+      zipfile.on('end', () => resolve(true));
+      zipfile.readEntry();
+      zipfile.on('entry', () => {
+        try { zipfile.close(); } catch (_) {}
+        resolve(true);
+      });
+    });
+  });
+}
+
+async function responseToBuffer(response) {
+  if (Buffer.isBuffer(response)) return response;
+  if (response instanceof ArrayBuffer) return Buffer.from(response);
+  if (response?.arrayBuffer) return Buffer.from(await response.arrayBuffer());
+  if (response?.buffer) return Buffer.from(await response.buffer());
+  if (response?.blob) {
+    const blob = await response.blob();
+    return Buffer.from(await blob.arrayBuffer());
+  }
+  if (typeof response === 'string') return Buffer.from(response, 'binary');
+  throw new Error('Provider returned a generated file in an unsupported response format.');
+}
+
+function collectFileIdsFromValue(value, fileIds) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectFileIdsFromValue(item, fileIds));
+    return;
+  }
+  if (typeof value.file_id === 'string' && value.file_id.trim()) {
+    fileIds.push(value.file_id.trim());
+  }
+  Object.values(value).forEach((nested) => collectFileIdsFromValue(nested, fileIds));
+}
+
+function extractGeneratedFileIds(response) {
+  const fileIds = [];
+  const blocks = Array.isArray(response?.content) ? response.content : [];
+  for (const block of blocks) {
+    const blockType = String(block?.type || '');
+    if (blockType.includes('tool_result') || blockType.includes('code_execution')) {
+      collectFileIdsFromValue(block, fileIds);
+    }
+  }
+  return [...new Set(fileIds)];
+}
+
+function collectOpenAiContainerFiles(value, matches, activeContainerId = null) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectOpenAiContainerFiles(item, matches, activeContainerId));
+    return;
+  }
+
+  const containerId = typeof value.container_id === 'string' ? value.container_id : activeContainerId;
+  if (containerId && typeof value.file_id === 'string' && value.file_id.trim()) {
+    matches.push({ containerId, fileId: value.file_id.trim() });
+  }
+  if (containerId && Array.isArray(value.files)) {
+    value.files.forEach((file) => {
+      if (typeof file?.file_id === 'string' && file.file_id.trim()) {
+        matches.push({ containerId, fileId: file.file_id.trim() });
+      }
+    });
+  }
+  Object.values(value).forEach((nested) => collectOpenAiContainerFiles(nested, matches, containerId));
+}
+
+function extractOpenAiGeneratedFiles(response) {
+  const matches = [];
+  collectOpenAiContainerFiles(response?.output || response, matches);
+  const seen = new Set();
+  return matches.filter(({ containerId, fileId }) => {
+    const key = `${containerId}:${fileId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildDeckSourceText(content) {
+  const sections = (content.sections || []).map((sec, index) => ({
+    number: index + 1,
+    heading: getSectionAssertion(sec),
+    support: getSectionSupport(sec),
+    body: getSectionBody(sec),
+    visuals: Array.isArray(sec.visuals) ? sec.visuals.map((visual) => ({
+      kind: visual.kind || '',
+      title: visual.title || '',
+      alt_text: visual.alt_text || '',
+      prompt: visual.prompt || '',
+    })) : [],
+  }));
+
+  return JSON.stringify({
+    title: content.title || 'Course Content',
+    instructions: content.instructions || '',
+    sections,
+    quiz: content.quiz || null,
+  }, null, 2);
+}
+
+function getOpenAiPptxInstructions() {
+  return [
+    PPTX_SYSTEM_PROMPT
+      .replace('You have access to the pptx Skill and the code execution\ntool — use them.', 'You have access to OpenAI Code Interpreter with the uploaded PowerPoint template available in the container — use it.')
+      .replace('6. Deliver. Move the final .pptx to /mnt/user-data/outputs and present it.', '6. Deliver. Save the final .pptx in the code interpreter container and cite or mention the generated file.'),
+    'Use Python libraries available in the container to inspect, modify, validate, and save the presentation. The final generated file must be a .pptx.',
+  ].join('\n\n');
+}
+
+function buildAnthropicPptxRequest({ content, uploadedFileId, messages, containerId, model, maxTokens }) {
+  const container = {
+    ...(containerId ? { id: containerId } : {}),
+    skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }],
+  };
+  const userContent = [
+    {
+      type: 'text',
+      text: [
+        'Create a finished PowerPoint deck from the uploaded .pptx template and this source content.',
+        'Use the template as the design source, not merely as inspiration.',
+        'Return the final deck as a generated .pptx file.',
+        '',
+        buildDeckSourceText(content),
+      ].join('\n'),
+    },
+    { type: 'container_upload', file_id: uploadedFileId },
+  ];
+
+  return {
+    model,
+    max_tokens: maxTokens,
+    betas: ANTHROPIC_PPTX_BETAS,
+    system: PPTX_SYSTEM_PROMPT,
+    container,
+    messages: messages || [{ role: 'user', content: userContent }],
+    tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
+  };
+}
+
+function buildOpenAiPptxRequest({ content, uploadedFileId, model, maxTokens }) {
+  return {
+    model,
+    instructions: getOpenAiPptxInstructions(),
+    max_output_tokens: maxTokens,
+    tools: [{
+      type: 'code_interpreter',
+      container: {
+        type: 'auto',
+        file_ids: [uploadedFileId],
+        memory_limit: '4g',
+      },
+    }],
+    input: [{
+      role: 'user',
+      content: [
+        {
+          type: 'input_text',
+          text: [
+            'Create a finished PowerPoint deck from the uploaded .pptx template and this source content.',
+            'Use the uploaded file as the design source and return the final deck as a generated .pptx file.',
+            '',
+            buildDeckSourceText(content),
+          ].join('\n'),
+        },
+        {
+          type: 'input_file',
+          file_id: uploadedFileId,
+        },
+      ],
+    }],
+  };
+}
+
+async function buildPptxWithAnthropic(content, options = {}) {
+  const templatePath = options.templatePath;
+  validatePptxTemplateFile(templatePath);
+
+  const client = options.anthropicClient || aiService.anthropic;
+  if (!client?.beta?.messages?.create || !client?.beta?.files?.upload || !client?.beta?.files?.download) {
+    throw new Error('Anthropic API key is required to export a PPTX from an uploaded template.');
+  }
+
+  const templateFileName = path.basename(templatePath);
+  const uploaded = await withProviderRetry(() => client.beta.files.upload({
+    file: fs.createReadStream(templatePath),
+    betas: ['files-api-2025-04-14'],
+  }));
+  const uploadedFileId = uploaded?.id;
+  if (!uploadedFileId) {
+    throw new Error('Anthropic Files API did not return a template file id.');
+  }
+
+  const model = options.model || ANTHROPIC_PPTX_MODEL;
+  const maxTokens = options.maxTokens || ANTHROPIC_PPTX_MAX_TOKENS || 16000;
+  let messages;
+  let containerId;
+  let response;
+
+  for (let turn = 0; turn < 10; turn++) {
+    const request = buildAnthropicPptxRequest({
+      content,
+      uploadedFileId,
+      messages,
+      containerId,
+      model,
+      maxTokens,
+    });
+    response = await withProviderRetry(() => client.beta.messages.create(request));
+    if (response?.container?.id) containerId = response.container.id;
+    if (response?.stop_reason !== 'pause_turn') break;
+    messages = [
+      ...(messages || request.messages),
+      { role: 'assistant', content: response.content || [] },
+    ];
+  }
+
+  if (response?.stop_reason === 'pause_turn') {
+    throw new Error('Anthropic paused PPTX generation too many times before returning a deck.');
+  }
+
+  const fileIds = extractGeneratedFileIds(response);
+  if (fileIds.length === 0) {
+    throw new Error(`Anthropic did not return a generated PPTX file for ${templateFileName}.`);
+  }
+
+  for (const fileId of fileIds) {
+    const downloaded = await withProviderRetry(() => client.beta.files.download(fileId, {
+      betas: ['files-api-2025-04-14'],
+    }));
+    const buffer = await responseToBuffer(downloaded);
+    if (await isValidPptxZipBuffer(buffer)) {
+      return buffer;
+    }
+  }
+
+  throw new Error('Anthropic returned files, but none were valid non-empty PPTX ZIP files.');
+}
+
+async function buildPptxWithOpenAI(content, options = {}) {
+  const templatePath = options.templatePath;
+  validatePptxTemplateFile(templatePath);
+
+  const client = options.openAIClient || options.openaiClient || aiService.openai;
+  if (!client?.responses?.create || !client?.files?.create || !client?.containers?.files?.content?.retrieve) {
+    throw new Error('OpenAI API key is required to export a PPTX from an uploaded template with OpenAI.');
+  }
+
+  const uploaded = await withProviderRetry(() => client.files.create({
+    file: fs.createReadStream(templatePath),
+    purpose: 'assistants',
+  }));
+  const uploadedFileId = uploaded?.id;
+  if (!uploadedFileId) {
+    throw new Error('OpenAI Files API did not return a template file id.');
+  }
+
+  const response = await withProviderRetry(() => client.responses.create(buildOpenAiPptxRequest({
+    content,
+    uploadedFileId,
+    model: options.model || OPENAI_PPTX_MODEL,
+    maxTokens: options.maxTokens || OPENAI_PPTX_MAX_TOKENS || 16000,
+  })));
+
+  if (response?.status === 'failed') {
+    throw new Error(response?.error?.message || 'OpenAI failed to generate the PPTX.');
+  }
+  if (response?.status === 'incomplete') {
+    throw new Error(response?.incomplete_details?.reason || 'OpenAI returned an incomplete PPTX generation response.');
+  }
+
+  const generatedFiles = extractOpenAiGeneratedFiles(response);
+  if (generatedFiles.length === 0) {
+    throw new Error('OpenAI did not return a generated PPTX container file.');
+  }
+
+  for (const { containerId, fileId } of generatedFiles) {
+    const downloaded = await withProviderRetry(() => client.containers.files.content.retrieve(containerId, fileId));
+    const buffer = await responseToBuffer(downloaded);
+    if (await isValidPptxZipBuffer(buffer)) {
+      return buffer;
+    }
+  }
+
+  throw new Error('OpenAI returned files, but none were valid non-empty PPTX ZIP files.');
+}
+
 /**
  * Build a PowerPoint buffer: 16:9, one section per slide.
  * Deliberately unstyled (no background colours, no decorative shapes) so the
@@ -1510,6 +1960,12 @@ const TXT = (opts) => ({ fontSize: 18, bold: false, align: 'left', valign: 'top'
  * a right-hand column.
  */
 async function buildPptx(content, options = {}) {
+  if (options?.templatePath) {
+    return options.provider === 'openai'
+      ? buildPptxWithOpenAI(content, options)
+      : buildPptxWithAnthropic(content, options);
+  }
+
   const pptx = new PptxGenJS();
   const title = content.title || 'Course Content';
   const templateTheme = options?.templatePath ? await extractTemplateTheme(options.templatePath) : null;
@@ -1752,12 +2208,17 @@ module.exports = {
   normalizeGeneratedContent,
   applyTemplateToContent,
   getTemplateById,
+  summarizePptxTemplateForGeneration,
   CONTENT_TEMPLATES,
   buildPptx,
+  buildPptxWithAnthropic,
+  buildPptxWithOpenAI,
   buildLectureNotesHtml,
   extractTemplateTheme,
   extractTemplateImages,
+  extractGeneratedFileIds,
+  extractOpenAiGeneratedFiles,
+  isValidPptxBuffer,
+  isValidPptxZipBuffer,
   pptxThemeToContentTheme,
 };
-
-

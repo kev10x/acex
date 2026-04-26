@@ -11,6 +11,7 @@ import {
 } from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
+const PPTX_TEMPLATE_MAX_BYTES = 30 * 1024 * 1024;
 const SECTION_COUNT_MAX = 120;
 const CONTEXTUAL_LAYOUT_OPTIONS: Array<{ value: ContextualBlockLayout; label: string }> = [
   { value: 'auto', label: 'Auto' },
@@ -161,6 +162,7 @@ const ContentGenerator: React.FC = () => {
   const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState<number | null>(null);
   const [activePublishedContentId, setActivePublishedContentId] = useState<number | null>(null);
@@ -182,6 +184,7 @@ const ContentGenerator: React.FC = () => {
     detail: '',
   });
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
+  const [pptxProvider, setPptxProvider] = useState<'anthropic' | 'openai'>('anthropic');
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
@@ -809,6 +812,11 @@ const ContentGenerator: React.FC = () => {
     setTemplateImages((tmpl?.images || []).map((url) => normalizeSecureMediaUrl(url)));
   }, [templateId, templates]);
 
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === templateId) || null,
+    [templates, templateId]
+  );
+
   const loadModules = async () => {
     try {
       const res = await modulesAPI.list();
@@ -860,6 +868,7 @@ const ContentGenerator: React.FC = () => {
         if (uploadedId) {
           effectiveTemplateId = uploadedId;
           setTemplateId(uploadedId);
+          await loadTemplates();
         }
       }
       updateGenerationProgress(28, 'Generating sections', 'Drafting sections and quiz');
@@ -939,13 +948,52 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
+  const handleTemplateFileChange = (file: File | null) => {
+    if (!file) {
+      setTemplateFile(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith('.pptx')) {
+      setTemplateFile(null);
+      setError('Please upload a .pptx PowerPoint template.');
+      return;
+    }
+    if (file.size > PPTX_TEMPLATE_MAX_BYTES) {
+      setTemplateFile(null);
+      setError('PowerPoint templates must be 30 MB or smaller.');
+      return;
+    }
+    setError(null);
+    setTemplateFile(file);
+  };
+
+  const handleDeleteTemplate = async (template: ContentTemplate) => {
+    if (template.kind !== 'uploaded') return;
+    if (!window.confirm(`Delete uploaded template "${template.name}"? Generated content that already uses it will fall back to the default exporter.`)) return;
+    setDeletingTemplateId(template.id);
+    setError(null);
+    try {
+      await contentAPI.deleteTemplate(template.id);
+      if (templateId === template.id) {
+        setTemplateId('classroom');
+      }
+      setTemplateFile(null);
+      await loadTemplates();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to delete template');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  };
+
   const handleExport = async (type: 'pptx' | 'lecture-notes') => {
     if (!generatedContent) return;
     setExporting(type);
     setError(null);
     try {
-      const api = type === 'pptx' ? contentAPI.exportPptx : contentAPI.exportLectureNotes;
-      const res = await api(generatedContent);
+      const res = type === 'pptx'
+        ? await contentAPI.exportPptx(generatedContent, pptxProvider)
+        : await contentAPI.exportLectureNotes(generatedContent);
       const blob = res.data as Blob;
       const ext = type === 'pptx' ? 'pptx' : 'html';
       const filename = `${(generatedContent.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${ext}`;
@@ -1821,8 +1869,19 @@ const ContentGenerator: React.FC = () => {
                   type="file"
                   accept=".pptx"
                   className="hidden"
-                  onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
+                  onChange={(e) => handleTemplateFileChange(e.target.files?.[0] || null)}
                 />
+                {selectedTemplate?.kind === 'uploaded' && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTemplate(selectedTemplate)}
+                    disabled={deletingTemplateId === selectedTemplate.id}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    title="Delete uploaded template"
+                  >
+                    {deletingTemplateId === selectedTemplate.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -2056,6 +2115,17 @@ const ContentGenerator: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                PPTX engine
+                <select
+                  value={pptxProvider}
+                  onChange={(e) => setPptxProvider(e.target.value as 'anthropic' | 'openai')}
+                  className="px-2 py-1 border border-slate-300 rounded text-xs bg-white text-slate-700"
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </label>
               <button
                 onClick={handleSaveDraft}
                 disabled={isSavingDraft}
