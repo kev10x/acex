@@ -34,8 +34,8 @@ const ANTHROPIC_PPTX_BETAS = [
   'files-api-2025-04-14',
   'skills-2025-10-02',
 ];
-const ANTHROPIC_PPTX_MODEL = process.env.ANTHROPIC_PPTX_MODEL || process.env.CONTENT_PPTX_MODEL || 'claude-opus-4-7';
-const ANTHROPIC_PPTX_MAX_TOKENS = Number(process.env.ANTHROPIC_PPTX_MAX_TOKENS || 16000);
+const ANTHROPIC_PPTX_MODEL = process.env.ANTHROPIC_PPTX_MODEL || process.env.CONTENT_PPTX_MODEL || 'claude-sonnet-4-6';
+const ANTHROPIC_PPTX_MAX_TOKENS = Number(process.env.ANTHROPIC_PPTX_MAX_TOKENS || 8000);
 const OPENAI_PPTX_MODEL = process.env.OPENAI_PPTX_MODEL || 'gpt-5.2';
 const OPENAI_PPTX_MAX_TOKENS = Number(process.env.OPENAI_PPTX_MAX_TOKENS || 16000);
 const PPTX_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
@@ -1723,12 +1723,22 @@ function collectFileIdsFromValue(value, fileIds) {
 function extractGeneratedFileIds(response) {
   const fileIds = [];
   const blocks = Array.isArray(response?.content) ? response.content : [];
+
+  // Prefer tool_result / code_execution blocks (the expected location)
   for (const block of blocks) {
     const blockType = String(block?.type || '');
-    if (blockType.includes('tool_result') || blockType.includes('code_execution')) {
+    if (blockType.includes('tool_result') || blockType.includes('code_execution') || blockType.includes('skill')) {
       collectFileIdsFromValue(block, fileIds);
     }
   }
+
+  // If nothing found, scan ALL blocks — the Skills API may use a different block type
+  if (fileIds.length === 0) {
+    for (const block of blocks) {
+      collectFileIdsFromValue(block, fileIds);
+    }
+  }
+
   return [...new Set(fileIds)];
 }
 
@@ -1885,7 +1895,7 @@ async function buildPptxWithAnthropic(content, options = {}) {
   let containerId;
   let response;
 
-  for (let turn = 0; turn < 10; turn++) {
+  for (let turn = 0; turn < 6; turn++) {
     const request = buildAnthropicPptxRequest({
       content,
       uploadedFileId,
@@ -1909,16 +1919,24 @@ async function buildPptxWithAnthropic(content, options = {}) {
 
   const fileIds = extractGeneratedFileIds(response);
   if (fileIds.length === 0) {
+    const blockSummary = (Array.isArray(response?.content) ? response.content : [])
+      .map((b) => String(b?.type || 'unknown'))
+      .join(', ');
+    console.warn(`[buildPptxWithAnthropic] No file IDs in response for ${templateFileName}. stop_reason=${response?.stop_reason}. Block types: [${blockSummary}]`);
     throw new Error(`Anthropic did not return a generated PPTX file for ${templateFileName}.`);
   }
 
   for (const fileId of fileIds) {
-    const downloaded = await withProviderRetry(() => client.beta.files.download(fileId, {
-      betas: ['files-api-2025-04-14'],
-    }));
-    const buffer = await responseToBuffer(downloaded);
-    if (await isValidPptxZipBuffer(buffer)) {
-      return buffer;
+    try {
+      const downloaded = await withProviderRetry(() => client.beta.files.download(fileId, {
+        betas: ['files-api-2025-04-14'],
+      }));
+      const buffer = await responseToBuffer(downloaded);
+      if (await isValidPptxZipBuffer(buffer)) {
+        return buffer;
+      }
+    } catch (downloadErr) {
+      console.warn(`[buildPptxWithAnthropic] Failed to download file ${fileId}:`, downloadErr?.message || downloadErr);
     }
   }
 
@@ -1982,9 +2000,21 @@ async function buildPptxWithOpenAI(content, options = {}) {
  */
 async function buildPptx(content, options = {}) {
   if (options?.templatePath) {
-    return options.provider === 'openai'
-      ? buildPptxWithOpenAI(content, options)
-      : buildPptxWithAnthropic(content, options);
+    if (options.provider === 'openai') {
+      return buildPptxWithOpenAI(content, options);
+    }
+    // Anthropic path — auto-fallback to OpenAI if Anthropic fails to deliver a file
+    try {
+      return await buildPptxWithAnthropic(content, options);
+    } catch (anthropicErr) {
+      const isNoFile = /did not return a generated PPTX|none were valid/i.test(anthropicErr?.message || '');
+      const hasOpenAI = !!(aiService.openai?.responses?.create);
+      if (isNoFile && hasOpenAI) {
+        console.warn('[buildPptx] Anthropic returned no PPTX file — falling back to OpenAI:', anthropicErr.message);
+        return buildPptxWithOpenAI(content, options);
+      }
+      throw anthropicErr;
+    }
   }
 
   const pptx = new PptxGenJS();

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
+import { useNotification } from '../contexts/NotificationContext';
 import {
   buildContextualSectionBodyHtml,
   ContextualBlockLayout,
@@ -125,6 +126,7 @@ const isPlaceholderFigure = (visual: any) =>
 const ContentGenerator: React.FC = () => {
   type StudioStep = 'plan' | 'generate' | 'polish';
   type SectionMode = 'manual' | 'auto';
+  const { notifySuccess, notifyError } = useNotification();
   const [topics, setTopics] = useState('');
   const [teachingGoal, setTeachingGoal] = useState('');
   const [studioStep, setStudioStep] = useState<StudioStep>('plan');
@@ -161,6 +163,8 @@ const ContentGenerator: React.FC = () => {
   const [isScheduling, setIsScheduling] = useState(false);
   const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ percent: number; label: string } | null>(null);
+  const exportProgressTimerRef = useRef<number | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
@@ -521,6 +525,7 @@ const ContentGenerator: React.FC = () => {
     return () => {
       clearGenerationProgressTimer();
       clearGenerationJobPoller();
+      if (exportProgressTimerRef.current) window.clearInterval(exportProgressTimerRef.current);
     };
   }, []);
 
@@ -1036,10 +1041,40 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
+  const PPTX_STAGES: Array<{ upTo: number; label: string }> = [
+    { upTo: 12,  label: 'Uploading template…' },
+    { upTo: 30,  label: 'Analysing slide layouts…' },
+    { upTo: 58,  label: 'Building deck content…' },
+    { upTo: 80,  label: 'Running quality checks…' },
+    { upTo: 94,  label: 'Packaging presentation…' },
+    { upTo: 99,  label: 'Finalising…' },
+  ];
+
+  const startExportProgress = () => {
+    if (exportProgressTimerRef.current) window.clearInterval(exportProgressTimerRef.current);
+    setExportProgress({ percent: 0, label: PPTX_STAGES[0].label });
+    exportProgressTimerRef.current = window.setInterval(() => {
+      setExportProgress((prev) => {
+        if (!prev || prev.percent >= 99) return prev;
+        const delta = prev.percent < 30 ? 1.4 : prev.percent < 70 ? 0.7 : 0.3;
+        const next = Math.min(99, prev.percent + delta + Math.random() * 0.4);
+        const stage = PPTX_STAGES.find((s) => next <= s.upTo) || PPTX_STAGES[PPTX_STAGES.length - 1];
+        return { percent: next, label: stage.label };
+      });
+    }, 900);
+  };
+
+  const finishExportProgress = (success: boolean) => {
+    if (exportProgressTimerRef.current) { window.clearInterval(exportProgressTimerRef.current); exportProgressTimerRef.current = null; }
+    setExportProgress(success ? { percent: 100, label: 'Done' } : null);
+    if (success) window.setTimeout(() => setExportProgress(null), 1800);
+  };
+
   const handleExport = async (type: 'pptx' | 'lecture-notes') => {
     if (!generatedContent) return;
     setExporting(type);
     setError(null);
+    if (type === 'pptx') startExportProgress();
     try {
       const res = type === 'pptx'
         ? await contentAPI.exportPptx(generatedContent, pptxProvider)
@@ -1055,8 +1090,16 @@ const ContentGenerator: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      if (type === 'pptx') finishExportProgress(true);
+      notifySuccess(
+        `${filename} is ready`,
+        type === 'pptx' ? 'PowerPoint exported' : 'Lecture notes exported',
+      );
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || `Failed to export ${type}`);
+      const message = e.response?.data?.error || e.message || `Failed to export ${type}`;
+      if (type === 'pptx') finishExportProgress(false);
+      setError(message);
+      notifyError(message, 'Export failed');
     } finally {
       setExporting(null);
     }
@@ -1120,8 +1163,11 @@ const ContentGenerator: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      notifySuccess(`${filename} is ready`, 'SCORM package exported');
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Failed to export SCORM');
+      const message = e.response?.data?.error || e.message || 'Failed to export SCORM';
+      setError(message);
+      notifyError(message, 'Export failed');
     } finally {
       setExporting(null);
     }
@@ -2210,6 +2256,20 @@ const ContentGenerator: React.FC = () => {
                 {exporting === 'pptx' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 Download PPTX
               </button>
+              {exportProgress && (
+                <div className="w-full flex flex-col gap-1 px-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>{exportProgress.label}</span>
+                    <span>{Math.round(exportProgress.percent)}%</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${exportProgress.percent >= 100 ? 'bg-emerald-500' : 'bg-violet-500'}`}
+                      style={{ width: `${exportProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <button
                 onClick={() => handleExport('lecture-notes')}
                 disabled={!!exporting}
