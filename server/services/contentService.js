@@ -1092,7 +1092,6 @@ function toDataUriSvg(svg) {
 }
 
 function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
-  const palette = stableColorFromText(`${sectionTitle}-${kind}-${ordinal}`);
   const label = kind === 'illustration' ? 'Illustration' : 'Image';
   const title = `${label}: ${sectionTitle}`.slice(0, 120);
   const altText = kind === 'illustration'
@@ -1101,23 +1100,60 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
   const prompt = kind === 'illustration'
     ? `Create a clean educational diagram illustrating: ${sectionTitle}`
     : `Create an educational scene image representing: ${sectionTitle}`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+
+  // Illustration placeholder: node-and-arrow diagram skeleton
+  // Image placeholder: landscape/photo skeleton
+  const svg = kind === 'illustration'
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#ffffff" rx="0"/>
+  <!-- central node -->
+  <circle cx="640" cy="360" r="72" fill="none" stroke="#d1d5db" stroke-width="3"/>
+  <rect x="602" y="344" width="76" height="14" rx="7" fill="#e5e7eb"/>
+  <rect x="614" y="366" width="52" height="10" rx="5" fill="#e5e7eb"/>
+  <!-- satellite nodes -->
+  <rect x="180" y="200" width="160" height="80" rx="14" fill="none" stroke="#d1d5db" stroke-width="2.5"/>
+  <rect x="196" y="228" width="96" height="12" rx="6" fill="#e5e7eb"/>
+  <rect x="196" y="248" width="72" height="10" rx="5" fill="#f3f4f6"/>
+  <rect x="940" y="200" width="160" height="80" rx="14" fill="none" stroke="#d1d5db" stroke-width="2.5"/>
+  <rect x="956" y="228" width="96" height="12" rx="6" fill="#e5e7eb"/>
+  <rect x="956" y="248" width="72" height="10" rx="5" fill="#f3f4f6"/>
+  <rect x="180" y="440" width="160" height="80" rx="14" fill="none" stroke="#d1d5db" stroke-width="2.5"/>
+  <rect x="196" y="468" width="96" height="12" rx="6" fill="#e5e7eb"/>
+  <rect x="196" y="488" width="60" height="10" rx="5" fill="#f3f4f6"/>
+  <rect x="940" y="440" width="160" height="80" rx="14" fill="none" stroke="#d1d5db" stroke-width="2.5"/>
+  <rect x="956" y="468" width="96" height="12" rx="6" fill="#e5e7eb"/>
+  <rect x="956" y="488" width="60" height="10" rx="5" fill="#f3f4f6"/>
+  <!-- connectors -->
+  <line x1="340" y1="240" x2="570" y2="330" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 5" marker-end="url(#arr)"/>
+  <line x1="940" y1="240" x2="710" y2="330" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 5" marker-end="url(#arr)"/>
+  <line x1="340" y1="480" x2="570" y2="400" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 5" marker-end="url(#arr)"/>
+  <line x1="940" y1="480" x2="710" y2="400" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 5" marker-end="url(#arr)"/>
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#${palette.primary}"/>
-      <stop offset="100%" stop-color="#${palette.secondary}"/>
-    </linearGradient>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#d1d5db"/>
+    </marker>
   </defs>
-  <rect width="1280" height="720" fill="url(#g)"/>
-  <rect x="64" y="64" width="1152" height="592" rx="24" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.45)"/>
-  <circle cx="1080" cy="180" r="74" fill="#${palette.accent}" opacity="0.65"/>
-  <circle cx="980" cy="520" r="52" fill="#${palette.accent}" opacity="0.42"/>
-  <rect x="100" y="160" width="260" height="260" rx="24" fill="rgba(255,255,255,0.22)"/>
-  <rect x="400" y="160" width="300" height="180" rx="24" fill="rgba(255,255,255,0.16)"/>
-  <rect x="740" y="160" width="380" height="320" rx="24" fill="rgba(255,255,255,0.14)"/>
-  <rect x="100" y="330" width="680" height="26" rx="13" fill="rgba(255,255,255,0.65)"/>
-  <rect x="100" y="375" width="900" height="18" rx="9" fill="rgba(255,255,255,0.48)"/>
-  <rect x="100" y="410" width="760" height="18" rx="9" fill="rgba(255,255,255,0.48)"/>
+</svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#ffffff" rx="0"/>
+  <!-- image area skeleton -->
+  <rect x="64" y="64" width="740" height="460" rx="16" fill="#f3f4f6" stroke="#e5e7eb" stroke-width="2"/>
+  <!-- mountain/landscape icon inside image area -->
+  <polygon points="200,440 434,200 668,440" fill="#e5e7eb"/>
+  <polygon points="434,440 584,300 734,440" fill="#d1d5db"/>
+  <circle cx="580" cy="160" r="52" fill="#e5e7eb"/>
+  <!-- side text skeleton -->
+  <rect x="848" y="64" width="368" height="22" rx="11" fill="#e5e7eb"/>
+  <rect x="848" y="104" width="320" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="848" y="128" width="340" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="848" y="152" width="280" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="848" y="200" width="360" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="848" y="224" width="300" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="848" y="248" width="340" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="848" y="296" width="120" height="36" rx="8" fill="#e5e7eb"/>
+  <!-- caption bar -->
+  <rect x="64" y="548" width="740" height="36" rx="0 0 16 16" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+  <rect x="84" y="560" width="200" height="12" rx="6" fill="#e5e7eb"/>
 </svg>`;
 
   return {
