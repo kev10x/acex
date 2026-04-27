@@ -2769,7 +2769,7 @@ const ContentGenerator: React.FC = () => {
                           <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 min-h-[240px]">
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Text</div>
                             <div
-                              className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
+                              className="text-gray-700 text-sm leading-7 [&_p]:mb-3 [&_p]:last:mb-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-gray-900 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-gray-800 [&_h4]:mt-3 [&_h4]:mb-1"
                               dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(sec) }}
                             />
                           </section>
@@ -2876,7 +2876,7 @@ const ContentGenerator: React.FC = () => {
 
                 {/* Body text */}
                 <div
-                  className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
+                  className="text-gray-700 text-sm leading-7 [&_p]:mb-3 [&_p]:last:mb-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-gray-900 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-gray-800 [&_h4]:mt-3 [&_h4]:mb-1"
                   dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(sec) }}
                 />
 
