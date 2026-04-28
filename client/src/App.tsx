@@ -24,6 +24,7 @@ import VerifyEmail from './components/VerifyEmail';
 import ToolsLanding from './components/ToolsLanding';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import type { GeneratedContent } from './services/api';
 
 const FileUpload = lazy(() => import('./components/FileUpload'));
 const RubricManager = lazy(() => import('./components/RubricManager'));
@@ -217,11 +218,15 @@ function TabLoadingFallback() {
 function WorkspaceShell({
   activeTab,
   canAccessTab,
-  normalizedRole
+  normalizedRole,
+  pendingSlideContent,
+  onCreateSlides,
 }: {
   activeTab: TabType;
   canAccessTab: (tab: TabType) => boolean;
   normalizedRole: AppRole;
+  pendingSlideContent: GeneratedContent | null;
+  onCreateSlides: (content: GeneratedContent) => void;
 }) {
   return (
     <Suspense fallback={<TabLoadingFallback />}>
@@ -230,13 +235,13 @@ function WorkspaceShell({
       {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
       {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
       {activeTab === 'practicals' && canAccessTab('practicals') && <PracticalGenerator />}
-      {activeTab === 'content' && canAccessTab('content') && <ContentGenerator />}
+      {activeTab === 'content' && canAccessTab('content') && <ContentGenerator onCreateSlides={onCreateSlides} />}
       {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
       {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
       {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
-      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGenerator />}
+      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGenerator initialContent={pendingSlideContent} />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
@@ -250,6 +255,12 @@ function WorkspaceShell({
 function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('marking');
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('marking');
+  const [pendingSlideContent, setPendingSlideContent] = useState<GeneratedContent | null>(null);
+
+  const handleCreateSlides = (content: GeneratedContent) => {
+    setPendingSlideContent(content);
+    setActiveTab('slide-gen');
+  };
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const { user, loading, logout, impersonation, stopImpersonation } = useAuth();
@@ -574,6 +585,8 @@ function AppContent() {
           activeTab={activeTab}
           canAccessTab={canAccessTab}
           normalizedRole={normalizedRole}
+          pendingSlideContent={pendingSlideContent}
+          onCreateSlides={handleCreateSlides}
         />
       </main>
     </div>

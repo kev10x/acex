@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   AlertCircle,
@@ -14,12 +14,65 @@ import {
   Loader,
   Presentation,
   RefreshCw,
+  Sparkles,
   Trophy,
   Upload,
   X,
   Zap,
 } from 'lucide-react';
-import { slideGenAPI, GeneratedSlide, SlideType, TemplateBackground, TemplateImageAsset } from '../services/api';
+import { slideGenAPI, GeneratedSlide, SlideType, TemplateBackground, TemplateImageAsset, GeneratedContent } from '../services/api';
+import { richHtmlToPlainText } from '../utils/richText';
+
+function sectionsToSlides(content: GeneratedContent): GeneratedSlide[] {
+  const slides: GeneratedSlide[] = [];
+
+  // Title slide
+  slides.push({
+    slideIndex: 0,
+    slideType: 'title',
+    title: content.title,
+    bullets: content.instructions ? [content.instructions.slice(0, 120)] : [],
+  });
+
+  // One slide per section
+  for (const sec of content.sections) {
+    const heading = String(sec.heading || sec.title || '').trim() || `Section ${slides.length}`;
+    const bodyText = (
+      richHtmlToPlainText(String(sec.body_html || '')) ||
+      String(sec.body || '')
+    ).trim();
+
+    const bullets = bodyText
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 8)
+      .slice(0, 5);
+
+    slides.push({
+      slideIndex: slides.length,
+      slideType: 'content',
+      title: heading,
+      bullets: bullets.length ? bullets : [bodyText.slice(0, 140)].filter(Boolean),
+    });
+  }
+
+  // Summary slide
+  const summaryBullets = content.sections
+    .map((s) => String(s.heading || s.title || '').trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  if (summaryBullets.length > 1) {
+    slides.push({
+      slideIndex: slides.length,
+      slideType: 'summary',
+      title: 'Key Takeaways',
+      bullets: summaryBullets,
+    });
+  }
+
+  return slides;
+}
 
 // ─── Preset background catalogue ─────────────────────────────────────────────
 
@@ -81,7 +134,7 @@ const API_BASE = import.meta.env.VITE_API_URL ||
 
 type Step = 'upload' | 'generate' | 'style' | 'done';
 
-const SlideGenerator: React.FC = () => {
+const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = ({ initialContent }) => {
   const [step, setStep]             = useState<Step>('upload');
   const [analysing, setAnalysing]   = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -103,6 +156,20 @@ const SlideGenerator: React.FC = () => {
   const [activeBgCategory, setActiveBgCategory] = useState<PresetBg['category']>('dark');
 
   const [downloadFilename, setDownloadFilename] = useState('');
+
+  // When content arrives from ContentGenerator, pre-fill the topic
+  useEffect(() => {
+    if (initialContent?.title) {
+      setTopic(initialContent.title);
+    }
+  }, [initialContent]);
+
+  const handleUseExistingContent = () => {
+    if (!initialContent) return;
+    setGeneratedContent(sectionsToSlides(initialContent));
+    setSlideBackgrounds({});
+    setStep('style');
+  };
 
   // Unified bg lookup: preset + template backgrounds
   const allBgMap = useMemo(() => {
@@ -324,10 +391,31 @@ const SlideGenerator: React.FC = () => {
 
       {/* ── Step 2: Generate ── */}
       {step === 'generate' && (
+        <div className="space-y-4">
+
+        {/* Use existing content shortcut */}
+        {initialContent && (
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-emerald-900">Use content from Content Generator</p>
+              <p className="mt-0.5 truncate text-xs text-emerald-700">
+                "{initialContent.title}" · {initialContent.sections.length} section{initialContent.sections.length !== 1 ? 's' : ''} → {initialContent.sections.length + 2} slides
+              </p>
+            </div>
+            <button
+              onClick={handleUseExistingContent}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              <Sparkles className="h-4 w-4" />
+              Use this content
+            </button>
+          </div>
+        )}
+
         <div className="rounded-xl border border-amber-100 bg-amber-50 p-6">
           <div className="mb-4 flex items-center gap-2">
             <Layers className="h-4 w-4 text-amber-600" />
-            <h3 className="text-sm font-semibold text-gray-900">Lesson details</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{initialContent ? 'Or generate new AI content' : 'Lesson details'}</h3>
             {templateBackgrounds.length > 0 && (
               <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                 {templateBackgrounds.length} background{templateBackgrounds.length > 1 ? 's' : ''} extracted from template
@@ -387,6 +475,7 @@ const SlideGenerator: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
         </div>
       )}
 

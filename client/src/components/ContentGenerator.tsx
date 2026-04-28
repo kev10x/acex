@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
+import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images, SlidersHorizontal } from 'lucide-react';
 import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem, getApiErrorMessage } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { useNotification } from '../contexts/NotificationContext';
@@ -123,7 +123,7 @@ const dedupeFigureEntries = (entries: Array<{ visual: any; figNum: number; visua
 const isPlaceholderFigure = (visual: any) =>
   String(visual?.image_url || '').trim().startsWith('data:image/svg+xml');
 
-const ContentGenerator: React.FC = () => {
+const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) => void }> = ({ onCreateSlides }) => {
   type StudioStep = 'plan' | 'generate' | 'polish';
   type SectionMode = 'manual' | 'auto';
   const { notifySuccess, notifyError } = useNotification();
@@ -2286,6 +2286,16 @@ const ContentGenerator: React.FC = () => {
                 {exporting === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 SCORM package
               </button>
+              {onCreateSlides && (
+                <button
+                  type="button"
+                  onClick={() => onCreateSlides(generatedContent)}
+                  className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Create slides
+                </button>
+              )}
               <button
                 onClick={() => handlePublish(false)}
                 className="flex items-center gap-2 px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
