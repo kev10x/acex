@@ -35,7 +35,7 @@ const ANTHROPIC_PPTX_BETAS = [
   'skills-2025-10-02',
 ];
 const ANTHROPIC_PPTX_MODEL = process.env.ANTHROPIC_PPTX_MODEL || process.env.CONTENT_PPTX_MODEL || 'claude-sonnet-4-6';
-const ANTHROPIC_PPTX_MAX_TOKENS = Number(process.env.ANTHROPIC_PPTX_MAX_TOKENS || 8000);
+const ANTHROPIC_PPTX_MAX_TOKENS = Number(process.env.ANTHROPIC_PPTX_MAX_TOKENS || 32000);
 const OPENAI_PPTX_MODEL = process.env.OPENAI_PPTX_MODEL || 'gpt-5.2';
 const OPENAI_PPTX_MAX_TOKENS = Number(process.env.OPENAI_PPTX_MAX_TOKENS || 16000);
 const PPTX_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
@@ -1931,7 +1931,7 @@ async function buildPptxWithAnthropic(content, options = {}) {
   let containerId;
   let response;
 
-  for (let turn = 0; turn < 6; turn++) {
+  for (let turn = 0; turn < 12; turn++) {
     const request = buildAnthropicPptxRequest({
       content,
       uploadedFileId,
