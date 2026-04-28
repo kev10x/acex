@@ -6,8 +6,23 @@ const runtimeBasePath = (() => {
   if (typeof window === 'undefined') return '/api';
   return window.location.pathname.startsWith('/tools') ? '/tools/api' : '/api';
 })();
-const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:3001/api' : runtimeBasePath);
+const configuredApiBase = import.meta.env.VITE_API_URL;
+const API_BASE_URL = (() => {
+  if (configuredApiBase) {
+    const configured = String(configuredApiBase).replace(/\/$/, '');
+    // Production builds deployed at /tools need /tools/api. A relative VITE_API_URL=/api
+    // is easy to bake in accidentally, so normalize it to the mounted app path.
+    if (
+      typeof window !== 'undefined' &&
+      window.location.pathname.startsWith('/tools') &&
+      configured === '/api'
+    ) {
+      return '/tools/api';
+    }
+    return configured;
+  }
+  return import.meta.env.DEV ? 'http://localhost:3001/api' : runtimeBasePath;
+})();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -88,7 +103,8 @@ api.interceptors.response.use(
 
     const config = error?.config as any;
     const isNetworkError = error.code === 'ERR_NETWORK' || error.message?.includes('Network Error');
-    if (isNetworkError && config && !config.__basePathRetried) {
+    const isProxyPathError = [404, 502, 503, 504].includes(Number(error.response?.status));
+    if ((isNetworkError || isProxyPathError) && config && !config.__basePathRetried) {
       const currentBase = String(config.baseURL || API_BASE_URL || '');
       const fallbackBase = currentBase.includes('/tools/api')
         ? currentBase.replace('/tools/api', '/api')
