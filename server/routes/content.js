@@ -488,7 +488,7 @@ async function inferSuggestedSectionsWithAI(rawText, heuristicResult = null) {
       provider,
       model,
       temperature: 0.1,
-      maxTokens: 500,
+      maxTokens: 1500,
       messages: [
         {
           role: 'system',
