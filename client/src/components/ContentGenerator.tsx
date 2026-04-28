@@ -1108,7 +1108,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         const label = isQuick
           ? 'Building presentation…'
           : allBatchesDone
-            ? 'Claude is building your deck…'
+            ? 'Applying template design…'
             : batchInProgress
               ? `Formatting batch ${batchInProgress.index + 1} of ${total}…`
               : `Processing ${done}/${total} batches…`;

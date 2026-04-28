@@ -1982,6 +1982,104 @@ async function buildPptxWithAnthropic(content, options = {}) {
   throw new Error('Anthropic returned files, but none were valid non-empty PPTX ZIP files.');
 }
 
+/**
+ * Apply a user's PPTX template design onto an already-rendered content PPTX buffer.
+ * Claude receives both files and transfers only the visual styling — fonts, colours,
+ * backgrounds, decorative shapes — while preserving all slide content exactly.
+ */
+async function applyTemplateStyleWithClaude(contentBuffer, templatePath, options = {}) {
+  validatePptxTemplateFile(templatePath);
+  const client = options.anthropicClient || aiService.anthropic;
+  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload) {
+    throw new Error('Anthropic API not available for template style transfer.');
+  }
+
+  // Write content buffer to a temp file so we can stream it to the Files API
+  const tempPath = path.join(path.dirname(templatePath), `_pptx_content_${Date.now()}.pptx`);
+  fs.writeFileSync(tempPath, contentBuffer);
+
+  let contentFileId, templateFileId;
+  try {
+    const [cu, tu] = await Promise.all([
+      withProviderRetry(() => client.beta.files.upload({
+        file: fs.createReadStream(tempPath),
+        betas: ['files-api-2025-04-14'],
+      })),
+      withProviderRetry(() => client.beta.files.upload({
+        file: fs.createReadStream(templatePath),
+        betas: ['files-api-2025-04-14'],
+      })),
+    ]);
+    contentFileId = cu?.id;
+    templateFileId = tu?.id;
+    if (!contentFileId || !templateFileId) throw new Error('Anthropic Files API did not return file IDs.');
+  } finally {
+    try { fs.unlinkSync(tempPath); } catch (_) {}
+  }
+
+  const model = options.model || ANTHROPIC_PPTX_MODEL;
+  const maxTokens = options.maxTokens || ANTHROPIC_PPTX_MAX_TOKENS;
+  const userText = [
+    'You have two PowerPoint files:',
+    '1. content.pptx — a presentation where every slide has its final content (titles and bullet points). Do not change any text.',
+    '2. template.pptx — the design template to apply (slide backgrounds, colour scheme, fonts, decorative shapes, layout positioning).',
+    '',
+    'Task: Transfer the visual design from template.pptx onto every slide in content.pptx.',
+    'Rules: preserve all text content exactly; only change visual styling.',
+    'Return the restyled presentation as a .pptx file.',
+  ].join('\n');
+
+  let messages;
+  let containerId;
+  let response;
+
+  for (let turn = 0; turn < 12; turn++) {
+    const container = {
+      ...(containerId ? { id: containerId } : {}),
+      skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }],
+    };
+    const userContent = [
+      { type: 'text', text: userText },
+      { type: 'container_upload', file_id: contentFileId },
+      { type: 'container_upload', file_id: templateFileId },
+    ];
+    const request = {
+      model,
+      max_tokens: maxTokens,
+      betas: ANTHROPIC_PPTX_BETAS,
+      system: 'You apply PowerPoint design templates to presentations. Transfer visual styling only — never alter text content.',
+      container,
+      messages: messages || [{ role: 'user', content: userContent }],
+      tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
+    };
+    response = await withProviderRetry(async () => {
+      const stream = await client.beta.messages.stream(request);
+      return stream.finalMessage();
+    });
+    if (response?.container?.id) containerId = response.container.id;
+    if (response?.stop_reason !== 'pause_turn') break;
+    messages = [
+      ...(messages || [{ role: 'user', content: userContent }]),
+      { role: 'assistant', content: response.content || [] },
+    ];
+  }
+
+  const fileIds = extractGeneratedFileIds(response);
+  for (const fileId of fileIds) {
+    try {
+      const downloaded = await withProviderRetry(() => client.beta.files.download(fileId, {
+        betas: ['files-api-2025-04-14'],
+      }));
+      const buf = await responseToBuffer(downloaded);
+      if (await isValidPptxZipBuffer(buf)) return buf;
+    } catch (downloadErr) {
+      console.warn('[applyTemplateStyle] Failed to download file', fileId, downloadErr?.message);
+    }
+  }
+
+  throw new Error('Claude did not return a valid styled PPTX after style transfer.');
+}
+
 async function buildPptxWithOpenAI(content, options = {}) {
   const templatePath = options.templatePath;
   validatePptxTemplateFile(templatePath);
@@ -2301,6 +2399,7 @@ module.exports = {
   CONTENT_TEMPLATES,
   buildPptx,
   buildPptxWithAnthropic,
+  applyTemplateStyleWithClaude,
   buildPptxWithOpenAI,
   buildLectureNotesHtml,
   extractTemplateTheme,

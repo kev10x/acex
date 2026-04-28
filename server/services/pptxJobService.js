@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
 const aiService = require('./aiService');
-const { buildPptxWithAnthropic } = require('./contentService');
+const { applyTemplateStyleWithClaude } = require('./contentService');
 const { createGenerationJob, updateGenerationJob, getGenerationJobById } = require('./generationJobService');
 
 const BATCH_SIZE = 4;
@@ -116,31 +116,7 @@ ${sectionList}`;
 
 // ─── Assembly helpers ──────────────────────────────────────────────────────────
 
-// Convert flat slide array to GeneratedContent shape for buildPptxWithAnthropic
-function slidesToGeneratedContent(slides, contentMeta = {}) {
-  return {
-    title: contentMeta.title || 'Presentation',
-    instructions: contentMeta.instructions || '',
-    sections: slides.map(s => ({
-      heading: s.title,
-      body: (s.bullets || []).join('\n'),
-      support: '',
-    })),
-  };
-}
-
-// Minimal blank PPTX (single blank slide) so Claude has a valid template to start from
-async function generateBlankTemplate(jobId) {
-  const pptx = new PptxGenJS();
-  pptx.layout = 'LAYOUT_16x9';
-  pptx.addSlide(); // one blank slide — Claude will replace it
-  const buf = await pptx.write({ outputType: 'nodebuffer' });
-  const tplPath = path.join(jDir(jobId), 'blank-template.pptx');
-  fs.writeFileSync(tplPath, buf);
-  return tplPath;
-}
-
-// pptxgenjs local render (fallback / partial downloads)
+// pptxgenjs local render — used for content layout and as fallback / partial downloads
 async function buildPptxLocal(slides, contentMeta = {}) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_16x9';
@@ -192,30 +168,24 @@ async function buildPptxLocal(slides, contentMeta = {}) {
   return pptx.write({ outputType: 'nodebuffer' });
 }
 
-// Final assembly: Claude builds using the user's template (or a blank canvas), pptxgenjs fallback
+// Step 1: pptxgenjs renders content. Step 2: Claude applies the user's template design.
 async function buildFinalPptx(slides, contentMeta, jobId, templatePath = null) {
-  const hasAnthropic = !!(aiService.anthropic?.beta?.messages?.stream || aiService.anthropic?.beta?.messages?.create);
+  // Always render content locally first — fast, reliable, correct structure
+  const contentBuf = await buildPptxLocal(slides, contentMeta);
 
-  if (hasAnthropic) {
-    let generatedBlank = null;
-    let effectiveTemplatePath = templatePath;
-    try {
-      if (!effectiveTemplatePath || !fs.existsSync(effectiveTemplatePath)) {
-        // No user template — generate a minimal blank so Claude still controls the design
-        effectiveTemplatePath = await generateBlankTemplate(jobId);
-        generatedBlank = effectiveTemplatePath;
-      }
-      const content = slidesToGeneratedContent(slides, contentMeta);
-      const buf = await buildPptxWithAnthropic(content, { templatePath: effectiveTemplatePath });
-      return buf;
-    } catch (err) {
-      console.warn('[pptxJob] Claude deck build failed, falling back to pptxgenjs:', err.message);
-    } finally {
-      if (generatedBlank) try { fs.unlinkSync(generatedBlank); } catch (_) {}
-    }
+  // If no template selected, return the local render directly
+  if (!templatePath || !fs.existsSync(templatePath)) return contentBuf;
+
+  // With a template: hand both files to Claude for style transfer
+  const hasAnthropic = !!(aiService.anthropic?.beta?.messages?.stream);
+  if (!hasAnthropic) return contentBuf;
+
+  try {
+    return await applyTemplateStyleWithClaude(contentBuf, templatePath);
+  } catch (err) {
+    console.warn('[pptxJob] Claude style transfer failed, using pptxgenjs output:', err.message);
+    return contentBuf;
   }
-
-  return buildPptxLocal(slides, contentMeta);
 }
 
 // Collect all slides from completed batch files
