@@ -123,6 +123,19 @@ const dedupeFigureEntries = (entries: Array<{ visual: any; figNum: number; visua
 const isPlaceholderFigure = (visual: any) =>
   String(visual?.image_url || '').trim().startsWith('data:image/svg+xml');
 
+// Strip base64 image data before sending to the PPTX job — section text is all that's needed
+const stripContentForExport = (content: GeneratedContent): GeneratedContent => ({
+  ...content,
+  template_images: [],
+  sections: (content.sections || []).map((sec: any) => ({
+    ...sec,
+    visuals: (sec.visuals || []).map((v: any) => ({
+      ...v,
+      image_url: String(v.image_url || '').startsWith('data:') ? '' : v.image_url,
+    })),
+  })),
+});
+
 const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) => void }> = ({ onCreateSlides }) => {
   type StudioStep = 'plan' | 'generate' | 'polish';
   type SectionMode = 'manual' | 'auto';
@@ -1146,7 +1159,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       setPptxJobFailure(null);
       setExportProgress({ percent: 2, label: 'Starting…' });
       try {
-        const res = await pptxJobsAPI.create(generatedContent, pptxUseAI);
+        const res = await pptxJobsAPI.create(stripContentForExport(generatedContent), pptxUseAI);
         const jobId = res.data.jobId;
         setPptxJobId(jobId);
         startPptxJobPoll(jobId, generatedContent.title || 'presentation');
