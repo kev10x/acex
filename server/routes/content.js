@@ -396,6 +396,14 @@ function listTemplateImageUrls(templateId, baseUrl = '') {
   }
 }
 
+function buildTemplateMediaPublicUrl(req, templateId, filename) {
+  const base = getRequestBaseUrl(req);
+  const publicBasePath = getConfiguredPublicBasePath();
+  const safeFile = encodeURIComponent(String(filename || '').trim());
+  const uploadPath = `${publicBasePath}/uploads/content-template-media/${templateId}/${safeFile}`.replace(/\/{2,}/g, '/');
+  return `${base}${uploadPath}`;
+}
+
 function decodeXmlEntities(value) {
   return String(value || '')
     .replace(/&lt;/g, '<')
@@ -2521,8 +2529,7 @@ router.post('/template', requireAuth, requireFeature('content_creation'), (req, 
         if (templateId) {
           const mediaDir = getTemplateMediaDir(templateId);
           const filenames = await contentService.extractTemplateImages(tmplFilePath, mediaDir);
-          const base = getRequestBaseUrl(req);
-          extractedImages = filenames.map((f) => `${base}/uploads/content-template-media/${templateId}/${f}`);
+          extractedImages = filenames.map((f) => buildTemplateMediaPublicUrl(req, templateId, f));
         }
       } catch (_) { /* non-fatal */ }
       res.json({
