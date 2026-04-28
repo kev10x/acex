@@ -86,6 +86,7 @@ apiRouter.use('/content', require('./routes/content'));
 apiRouter.use('/modules', require('./routes/modules'));
 apiRouter.use('/moodle', require('./routes/moodle'));
 apiRouter.use('/slide-gen', require('./routes/slideGen'));
+apiRouter.use('/pptx-jobs', require('./routes/pptxJobs'));
 apiRouter.use('/system', require('./routes/system'));
 apiRouter.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
@@ -100,7 +101,7 @@ if (basePath) {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });

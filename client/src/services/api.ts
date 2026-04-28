@@ -1556,6 +1556,45 @@ export const contentAPI = {
   },
 };
 
+// ─── Batched PPTX job API ────────────────────────────────────────────────────
+
+export interface PptxBatchState {
+  index: number;
+  sectionStart: number;
+  sectionEnd: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error?: string | null;
+}
+
+export interface PptxJobProgress {
+  batches: PptxBatchState[];
+  completedBatches: number;
+  totalBatches: number;
+  finalReady?: boolean;
+}
+
+export interface PptxJobStatus {
+  id: number;
+  status: 'processing' | 'completed' | 'failed' | 'scheduled' | 'queued' | 'retrying' | 'cancelled';
+  progress: PptxJobProgress;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const pptxJobsAPI = {
+  create: (content: GeneratedContent, useAI = true) =>
+    api.post<{ success: boolean; jobId: number }>('/pptx-jobs', { content, useAI }),
+  getStatus: (jobId: number) =>
+    api.get<PptxJobStatus & { success: boolean }>(`/pptx-jobs/${jobId}`),
+  retry: (jobId: number) =>
+    api.post<{ success: boolean }>(`/pptx-jobs/${jobId}/retry`),
+  download: (jobId: number) =>
+    api.get(`/pptx-jobs/${jobId}/download`, { responseType: 'blob' }),
+  downloadPartial: (jobId: number) =>
+    api.get(`/pptx-jobs/${jobId}/download-partial`, { responseType: 'blob' }),
+};
+
 export const modulesAPI = {
   list: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules'),
   listAvailableStudents: () => api.get<{ success: boolean; students: { id: number; name: string; email: string }[] }>('/modules/students/available'),

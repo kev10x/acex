@@ -1940,7 +1940,10 @@ async function buildPptxWithAnthropic(content, options = {}) {
       model,
       maxTokens,
     });
-    response = await withProviderRetry(() => client.beta.messages.create(request));
+    response = await withProviderRetry(async () => {
+      const stream = await client.beta.messages.stream(request);
+      return stream.finalMessage();
+    });
     if (response?.container?.id) containerId = response.container.id;
     if (response?.stop_reason !== 'pause_turn') break;
     messages = [
@@ -2039,14 +2042,13 @@ async function buildPptx(content, options = {}) {
     if (options.provider === 'openai') {
       return buildPptxWithOpenAI(content, options);
     }
-    // Anthropic path — auto-fallback to OpenAI if Anthropic fails to deliver a file
+    // Anthropic path — auto-fallback to OpenAI on any failure
     try {
       return await buildPptxWithAnthropic(content, options);
     } catch (anthropicErr) {
-      const isNoFile = /did not return a generated PPTX|none were valid/i.test(anthropicErr?.message || '');
       const hasOpenAI = !!(aiService.openai?.responses?.create);
-      if (isNoFile && hasOpenAI) {
-        console.warn('[buildPptx] Anthropic returned no PPTX file — falling back to OpenAI:', anthropicErr.message);
+      if (hasOpenAI) {
+        console.warn('[buildPptx] Anthropic PPTX failed — falling back to OpenAI:', anthropicErr.message);
         return buildPptxWithOpenAI(content, options);
       }
       throw anthropicErr;

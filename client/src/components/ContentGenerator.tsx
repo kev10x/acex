@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images, SlidersHorizontal } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem, getApiErrorMessage } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, pptxJobsAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem, PptxJobProgress, getApiErrorMessage } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -165,6 +165,11 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<{ percent: number; label: string } | null>(null);
   const exportProgressTimerRef = useRef<number | null>(null);
+  const [pptxJobId, setPptxJobId] = useState<number | null>(null);
+  const [pptxJobProgress, setPptxJobProgress] = useState<PptxJobProgress | null>(null);
+  const [pptxJobFailure, setPptxJobFailure] = useState<{ jobId: number; completedBatches: number; totalBatches: number } | null>(null);
+  const [pptxUseAI, setPptxUseAI] = useState(true);
+  const pptxJobPollRef = useRef<number | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
@@ -190,7 +195,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'content' | 'slideshow'>('content');
   const [slideshowSection, setSlideshowSection] = useState(0);
-  const [pptxProvider, setPptxProvider] = useState<'anthropic' | 'openai'>('anthropic');
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
@@ -526,6 +530,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       clearGenerationProgressTimer();
       clearGenerationJobPoller();
       if (exportProgressTimerRef.current) window.clearInterval(exportProgressTimerRef.current);
+      if (pptxJobPollRef.current) window.clearInterval(pptxJobPollRef.current);
     };
   }, []);
 
@@ -1070,38 +1075,132 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     if (success) window.setTimeout(() => setExportProgress(null), 1800);
   };
 
+  const stopPptxJobPoll = () => {
+    if (pptxJobPollRef.current) { window.clearInterval(pptxJobPollRef.current); pptxJobPollRef.current = null; }
+  };
+
+  const triggerBlobDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const startPptxJobPoll = (jobId: number, title: string) => {
+    stopPptxJobPoll();
+    const tick = async () => {
+      try {
+        const res = await pptxJobsAPI.getStatus(jobId);
+        const state = res.data;
+        const prog = state.progress || {} as PptxJobProgress;
+        setPptxJobProgress(prog);
+
+        const total = prog.totalBatches || 1;
+        const done = prog.completedBatches || 0;
+        const isQuick = total === 0;
+        const allBatchesDone = isQuick || done >= total;
+        const pct = isQuick ? 80 : allBatchesDone ? 92 : Math.round((done / total) * 88);
+        const batchInProgress = prog.batches?.find((b: any) => b.status === 'processing');
+        const label = isQuick
+          ? 'Building presentation…'
+          : allBatchesDone
+            ? 'Claude is building your deck…'
+            : batchInProgress
+              ? `Formatting batch ${batchInProgress.index + 1} of ${total}…`
+              : `Processing ${done}/${total} batches…`;
+        setExportProgress({ percent: pct, label });
+
+        if (state.status === 'completed') {
+          stopPptxJobPoll();
+          setExportProgress({ percent: 100, label: 'Done' });
+          window.setTimeout(() => setExportProgress(null), 1800);
+          const dlRes = await pptxJobsAPI.download(jobId);
+          const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pptx`;
+          triggerBlobDownload(dlRes.data as Blob, filename);
+          notifySuccess(`${filename} is ready`, 'PowerPoint exported');
+          setExporting(null);
+          setPptxJobId(null);
+          setPptxJobProgress(null);
+        } else if (state.status === 'failed') {
+          stopPptxJobPoll();
+          finishExportProgress(false);
+          setExporting(null);
+          const completed = (prog.batches || []).filter((b: any) => b.status === 'completed').length;
+          setPptxJobFailure({ jobId, completedBatches: completed, totalBatches: total });
+        }
+      } catch (_) {}
+    };
+    tick();
+    pptxJobPollRef.current = window.setInterval(tick, 2500);
+  };
+
   const handleExport = async (type: 'pptx' | 'lecture-notes') => {
     if (!generatedContent) return;
     setExporting(type);
     setError(null);
-    if (type === 'pptx') startExportProgress();
+    if (type === 'pptx') {
+      setPptxJobFailure(null);
+      setExportProgress({ percent: 2, label: 'Starting…' });
+      try {
+        const res = await pptxJobsAPI.create(generatedContent, pptxUseAI);
+        const jobId = res.data.jobId;
+        setPptxJobId(jobId);
+        startPptxJobPoll(jobId, generatedContent.title || 'presentation');
+      } catch (e: any) {
+        finishExportProgress(false);
+        setExporting(null);
+        const message = getApiErrorMessage(e, 'Failed to start PPTX export');
+        setError(message);
+        notifyError(message, 'Export failed');
+      }
+      return;
+    }
     try {
-      const res = type === 'pptx'
-        ? await contentAPI.exportPptx(generatedContent, pptxProvider)
-        : await contentAPI.exportLectureNotes(generatedContent);
+      const res = await contentAPI.exportLectureNotes(generatedContent);
       const blob = res.data as Blob;
-      const ext = type === 'pptx' ? 'pptx' : 'html';
-      const filename = `${(generatedContent.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${ext}`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      if (type === 'pptx') finishExportProgress(true);
-      notifySuccess(
-        `${filename} is ready`,
-        type === 'pptx' ? 'PowerPoint exported' : 'Lecture notes exported',
-      );
+      const filename = `${(generatedContent.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`;
+      triggerBlobDownload(blob, filename);
+      notifySuccess(`${filename} is ready`, 'Lecture notes exported');
     } catch (e: any) {
-      const message = getApiErrorMessage(e, `Failed to export ${type}`);
-      if (type === 'pptx') finishExportProgress(false);
+      const message = getApiErrorMessage(e, 'Failed to export lecture notes');
       setError(message);
       notifyError(message, 'Export failed');
     } finally {
       setExporting(null);
+    }
+  };
+
+  const handlePptxRetry = async () => {
+    if (!pptxJobFailure) return;
+    setPptxJobFailure(null);
+    setExporting('pptx');
+    setError(null);
+    setExportProgress({ percent: 2, label: 'Retrying…' });
+    try {
+      await pptxJobsAPI.retry(pptxJobFailure.jobId);
+      startPptxJobPoll(pptxJobFailure.jobId, generatedContent?.title || 'presentation');
+    } catch (e: any) {
+      finishExportProgress(false);
+      setExporting(null);
+      const message = getApiErrorMessage(e, 'Retry failed');
+      setError(message);
+    }
+  };
+
+  const handlePptxDownloadPartial = async () => {
+    if (!pptxJobFailure) return;
+    try {
+      const res = await pptxJobsAPI.downloadPartial(pptxJobFailure.jobId);
+      const filename = `${(generatedContent?.title || 'presentation').replace(/[^a-z0-9]/gi, '_').toLowerCase()}-partial.pptx`;
+      triggerBlobDownload(res.data as Blob, filename);
+      notifySuccess(`${filename} ready (${pptxJobFailure.completedBatches} of ${pptxJobFailure.totalBatches} batches)`, 'Partial download');
+      setPptxJobFailure(null);
+    } catch (e: any) {
+      setError(getApiErrorMessage(e, 'Partial download failed'));
     }
   };
 
@@ -2229,17 +2328,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               </span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                PPTX engine
-                <select
-                  value={pptxProvider}
-                  onChange={(e) => setPptxProvider(e.target.value as 'anthropic' | 'openai')}
-                  className="px-2 py-1 border border-slate-300 rounded text-xs bg-white text-slate-700"
-                >
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai">OpenAI</option>
-                </select>
-              </label>
               <button
                 onClick={handleSaveDraft}
                 disabled={isSavingDraft}
@@ -2248,6 +2336,22 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 {isSavingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                 {activePublishedContentId ? 'Save published content' : activeHistoryId ? 'Save changes' : 'Save draft'}
               </button>
+              <div className="flex items-center rounded-lg border border-slate-300 overflow-hidden text-xs font-medium">
+                <button
+                  onClick={() => setPptxUseAI(false)}
+                  disabled={!!exporting}
+                  className={`px-3 py-2 transition-colors ${!pptxUseAI ? 'bg-slate-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  ⚡ Quick
+                </button>
+                <button
+                  onClick={() => setPptxUseAI(true)}
+                  disabled={!!exporting}
+                  className={`px-3 py-2 transition-colors ${pptxUseAI ? 'bg-slate-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  ✦ AI-polished
+                </button>
+              </div>
               <button
                 onClick={() => handleExport('pptx')}
                 disabled={!!exporting}
@@ -2267,6 +2371,35 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       className={`h-full rounded-full transition-all duration-700 ${exportProgress.percent >= 100 ? 'bg-emerald-500' : 'bg-violet-500'}`}
                       style={{ width: `${exportProgress.percent}%` }}
                     />
+                  </div>
+                </div>
+              )}
+              {pptxJobFailure && (
+                <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex flex-col gap-2">
+                  <p className="text-xs font-semibold text-red-800">
+                    Export stopped after {pptxJobFailure.completedBatches} of {pptxJobFailure.totalBatches} batches.
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={handlePptxRetry}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700"
+                    >
+                      <Loader2 className="w-3 h-3" /> Retry
+                    </button>
+                    {pptxJobFailure.completedBatches > 0 && (
+                      <button
+                        onClick={handlePptxDownloadPartial}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white text-slate-700 text-xs rounded-lg hover:bg-slate-100"
+                      >
+                        <Presentation className="w-3 h-3" /> Download partial ({pptxJobFailure.completedBatches} batches)
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setPptxJobFailure(null)}
+                      className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 </div>
               )}
