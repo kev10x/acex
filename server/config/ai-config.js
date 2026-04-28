@@ -35,12 +35,12 @@ module.exports = {
     // Token limits for different document types
     // Allow enough output for full JSON (scores, feedback, corrections, language_errors)
     maxTokens: {
-      treatise: 16000,     // Extensive detailed feedback for treatises
-      assignment: 12000,   // Comprehensive feedback for assignments (increased to avoid truncation)
-      report: 12000,       // Extensive feedback for reports
-      question_paper: 14000, // Detailed marking with extensive feedback for question papers
-      memo: 12000,         // Comprehensive feedback when using memo as rubric
-      default: 10000       // Detailed feedback default
+      treatise: 32000,
+      assignment: 32000,
+      report: 32000,
+      question_paper: 32000,
+      memo: 32000,
+      default: 32000
     },
     
     // Temperature settings for different evaluation types
@@ -72,12 +72,12 @@ module.exports = {
     // Max tokens for completion (Claude uses max_tokens instead of maxTokens)
     // Increased significantly to allow for extensive, detailed feedback
     maxTokens: {
-      treatise: 16000,     // Extensive detailed feedback for treatises (increased for comprehensive feedback)
-      assignment: 8000,    // Comprehensive feedback for assignments (doubled for detailed feedback)
-      report: 10000,       // Extensive feedback for reports (increased for detailed feedback)
-      question_paper: 12000, // Detailed marking with extensive feedback for question papers
-      memo: 8000,          // Comprehensive feedback when using memo as rubric
-      default: 6000        // Detailed feedback (doubled from basic)
+      treatise: 16000,
+      assignment: 16000,
+      report: 16000,
+      question_paper: 16000,
+      memo: 16000,
+      default: 16000
     },
     
     // Temperature settings (same as OpenAI for consistency)
@@ -101,27 +101,27 @@ module.exports = {
       anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 220, temperature: 0.1 }
     },
     structuredExtraction: {
-      openai: { model: 'gpt-5-mini', maxTokens: 3200, temperature: 0.2 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 3200, temperature: 0.2 }
+      openai: { model: 'gpt-5-mini', maxTokens: 8000, temperature: 0.2 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.2 }
     },
     assessmentGeneration: {
-      openai: { model: 'gpt-5-mini', maxTokens: 8000, temperature: 0.6 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 8000, temperature: 0.6 }
+      openai: { model: 'gpt-5-mini', maxTokens: 32000, temperature: 0.6},
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.6}
     },
     contentGeneration: {
-      openai: { model: 'gpt-5-mini', maxTokens: 12000, temperature: 0.55 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 7000, temperature: 0.55 }
+      openai: { model: 'gpt-5-mini', maxTokens: 32000, temperature: 0.55 },
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.55 }
     },
     practicalGeneration: {
-      openai: { model: 'gpt-5-mini', maxTokens: 7600, temperature: 0.45 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 6400, temperature: 0.45 }
+      openai: { model: 'gpt-5-mini', maxTokens: 24000, temperature: 0.45},
+      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.45}
     },
     anchorExtraction: {
       openai: { model: 'gpt-4o-mini', maxTokens: 250, temperature: 0.1 },
       anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 250, temperature: 0.1 }
     },
     visionOCR: {
-      openai: { model: 'gpt-4o-mini', maxTokens: 1800, temperature: 0.2 }
+      openai: { model: 'gpt-4o-mini', maxTokens: 4000, temperature: 0.2 }
     },
     visionMCQ: {
       openai: { model: 'gpt-4o-mini', maxTokens: 350, temperature: 0.1 }
