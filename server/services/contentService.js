@@ -4,6 +4,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const https = require('https');
 const path = require('path');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
@@ -1681,6 +1682,28 @@ function getRetryDelayMs(error, attempt) {
   return 500 * Math.pow(2, attempt);
 }
 
+function fetchWithTimeout(url, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      req.destroy();
+      reject(new Error(`Image fetch timed out after ${timeoutMs}ms: ${url}`));
+    }, timeoutMs);
+    const req = https.get(url, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        clearTimeout(timer);
+        req.destroy();
+        reject(new Error(`Image fetch failed with status ${res.statusCode}: ${url}`));
+        return;
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
+      res.on('error', (err) => { clearTimeout(timer); reject(err); });
+    });
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
 async function withProviderRetry(operation, maxAttempts = 3) {
   let lastError;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -2194,6 +2217,26 @@ async function buildPptx(content, options = {}) {
 
   // --- Content slides ---
   const sections = content.sections || [];
+
+  // Pre-fetch any external image URLs so PptxGenJS never calls https.get() without a timeout.
+  // PptxGenJS's built-in https.get has no timeout \u2014 expired or unreachable URLs hang forever.
+  const externalImageUrls = new Set();
+  for (const sec of sections) {
+    for (const v of (Array.isArray(sec.visuals) ? sec.visuals : [])) {
+      const u = String(v.image_url || '').trim();
+      if (u && !u.startsWith('data:')) externalImageUrls.add(u);
+    }
+  }
+  const prefetchedImages = new Map();
+  await Promise.all([...externalImageUrls].map(async (url) => {
+    try {
+      const buf = await fetchWithTimeout(url, 10000);
+      prefetchedImages.set(url, `data:image/png;base64,${buf.toString('base64')}`);
+    } catch (_) {
+      // Skip image \u2014 prevents PptxGenJS from hanging on expired/unreachable URLs
+    }
+  }));
+
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i];
     const heading = getSectionAssertion(sec);
@@ -2223,7 +2266,17 @@ async function buildPptx(content, options = {}) {
 
     if (imageVisual) {
       const imgUrl = imageVisual.image_url;
-      const imgSpec = imgUrl.startsWith('data:') ? { data: imgUrl } : { url: imgUrl };
+      const resolvedData = imgUrl.startsWith('data:') ? imgUrl : prefetchedImages.get(imgUrl) ?? null;
+      // Skip images that couldn't be resolved to a data URI (avoids PptxGenJS fetch hang)
+      if (!resolvedData) {
+        slide.addText(bulletText, {
+          x: m, y: BODY_Y, w: contentW, h: BODY_H,
+          fontSize: 14, valign: 'top', wrap: true, color: textColor,
+          bullet: { type: 'bullet', indent: 10 }
+        });
+        continue;
+      }
+      const imgSpec = { data: resolvedData };
 
       if (layoutVariant === 0) {
         // Split: text left, image right

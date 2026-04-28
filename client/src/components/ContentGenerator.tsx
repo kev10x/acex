@@ -1120,11 +1120,13 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         const batchInProgress = prog.batches?.find((b: any) => b.status === 'processing');
         const label = isQuick
           ? 'Building presentation…'
-          : allBatchesDone
-            ? 'Assembling presentation…'
-            : batchInProgress
-              ? `Generating slide batch ${batchInProgress.index + 1} of ${total}…`
-              : `Saved ${done}/${total} slide batches…`;
+          : allBatchesDone && prog.assembling
+            ? 'Applying template design…'
+            : allBatchesDone
+              ? 'Assembling presentation…'
+              : batchInProgress
+                ? `Generating slide batch ${batchInProgress.index + 1} of ${total}…`
+                : `Saved ${done}/${total} slide batches…`;
         setExportProgress({ percent: pct, label });
 
         if (state.status === 'completed') {

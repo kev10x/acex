@@ -345,7 +345,17 @@ async function processJob(jobId) {
 
   try {
     const allSlides = loadCompletedSlides(jobId, batches);
-    const buf = await buildPptxFromSavedSlides(content, allSlides, templatePath);
+    await saveProgress(jobId, { ...summarizeProgress(batches, totalBatches), assembling: true });
+
+    const ASSEMBLY_TIMEOUT_MS = 5 * 60 * 1000;
+    const buf = await Promise.race([
+      buildPptxFromSavedSlides(content, allSlides, templatePath),
+      new Promise((_, rej) => setTimeout(
+        () => rej(new Error('PPTX assembly timed out after 5 minutes')),
+        ASSEMBLY_TIMEOUT_MS
+      )),
+    ]);
+
     fs.writeFileSync(finalPath(jobId), buf);
     await saveProgress(jobId, {
       ...summarizeProgress(batches, totalBatches),
