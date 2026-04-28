@@ -2440,13 +2440,62 @@ router.post('/export/pptx', requireAuth, requireFeature('content_creation'), asy
     if (!content) return res.status(400).json({ error: 'content is required' });
     const pptxProvider = String(provider || 'anthropic').toLowerCase() === 'openai' ? 'openai' : 'anthropic';
     const uploadedTemplate = await getUploadedTemplateByToken(req.user.id, content?.template_id);
-    const buffer = await contentService.buildPptx(content, {
-      templatePath: uploadedTemplate?.abs_path || null,
-      provider: pptxProvider,
+    const templatePath = uploadedTemplate?.abs_path || null;
+
+    const forceLocalExport = String(process.env.CONTENT_EXPORT_PPTX_FORCE_LOCAL || '').trim() === '1';
+    const allowFallback = String(process.env.CONTENT_EXPORT_PPTX_ALLOW_FALLBACK || '').trim() === '1';
+    const providerTimeoutMsRaw = Number(process.env.CONTENT_EXPORT_PPTX_PROVIDER_TIMEOUT_MS || 0);
+    const providerTimeoutMs = Number.isFinite(providerTimeoutMsRaw)
+      ? Math.max(0, Math.min(120000, providerTimeoutMsRaw))
+      : 0;
+
+    const withTimeout = (promise, timeoutMs, onTimeoutMessage) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(onTimeoutMessage)), timeoutMs);
+      Promise.resolve(promise)
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
     });
+
+    let buffer;
+    let usedFallback = false;
+    if (templatePath && !forceLocalExport) {
+      try {
+        const exportPromise = contentService.buildPptx(content, { templatePath, provider: pptxProvider });
+        buffer = providerTimeoutMs > 0
+          ? await withTimeout(
+              exportPromise,
+              providerTimeoutMs,
+              `Timed out waiting for ${pptxProvider.toUpperCase()} template export after ${providerTimeoutMs} ms`
+            )
+          : await exportPromise;
+      } catch (providerErr) {
+        if (!allowFallback) {
+          throw providerErr;
+        }
+        usedFallback = true;
+        console.warn('[content/export/pptx] Provider template export failed or timed out, falling back to local exporter:', providerErr?.message || providerErr);
+        buffer = await contentService.buildPptx(content, { templatePath, forceLocal: true });
+      }
+    } else {
+      buffer = await contentService.buildPptx(content, {
+        templatePath,
+        forceLocal: forceLocalExport,
+        provider: pptxProvider,
+      });
+    }
+
     const filename = `${(content.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pptx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (usedFallback) {
+      res.setHeader('X-MarkMate-Export-Fallback', 'local');
+    }
     res.send(buffer);
   } catch (error) {
     console.error('Content PPTX export error:', error);

@@ -2035,7 +2035,7 @@ async function buildPptxWithOpenAI(content, options = {}) {
  * a right-hand column.
  */
 async function buildPptx(content, options = {}) {
-  if (options?.templatePath) {
+  if (options?.templatePath && !options?.forceLocal) {
     if (options.provider === 'openai') {
       return buildPptxWithOpenAI(content, options);
     }
