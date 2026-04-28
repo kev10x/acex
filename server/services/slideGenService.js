@@ -534,8 +534,11 @@ function extensionToMime(ext) {
   return 'image/png';
 }
 
+const VISION_MAX_BYTES = 2 * 1024 * 1024; // skip images > 2 MB — keeps base64 payload small
+
 async function describeImageWithVision(buffer, mimeType) {
   if (!buffer || !buffer.length) return null;
+  if (buffer.length > VISION_MAX_BYTES) return null; // avoid huge base64 strings in memory
   if (!aiService?.openai) return null;
 
   const cfg = aiConfig.getTaskConfig('visionOCR', 'openai');
@@ -578,42 +581,50 @@ async function describeImageWithVision(buffer, mimeType) {
   };
 }
 
-async function extractTemplateImages(zipPath, mediaDir, { backgroundZipEntries = new Set(), useVision = true, maxVisionAssets = 8 } = {}) {
+const MAX_TEMPLATE_IMAGES = 20;  // hard cap on images extracted per template
+const IMAGE_FILE_MAX_BYTES = 8 * 1024 * 1024; // skip writing images > 8 MB (background fill unlikely)
+
+async function extractTemplateImages(zipPath, mediaDir, { backgroundZipEntries = new Set(), useVision = true, maxVisionAssets = 4 } = {}) {
   try { fs.mkdirSync(mediaDir, { recursive: true }); } catch (_) {}
 
   const entries = await listZipEntries(zipPath);
   const imageEntries = entries
     .filter((e) => /^ppt\/media\/.+/i.test(e) && TEMPLATE_IMAGE_EXT_RX.test(e))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+    .slice(0, MAX_TEMPLATE_IMAGES);
 
   const results = [];
   for (const entryName of imageEntries) {
     const imgBuf = await readZipEntry(zipPath, entryName);
     if (!imgBuf || !imgBuf.length) continue;
+    if (imgBuf.length > IMAGE_FILE_MAX_BYTES) continue; // skip giant files
 
     const ext = path.extname(entryName).toLowerCase() || '.png';
     const filename = `asset-${results.length}${ext}`;
     try { fs.writeFileSync(path.join(mediaDir, filename), imgBuf); } catch (_) {}
 
     const mimeType = extensionToMime(ext);
+    const sizeBytes = imgBuf.length;
     const asset = {
       id: `img-${results.length}`,
       label: path.basename(entryName),
       filename,
       sourceZipEntry: entryName,
       mimeType,
-      sizeBytes: imgBuf.length,
+      sizeBytes,
       usedAsBackground: backgroundZipEntries.has(entryName),
       vision: null,
     };
 
     if (useVision && results.length < maxVisionAssets) {
       try {
+        // Pass buffer directly — describeImageWithVision skips if > VISION_MAX_BYTES
         asset.vision = await describeImageWithVision(imgBuf, mimeType);
       } catch (_) {
-        // Non-fatal: keep extraction result even if vision inference fails.
+        // Non-fatal
       }
     }
+    // imgBuf goes out of scope here — GC can reclaim it before next iteration
 
     results.push(asset);
   }

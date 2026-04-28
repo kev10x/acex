@@ -16,6 +16,45 @@ const api = axios.create({
   },
 });
 
+const stripHtml = (value: string): string =>
+  String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const extractBlobErrorMessage = async (data: unknown): Promise<string | null> => {
+  if (typeof Blob === 'undefined' || !(data instanceof Blob)) return null;
+  const mime = String(data.type || '').toLowerCase();
+  if (!mime.includes('text') && !mime.includes('json') && !mime.includes('html')) return null;
+  try {
+    const text = await data.text();
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return null;
+    if (mime.includes('json') || trimmed.startsWith('{')) {
+      const parsed = JSON.parse(trimmed);
+      const message = String(parsed?.error || parsed?.message || '').trim();
+      if (message) return message;
+    }
+    const clean = stripHtml(trimmed);
+    if (clean) return clean.slice(0, 280);
+  } catch (_) {
+    return null;
+  }
+  return null;
+};
+
+export const getApiErrorMessage = (error: any, fallback = 'Request failed'): string => {
+  return String(
+    error?.userMessage ||
+    error?.response?.data?.error ||
+    error?.response?.data?.message ||
+    error?.message ||
+    fallback
+  ).trim();
+};
+
 // Request interceptor for logging and adding auth token
 api.interceptors.request.use(
   (config) => {
@@ -38,7 +77,14 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
-    console.error('API Error:', error.response?.data || error.message);
+    const blobMessage = await extractBlobErrorMessage(error?.response?.data);
+    if (blobMessage) {
+      error.userMessage = blobMessage;
+      if (error?.response?.status) {
+        error.userMessage = `HTTP ${error.response.status}: ${blobMessage}`;
+      }
+    }
+    console.error('API Error:', error.userMessage || error.response?.data || error.message);
 
     const config = error?.config as any;
     const isNetworkError = error.code === 'ERR_NETWORK' || error.message?.includes('Network Error');

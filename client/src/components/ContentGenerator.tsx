@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem, getApiErrorMessage } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -1096,7 +1096,7 @@ const ContentGenerator: React.FC = () => {
         type === 'pptx' ? 'PowerPoint exported' : 'Lecture notes exported',
       );
     } catch (e: any) {
-      const message = e.response?.data?.error || e.message || `Failed to export ${type}`;
+      const message = getApiErrorMessage(e, `Failed to export ${type}`);
       if (type === 'pptx') finishExportProgress(false);
       setError(message);
       notifyError(message, 'Export failed');
@@ -1165,7 +1165,7 @@ const ContentGenerator: React.FC = () => {
       URL.revokeObjectURL(url);
       notifySuccess(`${filename} is ready`, 'SCORM package exported');
     } catch (e: any) {
-      const message = e.response?.data?.error || e.message || 'Failed to export SCORM';
+      const message = getApiErrorMessage(e, 'Failed to export SCORM');
       setError(message);
       notifyError(message, 'Export failed');
     } finally {
