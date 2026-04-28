@@ -2,8 +2,12 @@ import axios from 'axios';
 
 // Use /tools/api in production when app is at /tools, or localhost for development.
 // Must match server API path so feedback-video and other /results routes resolve correctly.
+const runtimeBasePath = (() => {
+  if (typeof window === 'undefined') return '/api';
+  return window.location.pathname.startsWith('/tools') ? '/tools/api' : '/api';
+})();
 const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:3001/api' : '/tools/api');
+  (import.meta.env.DEV ? 'http://localhost:3001/api' : runtimeBasePath);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -33,8 +37,28 @@ api.interceptors.response.use(
   (response) => {
     return response;
   },
-  (error) => {
+  async (error) => {
     console.error('API Error:', error.response?.data || error.message);
+
+    const config = error?.config as any;
+    const isNetworkError = error.code === 'ERR_NETWORK' || error.message?.includes('Network Error');
+    if (isNetworkError && config && !config.__basePathRetried) {
+      const currentBase = String(config.baseURL || API_BASE_URL || '');
+      const fallbackBase = currentBase.includes('/tools/api')
+        ? currentBase.replace('/tools/api', '/api')
+        : currentBase.includes('/api')
+          ? currentBase.replace('/api', '/tools/api')
+          : '';
+      if (fallbackBase && fallbackBase !== currentBase) {
+        config.__basePathRetried = true;
+        config.baseURL = fallbackBase;
+        try {
+          return await api.request(config);
+        } catch (_) {
+          // swallow and continue to default error handling below
+        }
+      }
+    }
     
     // Handle 401 unauthorized - clear auth and redirect to login
     if (error.response?.status === 401) {

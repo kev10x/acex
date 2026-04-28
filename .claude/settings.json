@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(grep -E \"\\\\.js$\")",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(node -e ' *)",
+      "Bash(node --check server/routes/modules.js)",
+      "Bash(node --check server/routes/content.js)",
+      "Bash(node --check server/routes/slideGen.js)",
+      "Bash(node --check server/config/ai-config.js)"
     ]
   }
 }
