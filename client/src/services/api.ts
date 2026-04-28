@@ -852,6 +852,8 @@ export interface ContentTemplate {
   id: string;
   name: string;
   kind?: 'builtin' | 'uploaded';
+  uploaded_template_id?: number;
+  created_at?: string;
   images?: string[];
   theme: {
     font_family?: string;
@@ -1378,8 +1380,8 @@ export const contentAPI = {
     }),
   getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),
   getVideoContent: (code: string) => api.get(`/content/video/${code}/content`, { responseType: 'blob' }),
-  exportPptx: (content: GeneratedContent) =>
-    api.post('/content/export/pptx', { content }, { responseType: 'blob' }),
+  exportPptx: (content: GeneratedContent, provider?: 'anthropic' | 'openai') =>
+    api.post('/content/export/pptx', { content, provider }, { responseType: 'blob' }),
   exportLectureNotes: (content: GeneratedContent) =>
     api.post('/content/export/lecture-notes', { content }, { responseType: 'blob' }),
   exportScorm: (content: GeneratedContent) =>
@@ -1390,6 +1392,7 @@ export const contentAPI = {
     form.append('template', file);
     return api.post('/content/template', form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
+  deleteTemplate: (templateId: string) => api.delete(`/content/template/${encodeURIComponent(templateId)}`),
   uploadTopicsFile: (file: File) => {
     const form = new FormData();
     form.append('file', file);
@@ -1439,6 +1442,48 @@ export const contentAPI = {
   }) => api.post('/content/progress', data),
   getProgress: (code: string, studentName: string) =>
     api.get(`/content/progress/${code}`, { params: { student_name: studentName } }),
+  streamJobProgress: (
+    jobId: number,
+    callbacks: {
+      onProgress?: (data: { status: string; progress: any; partial_sections: any[] | null }) => void;
+      onDone?: (status: string) => void;
+      onError?: (message: string) => void;
+    }
+  ): (() => void) => {
+    const token = localStorage.getItem('token');
+    const url = `${API_BASE_URL}/content/jobs/${jobId}/progress-stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    const es = new EventSource(url);
+
+    es.addEventListener('connected', () => {});
+    es.addEventListener('progress', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        callbacks.onProgress?.(data);
+      } catch (_) {}
+    });
+    es.addEventListener('done', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        callbacks.onDone?.(data.status);
+      } catch (_) {}
+      es.close();
+    });
+    es.addEventListener('error', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse((e as any).data || '{}');
+        callbacks.onError?.(data.message || 'Stream error');
+      } catch (_) {
+        callbacks.onError?.('Stream error');
+      }
+      es.close();
+    });
+    es.onerror = () => {
+      callbacks.onError?.('Connection lost');
+      es.close();
+    };
+
+    return () => es.close();
+  },
 };
 
 export const modulesAPI = {

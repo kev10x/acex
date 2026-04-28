@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
+import { useNotification } from '../contexts/NotificationContext';
 import {
   buildContextualSectionBodyHtml,
   ContextualBlockLayout,
@@ -11,6 +12,7 @@ import {
 } from '../utils/richText';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
+const PPTX_TEMPLATE_MAX_BYTES = 30 * 1024 * 1024;
 const SECTION_COUNT_MAX = 120;
 const CONTEXTUAL_LAYOUT_OPTIONS: Array<{ value: ContextualBlockLayout; label: string }> = [
   { value: 'auto', label: 'Auto' },
@@ -124,6 +126,7 @@ const isPlaceholderFigure = (visual: any) =>
 const ContentGenerator: React.FC = () => {
   type StudioStep = 'plan' | 'generate' | 'polish';
   type SectionMode = 'manual' | 'auto';
+  const { notifySuccess, notifyError } = useNotification();
   const [topics, setTopics] = useState('');
   const [teachingGoal, setTeachingGoal] = useState('');
   const [studioStep, setStudioStep] = useState<StudioStep>('plan');
@@ -138,7 +141,7 @@ const ContentGenerator: React.FC = () => {
   const [includeDiagrams, setIncludeDiagrams] = useState(true);
   const [includeImages, setIncludeImages] = useState(true);
   const [includeMascot, setIncludeMascot] = useState(true);
-  const [includeBeautifyText, setIncludeBeautifyText] = useState(true);
+  const [includeBeautifyText, setIncludeBeautifyText] = useState(false);
   const [includeTextToSpeech, setIncludeTextToSpeech] = useState(true);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState('classroom');
@@ -160,7 +163,10 @@ const ContentGenerator: React.FC = () => {
   const [isScheduling, setIsScheduling] = useState(false);
   const [cancellingPlannerJobId, setCancellingPlannerJobId] = useState<number | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ percent: number; label: string } | null>(null);
+  const exportProgressTimerRef = useRef<number | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState<number | null>(null);
   const [activePublishedContentId, setActivePublishedContentId] = useState<number | null>(null);
@@ -182,6 +188,9 @@ const ContentGenerator: React.FC = () => {
     detail: '',
   });
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<'content' | 'slideshow'>('content');
+  const [slideshowSection, setSlideshowSection] = useState(0);
+  const [pptxProvider, setPptxProvider] = useState<'anthropic' | 'openai'>('anthropic');
   const [templateImages, setTemplateImages] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
@@ -195,6 +204,7 @@ const ContentGenerator: React.FC = () => {
   const generationJobPollTimerRef = useRef<number | null>(null);
   const activeGenerationJobIdRef = useRef<number | null>(null);
   const generationJobPollBusyRef = useRef(false);
+  const jobStreamCleanupRef = useRef<(() => void) | null>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
@@ -213,7 +223,7 @@ const ContentGenerator: React.FC = () => {
     [generatedContent?.template_id, templateId]
   );
   const playfulAssetPool = useMemo(() => {
-    const fromContent = Array.isArray(generatedContent?.template_images) ? generatedContent.template_images : [];
+    const fromContent = Array.isArray(generatedContent?.template_images) ? generatedContent!.template_images : [];
     const fromTemplate = Array.isArray(templateImages) ? templateImages : [];
     const fromVisuals = (generatedContent?.sections || [])
       .flatMap((sec: any) => Array.isArray(sec?.visuals) ? sec.visuals : [])
@@ -237,7 +247,7 @@ const ContentGenerator: React.FC = () => {
   }, [topics, numSections]);
 
   const qualityChecks = useMemo(() => {
-    const sections = Array.isArray(generatedContent?.sections) ? generatedContent.sections : [];
+    const sections = Array.isArray(generatedContent?.sections) ? generatedContent!.sections : [];
     const wordsPerSection = sections.map((s: any) =>
       String(s?.body || '')
         .replace(/<[^>]+>/g, ' ')
@@ -315,6 +325,10 @@ const ContentGenerator: React.FC = () => {
       generationJobPollTimerRef.current = null;
     }
     generationJobPollBusyRef.current = false;
+    if (jobStreamCleanupRef.current) {
+      jobStreamCleanupRef.current();
+      jobStreamCleanupRef.current = null;
+    }
   };
 
   const startGenerationProgress = (task: 'content' | 'visual' | 'mascot', opts?: { includeImages?: boolean; includeMascot?: boolean }) => {
@@ -444,18 +458,45 @@ const ContentGenerator: React.FC = () => {
       activeGenerationJobIdRef.current = Number(job.id) || activeGenerationJobIdRef.current;
       mapBackendProgressToUi(job?.result?.progress || null);
     } catch (_) {
-      // best effort polling only
+      // best effort fallback only
     } finally {
       generationJobPollBusyRef.current = false;
     }
   };
 
-  const startGenerationJobPoller = () => {
+  const startJobProgressStream = (jobId: number) => {
     clearGenerationJobPoller();
-    pollGenerationJobProgress();
-    generationJobPollTimerRef.current = window.setInterval(() => {
+    jobStreamCleanupRef.current = contentAPI.streamJobProgress(jobId, {
+      onProgress: (data) => {
+        mapBackendProgressToUi(data.progress);
+      },
+      onDone: () => {
+        // Generation complete — the main API call handler will finalize the UI
+      },
+      onError: () => {
+        // SSE failed — fall back to polling
+        if (jobStreamCleanupRef.current) {
+          jobStreamCleanupRef.current = null;
+        }
+        pollGenerationJobProgress();
+        generationJobPollTimerRef.current = window.setInterval(() => {
+          pollGenerationJobProgress();
+        }, 1500);
+      },
+    });
+  };
+
+  const startGenerationJobPoller = () => {
+    const jobId = activeGenerationJobIdRef.current;
+    if (jobId) {
+      startJobProgressStream(jobId);
+    } else {
+      clearGenerationJobPoller();
       pollGenerationJobProgress();
-    }, 1500);
+      generationJobPollTimerRef.current = window.setInterval(() => {
+        pollGenerationJobProgress();
+      }, 1500);
+    }
   };
 
   const completeGenerationProgress = (success: boolean, message?: string) => {
@@ -484,6 +525,7 @@ const ContentGenerator: React.FC = () => {
     return () => {
       clearGenerationProgressTimer();
       clearGenerationJobPoller();
+      if (exportProgressTimerRef.current) window.clearInterval(exportProgressTimerRef.current);
     };
   }, []);
 
@@ -499,6 +541,17 @@ const ContentGenerator: React.FC = () => {
 
       if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
         setBackgroundGenerationNotice('A content generation is still running in the background. This page will auto-recover it when it finishes.');
+        const jobId = Number(latest.id);
+        if (jobId && jobStreamCleanupRef.current === null) {
+          jobStreamCleanupRef.current = contentAPI.streamJobProgress(jobId, {
+            onProgress: (data) => mapBackendProgressToUi(data.progress),
+            onDone: () => {
+              jobStreamCleanupRef.current = null;
+              recoverBackgroundContentGeneration();
+            },
+            onError: () => { jobStreamCleanupRef.current = null; },
+          });
+        }
         return;
       }
 
@@ -528,8 +581,9 @@ const ContentGenerator: React.FC = () => {
 
   useEffect(() => {
     recoverBackgroundContentGeneration();
+    // Keep a 15s fallback poll for the case where SSE stream fails to connect
     const timer = setInterval(() => {
-      recoverBackgroundContentGeneration();
+      if (!jobStreamCleanupRef.current) recoverBackgroundContentGeneration();
     }, 15000);
     return () => clearInterval(timer);
   }, [isGenerating, generatedContent]);
@@ -809,6 +863,11 @@ const ContentGenerator: React.FC = () => {
     setTemplateImages((tmpl?.images || []).map((url) => normalizeSecureMediaUrl(url)));
   }, [templateId, templates]);
 
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === templateId) || null,
+    [templates, templateId]
+  );
+
   const loadModules = async () => {
     try {
       const res = await modulesAPI.list();
@@ -843,6 +902,7 @@ const ContentGenerator: React.FC = () => {
     setStudioStep('generate');
     setIsGenerating(true);
     setSelectedVisualKey(null);
+    setSlideshowSection(0);
     setActiveHistoryId(null);
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
@@ -860,6 +920,7 @@ const ContentGenerator: React.FC = () => {
         if (uploadedId) {
           effectiveTemplateId = uploadedId;
           setTemplateId(uploadedId);
+          await loadTemplates();
         }
       }
       updateGenerationProgress(28, 'Generating sections', 'Drafting sections and quiz');
@@ -878,7 +939,10 @@ const ContentGenerator: React.FC = () => {
         include_beautify_text: includeBeautifyText,
       });
       if (Number.isFinite(Number(res.data?.generation_job_id))) {
-        activeGenerationJobIdRef.current = Number(res.data?.generation_job_id);
+        const jobId = Number(res.data.generation_job_id);
+        activeGenerationJobIdRef.current = jobId;
+        // generation is done at this point, but kick off SSE so recovery flow can use it
+        startJobProgressStream(jobId);
       }
       if (res.data.success && res.data.content) {
         updateGenerationProgress(92, 'Finalizing response', 'Preparing editor preview');
@@ -939,13 +1003,82 @@ const ContentGenerator: React.FC = () => {
     }
   };
 
+  const handleTemplateFileChange = (file: File | null) => {
+    if (!file) {
+      setTemplateFile(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith('.pptx')) {
+      setTemplateFile(null);
+      setError('Please upload a .pptx PowerPoint template.');
+      return;
+    }
+    if (file.size > PPTX_TEMPLATE_MAX_BYTES) {
+      setTemplateFile(null);
+      setError('PowerPoint templates must be 30 MB or smaller.');
+      return;
+    }
+    setError(null);
+    setTemplateFile(file);
+  };
+
+  const handleDeleteTemplate = async (template: ContentTemplate) => {
+    if (template.kind !== 'uploaded') return;
+    if (!window.confirm(`Delete uploaded template "${template.name}"? Generated content that already uses it will fall back to the default exporter.`)) return;
+    setDeletingTemplateId(template.id);
+    setError(null);
+    try {
+      await contentAPI.deleteTemplate(template.id);
+      if (templateId === template.id) {
+        setTemplateId('classroom');
+      }
+      setTemplateFile(null);
+      await loadTemplates();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to delete template');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  };
+
+  const PPTX_STAGES: Array<{ upTo: number; label: string }> = [
+    { upTo: 12,  label: 'Uploading template…' },
+    { upTo: 30,  label: 'Analysing slide layouts…' },
+    { upTo: 58,  label: 'Building deck content…' },
+    { upTo: 80,  label: 'Running quality checks…' },
+    { upTo: 94,  label: 'Packaging presentation…' },
+    { upTo: 99,  label: 'Finalising…' },
+  ];
+
+  const startExportProgress = () => {
+    if (exportProgressTimerRef.current) window.clearInterval(exportProgressTimerRef.current);
+    setExportProgress({ percent: 0, label: PPTX_STAGES[0].label });
+    exportProgressTimerRef.current = window.setInterval(() => {
+      setExportProgress((prev) => {
+        if (!prev || prev.percent >= 99) return prev;
+        const delta = prev.percent < 30 ? 1.4 : prev.percent < 70 ? 0.7 : 0.3;
+        const next = Math.min(99, prev.percent + delta + Math.random() * 0.4);
+        const stage = PPTX_STAGES.find((s) => next <= s.upTo) || PPTX_STAGES[PPTX_STAGES.length - 1];
+        return { percent: next, label: stage.label };
+      });
+    }, 900);
+  };
+
+  const finishExportProgress = (success: boolean) => {
+    if (exportProgressTimerRef.current) { window.clearInterval(exportProgressTimerRef.current); exportProgressTimerRef.current = null; }
+    setExportProgress(success ? { percent: 100, label: 'Done' } : null);
+    if (success) window.setTimeout(() => setExportProgress(null), 1800);
+  };
+
   const handleExport = async (type: 'pptx' | 'lecture-notes') => {
     if (!generatedContent) return;
     setExporting(type);
     setError(null);
+    if (type === 'pptx') startExportProgress();
     try {
-      const api = type === 'pptx' ? contentAPI.exportPptx : contentAPI.exportLectureNotes;
-      const res = await api(generatedContent);
+      const res = type === 'pptx'
+        ? await contentAPI.exportPptx(generatedContent, pptxProvider)
+        : await contentAPI.exportLectureNotes(generatedContent);
       const blob = res.data as Blob;
       const ext = type === 'pptx' ? 'pptx' : 'html';
       const filename = `${(generatedContent.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${ext}`;
@@ -957,8 +1090,16 @@ const ContentGenerator: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      if (type === 'pptx') finishExportProgress(true);
+      notifySuccess(
+        `${filename} is ready`,
+        type === 'pptx' ? 'PowerPoint exported' : 'Lecture notes exported',
+      );
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || `Failed to export ${type}`);
+      const message = e.response?.data?.error || e.message || `Failed to export ${type}`;
+      if (type === 'pptx') finishExportProgress(false);
+      setError(message);
+      notifyError(message, 'Export failed');
     } finally {
       setExporting(null);
     }
@@ -1022,8 +1163,11 @@ const ContentGenerator: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      notifySuccess(`${filename} is ready`, 'SCORM package exported');
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Failed to export SCORM');
+      const message = e.response?.data?.error || e.message || 'Failed to export SCORM';
+      setError(message);
+      notifyError(message, 'Export failed');
     } finally {
       setExporting(null);
     }
@@ -1466,8 +1610,8 @@ const ContentGenerator: React.FC = () => {
     setDragOverKey(null);
     updateGeneratedContent((c) => {
       const sections = [...(c.sections || [])];
-      const visuals = [...(sections[sectionIndex]?.visuals || []), {
-        kind: 'image',
+      const visuals: ContentVisual[] = [...(sections[sectionIndex]?.visuals || []), {
+        kind: 'image' as const,
         title: 'Template image',
         alt_text: '',
         prompt: '',
@@ -1821,8 +1965,19 @@ const ContentGenerator: React.FC = () => {
                   type="file"
                   accept=".pptx"
                   className="hidden"
-                  onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
+                  onChange={(e) => handleTemplateFileChange(e.target.files?.[0] || null)}
                 />
+                {selectedTemplate?.kind === 'uploaded' && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTemplate(selectedTemplate)}
+                    disabled={deletingTemplateId === selectedTemplate.id}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    title="Delete uploaded template"
+                  >
+                    {deletingTemplateId === selectedTemplate.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -1889,7 +2044,7 @@ const ContentGenerator: React.FC = () => {
                 onChange={(e) => setIncludeBeautifyText(e.target.checked)}
                 className="w-4 h-4 text-teal-600 border-gray-300 rounded"
               />
-              <span className="text-sm text-gray-700">Beautify section text with AI <span className="text-gray-400 text-xs">(preserve meaning)</span></span>
+              <span className="text-sm text-gray-700">Beautify section text with AI <span className="text-gray-400 text-xs">(extra pass, adds cost)</span></span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -2047,15 +2202,44 @@ const ContentGenerator: React.FC = () => {
         <div className="flex-1 min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-lg md:p-6">
           <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Edit and preview content</h2>
-                <p className="mt-1 text-sm text-slate-600">Refine this version before students see it.</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Edit and preview content</h2>
+                  <p className="mt-1 text-sm text-slate-600">Refine this version before students see it.</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('content')}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'content' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    Content
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPreviewMode('slideshow'); setSlideshowSection(0); }}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'slideshow' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    Slideshow
+                  </button>
+                </div>
               </div>
               <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
                 {generatedContent.sections?.length || 0} sections
               </span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                PPTX engine
+                <select
+                  value={pptxProvider}
+                  onChange={(e) => setPptxProvider(e.target.value as 'anthropic' | 'openai')}
+                  className="px-2 py-1 border border-slate-300 rounded text-xs bg-white text-slate-700"
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </label>
               <button
                 onClick={handleSaveDraft}
                 disabled={isSavingDraft}
@@ -2072,6 +2256,20 @@ const ContentGenerator: React.FC = () => {
                 {exporting === 'pptx' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 Download PPTX
               </button>
+              {exportProgress && (
+                <div className="w-full flex flex-col gap-1 px-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>{exportProgress.label}</span>
+                    <span>{Math.round(exportProgress.percent)}%</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${exportProgress.percent >= 100 ? 'bg-emerald-500' : 'bg-violet-500'}`}
+                      style={{ width: `${exportProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <button
                 onClick={() => handleExport('lecture-notes')}
                 disabled={!!exporting}
@@ -2199,7 +2397,61 @@ const ContentGenerator: React.FC = () => {
           <div className="mb-4 text-xs text-gray-600">
             Text-to-speech status: <span className={`font-semibold ${generatedContent.tts_enabled !== false ? 'text-teal-700' : 'text-slate-500'}`}>{generatedContent.tts_enabled !== false ? 'Enabled' : 'Disabled'}</span>
           </div>
-          {(() => {
+          {previewMode === 'slideshow' && (() => {
+            const sections = generatedContent.sections || [];
+            const totalSlides = sections.length;
+            const clampedSlide = Math.min(Math.max(slideshowSection, 0), Math.max(0, totalSlides - 1));
+            const sec = sections[clampedSlide] as any;
+            if (!sec) return null;
+            const theme = generatedContent.theme || {};
+            return (
+              <div className="flex flex-col w-full mb-6">
+                <div className="flex items-center justify-between mb-3 text-xs text-gray-400">
+                  <span className="font-medium truncate max-w-xs">{generatedContent.title}</span>
+                  <span>{clampedSlide + 1} / {totalSlides}</span>
+                </div>
+                <div className="rounded-2xl shadow-lg overflow-hidden border border-gray-100" style={{ background: theme.surface_color || '#FFFFFF' }}>
+                  <div className="p-8 md:p-12 space-y-4">
+                    <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ color: theme.heading_color || '#111827' }}>
+                      {sec.heading || sec.title || `Section ${clampedSlide + 1}`}
+                    </h2>
+                    {sec.support && (
+                      <p className="text-xl font-medium" style={{ color: theme.accent_color || '#0D9488' }}>{sec.support}</p>
+                    )}
+                    {(sectionFigures[clampedSlide] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum }) => (
+                      <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50 shadow-sm">
+                        {visual.image_url ? (
+                          <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />
+                        ) : visual.mermaid_code ? (
+                          <pre className="p-4 bg-gray-50 text-xs font-mono overflow-auto max-h-40 text-gray-600 whitespace-pre-wrap">{visual.mermaid_code}</pre>
+                        ) : null}
+                        {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: theme.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                      </figure>
+                    ))}
+                    <p className="whitespace-pre-wrap leading-relaxed text-base" style={{ color: theme.text_color || '#374151' }}>{sec.body || ''}</p>
+                    {(sectionFigures[clampedSlide] || []).filter(({ visual }) => !isDiagramVisual(visual) && visual.image_url).map(({ visual, figNum }) => (
+                      <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-white shadow-sm">
+                        <img src={visual.image_url} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />
+                        {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: theme.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                      </figure>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <button type="button" onClick={() => setSlideshowSection((p) => Math.max(0, p - 1))} disabled={clampedSlide <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40">← Previous</button>
+                  <div className="flex gap-1.5 items-center">
+                    {sections.map((_: any, idx: number) => (
+                      <button key={idx} type="button" onClick={() => setSlideshowSection(idx)}
+                        title={(sections[idx] as any).heading || (sections[idx] as any).title || `Section ${idx + 1}`}
+                        className={`rounded-full transition-all ${idx === clampedSlide ? 'w-4 h-3 bg-teal-600' : 'w-2.5 h-2.5 bg-gray-300 hover:bg-teal-300'}`} />
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setSlideshowSection((p) => Math.min(totalSlides - 1, p + 1))} disabled={clampedSlide >= totalSlides - 1} className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40">Next →</button>
+                </div>
+              </div>
+            );
+          })()}
+          {previewMode === 'content' && (() => {
             const sections = generatedContent.sections || [];
             return (
           <div className="space-y-6">
@@ -2517,7 +2769,7 @@ const ContentGenerator: React.FC = () => {
                           <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 min-h-[240px]">
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Text</div>
                             <div
-                              className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
+                              className="text-gray-700 text-sm leading-7 [&_p]:mb-3 [&_p]:last:mb-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-gray-900 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-gray-800 [&_h4]:mt-3 [&_h4]:mb-1"
                               dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(sec) }}
                             />
                           </section>
@@ -2555,36 +2807,56 @@ const ContentGenerator: React.FC = () => {
                   <>
 
                 {/* Illustration figure — shown before body text */}
-                {(sectionFigures[i] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
+                {(sectionFigures[i] || []).filter(({ visual }) => isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => {
+                  const isFailed = isPlaceholderFigure(visual);
+                  return (
                   <figure
                     key={figNum}
                     onClick={() => setSelectedVisualKey(figureKey)}
                     className={`my-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
-                      selectedVisualKey === figureKey
+                      isFailed
+                        ? 'border-amber-300 bg-amber-50'
+                        : selectedVisualKey === figureKey
                         ? 'border-emerald-400 ring-2 ring-emerald-200'
                         : 'border-gray-200 hover:border-emerald-300'
                     } ${visualIndex % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}
                   >
                     {visual.image_url ? (
-                      <img
-                        src={toSecureSrc(visual.image_url)}
-                        onError={handleImageFallback}
-                        alt={visual.alt_text || visual.title || `Figure ${figNum}`}
-                        className="w-full object-contain max-h-64"
-                      />
+                      <div className="relative">
+                        <img
+                          src={toSecureSrc(visual.image_url)}
+                          onError={handleImageFallback}
+                          alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                          className="w-full object-contain max-h-64"
+                        />
+                        {isFailed && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-amber-50/80">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleRegenerateVisual(i, visualIndex); }}
+                              disabled={regeneratingVisualKey === figureKey}
+                              className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              {regeneratingVisualKey === figureKey ? 'Retrying...' : 'Image failed — Retry'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     ) : null}
                     <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                       <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedVisualKey(figureKey);
-                        }}
-                        className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
-                      >
-                        Select
-                      </button>
+                      {!isFailed && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVisualKey(figureKey);
+                          }}
+                          className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
+                        >
+                          Select
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2599,17 +2871,20 @@ const ContentGenerator: React.FC = () => {
                       </button>
                     </figcaption>
                   </figure>
-                ))}
+                  );
+                })}
 
                 {/* Body text */}
                 <div
-                  className="text-gray-700 text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2"
+                  className="text-gray-700 text-sm leading-7 [&_p]:mb-3 [&_p]:last:mb-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_li]:mb-1 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-gray-900 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-gray-800 [&_h4]:mt-3 [&_h4]:mb-1"
                   dangerouslySetInnerHTML={{ __html: getSectionDisplayHtmlSafe(sec) }}
                 />
 
                 {/* Image figure — shown after body text */}
-                {(sectionFigures[i] || []).filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => (
-                  visual.image_url ? (
+                {(sectionFigures[i] || []).filter(({ visual }) => !isDiagramVisual(visual)).map(({ visual, figNum, visualIndex, figureKey }) => {
+                  if (!visual.image_url) return null;
+                  const isFailed = isPlaceholderFigure(visual);
+                  return (
                     <figure
                       key={figNum}
                       onClick={() => setSelectedVisualKey(figureKey)}
@@ -2617,31 +2892,49 @@ const ContentGenerator: React.FC = () => {
                       onDragLeave={() => setDragOverKey(null)}
                       onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, visualIndex, e); }}
                       className={`mt-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
-                        dragOverKey === figureKey
+                        isFailed
+                          ? 'border-amber-300 bg-amber-50'
+                          : dragOverKey === figureKey
                           ? 'border-teal-400 ring-2 ring-teal-200'
                           : selectedVisualKey === figureKey
                           ? 'border-emerald-400 ring-2 ring-emerald-200'
                           : 'border-gray-200 hover:border-emerald-300'
                       } ${visualIndex % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}
                     >
-                      <img
-                        src={toSecureSrc(visual.image_url)}
-                        onError={handleImageFallback}
-                        alt={visual.alt_text || visual.title || `Figure ${figNum}`}
-                        className="w-full object-cover max-h-48"
-                      />
+                      <div className="relative">
+                        <img
+                          src={toSecureSrc(visual.image_url)}
+                          onError={handleImageFallback}
+                          alt={visual.alt_text || visual.title || `Figure ${figNum}`}
+                          className="w-full object-cover max-h-48"
+                        />
+                        {isFailed && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-amber-50/80">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleRegenerateVisual(i, visualIndex); }}
+                              disabled={regeneratingVisualKey === figureKey}
+                              className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              {regeneratingVisualKey === figureKey ? 'Retrying...' : 'Image failed — Retry'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                         <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedVisualKey(figureKey);
-                          }}
-                          className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
-                        >
-                          Select
-                        </button>
+                        {!isFailed && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedVisualKey(figureKey);
+                            }}
+                            className="ml-3 text-emerald-700 hover:text-emerald-900 font-semibold"
+                          >
+                            Select
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -2656,8 +2949,8 @@ const ContentGenerator: React.FC = () => {
                         </button>
                       </figcaption>
                     </figure>
-                  ) : null
-                ))}
+                  );
+                })}
                   </>
                 )}
                 {showRenderDebugger && (

@@ -25,8 +25,10 @@ const {
   logGenerationTelemetry,
   persistGenerationTelemetryEvent,
 } = require('../services/generationTelemetryService');
-const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
+const { createGenerationJob, updateGenerationJob, JOB_STATUS, getGenerationJobById } = require('../services/generationJobService');
 const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
+const { JWT_SECRET } = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -618,10 +620,11 @@ const templateStorage = multer.diskStorage({
 });
 const uploadTemplate = multer({
   storage: templateStorage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 30 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const ok = file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || (file.originalname || '').toLowerCase().endsWith('.pptx');
-    cb(null, !!ok);
+    if (!ok) return cb(new Error('Please upload a .pptx PowerPoint template.'));
+    cb(null, true);
   },
 }).single('template');
 
@@ -770,6 +773,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     }
     let uploadedTheme = null;
     let templateImageUrls = [];
+    let templateContext = '';
     const isUploadedTemplate = (/^uploaded:\d+$/i).test(String(template_id || ''));
     if (isUploadedTemplate) {
       const tmpl = await getUploadedTemplateByToken(req.user.id, template_id);
@@ -778,6 +782,11 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
           const pptxTheme = await contentService.extractTemplateTheme(tmpl.abs_path);
           uploadedTheme = contentService.pptxThemeToContentTheme(pptxTheme);
         } catch (_) { /* non-fatal */ }
+        try {
+          templateContext = await contentService.summarizePptxTemplateForGeneration(tmpl.abs_path);
+        } catch (templateError) {
+          console.warn('Template generation context extraction failed:', templateError?.message || templateError);
+        }
       }
       const dbId = String(template_id).replace(/^uploaded:/i, '');
       templateImageUrls = listTemplateImageUrls(dbId, getRequestBaseUrl(req));
@@ -788,6 +797,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       numSections: requestedSections,
       rubricContext,
       templateId: template_id,
+      templateContext,
       includeDiagrams: include_diagrams !== false,
       includeImages: include_images !== false,
       includeMascot: include_mascot === true,
@@ -828,6 +838,27 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
           });
           return;
         }
+      },
+      onChunkComplete: (chunkInfo) => {
+        if (!generationJobId) return;
+        updateGenerationJob(generationJobId, {
+          result: {
+            success: false,
+            partial_sections: chunkInfo.partial_sections || [],
+            progress: {
+              stage: 'text_generation',
+              task: 'content',
+              percent: Math.round(20 + (chunkInfo.completedChunks / Math.max(1, chunkInfo.totalChunks)) * 56),
+              label: 'Generating sections',
+              detail: `Completed chunk ${chunkInfo.completedChunks}/${chunkInfo.totalChunks}`,
+              generated_sections: Array.isArray(chunkInfo.partial_sections) ? chunkInfo.partial_sections.length : 0,
+              total_sections: requestedSections,
+              updated_at: new Date().toISOString(),
+            },
+          },
+        }).catch((err) => {
+          console.warn('[content] Failed to persist partial chunk:', err?.message || err);
+        });
       },
     });
     if (templateImageUrls.length > 0) {
@@ -973,6 +1004,96 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     console.error('Content generate error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate content' });
   }
+});
+
+/**
+ * SSE stream for a specific generation job's progress.
+ * Accepts token via ?token= query param because browsers cannot set Authorization headers on EventSource.
+ */
+router.get('/jobs/:jobId/progress-stream', async (req, res) => {
+  // Authenticate via query param token (SSE cannot use Authorization headers in browsers)
+  const token = req.query?.token || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+  let userId;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    userId = decoded.userId;
+  } catch (_) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  const jobId = Number(req.params.jobId);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+  const POLL_MS = 800;
+  const MAX_POLLS = Math.ceil((20 * 60 * 1000) / POLL_MS); // 20 min ceiling
+
+  let polls = 0;
+  let closed = false;
+
+  const send = (event, data) => {
+    if (closed) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const cleanup = () => { closed = true; };
+  req.on('close', cleanup);
+  req.on('aborted', cleanup);
+
+  const tick = async () => {
+    if (closed) return;
+    polls += 1;
+    if (polls > MAX_POLLS) {
+      send('error', { message: 'Stream timeout' });
+      cleanup();
+      res.end();
+      return;
+    }
+
+    try {
+      const job = await getGenerationJobById(jobId, userId);
+      if (!job) {
+        send('error', { message: 'Job not found' });
+        cleanup();
+        res.end();
+        return;
+      }
+
+      let result = null;
+      try { result = typeof job.result_json === 'string' ? JSON.parse(job.result_json) : job.result_json; } catch (_) {}
+
+      send('progress', {
+        job_id: Number(job.id),
+        status: job.status,
+        progress: result?.progress || null,
+        partial_sections: result?.partial_sections || null,
+        error_message: job.error_message || null,
+      });
+
+      if (TERMINAL.has(String(job.status))) {
+        send('done', { status: job.status });
+        cleanup();
+        res.end();
+        return;
+      }
+    } catch (err) {
+      send('error', { message: err?.message || 'Poll error' });
+    }
+
+    if (!closed) setTimeout(tick, POLL_MS);
+  };
+
+  send('connected', { job_id: jobId });
+  tick();
 });
 
 router.post('/regenerate-visual', requireAuth, requireFeature('content_creation'), async (req, res) => {
@@ -2307,11 +2428,13 @@ router.get('/progress/:code', async (req, res) => {
  */
 router.post('/export/pptx', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, provider = 'anthropic' } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
+    const pptxProvider = String(provider || 'anthropic').toLowerCase() === 'openai' ? 'openai' : 'anthropic';
     const uploadedTemplate = await getUploadedTemplateByToken(req.user.id, content?.template_id);
     const buffer = await contentService.buildPptx(content, {
       templatePath: uploadedTemplate?.abs_path || null,
+      provider: pptxProvider,
     });
     const filename = `${(content.title || 'content').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pptx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
@@ -2319,7 +2442,9 @@ router.post('/export/pptx', requireAuth, requireFeature('content_creation'), asy
     res.send(buffer);
   } catch (error) {
     console.error('Content PPTX export error:', error);
-    res.status(500).json({ error: 'Failed to export PPTX' });
+    const message = error?.message || 'Failed to export PPTX';
+    const isUserFixable = /template|Anthropic API key|OpenAI API key|required|30 MB|\.pptx/i.test(message);
+    res.status(isUserFixable ? 400 : 500).json({ error: isUserFixable ? message : 'Failed to export PPTX' });
   }
 });
 
@@ -2365,7 +2490,12 @@ router.post('/export/scorm', requireAuth, requireFeature('content_creation'), as
  */
 router.post('/template', requireAuth, requireFeature('content_creation'), (req, res) => {
   uploadTemplate(req, res, async (err) => {
-    if (err) return res.status(400).json({ error: err.message || 'Template upload failed' });
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'PowerPoint templates must be 30 MB or smaller.'
+        : (err.message || 'Template upload failed');
+      return res.status(400).json({ error: message });
+    }
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     try {
       const baseName = String(req.file.originalname || 'Template').replace(/\.[^.]+$/, '').slice(0, 255) || 'Template';
@@ -2413,6 +2543,50 @@ router.post('/template', requireAuth, requireFeature('content_creation'), (req, 
       res.status(500).json({ error: 'Template upload succeeded, but metadata save failed' });
     }
   });
+});
+
+router.delete('/template/:templateId', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const rawId = String(req.params.templateId || '').replace(/^uploaded:/i, '');
+    const templateId = Number(rawId);
+    if (!Number.isFinite(templateId) || templateId <= 0) {
+      return res.status(400).json({ error: 'Only uploaded templates can be deleted.' });
+    }
+
+    const existingQ = isMySQL()
+      ? await query(
+          'SELECT id, file_name FROM uploaded_ppt_templates WHERE id = ? AND user_id = ?',
+          [templateId, req.user.id]
+        )
+      : await query(
+          'SELECT id, file_name FROM uploaded_ppt_templates WHERE id = $1 AND user_id = $2',
+          [templateId, req.user.id]
+        );
+    const existing = Array.isArray(existingQ) ? existingQ[0] : (existingQ.rows && existingQ.rows[0]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Uploaded template not found.' });
+    }
+
+    if (isMySQL()) {
+      await query('DELETE FROM uploaded_ppt_templates WHERE id = ? AND user_id = ?', [templateId, req.user.id]);
+    } else {
+      await query('DELETE FROM uploaded_ppt_templates WHERE id = $1 AND user_id = $2', [templateId, req.user.id]);
+    }
+
+    if (existing.file_name) {
+      await fs.unlink(path.join(templateDir, existing.file_name)).catch((unlinkError) => {
+        console.warn('Uploaded template file delete failed:', unlinkError?.message || unlinkError);
+      });
+      await fs.rm(getTemplateMediaDir(templateId), { recursive: true, force: true }).catch((rmError) => {
+        console.warn('Uploaded template media delete failed:', rmError?.message || rmError);
+      });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete template error:', error);
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
 });
 
 /**

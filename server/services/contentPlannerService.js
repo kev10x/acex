@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const path = require('path');
 const { query } = require('../database/connection');
 const contentService = require('./contentService');
 
@@ -12,6 +13,7 @@ let cycleInProgress = false;
 
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
+const TEMPLATE_DIR = path.join(__dirname, '../uploads/content-templates');
 
 function generateCode() {
   return crypto.randomBytes(6).toString('base64url').slice(0, 8);
@@ -117,6 +119,22 @@ async function processPlannerJob(job) {
   const includeImages = job.include_images !== false && job.include_images !== 0;
   const includeMascot = job.include_mascot === true || job.include_mascot === 1;
   const includeBeautifyText = job.include_beautify_text !== false && job.include_beautify_text !== 0;
+  let templateContext = '';
+  const uploadedTemplateMatch = String(job.template_id || '').match(/^uploaded:(\d+)$/i);
+  if (uploadedTemplateMatch) {
+    const templateId = Number(uploadedTemplateMatch[1]);
+    const templateResult = isMySQL()
+      ? await query('SELECT file_name FROM uploaded_ppt_templates WHERE id = ? AND user_id = ?', [templateId, job.user_id])
+      : await query('SELECT file_name FROM uploaded_ppt_templates WHERE id = $1 AND user_id = $2', [templateId, job.user_id]);
+    const uploadedTemplate = rowsOf(templateResult)[0];
+    if (uploadedTemplate?.file_name) {
+      try {
+        templateContext = await contentService.summarizePptxTemplateForGeneration(path.join(TEMPLATE_DIR, uploadedTemplate.file_name));
+      } catch (templateError) {
+        console.warn('Planner template generation context extraction failed:', templateError?.message || templateError);
+      }
+    }
+  }
 
   let generated = await contentService.generateContentWithAIResilient({
     topics: String(job.topics || '').trim(),
@@ -124,6 +142,7 @@ async function processPlannerJob(job) {
     numSections,
     rubricContext,
     templateId: String(job.template_id || 'classroom'),
+    templateContext,
     includeDiagrams,
     includeImages,
     includeMascot,

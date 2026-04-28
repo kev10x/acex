@@ -117,9 +117,31 @@ export const richHtmlToPlainText = (input: string): string => {
   }
 };
 
+const splitIntoSentences = (text: string): string[] =>
+  text.match(/[^.!?]+(?:[.!?]+["']?(?:\s|$))/g)?.map((s) => s.trim()).filter(Boolean) ?? [text];
+
+const chunkSentences = (sentences: string[], perChunk = 3): string[] => {
+  const chunks: string[] = [];
+  for (let i = 0; i < sentences.length; i += perChunk) {
+    chunks.push(sentences.slice(i, i + perChunk).join(' '));
+  }
+  return chunks;
+};
+
+// Normalise run-together AI text: "sentence.NextSentence" → "sentence.\n\nNextSentence"
+const normalizeParagraphBreaks = (text: string): string =>
+  text
+    .replace(/([.!?])([A-Z])/g, '$1\n\n$2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
 export const plainTextToRichHtml = (input: string): string => {
-  const text = normalizeWhitespace(String(input || ''));
-  if (!text) return '';
+  const raw = normalizeWhitespace(String(input || ''));
+  if (!raw) return '';
+
+  // Recover implicit paragraph breaks before line-splitting
+  const text = normalizeParagraphBreaks(raw);
+
   const renderInline = (value: string) => {
     let html = escapeHtml(String(value || ''));
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
@@ -172,7 +194,14 @@ export const plainTextToRichHtml = (input: string): string => {
       idx += 1;
     }
     if (paragraphLines.length) {
-      blocks.push(`<p>${paragraphLines.map((p) => renderInline(p)).join('<br>')}</p>`);
+      const combined = paragraphLines.join(' ');
+      // Long single-paragraph blocks: split every 3 sentences to avoid walls of text
+      if (combined.length > 300 && !combined.includes('\n')) {
+        const chunks = chunkSentences(splitIntoSentences(combined), 3);
+        chunks.forEach((chunk) => blocks.push(`<p>${renderInline(chunk)}</p>`));
+      } else {
+        blocks.push(`<p>${paragraphLines.map((p) => renderInline(p)).join(' ')}</p>`);
+      }
     }
   }
 
