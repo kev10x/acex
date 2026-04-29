@@ -20,9 +20,8 @@ const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
 const toSecureSrc = (value?: string) => {
   const raw = String(value || '').trim();
   if (!raw || typeof window === 'undefined') return raw;
-  const basePath = window.location.pathname.startsWith('/tools') ? '/tools' : '';
+  const basePath = '/tools';
   const normalizePath = (pathname: string) => {
-    if (!basePath) return pathname;
     if (pathname.startsWith('/uploads/')) return `${basePath}${pathname}`;
     return pathname;
   };

@@ -59,9 +59,8 @@ const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
 const normalizeSecureMediaUrl = (value: string) => {
   const raw = String(value || '').trim();
   if (!raw || typeof window === 'undefined') return raw;
-  const basePath = window.location.pathname.startsWith('/tools') ? '/tools' : '';
+  const basePath = '/tools';
   const normalizePath = (pathname: string) => {
-    if (!basePath) return pathname;
     if (pathname.startsWith('/uploads/')) return `${basePath}${pathname}`;
     return pathname;
   };
@@ -718,7 +717,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       setActivePublishedContentId(item.id);
       setActivePublishedContentCode(item.code);
       setActiveHistoryId(null);
-      const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+      const base = '/tools';
       setPublishedLink(`${window.location.origin}${base}/take-content?code=${item.code}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e: any) {
@@ -743,7 +742,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         if (res.data?.item?.content) {
           setGeneratedContent(normalizeContentForEditor(res.data.item.content));
           setActivePublishedContentCode(res.data.item.code);
-          const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+          const base = '/tools';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
           await loadMyContent();
           return res.data.item.content as GeneratedContent;
@@ -1227,7 +1226,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         if (res.data?.item?.content) {
           setGeneratedContent(normalizeContentForEditor(res.data.item.content));
           setActivePublishedContentCode(res.data.item.code);
-          const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+          const base = '/tools';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
           await loadMyContent();
         }
@@ -1247,7 +1246,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       const res = await contentAPI.publish(payload);
       if (res.data.success && res.data.code) {
         const link = res.data.link;
-        const base = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+        const base = '/tools';
         setPublishedLink(link && link.startsWith('http') ? link : `${window.location.origin}${base}/take-content?code=${res.data.code}`);
         loadMyContent();
         loadModules();
@@ -1693,7 +1692,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     }
   };
 
-  const basePath = typeof window !== 'undefined' && window.location.pathname.startsWith('/tools') ? '/tools' : '';
+  const basePath = '/tools';
   const selectedVisualLocation = useMemo(() => {
     if (!selectedVisualKey || !generatedContent?.sections) return null;
     const [sectionPart, visualPart] = selectedVisualKey.split(':');

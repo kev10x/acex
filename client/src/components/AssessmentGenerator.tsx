@@ -1107,9 +1107,7 @@ const AssessmentGenerator: React.FC = () => {
                         }
                         const res = await assessmentsAPI.publish(payload);
                         if (res.data.success && res.data.code) {
-                          const path = window.location.pathname.replace(/\/$/, '');
-                          const base = path.startsWith('/tools') ? '/tools' : (path.split('/').filter(Boolean)[0] ? '/' + path.split('/').filter(Boolean)[0] : '');
-                          const link = `${window.location.origin}${base}/take-assessment?code=${res.data.code}`;
+                          const link = `${window.location.origin}/tools/take-assessment?code=${res.data.code}`;
                           setPublishedLink(link);
                           loadPublished();
                           loadModules();

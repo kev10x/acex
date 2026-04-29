@@ -4,13 +4,7 @@ import { modulesAPI } from '../services/api';
 import type { LearningModule, LearningModuleItem } from '../services/api';
 
 function getAppBasePath() {
-  if (typeof window === 'undefined') return '';
-  const path = window.location.pathname || '';
-  if (path.startsWith('/tools')) return '/tools';
-  const segments = path.split('/').filter(Boolean);
-  if (segments.length === 0) return '';
-  if (['take-content', 'take-assessment', 'take-module'].includes(segments[0])) return '';
-  return segments[0] ? `/${segments[0]}` : '';
+  return '/tools';
 }
 
 function getItemLaunchPath(item: LearningModuleItem) {
