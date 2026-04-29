@@ -161,6 +161,10 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
+  const isGeneratingRef = useRef(false);
+  const generatedContentRef = useRef<GeneratedContent | null>(null);
+  const setIsGeneratingTracked = (v: boolean) => { isGeneratingRef.current = v; setIsGenerating(v); };
+  const setGeneratedContentTracked = (v: GeneratedContent | null) => { generatedContentRef.current = v; setGeneratedContent(v); };
   const [generationTrace, setGenerationTrace] = useState<GenerationTrace | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -180,10 +184,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const exportProgressTimerRef = useRef<number | null>(null);
   const [pptxJobId, setPptxJobId] = useState<number | null>(null);
   const [pptxJobProgress, setPptxJobProgress] = useState<PptxJobProgress | null>(null);
-  const [pptxJobFailure, setPptxJobFailure] = useState<{ jobId: number } | null>(null);
+  const [pptxJobFailure, setPptxJobFailure] = useState<{ jobId: number; errorMessage?: string | null } | null>(null);
   const [pptxUseAI, setPptxUseAI] = useState(true);
   const pptxJobPollRef = useRef<number | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
+  const [selectedContentIds, setSelectedContentIds] = useState<Set<number>>(new Set());
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState<number | null>(null);
@@ -574,16 +580,16 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         latest.status === 'completed' &&
         latest.result?.content &&
         recoveredContentJobIdRef.current !== Number(latest.id || 0) &&
-        (isGenerating || !generatedContent)
+        (isGeneratingRef.current || !generatedContentRef.current)
       ) {
         const recoveredContent = withGenerationSettings(latest.result.content);
         const recoveredTrace = latest.result?.generation_trace || null;
         recoveredContentJobIdRef.current = Number(latest.id || 0);
-        setGeneratedContent(recoveredContent);
+        setGeneratedContentTracked(recoveredContent);
         setGenerationTrace(recoveredTrace);
         setActiveSectionIndex(0);
         setStudioStep('polish');
-        setIsGenerating(false);
+        setIsGeneratingTracked(false);
         setError(null);
         setBackgroundGenerationNotice('Recovered your generated content from a background job.');
         completeGenerationProgress(true, 'Recovered generated content from background job');
@@ -596,12 +602,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
 
   useEffect(() => {
     recoverBackgroundContentGeneration();
-    // Keep a 15s fallback poll for the case where SSE stream fails to connect
+    // 15s fallback poll in case the SSE stream fails to connect
     const timer = setInterval(() => {
       if (!jobStreamCleanupRef.current) recoverBackgroundContentGeneration();
     }, 15000);
     return () => clearInterval(timer);
-  }, [isGenerating, generatedContent]);
+  }, []);
 
   const loadHistory = async () => {
     try {
@@ -683,7 +689,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     setSectionMode(input.section_mode === 'auto' ? 'auto' : 'manual');
     setAutoSectionSuggestion(Number.isFinite(Number(input.auto_section_suggestion)) ? Number(input.auto_section_suggestion) : null);
     setAutoSectionNote(String(input.auto_section_note || ''));
-    setGeneratedContent(normalizeContentForEditor({
+    setGeneratedContentTracked(normalizeContentForEditor({
       ...item.content,
       tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
     }));
@@ -707,7 +713,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       if (!item?.content) {
         throw new Error('Published content could not be loaded');
       }
-      setGeneratedContent(normalizeContentForEditor(item.content));
+      setGeneratedContentTracked(normalizeContentForEditor(item.content));
       setSelectedVisualKey(null);
       setRubricId(item.rubric_id ?? null);
       setIncludeTextToSpeech(item.content.tts_enabled !== false);
@@ -740,7 +746,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           rubric_id: rubricId ?? null,
         });
         if (res.data?.item?.content) {
-          setGeneratedContent(normalizeContentForEditor(res.data.item.content));
+          setGeneratedContentTracked(normalizeContentForEditor(res.data.item.content));
           setActivePublishedContentCode(res.data.item.code);
           const base = '/tools';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
@@ -760,7 +766,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           : await contentAPI.saveHistory(payload);
         if (res.data?.item?.content) {
           setActiveHistoryId(res.data.item.id);
-          setGeneratedContent(normalizeContentForEditor(res.data.item.content));
+          setGeneratedContentTracked(normalizeContentForEditor(res.data.item.content));
           return res.data.item.content as GeneratedContent;
         }
       }
@@ -910,13 +916,13 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     setError(null);
     setBackgroundGenerationNotice(null);
     setStudioStep('generate');
-    setIsGenerating(true);
+    setIsGeneratingTracked(true);
     setSelectedVisualKey(null);
     setSlideshowSection(0);
     setActiveHistoryId(null);
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
-    setGeneratedContent(null);
+    setGeneratedContentTracked(null);
     setGenerationTrace(null);
     activeGenerationJobIdRef.current = null;
     startGenerationProgress('content', { includeImages, includeMascot });
@@ -959,7 +965,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         const contentWithSettings = withGenerationSettings(res.data.content);
         const trace = res.data.generation_trace || null;
         setGenerationTrace(trace);
-        setGeneratedContent(contentWithSettings);
+        setGeneratedContentTracked(contentWithSettings);
         setActiveSectionIndex(0);
         setStudioStep('polish');
         await addToHistory(contentWithSettings, trace);
@@ -973,7 +979,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       completeGenerationProgress(false, e.response?.data?.error || e.message || 'Failed to generate content');
     } finally {
       clearGenerationJobPoller();
-      setIsGenerating(false);
+      setIsGeneratingTracked(false);
     }
   };
 
@@ -1140,7 +1146,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           stopPptxJobPoll();
           finishExportProgress(false);
           setExporting(null);
-          setPptxJobFailure({ jobId });
+          setPptxJobFailure({ jobId, errorMessage: state.error_message });
         }
       } catch (_) {}
     };
@@ -1224,7 +1230,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           rubric_id: rubricId ?? null,
         });
         if (res.data?.item?.content) {
-          setGeneratedContent(normalizeContentForEditor(res.data.item.content));
+          setGeneratedContentTracked(normalizeContentForEditor(res.data.item.content));
           setActivePublishedContentCode(res.data.item.code);
           const base = '/tools';
           setPublishedLink(`${window.location.origin}${base}/take-content?code=${res.data.item.code}`);
@@ -1283,7 +1289,8 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   };
 
   const updateGeneratedContent = (updater: (current: GeneratedContent) => GeneratedContent) => {
-    setGeneratedContent((prev) => (prev ? updater(prev) : prev));
+    const next = generatedContentRef.current ? updater(generatedContentRef.current) : generatedContentRef.current;
+    setGeneratedContentTracked(next);
   };
 
   const updateSectionField = (sectionIndex: number, field: 'heading' | 'support' | 'body', value: string) => {
@@ -1692,6 +1699,22 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedContentIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedContentIds.size} item${selectedContentIds.size > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setIsDeletingSelected(true);
+    setError(null);
+    try {
+      await Promise.all([...selectedContentIds].map((id) => contentAPI.deleteMy(id)));
+      setSelectedContentIds(new Set());
+      await loadMyContent();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to delete selected content');
+    } finally {
+      setIsDeletingSelected(false);
+    }
+  };
+
   const basePath = '/tools';
   const selectedVisualLocation = useMemo(() => {
     if (!selectedVisualKey || !generatedContent?.sections) return null;
@@ -1787,43 +1810,82 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
             {myContent.length === 0 ? (
               <p className="text-sm text-teal-900">No published content yet.</p>
             ) : (
-              <ul className="space-y-2">
-                {myContent.map((item) => {
-                  const link = `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${item.code}`;
-                  return (
-                    <li key={item.id} className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
-                      <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(link)}
-                        className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+              <>
+                {selectedContentIds.size > 0 && (
+                  <div className="flex items-center gap-3 mb-3 py-2 px-3 bg-red-50 border border-red-200 rounded-lg">
+                    <span className="text-sm text-red-800 font-medium">{selectedContentIds.size} selected</span>
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelected}
+                      disabled={isDeletingSelected}
+                      className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {isDeletingSelected ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      Delete selected
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedContentIds(new Set())}
+                      className="text-xs text-red-700 underline hover:text-red-900"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+                <ul className="space-y-2">
+                  {myContent.map((item) => {
+                    const link = `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${item.code}`;
+                    const isSelected = selectedContentIds.has(item.id);
+                    return (
+                      <li
+                        key={item.id}
+                        className={`flex items-center gap-2 flex-wrap rounded-lg px-2 py-1 transition-colors ${isSelected ? 'bg-teal-100 border border-teal-300' : 'border border-transparent'}`}
                       >
-                        Copy link
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEditPublishedContent(item.id)}
-                        disabled={loadingPublishedContentId === item.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        {loadingPublishedContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteContent(item.id, item.title)}
-                        disabled={deletingContentId === item.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                        title="Delete published content"
-                      >
-                        {deletingContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                        Delete
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            setSelectedContentIds((prev) => {
+                              const next = new Set(prev);
+                              e.target.checked ? next.add(item.id) : next.delete(item.id);
+                              return next;
+                            });
+                          }}
+                          className="w-4 h-4 accent-teal-600 cursor-pointer"
+                        />
+                        <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                        <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(link)}
+                          className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+                        >
+                          Copy link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEditPublishedContent(item.id)}
+                          disabled={loadingPublishedContentId === item.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {loadingPublishedContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteContent(item.id, item.title)}
+                          disabled={deletingContentId === item.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                          title="Delete published content"
+                        >
+                          {deletingContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                          Delete
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </div>
         </details>
@@ -2115,7 +2177,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 onChange={(e) => {
                   const enabled = e.target.checked;
                   setIncludeTextToSpeech(enabled);
-                  setGeneratedContent((prev) => (prev ? { ...prev, tts_enabled: enabled } : prev));
+                  if (generatedContentRef.current) setGeneratedContentTracked({ ...generatedContentRef.current, tts_enabled: enabled });
                 }}
                 className="w-4 h-4 text-teal-600 border-gray-300 rounded"
               />
@@ -2325,6 +2387,20 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       style={{ width: `${exportProgress.percent}%` }}
                     />
                   </div>
+                  {pptxJobProgress && (
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      {[
+                        pptxJobId ? `job #${pptxJobId}` : null,
+                        pptxJobProgress.step ? `step: ${pptxJobProgress.step}` : null,
+                        pptxJobProgress.totalChunks && pptxJobProgress.totalChunks > 1
+                          ? `chunk ${pptxJobProgress.chunk ?? '?'}/${pptxJobProgress.totalChunks}`
+                          : null,
+                        pptxJobProgress.turn != null
+                          ? `turn ${pptxJobProgress.turn}/${pptxJobProgress.totalTurns ?? '?'}`
+                          : null,
+                      ].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                 </div>
               )}
               {pptxJobFailure && (
@@ -2332,6 +2408,11 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   <p className="text-xs font-semibold text-red-800">
                     Export failed. Try again, or download a basic version without template styling.
                   </p>
+                  {pptxJobFailure.errorMessage && (
+                    <p className="text-[10px] font-mono text-red-700 bg-red-100 rounded px-2 py-1 break-all">
+                      {pptxJobFailure.errorMessage}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={handlePptxRetry}
