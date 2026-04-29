@@ -14,10 +14,12 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3001,
+        BASE_PATH: '/tools',
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 3001,
+        BASE_PATH: '/tools',
       },
     },
   ],
