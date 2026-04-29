@@ -319,10 +319,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
 
   useEffect(() => {
     loadRubrics();
-    loadMyContent();
-    loadPlannerJobs();
     loadTemplates();
-    loadHistory();
     loadModules();
   }, []);
 
@@ -1774,7 +1771,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </div>
 
-        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden">
+        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadMyContent(); }}>
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900">
             My published content links ({myContent.length})
           </summary>
@@ -1823,7 +1820,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </details>
 
-        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
+        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadHistory(); }}>
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
             <History className="w-4 h-4" />
             Content generator history ({history.length})
@@ -1884,12 +1881,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </details>
 
-        {plannerJobs.length > 0 && (
-          <details className="mb-6 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-blue-900">
-              Planner queue ({plannerJobs.length})
-            </summary>
-            <div className="px-4 pb-4">
+        <details className="mb-6 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadPlannerJobs(); }}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-blue-900">
+            Planner queue ({plannerJobs.length})
+          </summary>
+          <div className="px-4 pb-4">
+            {plannerJobs.length === 0 ? (
+              <p className="text-sm text-blue-900">No planner jobs yet.</p>
+            ) : (
               <ul className="space-y-2">
                 {plannerJobs.map((job) => {
                 const link = job.published_code
@@ -1938,9 +1937,9 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   );
                 })}
               </ul>
-            </div>
-          </details>
-        )}
+            )}
+          </div>
+        </details>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>

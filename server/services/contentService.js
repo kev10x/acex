@@ -1839,20 +1839,12 @@ function buildDeckSourceText(content) {
     number: index + 1,
     heading: getSectionAssertion(sec),
     support: getSectionSupport(sec),
-    body: getSectionBody(sec),
-    visuals: Array.isArray(sec.visuals) ? sec.visuals.map((visual) => ({
-      kind: visual.kind || '',
-      title: visual.title || '',
-      alt_text: visual.alt_text || '',
-      prompt: visual.prompt || '',
-    })) : [],
   }));
 
   return JSON.stringify({
     title: content.title || 'Course Content',
     instructions: content.instructions || '',
     sections,
-    quiz: content.quiz || null,
   }, null, 2);
 }
 
