@@ -14,6 +14,7 @@ import {
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const PPTX_TEMPLATE_MAX_BYTES = 30 * 1024 * 1024;
 const SECTION_COUNT_MAX = 120;
+const MAX_PPTX_TURNS = 12;
 const CONTEXTUAL_LAYOUT_OPTIONS: Array<{ value: ContextualBlockLayout; label: string }> = [
   { value: 'auto', label: 'Auto' },
   { value: 'science', label: 'Science' },
@@ -180,7 +181,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const exportProgressTimerRef = useRef<number | null>(null);
   const [pptxJobId, setPptxJobId] = useState<number | null>(null);
   const [pptxJobProgress, setPptxJobProgress] = useState<PptxJobProgress | null>(null);
-  const [pptxJobFailure, setPptxJobFailure] = useState<{ jobId: number; completedBatches: number; totalBatches: number } | null>(null);
+  const [pptxJobFailure, setPptxJobFailure] = useState<{ jobId: number } | null>(null);
   const [pptxUseAI, setPptxUseAI] = useState(true);
   const pptxJobPollRef = useRef<number | null>(null);
   const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
@@ -1112,21 +1113,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         const prog = state.progress || {} as PptxJobProgress;
         setPptxJobProgress(prog);
 
-        const total = prog.totalBatches || 1;
-        const done = prog.completedBatches || 0;
-        const isQuick = total === 0;
-        const allBatchesDone = isQuick || done >= total;
-        const pct = isQuick ? 80 : allBatchesDone ? 92 : Math.round((done / total) * 88);
-        const batchInProgress = prog.batches?.find((b: any) => b.status === 'processing');
-        const label = isQuick
-          ? 'Building presentation…'
-          : allBatchesDone && prog.assembling
-            ? 'Applying template design…'
-            : allBatchesDone
-              ? 'Assembling presentation…'
-              : batchInProgress
-                ? `Generating slide batch ${batchInProgress.index + 1} of ${total}…`
-                : `Saved ${done}/${total} slide batches…`;
+        const turn = prog.turn ?? 0;
+        const totalTurns = prog.totalTurns ?? MAX_PPTX_TURNS;
+        const pct = prog.step === 'building'
+          ? Math.max(5, Math.min(90, Math.round(5 + (turn / totalTurns) * 85)))
+          : 5;
+        const label = turn > 0 ? 'Building presentation…' : 'Preparing…';
         setExportProgress({ percent: pct, label });
 
         if (state.status === 'completed') {
@@ -1144,8 +1136,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           stopPptxJobPoll();
           finishExportProgress(false);
           setExporting(null);
-          const completed = (prog.batches || []).filter((b: any) => b.status === 'completed').length;
-          setPptxJobFailure({ jobId, completedBatches: completed, totalBatches: total });
+          setPptxJobFailure({ jobId });
         }
       } catch (_) {}
     };
@@ -1212,7 +1203,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       const res = await pptxJobsAPI.downloadPartial(pptxJobFailure.jobId);
       const filename = `${(generatedContent?.title || 'presentation').replace(/[^a-z0-9]/gi, '_').toLowerCase()}-partial.pptx`;
       triggerBlobDownload(res.data as Blob, filename);
-      notifySuccess(`${filename} ready (${pptxJobFailure.completedBatches} of ${pptxJobFailure.totalBatches} batches)`, 'Partial download');
+      notifySuccess(`${filename} ready (rendered without template)`, 'Partial download');
       setPptxJobFailure(null);
     } catch (e: any) {
       setError(getApiErrorMessage(e, 'Partial download failed'));
@@ -2392,7 +2383,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               {pptxJobFailure && (
                 <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex flex-col gap-2">
                   <p className="text-xs font-semibold text-red-800">
-                    Export stopped after {pptxJobFailure.completedBatches} of {pptxJobFailure.totalBatches} batches.
+                    Export failed. Try again, or download a basic version without template styling.
                   </p>
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
@@ -2401,14 +2392,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     >
                       <Loader2 className="w-3 h-3" /> Retry
                     </button>
-                    {pptxJobFailure.completedBatches > 0 && (
-                      <button
-                        onClick={handlePptxDownloadPartial}
-                        className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white text-slate-700 text-xs rounded-lg hover:bg-slate-100"
-                      >
-                        <Presentation className="w-3 h-3" /> Download partial ({pptxJobFailure.completedBatches} batches)
-                      </button>
-                    )}
+                    <button
+                      onClick={handlePptxDownloadPartial}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white text-slate-700 text-xs rounded-lg hover:bg-slate-100"
+                    >
+                      <Presentation className="w-3 h-3" /> Download without template
+                    </button>
                     <button
                       onClick={() => setPptxJobFailure(null)}
                       className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700"

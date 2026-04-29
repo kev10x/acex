@@ -1574,22 +1574,11 @@ export const contentAPI = {
 
 // ─── Batched PPTX job API ────────────────────────────────────────────────────
 
-export interface PptxBatchState {
-  index: number;
-  sectionStart: number;
-  sectionEnd: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  error?: string | null;
-  slideCount?: number;
-  slides?: Array<{ sourceSectionIndex: number; title: string; support?: string; bullets: string[] }>;
-}
 
 export interface PptxJobProgress {
-  batches: PptxBatchState[];
-  completedBatches: number;
-  totalBatches: number;
-  generatedSlides?: number;
-  batchSize?: number;
+  step?: 'building' | 'done' | 'failed';
+  turn?: number;
+  totalTurns?: number;
   finalReady?: boolean;
 }
 

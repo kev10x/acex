@@ -1955,6 +1955,9 @@ async function buildPptxWithAnthropic(content, options = {}) {
   let response;
 
   for (let turn = 0; turn < 12; turn++) {
+    if (options.onTurn) {
+      try { await options.onTurn(turn + 1); } catch (_) {}
+    }
     const request = buildAnthropicPptxRequest({
       content,
       uploadedFileId,
