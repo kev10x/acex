@@ -17,6 +17,7 @@ const { createGenerationJob, updateGenerationJob, getGenerationJobById } = requi
 
 const JOBS_DIR = path.join(__dirname, '..', 'uploads', 'pptx-jobs');
 const MAX_TURNS = 12;
+const CHUNK_SIZE = 6;
 
 try { fs.mkdirSync(JOBS_DIR, { recursive: true }); } catch (_) {}
 
@@ -62,7 +63,12 @@ async function processJob(jobId) {
   const templatePath = job.payload.templatePath || null;
   const useAI = job.payload.useAI !== false;
 
-  await saveProgress(jobId, { step: 'building', turn: 0, totalTurns: MAX_TURNS }, {
+  const sections = content.sections || [];
+  const totalChunks = (templatePath && useAI && canUseAnthropicPptx())
+    ? Math.max(1, Math.ceil(sections.length / CHUNK_SIZE))
+    : 1;
+
+  await saveProgress(jobId, { step: 'building', chunk: 1, totalChunks, turn: 0, totalTurns: MAX_TURNS }, {
     status: 'processing',
     started_at: new Date(),
   });
@@ -71,12 +77,27 @@ async function processJob(jobId) {
     let buf;
 
     if (templatePath && useAI && canUseAnthropicPptx()) {
-      buf = await contentService.buildPptxWithAnthropic(content, {
-        templatePath,
-        onTurn: async (turn) => {
-          await saveProgress(jobId, { step: 'building', turn, totalTurns: MAX_TURNS });
-        },
-      });
+      const chunkBuffers = [];
+      for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+        const chunkSections = sections.slice(chunkIdx * CHUNK_SIZE, (chunkIdx + 1) * CHUNK_SIZE);
+        const chunkContent = { ...content, sections: chunkSections };
+        await saveProgress(jobId, { step: 'building', chunk: chunkIdx + 1, totalChunks, turn: 0, totalTurns: MAX_TURNS });
+        const chunkBuf = await contentService.buildPptxWithAnthropic(chunkContent, {
+          templatePath,
+          isFirstChunk: chunkIdx === 0,
+          onTurn: async (turn) => {
+            await saveProgress(jobId, { step: 'building', chunk: chunkIdx + 1, totalChunks, turn, totalTurns: MAX_TURNS });
+          },
+        });
+        chunkBuffers.push(chunkBuf);
+      }
+
+      if (totalChunks === 1) {
+        buf = chunkBuffers[0];
+      } else {
+        await saveProgress(jobId, { step: 'merging', chunk: totalChunks, totalChunks, turn: 0, totalTurns: MAX_TURNS });
+        buf = await contentService.mergePptxWithAnthropic(chunkBuffers, {});
+      }
     } else {
       buf = await contentService.buildPptx(content, { templatePath, forceLocal: true });
     }
@@ -135,7 +156,7 @@ async function retryJob(jobId, userId = null) {
   if (!job) throw Object.assign(new Error('Job not found'), { status: 404 });
   if (job.status === 'processing') throw Object.assign(new Error('Job is still running'), { status: 400 });
 
-  await saveProgress(jobId, { step: 'building', turn: 0, totalTurns: MAX_TURNS }, {
+  await saveProgress(jobId, { step: 'building', chunk: 1, totalChunks: 1, turn: 0, totalTurns: MAX_TURNS }, {
     status: 'processing',
     error_message: null,
     completed_at: null,

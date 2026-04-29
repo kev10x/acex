@@ -664,7 +664,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       if (res.data?.item?.id) {
         setActiveHistoryId(res.data.item.id);
       }
-      await loadHistory();
     } catch (_) {}
   };
 
@@ -763,7 +762,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         if (res.data?.item?.content) {
           setActiveHistoryId(res.data.item.id);
           setGeneratedContent(normalizeContentForEditor(res.data.item.content));
-          await loadHistory();
           return res.data.item.content as GeneratedContent;
         }
       }
@@ -785,7 +783,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const removeHistoryItem = async (id: number) => {
     try {
       await contentAPI.deleteHistoryItem(id);
-      await loadHistory();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to remove history item');
     }
@@ -794,7 +791,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const clearHistory = async () => {
     try {
       await contentAPI.clearHistory();
-      await loadHistory();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to clear history');
     }
@@ -833,7 +829,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       }
 
       localStorage.removeItem(LEGACY_CONTENT_HISTORY_KEY);
-      await loadHistory();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Failed to migrate legacy history');
     } finally {
@@ -1110,12 +1105,25 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         const prog = state.progress || {} as PptxJobProgress;
         setPptxJobProgress(prog);
 
+        const chunk = prog.chunk ?? 1;
+        const totalChunks = prog.totalChunks ?? 1;
         const turn = prog.turn ?? 0;
         const totalTurns = prog.totalTurns ?? MAX_PPTX_TURNS;
-        const pct = prog.step === 'building'
-          ? Math.max(5, Math.min(90, Math.round(5 + (turn / totalTurns) * 85)))
-          : 5;
-        const label = turn > 0 ? 'Building presentation…' : 'Preparing…';
+        const chunkShare = 85 / totalChunks;
+        const chunkBase = 5 + (chunk - 1) * chunkShare;
+        const chunkPct = turn > 0
+          ? Math.min(chunkBase + (turn / totalTurns) * chunkShare, chunkBase + chunkShare - 2)
+          : chunkBase;
+        const pct = prog.step === 'merging'
+          ? 93
+          : prog.step === 'building'
+            ? Math.max(5, Math.min(90, Math.round(chunkPct)))
+            : 5;
+        const label = prog.step === 'merging'
+          ? 'Merging slide groups…'
+          : totalChunks > 1
+            ? `Building slide group ${chunk} of ${totalChunks}…`
+            : turn > 0 ? 'Building presentation…' : 'Preparing…';
         setExportProgress({ percent: pct, label });
 
         if (state.status === 'completed') {
@@ -1771,9 +1779,10 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </div>
 
-        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadMyContent(); }}>
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900">
-            My published content links ({myContent.length})
+        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900 flex items-center justify-between">
+            <span>My published content links ({myContent.length})</span>
+            <button type="button" onClick={(e) => { e.preventDefault(); loadMyContent(); }} className="text-xs font-normal text-teal-700 underline hover:text-teal-900">Load</button>
           </summary>
           <div className="px-4 pb-4">
             {myContent.length === 0 ? (
@@ -1820,70 +1829,10 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </details>
 
-        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadHistory(); }}>
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
-            <History className="w-4 h-4" />
-            Content generator history ({history.length})
-          </summary>
-          <div className="px-4 pb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <button
-                type="button"
-                onClick={migrateLegacyHistory}
-                disabled={isMigratingHistory}
-                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isMigratingHistory ? 'Migrating...' : 'Migrate local history'}
-              </button>
-              <button
-                type="button"
-                onClick={clearHistory}
-                disabled={history.length === 0}
-                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
-              >
-                Clear all
-              </button>
-            </div>
-            {history.length === 0 ? (
-              <p className="text-sm text-amber-900">No history yet. Generate content and it will appear here.</p>
-            ) : (
-              <ul className="space-y-2">
-                {history.map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 flex-wrap text-sm text-gray-700 bg-white border border-amber-100 rounded p-2">
-                    <span className="font-medium truncate max-w-[260px]" title={item.content?.title || ''}>
-                      {item.content?.title || item.title || 'Untitled content'}
-                    </span>
-                    {(item.generation_trace || item.input?.generation_trace) && (
-                      <span className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">
-                        Prompt v{(item.generation_trace || item.input?.generation_trace)?.prompt_version ?? '?'} / {(item.generation_trace || item.input?.generation_trace)?.model || 'unknown model'}
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</span>
-                    <button
-                      type="button"
-                      onClick={() => loadFromHistory(item)}
-                      className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
-                    >
-                      Load
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeHistoryItem(item.id)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </details>
-
-        <details className="mb-6 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden" onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadPlannerJobs(); }}>
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-blue-900">
-            Planner queue ({plannerJobs.length})
+        <details className="mb-6 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-blue-900 flex items-center justify-between">
+            <span>Planner queue ({plannerJobs.length})</span>
+            <button type="button" onClick={(e) => { e.preventDefault(); loadPlannerJobs(); }} className="text-xs font-normal text-blue-700 underline hover:text-blue-900">Load</button>
           </summary>
           <div className="px-4 pb-4">
             {plannerJobs.length === 0 ? (

@@ -1576,7 +1576,9 @@ export const contentAPI = {
 
 
 export interface PptxJobProgress {
-  step?: 'building' | 'done' | 'failed';
+  step?: 'building' | 'merging' | 'done' | 'failed';
+  chunk?: number;
+  totalChunks?: number;
   turn?: number;
   totalTurns?: number;
   finalReady?: boolean;
