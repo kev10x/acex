@@ -220,9 +220,16 @@ const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = (
     setError(null);
     setGenerating(true);
     try {
-      const { content } = await slideGenAPI.generateContent({ topic, subject, level, slideCount });
+      const { content } = await slideGenAPI.generateContent({ topic, subject, level, slideCount, backgrounds: templateBackgrounds });
       setGeneratedContent(content);
-      setSlideBackgrounds({});
+      // Auto-assign backgrounds based on AI recommendations
+      const autoBackgrounds: Record<number, string> = {};
+      content.forEach(slide => {
+        if (slide.backgroundId && templateBackgrounds.find(b => b.id === slide.backgroundId)) {
+          autoBackgrounds[slide.slideIndex] = slide.backgroundId;
+        }
+      });
+      setSlideBackgrounds(autoBackgrounds);
       setStep('style');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to generate content');
@@ -485,9 +492,17 @@ const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = (
 
           {/* Left — generated slides */}
           <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1" style={{ maxHeight: '78vh' }}>
-            <p className="shrink-0 text-xs text-gray-500">
-              Drag a background from the gallery onto any slide.
-            </p>
+            <div className="shrink-0">
+              <p className="text-xs text-gray-500">
+                Anthropic AI has automatically assigned backgrounds based on slide content and type.
+                You can drag to reassign or click "Apply to all" for manual control.
+              </p>
+              {Object.keys(slideBackgrounds).length > 0 && (
+                <p className="mt-1 text-xs text-emerald-600">
+                  ✓ {Object.keys(slideBackgrounds).length} slide{Object.keys(slideBackgrounds).length !== 1 ? 's' : ''} auto-styled by AI
+                </p>
+              )}
+            </div>
             {generatedContent.map((slide) => {
               const bgId = slideBackgrounds[slide.slideIndex];
               const bg = bgId ? allBgMap.get(bgId) : null;

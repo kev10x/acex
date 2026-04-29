@@ -510,7 +510,7 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
 
     results.push({
       id: `tpl-${results.length}`,
-      label: `Style ${results.length + 1}`,
+      label: `Style ${results.length + 1}`, // Temporary label, will be updated by AI
       bgXml,
       isDark: parsedBgIsDark(parsed),
       previewCss: bgToPreviewCss(parsed),
@@ -521,6 +521,52 @@ async function extractTemplateBackgrounds(zipPath, mediaDir) {
   }
 
   return results;
+}
+
+// Generate descriptive labels for backgrounds using Anthropic
+async function generateBackgroundLabels(backgrounds) {
+  if (!backgrounds.length || !aiService?.anthropic) return backgrounds;
+
+  const cfg = aiConfig.getTaskConfig('contentGeneration', 'anthropic');
+
+  const descriptions = backgrounds.map((bg, i) => {
+    const type = bg.imageFilename ? 'image background' : (bg.previewCss.includes('linear-gradient') ? 'gradient' : 'solid color');
+    const dark = bg.isDark ? 'dark' : 'light';
+    return `${i + 1}. ${type}, ${dark}`;
+  }).join('\n');
+
+  const prompt = `Generate creative, descriptive labels for these presentation slide backgrounds. Each label should be 2-4 words, suitable for a design gallery.
+
+Backgrounds:
+${descriptions}
+
+Return only a JSON array of strings, one label per background in the same order.`;
+
+  try {
+    const result = await aiService.createCompletionWithRetry({
+      provider: 'anthropic',
+      model: cfg.anthropic.model,
+      temperature: 0.7,
+      maxTokens: cfg.anthropic.maxTokens,
+      messages: [
+        { role: 'system', content: 'You generate creative labels for design elements. Return only JSON arrays.' },
+        { role: 'user', content: prompt }
+      ]
+    }, 2);
+
+    const raw = String(result?.content || '').trim();
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (match) {
+      const labels = JSON.parse(match[0]);
+      if (Array.isArray(labels) && labels.length === backgrounds.length) {
+        return backgrounds.map((bg, i) => ({ ...bg, label: String(labels[i] || bg.label) }));
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to generate background labels with AI:', error.message);
+  }
+
+  return backgrounds;
 }
 
 function extensionToMime(ext) {
@@ -539,16 +585,16 @@ const VISION_MAX_BYTES = 2 * 1024 * 1024; // skip images > 2 MB — keeps base64
 async function describeImageWithVision(buffer, mimeType) {
   if (!buffer || !buffer.length) return null;
   if (buffer.length > VISION_MAX_BYTES) return null; // avoid huge base64 strings in memory
-  if (!aiService?.openai) return null;
+  if (!aiService?.anthropic) return null;
 
-  const cfg = aiConfig.getTaskConfig('visionOCR', 'openai');
+  const cfg = aiConfig.getTaskConfig('visionOCR', 'anthropic');
   const b64 = buffer.toString('base64');
 
   const result = await aiService.createCompletionWithRetry({
-    provider: 'openai',
-    model: cfg.model,
+    provider: 'anthropic',
+    model: cfg.anthropic?.model || 'claude-3-haiku-20240307',
     temperature: 0.1,
-    maxTokens: Math.min(cfg.maxTokens, 300),
+    maxTokens: cfg.anthropic?.maxTokens || 300,
     messages: [
       {
         role: 'system',
@@ -562,8 +608,8 @@ async function describeImageWithVision(buffer, mimeType) {
             text: 'Return JSON object: {"shortLabel":"...","description":"...","likelyBackground":true|false}. Keep shortLabel <= 6 words and description <= 20 words.'
           },
           {
-            type: 'image_url',
-            image_url: { url: `data:${mimeType};base64,${b64}` }
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: b64 }
           }
         ]
       }
@@ -634,21 +680,27 @@ async function extractTemplateImages(zipPath, mediaDir, { backgroundZipEntries =
 
 async function extractTemplateAssets(zipPath, mediaDir, options = {}) {
   const backgrounds = await extractTemplateBackgrounds(zipPath, mediaDir);
+  const labeledBackgrounds = await generateBackgroundLabels(backgrounds);
   const backgroundZipEntries = new Set(
-    backgrounds.map((b) => b.sourceZipEntry).filter(Boolean)
+    labeledBackgrounds.map((b) => b.sourceZipEntry).filter(Boolean)
   );
   const images = await extractTemplateImages(zipPath, mediaDir, {
     backgroundZipEntries,
     useVision: options.useVision !== false,
     maxVisionAssets: Number.isFinite(options.maxVisionAssets) ? options.maxVisionAssets : 8,
   });
-  return { backgrounds, images };
+  return { backgrounds: labeledBackgrounds, images };
 }
 
 // ─── Fresh slide generation (blank deck via pptxgenjs) ────────────────────────
 
-async function generateFreshSlideContent({ topic, subject = '', level = 'undergraduate', slideCount = 8 }) {
+async function generateFreshSlideContent({ topic, subject = '', level = 'undergraduate', slideCount = 8, backgrounds = [] }) {
   const cfg = aiConfig.getTaskConfig('contentGeneration');
+
+  let backgroundInfo = '';
+  if (backgrounds.length > 0) {
+    backgroundInfo = `\n\nAvailable backgrounds from template:\n${backgrounds.map((b, i) => `${i + 1}. ${b.label} (${b.isDark ? 'dark' : 'light'}${b.previewCss ? ', gradient/solid' : ', image'})`).join('\n')}\n\nAssign the most appropriate background ID to each slide based on the slide type and content.`;
+  }
 
   const prompt = `Design and generate content for a ${level} lesson on "${topic}"${subject ? ` (${subject})` : ''}.
 Create exactly ${slideCount} slides with a logical educational flow.
@@ -658,18 +710,18 @@ For each slide generate:
 - slideIndex (0-based, 0 to ${slideCount - 1})
 - slideType
 - title (clear, assertive heading)
-- bullets (3-5 concise points under 15 words each)
+- bullets (3-5 concise points under 15 words each)${backgrounds.length > 0 ? '\n- backgroundId (the ID of the most suitable background from the list above, or null if none fit)' : ''}
 
 Return ONLY valid JSON:
-[{"slideIndex":0,"slideType":"title","title":"...","bullets":["..."]}]`;
+[{"slideIndex":0,"slideType":"title","title":"...","bullets":["..."]${backgrounds.length > 0 ? ',"backgroundId":"..."' : ''}}]${backgroundInfo}`;
 
   const result = await aiService.createCompletionWithRetry({
-    provider: cfg.provider,
-    model: cfg.model,
+    provider: 'anthropic', // Use Anthropic for slide generation and background assignment
+    model: cfg.anthropic.model,
     temperature: 0.6,
-    maxTokens: Math.min(cfg.maxTokens, 4000),
+    maxTokens: Math.min(cfg.anthropic.maxTokens, 4000),
     messages: [
-      { role: 'system', content: 'You generate educational presentation slide content. Return only a valid JSON array.' },
+      { role: 'system', content: 'You generate educational presentation slide content and assign appropriate backgrounds. Return only a valid JSON array.' },
       { role: 'user', content: prompt }
     ]
   }, 3);
@@ -677,7 +729,20 @@ Return ONLY valid JSON:
   const raw = String(result?.content || '').trim();
   try {
     const match = raw.match(/\[[\s\S]*\]/);
-    return JSON.parse(match ? match[0] : raw);
+    const slides = JSON.parse(match ? match[0] : raw);
+    
+    // If backgrounds were provided and assigned, set the slideBackgrounds
+    if (backgrounds.length > 0) {
+      const bgMap = {};
+      slides.forEach(slide => {
+        if (slide.backgroundId && backgrounds.find(b => b.id === slide.backgroundId)) {
+          bgMap[slide.slideIndex] = slide.backgroundId;
+        }
+      });
+      // Note: We can't modify the response here, but the component will use the backgroundId from slides
+    }
+    
+    return slides;
   } catch (_) {
     return Array.from({ length: slideCount }, (_, i) => ({
       slideIndex: i,

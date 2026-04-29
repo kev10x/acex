@@ -68,11 +68,11 @@ router.post('/analyse', requireAuth, (req, res) => {
 /**
  * POST /slide-gen/generate-content
  * AI-generate a fresh slide deck (no template needed).
- * Body: { topic, subject?, level?, slideCount? }
+ * Body: { topic, subject?, level?, slideCount?, backgrounds? }
  * Returns { content: [{slideIndex, slideType, title, bullets}] }
  */
 router.post('/generate-content', requireAuth, async (req, res) => {
-  const { topic, subject, level, slideCount } = req.body;
+  const { topic, subject, level, slideCount, backgrounds } = req.body;
 
   if (!topic || !String(topic).trim()) {
     return res.status(400).json({ error: 'topic is required' });
@@ -86,6 +86,7 @@ router.post('/generate-content', requireAuth, async (req, res) => {
       subject: String(subject || '').trim().slice(0, 100),
       level: String(level || 'undergraduate').trim(),
       slideCount: count,
+      backgrounds: Array.isArray(backgrounds) ? backgrounds : [],
     });
     res.json({ content });
   } catch (error) {

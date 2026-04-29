@@ -152,12 +152,38 @@ class AIService {
       .map(m => {
         // Anthropic uses 'user' and 'assistant' roles
         if (m.role === 'user') {
-          return { role: 'user', content: m.content };
+          // Handle content as string or array (for vision)
+          let content = m.content;
+          if (typeof content === 'string') {
+            content = [{ type: 'text', text: content }];
+          } else if (Array.isArray(content)) {
+            // Convert OpenAI vision format to Anthropic
+            content = content.map(part => {
+              if (part.type === 'text') {
+                return { type: 'text', text: part.text };
+              } else if (part.type === 'image_url') {
+                const url = part.image_url.url;
+                if (url.startsWith('data:image/')) {
+                  const [mime, base64] = url.split(',');
+                  return {
+                    type: 'image',
+                    source: {
+                      type: 'base64',
+                      media_type: mime.split(':')[1].split(';')[0],
+                      data: base64
+                    }
+                  };
+                }
+              }
+              return { type: 'text', text: JSON.stringify(part) };
+            });
+          }
+          return { role: 'user', content };
         } else if (m.role === 'assistant') {
           return { role: 'assistant', content: m.content };
         }
         // Convert other roles to user
-        return { role: 'user', content: m.content };
+        return { role: 'user', content: [{ type: 'text', text: m.content }] };
       });
 
     const message = await this.anthropic.messages.create({

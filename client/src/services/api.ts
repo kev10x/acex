@@ -1663,6 +1663,7 @@ export interface GeneratedSlide {
   slideType: SlideType;
   title: string;
   bullets: string[];
+  backgroundId?: string;
 }
 
 export interface TemplateBackground {
@@ -1702,6 +1703,7 @@ export const slideGenAPI = {
     subject?: string;
     level?: string;
     slideCount?: number;
+    backgrounds?: TemplateBackground[];
   }): Promise<{ content: GeneratedSlide[] }> => {
     return api.post('/slide-gen/generate-content', params).then((r) => r.data);
   },

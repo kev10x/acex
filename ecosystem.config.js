@@ -9,7 +9,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 20,
       restart_delay: 3000,
-      max_memory_restart: '4G',
+      max_memory_restart: '4096M',
       node_args: '--max-old-space-size=4096',
       env: {
         NODE_ENV: 'production',
