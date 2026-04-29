@@ -1114,21 +1114,30 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         const totalChunks = prog.totalChunks ?? 1;
         const turn = prog.turn ?? 0;
         const totalTurns = prog.totalTurns ?? MAX_PPTX_TURNS;
-        const chunkShare = 85 / totalChunks;
-        const chunkBase = 5 + (chunk - 1) * chunkShare;
+
+        // Extraction: 5–20 %, populate chunks: 20–90 %, merge: 91–93 %
+        const EXTRACT_END = 20;
+        const POPULATE_START = 20;
+        const POPULATE_END = 90;
+        const populateShare = (POPULATE_END - POPULATE_START) / totalChunks;
+        const chunkBase = POPULATE_START + (Math.max(0, chunk - 1)) * populateShare;
         const chunkPct = turn > 0
-          ? Math.min(chunkBase + (turn / totalTurns) * chunkShare, chunkBase + chunkShare - 2)
+          ? Math.min(chunkBase + (turn / totalTurns) * populateShare, chunkBase + populateShare - 2)
           : chunkBase;
         const pct = prog.step === 'merging'
           ? 93
-          : prog.step === 'building'
-            ? Math.max(5, Math.min(90, Math.round(chunkPct)))
-            : 5;
+          : (prog.step === 'populating' || prog.step === 'building')
+            ? Math.max(POPULATE_START, Math.min(POPULATE_END, Math.round(chunkPct)))
+            : prog.step === 'extracting'
+              ? Math.max(5, Math.min(EXTRACT_END - 1, turn > 0 ? Math.round(5 + (turn / totalTurns) * (EXTRACT_END - 5)) : 5))
+              : 5;
         const label = prog.step === 'merging'
           ? 'Merging slide groups…'
-          : totalChunks > 1
-            ? `Building slide group ${chunk} of ${totalChunks}…`
-            : turn > 0 ? 'Building presentation…' : 'Preparing…';
+          : prog.step === 'extracting'
+            ? 'Extracting template layouts…'
+            : (prog.step === 'populating' || prog.step === 'building')
+              ? (totalChunks > 1 ? `Populating slides — group ${chunk} of ${totalChunks}…` : 'Populating slides…')
+              : 'Preparing…';
         setExportProgress({ percent: pct, label });
 
         if (state.status === 'completed') {
@@ -2392,8 +2401,8 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       {[
                         pptxJobId ? `job #${pptxJobId}` : null,
                         pptxJobProgress.step ? `step: ${pptxJobProgress.step}` : null,
-                        pptxJobProgress.totalChunks && pptxJobProgress.totalChunks > 1
-                          ? `chunk ${pptxJobProgress.chunk ?? '?'}/${pptxJobProgress.totalChunks}`
+                        pptxJobProgress.step !== 'extracting' && pptxJobProgress.totalChunks && pptxJobProgress.totalChunks > 1
+                          ? `group ${pptxJobProgress.chunk ?? '?'}/${pptxJobProgress.totalChunks}`
                           : null,
                         pptxJobProgress.turn != null
                           ? `turn ${pptxJobProgress.turn}/${pptxJobProgress.totalTurns ?? '?'}`

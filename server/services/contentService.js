@@ -1857,19 +1857,26 @@ function getOpenAiPptxInstructions() {
   ].join('\n\n');
 }
 
-function buildAnthropicPptxRequest({ content, uploadedFileId, messages, containerId, model, maxTokens, isFirstChunk = true }) {
+function buildAnthropicPptxRequest({ content, uploadedFileId, messages, containerId, model, maxTokens, isFirstChunk = true, layoutsText = null }) {
   const container = {
     ...(containerId ? { id: containerId } : {}),
     skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }],
   };
   const textLines = [
-    'Create a finished PowerPoint deck from the uploaded .pptx template and this source content.',
-    'Use the template as the design source, not merely as inspiration.',
+    'Populate the uploaded .pptx template with the source content below.',
   ];
-  if (!isFirstChunk) {
-    textLines.push('This is a continuation chunk — do NOT add a title slide or closing/thank-you slide. Start directly with the first section slide listed below.');
+  if (layoutsText) {
+    textLines.push(
+      '',
+      'TEMPLATE LAYOUT INVENTORY (pre-extracted — use this to assign each section to the best-fitting slide layout):',
+      layoutsText,
+      '',
+    );
   }
-  textLines.push('Return the final deck as a generated .pptx file.', '', buildDeckSourceText(content));
+  if (!isFirstChunk) {
+    textLines.push('This is a continuation section — do NOT add a title slide or closing/thank-you slide. Start directly with the first section listed below.');
+  }
+  textLines.push('Return the completed deck as a generated .pptx file.', '', buildDeckSourceText(content));
   const userContent = [
     { type: 'text', text: textLines.join('\n') },
     { type: 'container_upload', file_id: uploadedFileId },
@@ -1957,6 +1964,7 @@ async function buildPptxWithAnthropic(content, options = {}) {
       model,
       maxTokens,
       isFirstChunk: options.isFirstChunk !== false,
+      layoutsText: options.layoutsText || null,
     });
     response = await withProviderRetry(async () => {
       const stream = await client.beta.messages.stream(request);
@@ -1998,6 +2006,81 @@ async function buildPptxWithAnthropic(content, options = {}) {
   }
 
   throw new Error('Anthropic returned files, but none were valid non-empty PPTX ZIP files.');
+}
+
+/**
+ * Upload a template PPTX to Anthropic and ask Claude to extract its slide layout
+ * inventory (layout names, placeholder types, best-fit content type).
+ * Returns { layoutsText, uploadedFileId } — the text is injected into subsequent
+ * populate requests so each chunk assigns content to the right layouts.
+ */
+async function extractTemplateLayouts(templatePath, options = {}) {
+  validatePptxTemplateFile(templatePath);
+  const client = options.anthropicClient || aiService.anthropic;
+  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload) {
+    throw new Error('Anthropic API not available for template extraction.');
+  }
+
+  const uploaded = await withProviderRetry(() => client.beta.files.upload({
+    file: fs.createReadStream(templatePath),
+    betas: ['files-api-2025-04-14'],
+  }));
+  const uploadedFileId = uploaded?.id;
+  if (!uploadedFileId) throw new Error('Anthropic Files API did not return a file id for template extraction.');
+
+  const model = options.model || ANTHROPIC_PPTX_MODEL;
+  const maxTokens = options.maxTokens || ANTHROPIC_PPTX_MAX_TOKENS;
+  const userContent = [
+    {
+      type: 'text',
+      text: [
+        'Open the uploaded PowerPoint template with python-pptx.',
+        'For each slide layout in the file output a numbered list with:',
+        '  • layout index and name',
+        '  • placeholder count and types (title / body / picture / other)',
+        '  • one short phrase describing the content type this layout suits best',
+        '    (e.g. "title slide", "two-column comparison", "4-cell grid", "image + caption")',
+        'Output ONLY this list — no code, no narrative. Finish with a blank line.',
+      ].join('\n'),
+    },
+    { type: 'container_upload', file_id: uploadedFileId },
+  ];
+
+  const container = { skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }] };
+  let messages;
+  let containerId;
+  let response;
+
+  for (let turn = 0; turn < 6; turn++) {
+    if (options.onTurn) { try { await options.onTurn(turn + 1); } catch (_) {} }
+    const request = {
+      model,
+      max_tokens: maxTokens,
+      betas: ANTHROPIC_PPTX_BETAS,
+      system: 'You are a PowerPoint template analyst. When asked to inspect a template, use python-pptx to open it and output only the requested layout information — no extra commentary.',
+      container: containerId ? { id: containerId, ...container } : container,
+      messages: messages || [{ role: 'user', content: userContent }],
+      tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
+    };
+    response = await withProviderRetry(async () => {
+      const stream = await client.beta.messages.stream(request);
+      return stream.finalMessage();
+    });
+    if (response?.container?.id) containerId = response.container.id;
+    if (response?.stop_reason !== 'pause_turn') break;
+    messages = [
+      ...(messages || [{ role: 'user', content: userContent }]),
+      { role: 'assistant', content: response.content || [] },
+    ];
+  }
+
+  const layoutsText = (response?.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('\n')
+    .trim();
+
+  return { layoutsText, uploadedFileId };
 }
 
 /**
@@ -2545,6 +2628,7 @@ module.exports = {
   CONTENT_TEMPLATES,
   buildPptx,
   buildPptxWithAnthropic,
+  extractTemplateLayouts,
   mergePptxWithAnthropic,
   applyTemplateStyleWithClaude,
   buildPptxWithOpenAI,

@@ -68,7 +68,7 @@ async function processJob(jobId) {
     ? Math.max(1, Math.ceil(sections.length / CHUNK_SIZE))
     : 1;
 
-  await saveProgress(jobId, { step: 'building', chunk: 1, totalChunks, turn: 0, totalTurns: MAX_TURNS }, {
+  await saveProgress(jobId, { step: 'extracting', chunk: 0, totalChunks, turn: 0, totalTurns: MAX_TURNS }, {
     status: 'processing',
     started_at: new Date(),
   });
@@ -77,16 +77,32 @@ async function processJob(jobId) {
     let buf;
 
     if (templatePath && useAI && canUseAnthropicPptx()) {
+      // Phase 1: extract the template layout inventory once for all chunks
+      let layoutsText = null;
+      try {
+        await saveProgress(jobId, { step: 'extracting', chunk: 0, totalChunks, turn: 0, totalTurns: MAX_TURNS });
+        const extraction = await contentService.extractTemplateLayouts(templatePath, {
+          onTurn: async (turn) => {
+            await saveProgress(jobId, { step: 'extracting', chunk: 0, totalChunks, turn, totalTurns: MAX_TURNS });
+          },
+        });
+        layoutsText = extraction.layoutsText || null;
+      } catch (extractErr) {
+        console.warn('[pptxJob] Template extraction failed (will continue without layout inventory):', extractErr.message);
+      }
+
+      // Phase 2: populate template with content (chunked)
       const chunkBuffers = [];
       for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
         const chunkSections = sections.slice(chunkIdx * CHUNK_SIZE, (chunkIdx + 1) * CHUNK_SIZE);
         const chunkContent = { ...content, sections: chunkSections };
-        await saveProgress(jobId, { step: 'building', chunk: chunkIdx + 1, totalChunks, turn: 0, totalTurns: MAX_TURNS });
+        await saveProgress(jobId, { step: 'populating', chunk: chunkIdx + 1, totalChunks, turn: 0, totalTurns: MAX_TURNS });
         const chunkBuf = await contentService.buildPptxWithAnthropic(chunkContent, {
           templatePath,
           isFirstChunk: chunkIdx === 0,
+          layoutsText,
           onTurn: async (turn) => {
-            await saveProgress(jobId, { step: 'building', chunk: chunkIdx + 1, totalChunks, turn, totalTurns: MAX_TURNS });
+            await saveProgress(jobId, { step: 'populating', chunk: chunkIdx + 1, totalChunks, turn, totalTurns: MAX_TURNS });
           },
         });
         chunkBuffers.push(chunkBuf);
@@ -156,7 +172,7 @@ async function retryJob(jobId, userId = null) {
   if (!job) throw Object.assign(new Error('Job not found'), { status: 404 });
   if (job.status === 'processing') throw Object.assign(new Error('Job is still running'), { status: 400 });
 
-  await saveProgress(jobId, { step: 'building', chunk: 1, totalChunks: 1, turn: 0, totalTurns: MAX_TURNS }, {
+  await saveProgress(jobId, { step: 'extracting', chunk: 0, totalChunks: 1, turn: 0, totalTurns: MAX_TURNS }, {
     status: 'processing',
     error_message: null,
     completed_at: null,
