@@ -118,7 +118,6 @@ const TakeContent: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ total_score: number; feedback?: string; scores?: any[] } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const videoBlobUrlRef = useRef<string | null>(null);
   const audioBlobUrlRef = useRef<string | null>(null);
   const progressSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedProgressKeyRef = useRef<string>('');
@@ -222,20 +221,13 @@ const TakeContent: React.FC = () => {
   useEffect(() => {
     if (!code || step !== 'content') return;
     setVideoUrl(null);
-    const loadVideoBlob = async () => {
-      const videoRes = await contentAPI.getVideoContent(code);
-      const blobUrl = URL.createObjectURL(videoRes.data as Blob);
-      if (videoBlobUrlRef.current) URL.revokeObjectURL(videoBlobUrlRef.current);
-      videoBlobUrlRef.current = blobUrl;
-      setVideoUrl(blobUrl);
-    };
     const poll = async () => {
       try {
         const res = await contentAPI.getVideoStatus(code);
         const st = res.data.status;
         setVideoStatus(st || null);
         if (st === 'completed') {
-          await loadVideoBlob();
+          setVideoUrl(contentAPI.getVideoContentUrl(code));
           if (pollRef.current) {
             clearInterval(pollRef.current);
             pollRef.current = null;
@@ -247,10 +239,6 @@ const TakeContent: React.FC = () => {
     pollRef.current = setInterval(poll, 15000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
-      if (videoBlobUrlRef.current) {
-        URL.revokeObjectURL(videoBlobUrlRef.current);
-        videoBlobUrlRef.current = null;
-      }
       if (audioBlobUrlRef.current) {
         URL.revokeObjectURL(audioBlobUrlRef.current);
         audioBlobUrlRef.current = null;
@@ -677,7 +665,7 @@ const TakeContent: React.FC = () => {
             <div className="p-6 border-b border-gray-200 bg-gray-50">
               <h2 className="flex items-center gap-2 font-semibold text-gray-800 mb-2"><Video className="w-5 h-5" /> Video</h2>
               {videoUrl ? (
-                <video controls className="w-full rounded-lg" src={videoUrl}>Your browser does not support the video tag.</video>
+                <video controls preload="metadata" className="w-full rounded-lg" src={videoUrl}>Your browser does not support the video tag.</video>
               ) : (
                 <p className="text-sm text-gray-600">
                   {videoStatus === 'queued' || videoStatus === 'in_progress' ? 'Video is being generated...' : videoStatus === 'failed' ? 'Video could not be generated.' : 'Loading...'}

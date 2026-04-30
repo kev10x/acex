@@ -391,7 +391,10 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
 router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT * FROM assignments WHERE user_id = ? ORDER BY uploaded_at DESC',
+      `SELECT id, filename, file_size, uploaded_at, status, batch_id, processing_job_id
+       FROM assignments
+       WHERE user_id = ?
+       ORDER BY uploaded_at DESC`,
       [req.user.id]
     );
     

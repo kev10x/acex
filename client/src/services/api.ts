@@ -130,12 +130,12 @@ api.interceptors.response.use(
 export interface Assignment {
   id: number;
   filename: string;
-  file_path: string;
+  file_path?: string;
   file_size: number;
   uploaded_at: string;
   status: 'uploaded' | 'processing' | 'completed' | 'error';
   batch_id?: number | null;
-  extracted_text?: string | null; // PDF text extracted and stored in database
+  extracted_text?: string | null; // Only returned by endpoints that explicitly need extracted text.
 }
 
 export interface Batch {
@@ -1450,6 +1450,7 @@ export const contentAPI = {
     }),
   getVideoStatus: (code: string) => api.get(`/content/video-status/${code}`),
   getVideoContent: (code: string) => api.get(`/content/video/${code}/content`, { responseType: 'blob' }),
+  getVideoContentUrl: (code: string) => `${API_BASE_URL}/content/video/${encodeURIComponent(code)}/content`,
   exportPptx: (content: GeneratedContent, provider?: 'anthropic' | 'openai') =>
     api.post('/content/export/pptx', { content, provider }, { responseType: 'blob' }),
   exportLectureNotes: (content: GeneratedContent) =>

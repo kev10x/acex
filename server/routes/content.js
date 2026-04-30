@@ -38,6 +38,39 @@ const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos
 const CONTENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'content-audio');
 const CONTENT_TTS_VOICES = ['eve', 'ara', 'leo', 'rex', 'sal'];
 
+function streamMp4WithRange(req, res, filePath) {
+  const stat = fsSync.statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+
+  if (!range) {
+    res.setHeader('Content-Length', fileSize);
+    return fsSync.createReadStream(filePath).pipe(res);
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match) {
+    res.setHeader('Content-Range', `bytes */${fileSize}`);
+    return res.status(416).end();
+  }
+
+  const start = match[1] ? Number.parseInt(match[1], 10) : 0;
+  const end = match[2] ? Number.parseInt(match[2], 10) : fileSize - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start < 0 || end >= fileSize) {
+    res.setHeader('Content-Range', `bytes */${fileSize}`);
+    return res.status(416).end();
+  }
+
+  res.status(206);
+  res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+  res.setHeader('Content-Length', end - start + 1);
+  return fsSync.createReadStream(filePath, { start, end }).pipe(res);
+}
+
 function toOrigin(value) {
   try {
     return new URL(String(value || '')).origin;
@@ -2770,8 +2803,7 @@ router.get('/video/:code/content', async (req, res) => {
     const cvRow = Array.isArray(cv) ? cv[0] : (cv.rows && cv.rows[0]);
     if (!cvRow || !cvRow.file_path) return res.status(404).end();
     if (!fsSync.existsSync(cvRow.file_path)) return res.status(404).end();
-    res.setHeader('Content-Type', 'video/mp4');
-    res.sendFile(path.resolve(cvRow.file_path));
+    streamMp4WithRange(req, res, path.resolve(cvRow.file_path));
   } catch (error) {
     console.error('Content video serve error:', error);
     res.status(500).end();
