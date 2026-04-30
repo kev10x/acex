@@ -914,7 +914,7 @@ export interface ContentTemplate {
 export interface ContentHistoryItem {
   id: number;
   title: string;
-  content: GeneratedContent;
+  content?: GeneratedContent | null;
   input?: any;
   generation_trace?: GenerationTrace | null;
   created_at: string;
@@ -1477,6 +1477,7 @@ export const contentAPI = {
   updateHistoryItem: (id: number, data: { content: GeneratedContent; input?: any }) =>
     api.put<{ success: boolean; item: ContentHistoryItem }>(`/content/history/${id}`, data),
   getHistory: () => api.get<{ success: boolean; items: ContentHistoryItem[] }>('/content/history'),
+  getHistoryItem: (id: number) => api.get<{ success: boolean; item: ContentHistoryItem }>(`/content/history/${id}`),
   deleteHistoryItem: (id: number) => api.delete(`/content/history/${id}`),
   clearHistory: () => api.delete('/content/history'),
   saveProgress: (data: {
@@ -1493,7 +1494,7 @@ export const contentAPI = {
   streamJobProgress: (
     jobId: number,
     callbacks: {
-      onProgress?: (data: { status: string; progress: any; partial_sections: any[] | null }) => void;
+      onProgress?: (data: { status: string; progress: any }) => void;
       onDone?: (status: string) => void;
       onError?: (message: string) => void;
     }
@@ -1622,7 +1623,7 @@ export const modulesAPI = {
     api.get<GenerationTelemetryResponse>('/modules/admin/generation-telemetry', { params }),
   getBudgetGuardrails: (params?: { limit?: number; near_threshold_percent?: number }) =>
     api.get<BudgetGuardrailsResponse>('/modules/admin/budget-guardrails', { params }),
-  getGenerationJobs: (params?: { limit?: number; scope?: 'mine' | 'all' }) =>
+  getGenerationJobs: (params?: { limit?: number; scope?: 'mine' | 'all'; include_full_result?: boolean }) =>
     api.get<GenerationJobsResponse>('/modules/generation-jobs', { params }),
   getGenerationJobDeadLetters: (params?: { limit?: number }) =>
     api.get<GenerationJobDeadLettersResponse>('/modules/generation-jobs/dead-letters', { params }),

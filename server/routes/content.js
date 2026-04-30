@@ -1116,7 +1116,6 @@ router.get('/jobs/:jobId/progress-stream', async (req, res) => {
         job_id: Number(job.id),
         status: job.status,
         progress: result?.progress || null,
-        partial_sections: result?.partial_sections || null,
         error_message: job.error_message || null,
       });
 
@@ -1697,7 +1696,7 @@ router.get('/history', requireAuth, requireFeature('content_creation'), async (r
   try {
     const q = isMySQL()
       ? await query(
-          `SELECT id, title, generated_content_json, input_json, created_at
+          `SELECT id, title, input_json, created_at
            FROM content_generation_history
            WHERE user_id = ?
            ORDER BY created_at DESC
@@ -1705,7 +1704,7 @@ router.get('/history', requireAuth, requireFeature('content_creation'), async (r
           [req.user.id]
         )
       : await query(
-          `SELECT id, title, generated_content_json, input_json, created_at
+          `SELECT id, title, input_json, created_at
            FROM content_generation_history
            WHERE user_id = $1
            ORDER BY created_at DESC
@@ -1716,7 +1715,7 @@ router.get('/history', requireAuth, requireFeature('content_creation'), async (r
     const items = rows.map((row) => ({
       id: row.id,
       title: row.title,
-      content: parseJsonSafe(row.generated_content_json, null),
+      content: null,
       input: parseJsonSafe(row.input_json, null),
       generation_trace: parseJsonSafe(row.input_json, null)?.generation_trace || null,
       created_at: row.created_at,
@@ -1725,6 +1724,50 @@ router.get('/history', requireAuth, requireFeature('content_creation'), async (r
   } catch (error) {
     console.error('List content history error:', error);
     res.status(500).json({ error: 'Failed to fetch content history' });
+  }
+});
+
+/**
+ * Get one generated content history item for current user.
+ */
+router.get('/history/:id', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid history id' });
+    }
+    const q = isMySQL()
+      ? await query(
+          `SELECT id, title, generated_content_json, input_json, created_at
+           FROM content_generation_history
+           WHERE id = ? AND user_id = ?
+           LIMIT 1`,
+          [id, req.user.id]
+        )
+      : await query(
+          `SELECT id, title, generated_content_json, input_json, created_at
+           FROM content_generation_history
+           WHERE id = $1 AND user_id = $2
+           LIMIT 1`,
+          [id, req.user.id]
+        );
+    const row = rowList(q)[0];
+    if (!row) return res.status(404).json({ error: 'Content history item not found' });
+    const input = parseJsonSafe(row.input_json, null);
+    res.json({
+      success: true,
+      item: {
+        id: row.id,
+        title: row.title,
+        content: parseJsonSafe(row.generated_content_json, null),
+        input,
+        generation_trace: input?.generation_trace || null,
+        created_at: row.created_at,
+      },
+    });
+  } catch (error) {
+    console.error('Get content history item error:', error);
+    res.status(500).json({ error: 'Failed to fetch content history item' });
   }
 });
 

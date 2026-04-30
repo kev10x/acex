@@ -3371,14 +3371,26 @@ router.get('/generation-jobs', requireAuth, async (req, res) => {
     const role = String(req.user?.role || '').toLowerCase();
     const isManager = role === 'management' || role === 'admin';
     const limit = parseClampedInt(req.query?.limit, 50, 1, 200);
+    const includeFullResult = ['1', 'true', 'yes'].includes(String(req.query?.include_full_result || '').toLowerCase());
     const rows = await listGenerationJobs({
       user_id: isManager && req.query?.scope === 'all' ? null : req.user.id,
       limit,
     });
 
     const items = rows.map((row) => {
-      const payload = safeJsonParse(row.payload_json, null);
-      const result = safeJsonParse(row.result_json, null);
+      const payload = includeFullResult ? safeJsonParse(row.payload_json, null) : null;
+      const rawResult = safeJsonParse(row.result_json, null);
+      const result = includeFullResult
+        ? rawResult
+        : rawResult && typeof rawResult === 'object'
+          ? {
+              success: rawResult.success,
+              progress: rawResult.progress || null,
+              has_content: !!rawResult.content,
+              has_assessment: !!rawResult.assessment,
+              has_practical: !!rawResult.practical,
+            }
+          : null;
       const events = [
         row.created_at ? { status: 'scheduled', at: row.created_at } : null,
         row.started_at ? { status: 'processing', at: row.started_at } : null,

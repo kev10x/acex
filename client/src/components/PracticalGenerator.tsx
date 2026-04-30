@@ -200,12 +200,18 @@ const PracticalGenerator: React.FC = () => {
       const jobs = items
         .filter((job: any) => job?.job_type === 'practical_generation')
         .sort((a: any, b: any) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
-      const latest = jobs[0];
+      let latest = jobs[0];
       if (!latest) return;
 
       if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
         setBackgroundGenerationNotice('A practical generation is still running in the background. This page will auto-recover it when it finishes.');
         return;
+      }
+
+      if (latest.status === 'completed' && latest.result?.has_practical) {
+        const fullRes = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine', include_full_result: true });
+        const fullItems = Array.isArray(fullRes.data?.items) ? fullRes.data.items : [];
+        latest = fullItems.find((job: any) => Number(job.id) === Number(latest.id)) || latest;
       }
 
       if (

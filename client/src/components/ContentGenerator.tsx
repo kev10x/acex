@@ -557,7 +557,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       const jobs = items
         .filter((job: any) => job?.job_type === 'content_generation')
         .sort((a: any, b: any) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
-      const latest = jobs[0];
+      let latest = jobs[0];
       if (!latest) return;
 
       if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
@@ -574,6 +574,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           });
         }
         return;
+      }
+
+      if (latest.status === 'completed' && latest.result?.has_content) {
+        const fullRes = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine', include_full_result: true });
+        const fullItems = Array.isArray(fullRes.data?.items) ? fullRes.data.items : [];
+        latest = fullItems.find((job: any) => Number(job.id) === Number(latest.id)) || latest;
       }
 
       if (
@@ -672,8 +678,18 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     } catch (_) {}
   };
 
-  const loadFromHistory = (item: ApiContentHistoryItem) => {
-    const input = item.input || {};
+  const loadFromHistory = async (item: ApiContentHistoryItem) => {
+    let fullItem = item;
+    if (!fullItem.content) {
+      const res = await contentAPI.getHistoryItem(item.id);
+      if (!res.data?.item?.content) {
+        setError('Content history item could not be loaded');
+        return;
+      }
+      fullItem = res.data.item;
+    }
+    if (!fullItem.content) return;
+    const input = fullItem.input || {};
     setTopics(input.topics || '');
     setTeachingGoal(input.teaching_goal || '');
     setLevel(normalizeEducationLevelValue(input.level || '', ''));
@@ -685,17 +701,17 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     setIncludeMascot(input.include_mascot !== false);
     setIncludeBeautifyText(input.include_beautify_text !== false);
     setIncludeVideo(!!input.include_video);
-    setIncludeTextToSpeech(input.tts_enabled !== false && item.content?.tts_enabled !== false);
+    setIncludeTextToSpeech(input.tts_enabled !== false && fullItem.content?.tts_enabled !== false);
     setSectionMode(input.section_mode === 'auto' ? 'auto' : 'manual');
     setAutoSectionSuggestion(Number.isFinite(Number(input.auto_section_suggestion)) ? Number(input.auto_section_suggestion) : null);
     setAutoSectionNote(String(input.auto_section_note || ''));
     setGeneratedContentTracked(normalizeContentForEditor({
-      ...item.content,
-      tts_enabled: item.content?.tts_enabled !== false && input.tts_enabled !== false,
+      ...fullItem.content,
+      tts_enabled: fullItem.content?.tts_enabled !== false && input.tts_enabled !== false,
     }));
-    setGenerationTrace(item.generation_trace || input.generation_trace || null);
+    setGenerationTrace(fullItem.generation_trace || input.generation_trace || null);
     setSelectedVisualKey(null);
-    setActiveHistoryId(item.id);
+    setActiveHistoryId(fullItem.id);
     setActivePublishedContentId(null);
     setActivePublishedContentCode(null);
     setPublishedLink(null);
