@@ -31,15 +31,7 @@ export default function StudentModules() {
     }
   };
 
-  const getBasePath = () => {
-    if (typeof window === 'undefined') return '';
-    const path = window.location.pathname || '';
-    if (path.startsWith('/tools')) return '/tools';
-    const segments = path.split('/').filter(Boolean);
-    if (segments.length === 0) return '';
-    if (['take-content', 'take-assessment', 'take-module'].includes(segments[0])) return '';
-    return segments[0] ? `/${segments[0]}` : '';
-  };
+  const getBasePath = () => '/tools';
 
   const getModulePlayerUrl = (moduleId: number, itemId?: number) => {
     if (typeof window === 'undefined') return null;

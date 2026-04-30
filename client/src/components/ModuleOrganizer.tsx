@@ -50,8 +50,7 @@ const LIB_DRAG_TYPE = 'application/markmate-drag';
 const ASSESSMENT_LIBRARY_PAGE_SIZE = 10;
 
 function getAppBasePath() {
-  if (typeof window === 'undefined') return '';
-  return window.location.pathname.startsWith('/tools') ? '/tools' : '';
+  return '/tools';
 }
 
 function encodeLibDrag(e: React.DragEvent, payload: LibDrag) {

@@ -4,6 +4,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const https = require('https');
 const path = require('path');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
@@ -1681,6 +1682,28 @@ function getRetryDelayMs(error, attempt) {
   return 500 * Math.pow(2, attempt);
 }
 
+function fetchWithTimeout(url, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      req.destroy();
+      reject(new Error(`Image fetch timed out after ${timeoutMs}ms: ${url}`));
+    }, timeoutMs);
+    const req = https.get(url, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        clearTimeout(timer);
+        req.destroy();
+        reject(new Error(`Image fetch failed with status ${res.statusCode}: ${url}`));
+        return;
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
+      res.on('error', (err) => { clearTimeout(timer); reject(err); });
+    });
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
 async function withProviderRetry(operation, maxAttempts = 3) {
   let lastError;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1816,20 +1839,12 @@ function buildDeckSourceText(content) {
     number: index + 1,
     heading: getSectionAssertion(sec),
     support: getSectionSupport(sec),
-    body: getSectionBody(sec),
-    visuals: Array.isArray(sec.visuals) ? sec.visuals.map((visual) => ({
-      kind: visual.kind || '',
-      title: visual.title || '',
-      alt_text: visual.alt_text || '',
-      prompt: visual.prompt || '',
-    })) : [],
   }));
 
   return JSON.stringify({
     title: content.title || 'Course Content',
     instructions: content.instructions || '',
     sections,
-    quiz: content.quiz || null,
   }, null, 2);
 }
 
@@ -1842,22 +1857,28 @@ function getOpenAiPptxInstructions() {
   ].join('\n\n');
 }
 
-function buildAnthropicPptxRequest({ content, uploadedFileId, messages, containerId, model, maxTokens }) {
+function buildAnthropicPptxRequest({ content, uploadedFileId, messages, containerId, model, maxTokens, isFirstChunk = true, layoutsText = null }) {
   const container = {
     ...(containerId ? { id: containerId } : {}),
     skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }],
   };
+  const textLines = [
+    'Populate the uploaded .pptx template with the source content below.',
+  ];
+  if (layoutsText) {
+    textLines.push(
+      '',
+      'TEMPLATE LAYOUT INVENTORY (pre-extracted — use this to assign each section to the best-fitting slide layout):',
+      layoutsText,
+      '',
+    );
+  }
+  if (!isFirstChunk) {
+    textLines.push('This is a continuation section — do NOT add a title slide or closing/thank-you slide. Start directly with the first section listed below.');
+  }
+  textLines.push('Return the completed deck as a generated .pptx file.', '', buildDeckSourceText(content));
   const userContent = [
-    {
-      type: 'text',
-      text: [
-        'Create a finished PowerPoint deck from the uploaded .pptx template and this source content.',
-        'Use the template as the design source, not merely as inspiration.',
-        'Return the final deck as a generated .pptx file.',
-        '',
-        buildDeckSourceText(content),
-      ].join('\n'),
-    },
+    { type: 'text', text: textLines.join('\n') },
     { type: 'container_upload', file_id: uploadedFileId },
   ];
 
@@ -1932,6 +1953,9 @@ async function buildPptxWithAnthropic(content, options = {}) {
   let response;
 
   for (let turn = 0; turn < 12; turn++) {
+    if (options.onTurn) {
+      try { await options.onTurn(turn + 1); } catch (_) {}
+    }
     const request = buildAnthropicPptxRequest({
       content,
       uploadedFileId,
@@ -1939,6 +1963,8 @@ async function buildPptxWithAnthropic(content, options = {}) {
       containerId,
       model,
       maxTokens,
+      isFirstChunk: options.isFirstChunk !== false,
+      layoutsText: options.layoutsText || null,
     });
     response = await withProviderRetry(async () => {
       const stream = await client.beta.messages.stream(request);
@@ -1980,6 +2006,179 @@ async function buildPptxWithAnthropic(content, options = {}) {
   }
 
   throw new Error('Anthropic returned files, but none were valid non-empty PPTX ZIP files.');
+}
+
+/**
+ * Upload a template PPTX to Anthropic and ask Claude to extract its slide layout
+ * inventory (layout names, placeholder types, best-fit content type).
+ * Returns { layoutsText, uploadedFileId } — the text is injected into subsequent
+ * populate requests so each chunk assigns content to the right layouts.
+ */
+async function extractTemplateLayouts(templatePath, options = {}) {
+  validatePptxTemplateFile(templatePath);
+  const client = options.anthropicClient || aiService.anthropic;
+  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload) {
+    throw new Error('Anthropic API not available for template extraction.');
+  }
+
+  const uploaded = await withProviderRetry(() => client.beta.files.upload({
+    file: fs.createReadStream(templatePath),
+    betas: ['files-api-2025-04-14'],
+  }));
+  const uploadedFileId = uploaded?.id;
+  if (!uploadedFileId) throw new Error('Anthropic Files API did not return a file id for template extraction.');
+
+  const model = options.model || ANTHROPIC_PPTX_MODEL;
+  const maxTokens = options.maxTokens || ANTHROPIC_PPTX_MAX_TOKENS;
+  const userContent = [
+    {
+      type: 'text',
+      text: [
+        'Open the uploaded PowerPoint template with python-pptx.',
+        'For each slide layout in the file output a numbered list with:',
+        '  • layout index and name',
+        '  • placeholder count and types (title / body / picture / other)',
+        '  • one short phrase describing the content type this layout suits best',
+        '    (e.g. "title slide", "two-column comparison", "4-cell grid", "image + caption")',
+        'Output ONLY this list — no code, no narrative. Finish with a blank line.',
+      ].join('\n'),
+    },
+    { type: 'container_upload', file_id: uploadedFileId },
+  ];
+
+  const container = { skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }] };
+  let messages;
+  let containerId;
+  let response;
+
+  for (let turn = 0; turn < 6; turn++) {
+    if (options.onTurn) { try { await options.onTurn(turn + 1); } catch (_) {} }
+    const request = {
+      model,
+      max_tokens: maxTokens,
+      betas: ANTHROPIC_PPTX_BETAS,
+      system: 'You are a PowerPoint template analyst. When asked to inspect a template, use python-pptx to open it and output only the requested layout information — no extra commentary.',
+      container: containerId ? { id: containerId, ...container } : container,
+      messages: messages || [{ role: 'user', content: userContent }],
+      tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
+    };
+    response = await withProviderRetry(async () => {
+      const stream = await client.beta.messages.stream(request);
+      return stream.finalMessage();
+    });
+    if (response?.container?.id) containerId = response.container.id;
+    if (response?.stop_reason !== 'pause_turn') break;
+    messages = [
+      ...(messages || [{ role: 'user', content: userContent }]),
+      { role: 'assistant', content: response.content || [] },
+    ];
+  }
+
+  const layoutsText = (response?.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('\n')
+    .trim();
+
+  return { layoutsText, uploadedFileId };
+}
+
+/**
+ * Merge an ordered array of PPTX buffers (chunk outputs) into a single PPTX.
+ * Each buffer is uploaded to the Anthropic Files API; Claude appends the slides
+ * in order and returns one combined file.
+ */
+async function mergePptxWithAnthropic(chunkBuffers, options = {}) {
+  if (!chunkBuffers || chunkBuffers.length === 0) throw new Error('No chunk buffers to merge.');
+  if (chunkBuffers.length === 1) return chunkBuffers[0];
+
+  const client = options.anthropicClient || aiService.anthropic;
+  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload || !client?.beta?.files?.download) {
+    throw new Error('Anthropic API not available for PPTX merge.');
+  }
+
+  const os = require('os');
+  const tempPaths = [];
+  const uploadedFileIds = [];
+  try {
+    for (let i = 0; i < chunkBuffers.length; i++) {
+      const tempPath = path.join(os.tmpdir(), `_pptx_merge_${Date.now()}_${i}.pptx`);
+      fs.writeFileSync(tempPath, chunkBuffers[i]);
+      tempPaths.push(tempPath);
+      const uploaded = await withProviderRetry(() => client.beta.files.upload({
+        file: fs.createReadStream(tempPath),
+        betas: ['files-api-2025-04-14'],
+      }));
+      if (!uploaded?.id) throw new Error(`Anthropic Files API did not return a file ID for chunk ${i + 1}.`);
+      uploadedFileIds.push(uploaded.id);
+    }
+  } finally {
+    for (const p of tempPaths) { try { fs.unlinkSync(p); } catch (_) {} }
+  }
+
+  const model = options.model || ANTHROPIC_PPTX_MODEL;
+  const maxTokens = options.maxTokens || ANTHROPIC_PPTX_MAX_TOKENS;
+  const userContent = [
+    {
+      type: 'text',
+      text: [
+        `You have ${chunkBuffers.length} PowerPoint files that are sequential sections of a single presentation.`,
+        'Combine them into one .pptx file in order: all slides from file 1, then file 2, and so on.',
+        'Preserve all slide content, layout, and styling from each file exactly as-is.',
+        'Return the merged presentation as a single .pptx file.',
+      ].join('\n'),
+    },
+    ...uploadedFileIds.map((fileId) => ({ type: 'container_upload', file_id: fileId })),
+  ];
+
+  const container = {
+    skills: [{ type: 'anthropic', skill_id: 'pptx', version: 'latest' }],
+  };
+
+  let messages;
+  let containerId;
+  let response;
+
+  for (let turn = 0; turn < 12; turn++) {
+    const request = {
+      model,
+      max_tokens: maxTokens,
+      betas: ANTHROPIC_PPTX_BETAS,
+      system: PPTX_SYSTEM_PROMPT,
+      container: containerId ? { id: containerId, ...container } : container,
+      messages: messages || [{ role: 'user', content: userContent }],
+      tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
+    };
+    response = await withProviderRetry(async () => {
+      const stream = await client.beta.messages.stream(request);
+      return stream.finalMessage();
+    });
+    if (response?.container?.id) containerId = response.container.id;
+    if (response?.stop_reason !== 'pause_turn') break;
+    messages = [
+      ...(messages || [{ role: 'user', content: userContent }]),
+      { role: 'assistant', content: response.content || [] },
+    ];
+  }
+
+  if (response?.stop_reason === 'pause_turn') {
+    throw new Error('Anthropic paused PPTX merge too many times before returning a file.');
+  }
+
+  const fileIds = extractGeneratedFileIds(response);
+  for (const fileId of fileIds) {
+    try {
+      const downloaded = await withProviderRetry(() => client.beta.files.download(fileId, {
+        betas: ['files-api-2025-04-14'],
+      }));
+      const buffer = await responseToBuffer(downloaded);
+      if (await isValidPptxZipBuffer(buffer)) return buffer;
+    } catch (downloadErr) {
+      console.warn('[mergePptxWithAnthropic] Failed to download file', fileId, downloadErr?.message);
+    }
+  }
+
+  throw new Error('Anthropic did not return a valid merged PPTX file.');
 }
 
 /**
@@ -2194,6 +2393,26 @@ async function buildPptx(content, options = {}) {
 
   // --- Content slides ---
   const sections = content.sections || [];
+
+  // Pre-fetch any external image URLs so PptxGenJS never calls https.get() without a timeout.
+  // PptxGenJS's built-in https.get has no timeout \u2014 expired or unreachable URLs hang forever.
+  const externalImageUrls = new Set();
+  for (const sec of sections) {
+    for (const v of (Array.isArray(sec.visuals) ? sec.visuals : [])) {
+      const u = String(v.image_url || '').trim();
+      if (u && !u.startsWith('data:')) externalImageUrls.add(u);
+    }
+  }
+  const prefetchedImages = new Map();
+  await Promise.all([...externalImageUrls].map(async (url) => {
+    try {
+      const buf = await fetchWithTimeout(url, 10000);
+      prefetchedImages.set(url, `data:image/png;base64,${buf.toString('base64')}`);
+    } catch (_) {
+      // Skip image \u2014 prevents PptxGenJS from hanging on expired/unreachable URLs
+    }
+  }));
+
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i];
     const heading = getSectionAssertion(sec);
@@ -2223,7 +2442,17 @@ async function buildPptx(content, options = {}) {
 
     if (imageVisual) {
       const imgUrl = imageVisual.image_url;
-      const imgSpec = imgUrl.startsWith('data:') ? { data: imgUrl } : { url: imgUrl };
+      const resolvedData = imgUrl.startsWith('data:') ? imgUrl : prefetchedImages.get(imgUrl) ?? null;
+      // Skip images that couldn't be resolved to a data URI (avoids PptxGenJS fetch hang)
+      if (!resolvedData) {
+        slide.addText(bulletText, {
+          x: m, y: BODY_Y, w: contentW, h: BODY_H,
+          fontSize: 14, valign: 'top', wrap: true, color: textColor,
+          bullet: { type: 'bullet', indent: 10 }
+        });
+        continue;
+      }
+      const imgSpec = { data: resolvedData };
 
       if (layoutVariant === 0) {
         // Split: text left, image right
@@ -2399,6 +2628,8 @@ module.exports = {
   CONTENT_TEMPLATES,
   buildPptx,
   buildPptxWithAnthropic,
+  extractTemplateLayouts,
+  mergePptxWithAnthropic,
   applyTemplateStyleWithClaude,
   buildPptxWithOpenAI,
   buildLectureNotesHtml,

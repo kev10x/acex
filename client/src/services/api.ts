@@ -1,13 +1,10 @@
 import axios from 'axios';
 
-// Use /tools/api in production when app is at /tools, or localhost for development.
-// Must match server API path so feedback-video and other /results routes resolve correctly.
-const runtimeBasePath = (() => {
-  if (typeof window === 'undefined') return '/api';
-  return window.location.pathname.startsWith('/tools') ? '/tools/api' : '/api';
-})();
-const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:3001/api' : runtimeBasePath);
+// App is always deployed at /tools (vite.config base: '/tools/').
+// Dev uses a direct localhost URL; production always uses /tools/api.
+const API_BASE_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL || 'http://localhost:3001/api')
+  : (import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '/tools/api');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -86,26 +83,6 @@ api.interceptors.response.use(
     }
     console.error('API Error:', error.userMessage || error.response?.data || error.message);
 
-    const config = error?.config as any;
-    const isNetworkError = error.code === 'ERR_NETWORK' || error.message?.includes('Network Error');
-    if (isNetworkError && config && !config.__basePathRetried) {
-      const currentBase = String(config.baseURL || API_BASE_URL || '');
-      const fallbackBase = currentBase.includes('/tools/api')
-        ? currentBase.replace('/tools/api', '/api')
-        : currentBase.includes('/api')
-          ? currentBase.replace('/api', '/tools/api')
-          : '';
-      if (fallbackBase && fallbackBase !== currentBase) {
-        config.__basePathRetried = true;
-        config.baseURL = fallbackBase;
-        try {
-          return await api.request(config);
-        } catch (_) {
-          // swallow and continue to default error handling below
-        }
-      }
-    }
-    
     // Handle 401 unauthorized - clear auth and redirect to login
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
@@ -1559,18 +1536,13 @@ export const contentAPI = {
 
 // ─── Batched PPTX job API ────────────────────────────────────────────────────
 
-export interface PptxBatchState {
-  index: number;
-  sectionStart: number;
-  sectionEnd: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  error?: string | null;
-}
 
 export interface PptxJobProgress {
-  batches: PptxBatchState[];
-  completedBatches: number;
-  totalBatches: number;
+  step?: 'extracting' | 'populating' | 'building' | 'merging' | 'done' | 'failed';
+  chunk?: number;
+  totalChunks?: number;
+  turn?: number;
+  totalTurns?: number;
   finalReady?: boolean;
 }
 
@@ -1692,6 +1664,7 @@ export interface GeneratedSlide {
   slideType: SlideType;
   title: string;
   bullets: string[];
+  backgroundId?: string;
 }
 
 export interface TemplateBackground {
@@ -1731,6 +1704,7 @@ export const slideGenAPI = {
     subject?: string;
     level?: string;
     slideCount?: number;
+    backgrounds?: TemplateBackground[];
   }): Promise<{ content: GeneratedSlide[] }> => {
     return api.post('/slide-gen/generate-content', params).then((r) => r.data);
   },

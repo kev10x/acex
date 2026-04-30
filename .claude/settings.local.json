@@ -6,7 +6,8 @@
       "Bash(npx tsc *)",
       "Bash(node -e \"require\\('./server/services/generationJobService.js'\\)\")",
       "Bash(npx --yes tsc --noEmit)",
-      "Bash(node -e \"require\\('./server/services/generationJobService.js'\\); console.log\\('OK'\\)\")"
+      "Bash(node -e \"require\\('./server/services/generationJobService.js'\\); console.log\\('OK'\\)\")",
+      "Bash(xargs ls *)"
     ]
   }
 }
