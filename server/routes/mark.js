@@ -168,6 +168,71 @@ const normalizeJsonCandidate = (value) => String(value || '')
   .replace(/[\u201C\u201D]/g, '"')
   .replace(/[\u2018\u2019]/g, "'");
 
+const skipJsonWhitespace = (text, index) => {
+  let cursor = index;
+  while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
+  return cursor;
+};
+
+const findUnescapedQuote = (text, startIndex) => {
+  for (let i = startIndex; i < text.length; i++) {
+    if (text[i] === '"' && !isEscapedQuoteAt(text, i)) return i;
+  }
+  return -1;
+};
+
+const looksLikeObjectPropertyAfterComma = (text, commaIndex) => {
+  const propertyStart = skipJsonWhitespace(text, commaIndex + 1);
+  if (text[propertyStart] !== '"') return false;
+
+  const propertyEnd = findUnescapedQuote(text, propertyStart + 1);
+  if (propertyEnd < 0) return false;
+
+  const afterProperty = skipJsonWhitespace(text, propertyEnd + 1);
+  return text[afterProperty] === ':';
+};
+
+const isLikelyJsonStringTerminator = (text, quoteIndex) => {
+  const nextIndex = skipJsonWhitespace(text, quoteIndex + 1);
+  const next = text[nextIndex] || '';
+
+  if (next === '' || next === ':' || next === '}' || next === ']') {
+    return true;
+  }
+
+  if (next !== ',') {
+    return false;
+  }
+
+  const afterComma = skipJsonWhitespace(text, nextIndex + 1);
+  const afterCommaChar = text[afterComma] || '';
+
+  if (afterCommaChar === '' || afterCommaChar === '}' || afterCommaChar === ']') {
+    return true;
+  }
+
+  // For object string values, a real closing quote followed by a comma should
+  // lead into the next quoted property name. A comma followed by prose is part
+  // of the string and the quote must be escaped.
+  return looksLikeObjectPropertyAfterComma(text, nextIndex);
+};
+
+const unescapeJsonStringTerminators = (text) => {
+  let result = '';
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\\' && text[i + 1] === '"' && isLikelyJsonStringTerminator(text, i + 1)) {
+      result += '"';
+      i += 1;
+      continue;
+    }
+
+    result += text[i];
+  }
+
+  return result;
+};
+
 // Escape literal control characters (bare newlines, tabs, CRs) and unescaped double-quotes
 // inside JSON string values. The AI sometimes emits multi-line feedback or inline citations
 // like Smith (2019) without escaping the inner quotes, which causes
@@ -183,12 +248,7 @@ const sanitizeJsonControlChars = (str) => {
       else if (ch === '\\') { out += ch; esc = true; }
       else if (ch === '"') {
         // Determine whether this quote ends the string or is an unescaped quote inside it.
-        // Peek ahead (skip whitespace) and check the next structural character.
-        // A legitimate string terminator is followed by :  ,  }  ]  or end-of-input.
-        let j = i + 1;
-        while (j < str.length && /\s/.test(str[j])) j++;
-        const next = str[j] !== undefined ? str[j] : '';
-        if (next === '' || next === ':' || next === ',' || next === '}' || next === ']') {
+        if (isLikelyJsonStringTerminator(str, i)) {
           // Looks like end of string
           out += ch;
           inStr = false;
@@ -231,35 +291,7 @@ const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 5
 
   for (let i = parseErrorPosition - 1; i >= start; i--) {
     if (text[i] !== '"' || isEscapedQuoteAt(text, i)) continue;
-
-    let right = i + 1;
-    while (right < text.length && /\s/.test(text[right])) right += 1;
-    const rightChar = text[right] || '';
-
-    if (rightChar === ':') continue;
-    if (rightChar === '}' || rightChar === ']') continue;
-
-    if (rightChar === ',') {
-      let afterComma = right + 1;
-      while (afterComma < text.length && /\s/.test(text[afterComma])) afterComma += 1;
-      const nextToken = text[afterComma] || '';
-      const looksLikeJsonToken =
-        nextToken === '"' ||
-        nextToken === '{' ||
-        nextToken === '[' ||
-        nextToken === '}' ||
-        nextToken === ']' ||
-        nextToken === '-' ||
-        /[0-9]/.test(nextToken) ||
-        nextToken === 't' ||
-        nextToken === 'f' ||
-        nextToken === 'n';
-
-      if (looksLikeJsonToken) {
-        continue;
-      }
-    }
-
+    if (isLikelyJsonStringTerminator(text, i)) continue;
     return i;
   }
 
@@ -292,12 +324,11 @@ const repairJsonByParsePosition = (value, maxAttempts = 8) => {
 const repairJsonCandidate = (value) => {
   const normalized = normalizeJsonCandidate(value);
   const sanitized = sanitizeJsonControlChars(normalized);
-  return sanitized
+  return unescapeJsonStringTerminators(sanitized
     .replace(/":\s*\\"/g, '": "')
-    .replace(/\\"(\s*[,}\]])/g, '"$1')
     .replace(/,\s*([}\]])/g, '$1')
     .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
-    .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3');
+    .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3'));
 };
 
 const parseAiJsonResponse = (rawResponse) => {
@@ -503,25 +534,7 @@ const parseMarkingResponsePayload = (response, { selectedProvider = 'openai', us
     throw new Error('The AI returned an empty response. This can happen with content filters, rate limits, or token limits. Please try again or use a shorter submission.');
   }
 
-  let cleanResponse = parseAiJsonResponse(trimmedResponse).cleanedText;
-  cleanResponse = cleanResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-
-  const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    cleanResponse = jsonMatch[0];
-  }
-
-  cleanResponse = cleanResponse.trim();
-  cleanResponse = cleanResponse.replace(/":\s*\\"/g, '": "');
-  cleanResponse = cleanResponse.replace(/\\"(\s*[,}\]])/g, '"$1');
-
-  let markingResult;
-  try {
-    markingResult = JSON.parse(cleanResponse);
-  } catch (firstParseError) {
-    const repaired = cleanResponse.replace(/([^\\])\\"([^"\\]|$)/g, (_, before, after) => before + '"' + after);
-    markingResult = JSON.parse(repaired);
-  }
+  const markingResult = parseAiJsonResponse(trimmedResponse).parsed;
 
   if (!markingResult.scores || !Array.isArray(markingResult.scores)) {
     throw new Error('Invalid response structure: missing scores array');
