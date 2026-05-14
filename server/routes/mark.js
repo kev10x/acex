@@ -192,9 +192,17 @@ const looksLikeObjectPropertyAfterComma = (text, commaIndex) => {
   return text[afterProperty] === ':';
 };
 
-const isLikelyJsonStringTerminator = (text, quoteIndex) => {
+const isLikelyJsonStringTerminator = (text, quoteIndex, { stringRole = 'unknown', container = null } = {}) => {
   const nextIndex = skipJsonWhitespace(text, quoteIndex + 1);
   const next = text[nextIndex] || '';
+
+  if (stringRole === 'key') {
+    return next === ':';
+  }
+
+  if (stringRole === 'value' && next === ':') {
+    return false;
+  }
 
   if (next === '' || next === ':' || next === '}' || next === ']') {
     return true;
@@ -202,6 +210,10 @@ const isLikelyJsonStringTerminator = (text, quoteIndex) => {
 
   if (next !== ',') {
     return false;
+  }
+
+  if (container === 'array') {
+    return true;
   }
 
   const afterComma = skipJsonWhitespace(text, nextIndex + 1);
@@ -219,15 +231,65 @@ const isLikelyJsonStringTerminator = (text, quoteIndex) => {
 
 const unescapeJsonStringTerminators = (text) => {
   let result = '';
+  let inStr = false;
+  let esc = false;
+  let stringRole = 'unknown';
+  const containerStack = [];
+
+  const getCurrentContainer = () => containerStack[containerStack.length - 1] || null;
+  const getPreviousSignificantChar = (index) => {
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (!/\s/.test(text[cursor])) return text[cursor];
+    }
+    return '';
+  };
 
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\\' && text[i + 1] === '"' && isLikelyJsonStringTerminator(text, i + 1)) {
-      result += '"';
-      i += 1;
+    const ch = text[i];
+
+    if (inStr) {
+      if (esc) {
+        result += ch;
+        esc = false;
+        continue;
+      }
+
+      if (ch === '\\') {
+        if (text[i + 1] === '"' && isLikelyJsonStringTerminator(text, i + 1, { stringRole, container: getCurrentContainer() })) {
+          result += '"';
+          inStr = false;
+          stringRole = 'unknown';
+          i += 1;
+          continue;
+        }
+
+        result += ch;
+        esc = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inStr = false;
+        stringRole = 'unknown';
+      }
+
+      result += ch;
       continue;
     }
 
-    result += text[i];
+    if (ch === '{') {
+      containerStack.push('object');
+    } else if (ch === '[') {
+      containerStack.push('array');
+    } else if (ch === '}' || ch === ']') {
+      containerStack.pop();
+    } else if (ch === '"') {
+      const previous = getPreviousSignificantChar(i - 1);
+      stringRole = previous === ':' || getCurrentContainer() === 'array' ? 'value' : 'key';
+      inStr = true;
+    }
+
+    result += ch;
   }
 
   return result;
@@ -241,6 +303,17 @@ const sanitizeJsonControlChars = (str) => {
   let out = '';
   let inStr = false;
   let esc = false;
+  let stringRole = 'unknown';
+  const containerStack = [];
+
+  const getCurrentContainer = () => containerStack[containerStack.length - 1] || null;
+  const getPreviousSignificantChar = (index) => {
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (!/\s/.test(str[cursor])) return str[cursor];
+    }
+    return '';
+  };
+
   for (let i = 0; i < str.length; i++) {
     const ch = str[i];
     if (inStr) {
@@ -248,10 +321,11 @@ const sanitizeJsonControlChars = (str) => {
       else if (ch === '\\') { out += ch; esc = true; }
       else if (ch === '"') {
         // Determine whether this quote ends the string or is an unescaped quote inside it.
-        if (isLikelyJsonStringTerminator(str, i)) {
+        if (isLikelyJsonStringTerminator(str, i, { stringRole, container: getCurrentContainer() })) {
           // Looks like end of string
           out += ch;
           inStr = false;
+          stringRole = 'unknown';
         } else {
           // Looks like an unescaped quote inside the string value - escape it
           out += '\\"';
@@ -262,7 +336,19 @@ const sanitizeJsonControlChars = (str) => {
       else if (ch === '\t') { out += '\\t'; }
       else { out += ch; }
     } else {
-      if (ch === '"') inStr = true;
+      if (ch === '{') {
+        containerStack.push('object');
+      } else if (ch === '[') {
+        containerStack.push('array');
+      } else if (ch === '}' || ch === ']') {
+        containerStack.pop();
+      }
+
+      if (ch === '"') {
+        const previous = getPreviousSignificantChar(i - 1);
+        stringRole = previous === ':' || getCurrentContainer() === 'array' ? 'value' : 'key';
+        inStr = true;
+      }
       out += ch;
     }
   }

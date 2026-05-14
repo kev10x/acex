@@ -100,3 +100,33 @@ test('parseMarkingResponsePayload preserves valid escaped quotes in feedback tex
     'Your note says "Abstract:", which is fine as a heading but not enough as content.'
   );
 });
+
+test('parseMarkingResponsePayload repairs quoted prose before a colon inside JSON strings', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = `{
+    "scores": [
+      {
+        "criterion_name": "Argument",
+        "points_awarded": 3,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires a clear argument.",
+        "feedback": "The response labels one section "Problem": this reads like a note rather than a developed argument.",
+        "confidence": 84
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "The argument is present but underdeveloped.",
+    "total_score": 3,
+    "overall_confidence": 84
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(
+    parsed.scores[0].feedback,
+    'The response labels one section "Problem": this reads like a note rather than a developed argument.'
+  );
+});
