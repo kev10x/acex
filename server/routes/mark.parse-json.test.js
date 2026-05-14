@@ -130,3 +130,174 @@ test('parseMarkingResponsePayload repairs quoted prose before a colon inside JSO
     'The response labels one section "Problem": this reads like a note rather than a developed argument.'
   );
 });
+
+test('parseMarkingResponsePayload repairs invalid markdown-style JSON escapes in feedback text', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = String.raw`{
+    "scores": [
+      {
+        "criterion_name": "Writing",
+        "points_awarded": 4,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires clear academic writing.",
+        "feedback": "The heading \: Introduction and \_methods\_ label are readable, but the discussion is too brief.",
+        "confidence": 86
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "The response is mostly clear.",
+    "total_score": 4,
+    "overall_confidence": 86
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(
+    parsed.scores[0].feedback,
+    'The heading : Introduction and _methods_ label are readable, but the discussion is too brief.'
+  );
+});
+
+test('parseMarkingResponsePayload preserves likely literal backslashes while repairing invalid escapes', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = String.raw`{
+    "scores": [
+      {
+        "criterion_name": "Evidence",
+        "points_awarded": 2,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires traceable evidence.",
+        "feedback": "The submitted path C:\Users\kev\Documents is mentioned, but evidence is not discussed.",
+        "confidence": 80
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "Evidence needs clearer analysis.",
+    "total_score": 2,
+    "overall_confidence": 80
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(
+    parsed.scores[0].feedback,
+    'The submitted path C:\\Users\\kev\\Documents is mentioned, but evidence is not discussed.'
+  );
+});
+
+test('parseMarkingResponsePayload repairs single-quoted values with apostrophes', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = `{
+    "scores": [
+      {
+        "criterion_name": 'Analysis',
+        "points_awarded": 3,
+        "max_points": 5,
+        "rubric_basis": 'Rubric requires analysis.',
+        "feedback": 'The response is readable, but Don\\'t leave the findings unexplained.',
+        "confidence": 82
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": 'The analysis needs more explanation.',
+    "total_score": 3,
+    "overall_confidence": 82
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(parsed.scores[0].criterion_name, 'Analysis');
+  assert.equal(parsed.scores[0].feedback, "The response is readable, but Don't leave the findings unexplained.");
+  assert.equal(parsed.overall_feedback, 'The analysis needs more explanation.');
+});
+
+test('parseMarkingResponsePayload repairs Python-style literals outside strings', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = `{
+    "scores": [
+      {
+        "criterion_name": "Structure",
+        "points_awarded": 5,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires coherent structure.",
+        "feedback": "This is complete. The word True remains text here.",
+        "confidence": 94,
+        "flagged": False,
+        "note": None
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "The structure is clear.",
+    "total_score": 5,
+    "overall_confidence": 94,
+    "needs_manual_check": True
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(parsed.scores[0].feedback.includes('True remains text'), true);
+  assert.equal(parsed.total_score, 5);
+  assert.equal(parsed.overall_confidence, 94);
+});
+
+test('parseMarkingResponsePayload accepts numeric strings for score fields', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const response = JSON.stringify({
+    scores: [
+      {
+        criterion_name: 'Method',
+        points_awarded: '2.5',
+        max_points: '5',
+        rubric_basis: 'Rubric requires method detail.',
+        feedback: 'The method is present but thin.',
+        confidence: '77'
+      }
+    ],
+    corrections: [],
+    language_errors: [],
+    overall_feedback: 'The method needs more detail.',
+    total_score: '2.5',
+    overall_confidence: '77'
+  });
+
+  const parsed = router.parseMarkingResponsePayload(response);
+
+  assert.equal(parsed.scores[0].points_awarded, 2.5);
+  assert.equal(parsed.scores[0].max_points, 5);
+  assert.equal(parsed.scores[0].confidence, 77);
+  assert.equal(parsed.overall_confidence, 77);
+  assert.equal(parsed.total_score, 2.5);
+});
+
+test('parseMarkingResponsePayload rejects empty scores instead of producing Infinity confidence metadata', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const response = JSON.stringify({
+    scores: [],
+    corrections: [],
+    language_errors: [],
+    overall_feedback: 'No scoring was returned.',
+    total_score: 0,
+    overall_confidence: 50
+  });
+
+  assert.throws(
+    () => router.parseMarkingResponsePayload(response),
+    /missing scores array/
+  );
+});

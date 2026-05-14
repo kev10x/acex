@@ -295,10 +295,146 @@ const unescapeJsonStringTerminators = (text) => {
   return result;
 };
 
-// Escape literal control characters (bare newlines, tabs, CRs) and unescaped double-quotes
-// inside JSON string values. The AI sometimes emits multi-line feedback or inline citations
-// like Smith (2019) without escaping the inner quotes, which causes
-// "Expected , or } after property value" parse errors mid-string.
+const isValidJsonEscapeAt = (text, backslashIndex) => {
+  const next = text[backslashIndex + 1];
+  if (!next) return false;
+  if (/["\\/bfnrt]/.test(next)) return true;
+  if (next !== 'u') return false;
+
+  return /^[0-9a-fA-F]{4}$/.test(text.slice(backslashIndex + 2, backslashIndex + 6));
+};
+
+const shouldDropInvalidJsonEscape = (next) => Boolean(next) && !/[A-Za-z0-9]/.test(next);
+
+const repairBareJsonLiterals = (text) => {
+  let result = '';
+  let inStr = false;
+  let esc = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inStr) {
+      result += ch;
+      if (esc) {
+        esc = false;
+      } else if (ch === '\\') {
+        esc = true;
+      } else if (ch === '"') {
+        inStr = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inStr = true;
+      result += ch;
+      continue;
+    }
+
+    const rest = text.slice(i);
+    const literalMatch = rest.match(/^(True|False|None)\b/);
+    if (literalMatch) {
+      const replacement = literalMatch[1] === 'True'
+        ? 'true'
+        : literalMatch[1] === 'False'
+        ? 'false'
+        : 'null';
+      result += replacement;
+      i += literalMatch[1].length - 1;
+      continue;
+    }
+
+    result += ch;
+  }
+
+  return result;
+};
+
+const getPreviousSignificantChar = (text, index) => {
+  for (let cursor = index; cursor >= 0; cursor--) {
+    if (!/\s/.test(text[cursor])) return text[cursor];
+  }
+  return '';
+};
+
+const repairSingleQuotedJsonStrings = (text) => {
+  let result = '';
+  let inDoubleString = false;
+  let esc = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inDoubleString) {
+      result += ch;
+      if (esc) {
+        esc = false;
+      } else if (ch === '\\') {
+        esc = true;
+      } else if (ch === '"') {
+        inDoubleString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inDoubleString = true;
+      result += ch;
+      continue;
+    }
+
+    if (ch !== "'") {
+      result += ch;
+      continue;
+    }
+
+    const previous = getPreviousSignificantChar(text, i - 1);
+    if (previous !== ':' && previous !== '{' && previous !== '[' && previous !== ',') {
+      result += ch;
+      continue;
+    }
+
+    const expectedTerminators = previous === ':' || previous === '[' ? new Set([',', '}', ']']) : new Set([':']);
+    let content = '';
+    let closingIndex = -1;
+
+    for (let cursor = i + 1; cursor < text.length; cursor++) {
+      const current = text[cursor];
+
+      if (current === '\\' && text[cursor + 1] === "'") {
+        content += "'";
+        cursor += 1;
+        continue;
+      }
+
+      if (current === "'") {
+        const afterQuote = skipJsonWhitespace(text, cursor + 1);
+        if (expectedTerminators.has(text[afterQuote] || '')) {
+          closingIndex = cursor;
+          break;
+        }
+      }
+
+      content += current;
+    }
+
+    if (closingIndex < 0) {
+      result += ch;
+      continue;
+    }
+
+    result += JSON.stringify(content);
+    i = closingIndex;
+  }
+
+  return result;
+};
+
+// Escape literal control characters (bare newlines, tabs, CRs), unescaped
+// double-quotes, and invalid backslash escapes inside JSON string values. The
+// AI sometimes emits multi-line feedback, inline quotes, or markdown escapes
+// like \*emphasis\*, which are not valid JSON escapes.
 const sanitizeJsonControlChars = (str) => {
   let out = '';
   let inStr = false;
@@ -318,7 +454,18 @@ const sanitizeJsonControlChars = (str) => {
     const ch = str[i];
     if (inStr) {
       if (esc) { out += ch; esc = false; }
-      else if (ch === '\\') { out += ch; esc = true; }
+      else if (ch === '\\') {
+        const next = str[i + 1] || '';
+        if (isValidJsonEscapeAt(str, i)) {
+          out += ch;
+          esc = true;
+        } else if (shouldDropInvalidJsonEscape(next)) {
+          // Markdown-style escapes such as \_ or \: should become plain text.
+        } else {
+          // Preserve likely literal backslashes, e.g. C:\Users, as JSON text.
+          out += '\\\\';
+        }
+      }
       else if (ch === '"') {
         // Determine whether this quote ends the string or is an unescaped quote inside it.
         if (isLikelyJsonStringTerminator(str, i, { stringRole, container: getCurrentContainer() })) {
@@ -410,11 +557,11 @@ const repairJsonByParsePosition = (value, maxAttempts = 8) => {
 const repairJsonCandidate = (value) => {
   const normalized = normalizeJsonCandidate(value);
   const sanitized = sanitizeJsonControlChars(normalized);
-  return unescapeJsonStringTerminators(sanitized
+  return repairBareJsonLiterals(repairSingleQuotedJsonStrings(unescapeJsonStringTerminators(sanitized
     .replace(/":\s*\\"/g, '": "')
     .replace(/,\s*([}\]])/g, '$1')
     .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
-    .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3'));
+    .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3'))));
 };
 
 const parseAiJsonResponse = (rawResponse) => {
@@ -467,6 +614,15 @@ const parseAiJsonResponse = (rawResponse) => {
   }
 
   throw lastError || new Error('Failed to parse AI response as JSON');
+};
+
+const coerceFiniteNumber = (value, fallback = null) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 };
 
 // PDF helpers (extract text or get page images for vision-based marking)
@@ -622,30 +778,30 @@ const parseMarkingResponsePayload = (response, { selectedProvider = 'openai', us
 
   const markingResult = parseAiJsonResponse(trimmedResponse).parsed;
 
-  if (!markingResult.scores || !Array.isArray(markingResult.scores)) {
+  if (!markingResult.scores || !Array.isArray(markingResult.scores) || markingResult.scores.length === 0) {
     throw new Error('Invalid response structure: missing scores array');
   }
   if (!markingResult.overall_feedback || typeof markingResult.overall_feedback !== 'string') {
     throw new Error('Invalid response structure: missing overall_feedback');
-  }
-  if (typeof markingResult.total_score !== 'number') {
-    throw new Error('Invalid response structure: missing or invalid total_score');
   }
 
   const confidenceThreshold = 70;
 
   markingResult.scores = markingResult.scores.map((score) => ({
     ...score,
-    confidence: typeof score.confidence === 'number' ? Math.max(0, Math.min(100, score.confidence)) : 80
+    points_awarded: coerceFiniteNumber(score.points_awarded, 0),
+    max_points: coerceFiniteNumber(score.max_points, 0),
+    confidence: Math.max(0, Math.min(100, coerceFiniteNumber(score.confidence, 80)))
   }));
 
-  if (typeof markingResult.overall_confidence !== 'number') {
+  const overallConfidence = coerceFiniteNumber(markingResult.overall_confidence, null);
+  if (overallConfidence === null) {
     const avgConfidence = markingResult.scores.length > 0
       ? markingResult.scores.reduce((sum, score) => sum + (score.confidence || 80), 0) / markingResult.scores.length
       : 80;
     markingResult.overall_confidence = Math.round(avgConfidence);
   } else {
-    markingResult.overall_confidence = Math.max(0, Math.min(100, markingResult.overall_confidence));
+    markingResult.overall_confidence = Math.max(0, Math.min(100, overallConfidence));
   }
 
   if (!markingResult.corrections || !Array.isArray(markingResult.corrections)) {

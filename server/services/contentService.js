@@ -1849,12 +1849,25 @@ function buildDeckSourceText(content) {
 }
 
 function getOpenAiPptxInstructions() {
+  const systemPrompt = PPTX_SYSTEM_PROMPT
+    .replace(/You have access to the pptx Skill and the code execution\s+tool\s+.*?use them\./s, 'You have access to OpenAI Code Interpreter with the uploaded PowerPoint template available in the container - use it.')
+    .replace('6. Deliver. Move the final .pptx to /mnt/user-data/outputs and present it.', '6. Deliver. Save the final .pptx in the code interpreter container and cite or mention the generated file.');
+
   return [
-    PPTX_SYSTEM_PROMPT
-      .replace('You have access to the pptx Skill and the code execution\ntool — use them.', 'You have access to OpenAI Code Interpreter with the uploaded PowerPoint template available in the container — use it.')
-      .replace('6. Deliver. Move the final .pptx to /mnt/user-data/outputs and present it.', '6. Deliver. Save the final .pptx in the code interpreter container and cite or mention the generated file.'),
+    systemPrompt,
     'Use Python libraries available in the container to inspect, modify, validate, and save the presentation. The final generated file must be a .pptx.',
   ].join('\n\n');
+}
+
+async function createAnthropicBetaMessage(client, request) {
+  if (client?.beta?.messages?.stream) {
+    const stream = await client.beta.messages.stream(request);
+    return stream.finalMessage();
+  }
+  if (client?.beta?.messages?.create) {
+    return client.beta.messages.create(request);
+  }
+  throw new Error('Anthropic Messages API is not available.');
 }
 
 function buildAnthropicPptxRequest({ content, uploadedFileId, messages, containerId, model, maxTokens, isFirstChunk = true, layoutsText = null }) {
@@ -1932,7 +1945,7 @@ async function buildPptxWithAnthropic(content, options = {}) {
   validatePptxTemplateFile(templatePath);
 
   const client = options.anthropicClient || aiService.anthropic;
-  if (!client?.beta?.messages?.create || !client?.beta?.files?.upload || !client?.beta?.files?.download) {
+  if ((!client?.beta?.messages?.stream && !client?.beta?.messages?.create) || !client?.beta?.files?.upload || !client?.beta?.files?.download) {
     throw new Error('Anthropic API key is required to export a PPTX from an uploaded template.');
   }
 
@@ -1966,10 +1979,7 @@ async function buildPptxWithAnthropic(content, options = {}) {
       isFirstChunk: options.isFirstChunk !== false,
       layoutsText: options.layoutsText || null,
     });
-    response = await withProviderRetry(async () => {
-      const stream = await client.beta.messages.stream(request);
-      return stream.finalMessage();
-    });
+    response = await withProviderRetry(() => createAnthropicBetaMessage(client, request));
     if (response?.container?.id) containerId = response.container.id;
     if (response?.stop_reason !== 'pause_turn') break;
     messages = [
@@ -2017,7 +2027,7 @@ async function buildPptxWithAnthropic(content, options = {}) {
 async function extractTemplateLayouts(templatePath, options = {}) {
   validatePptxTemplateFile(templatePath);
   const client = options.anthropicClient || aiService.anthropic;
-  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload) {
+  if ((!client?.beta?.messages?.stream && !client?.beta?.messages?.create) || !client?.beta?.files?.upload) {
     throw new Error('Anthropic API not available for template extraction.');
   }
 
@@ -2062,10 +2072,7 @@ async function extractTemplateLayouts(templatePath, options = {}) {
       messages: messages || [{ role: 'user', content: userContent }],
       tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
     };
-    response = await withProviderRetry(async () => {
-      const stream = await client.beta.messages.stream(request);
-      return stream.finalMessage();
-    });
+    response = await withProviderRetry(() => createAnthropicBetaMessage(client, request));
     if (response?.container?.id) containerId = response.container.id;
     if (response?.stop_reason !== 'pause_turn') break;
     messages = [
@@ -2093,7 +2100,7 @@ async function mergePptxWithAnthropic(chunkBuffers, options = {}) {
   if (chunkBuffers.length === 1) return chunkBuffers[0];
 
   const client = options.anthropicClient || aiService.anthropic;
-  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload || !client?.beta?.files?.download) {
+  if ((!client?.beta?.messages?.stream && !client?.beta?.messages?.create) || !client?.beta?.files?.upload || !client?.beta?.files?.download) {
     throw new Error('Anthropic API not available for PPTX merge.');
   }
 
@@ -2149,10 +2156,7 @@ async function mergePptxWithAnthropic(chunkBuffers, options = {}) {
       messages: messages || [{ role: 'user', content: userContent }],
       tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
     };
-    response = await withProviderRetry(async () => {
-      const stream = await client.beta.messages.stream(request);
-      return stream.finalMessage();
-    });
+    response = await withProviderRetry(() => createAnthropicBetaMessage(client, request));
     if (response?.container?.id) containerId = response.container.id;
     if (response?.stop_reason !== 'pause_turn') break;
     messages = [
@@ -2189,7 +2193,7 @@ async function mergePptxWithAnthropic(chunkBuffers, options = {}) {
 async function applyTemplateStyleWithClaude(contentBuffer, templatePath, options = {}) {
   validatePptxTemplateFile(templatePath);
   const client = options.anthropicClient || aiService.anthropic;
-  if (!client?.beta?.messages?.stream || !client?.beta?.files?.upload) {
+  if ((!client?.beta?.messages?.stream && !client?.beta?.messages?.create) || !client?.beta?.files?.upload) {
     throw new Error('Anthropic API not available for template style transfer.');
   }
 
@@ -2251,10 +2255,7 @@ async function applyTemplateStyleWithClaude(contentBuffer, templatePath, options
       messages: messages || [{ role: 'user', content: userContent }],
       tools: [{ type: 'code_execution_20250825', name: 'code_execution' }],
     };
-    response = await withProviderRetry(async () => {
-      const stream = await client.beta.messages.stream(request);
-      return stream.finalMessage();
-    });
+    response = await withProviderRetry(() => createAnthropicBetaMessage(client, request));
     if (response?.container?.id) containerId = response.container.id;
     if (response?.stop_reason !== 'pause_turn') break;
     messages = [

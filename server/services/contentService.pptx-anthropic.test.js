@@ -105,8 +105,8 @@ test('buildPptx uses Anthropic pptx Skill with uploaded templates and handles pa
 
     assert.equal(createCalls.length, 2);
     const firstRequest = createCalls[0];
-    assert.equal(firstRequest.model, 'claude-opus-4-7');
-    assert.equal(firstRequest.max_tokens, 16000);
+    assert.equal(firstRequest.model, 'claude-sonnet-4-6');
+    assert.equal(firstRequest.max_tokens, 32000);
     assert.deepEqual(firstRequest.betas, [
       'code-execution-2025-08-25',
       'files-api-2025-04-14',
