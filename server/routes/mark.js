@@ -11,6 +11,7 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
+const DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS = Number.parseInt(process.env.DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS || '6000', 10);
 
 // Debug endpoint to test marking functionality
 router.post('/debug', requireAuth, async (req, res) => {
@@ -181,15 +182,54 @@ const findUnescapedQuote = (text, startIndex) => {
   return -1;
 };
 
+const startsJsonValueAt = (text, index) => {
+  const cursor = skipJsonWhitespace(text, index);
+  const char = text[cursor] || '';
+  if (char === '"' || char === "'" || char === '{' || char === '[' || char === '-' || /\d/.test(char)) return true;
+  return (
+    text.slice(cursor, cursor + 4) === 'true' ||
+    text.slice(cursor, cursor + 4) === 'True' ||
+    text.slice(cursor, cursor + 5) === 'false' ||
+    text.slice(cursor, cursor + 5) === 'False' ||
+    text.slice(cursor, cursor + 4) === 'null' ||
+    text.slice(cursor, cursor + 4) === 'None'
+  );
+};
+
+const MARKING_RESPONSE_PROPERTY_NAMES = new Set([
+  'scores',
+  'criterion_name',
+  'points_awarded',
+  'max_points',
+  'rubric_basis',
+  'feedback',
+  'confidence',
+  'corrections',
+  'type',
+  'location',
+  'issue',
+  'correction',
+  'language_errors',
+  'error_text',
+  'error_type',
+  'explanation',
+  'overall_feedback',
+  'total_score',
+  'overall_confidence',
+  'handwriting_recognition_confidence'
+]);
+
 const looksLikeObjectPropertyAfterComma = (text, commaIndex) => {
   const propertyStart = skipJsonWhitespace(text, commaIndex + 1);
   if (text[propertyStart] !== '"') return false;
 
   const propertyEnd = findUnescapedQuote(text, propertyStart + 1);
   if (propertyEnd < 0) return false;
+  const propertyName = text.slice(propertyStart + 1, propertyEnd);
+  if (!MARKING_RESPONSE_PROPERTY_NAMES.has(propertyName)) return false;
 
   const afterProperty = skipJsonWhitespace(text, propertyEnd + 1);
-  return text[afterProperty] === ':';
+  return text[afterProperty] === ':' && startsJsonValueAt(text, afterProperty + 1);
 };
 
 const isLikelyJsonStringTerminator = (text, quoteIndex, { stringRole = 'unknown', container = null } = {}) => {
@@ -519,7 +559,7 @@ const isEscapedQuoteAt = (text, index) => {
   return slashCount % 2 === 1;
 };
 
-const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 500) => {
+const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 5000) => {
   const start = Math.max(0, parseErrorPosition - maxLookback);
 
   for (let i = parseErrorPosition - 1; i >= start; i--) {
@@ -735,7 +775,7 @@ Types:
 - "proposal": A research proposal
 
 DOCUMENT PREVIEW:
-${documentText.substring(0, 1500)}
+${documentText.substring(0, Number.isFinite(DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS) && DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS > 0 ? DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS : 6000)}
 
 Respond with ONLY a JSON object:
 {

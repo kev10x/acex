@@ -301,3 +301,63 @@ test('parseMarkingResponsePayload rejects empty scores instead of producing Infi
     /missing scores array/
   );
 });
+
+test('parseMarkingResponsePayload repairs quoted prose that resembles a property but has no JSON value', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = `{
+    "scores": [
+      {
+        "criterion_name": "Discussion",
+        "points_awarded": 3,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires discussion of findings.",
+        "feedback": "The paragraph mentions "awareness", "students": this is phrased like a label in the sentence, but it is not a JSON property.",
+        "confidence": 83
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "The discussion needs clearer synthesis.",
+    "total_score": 3,
+    "overall_confidence": 83
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(
+    parsed.scores[0].feedback,
+    'The paragraph mentions "awareness", "students": this is phrased like a label in the sentence, but it is not a JSON property.'
+  );
+});
+
+test('parseMarkingResponsePayload repairs quoted prose that resembles an unknown property with a JSON value', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  const malformedResponse = `{
+    "scores": [
+      {
+        "criterion_name": "Discussion",
+        "points_awarded": 3,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires discussion of findings.",
+        "feedback": "The paragraph mentions "awareness", "students": 120 as a labelled figure in the sentence, but it is not a response field.",
+        "confidence": 83
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "The discussion needs clearer synthesis.",
+    "total_score": 3,
+    "overall_confidence": 83
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(
+    parsed.scores[0].feedback,
+    'The paragraph mentions "awareness", "students": 120 as a labelled figure in the sentence, but it is not a response field.'
+  );
+});

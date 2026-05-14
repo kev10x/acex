@@ -5,6 +5,11 @@
 // (the tendency of GenAI models to be overly positive/encouraging in assessments).
 // See AI_POSITIVE_BIAS_MITIGATION.md for details on how realistic assessment is enforced.
 
+const envInt = (name, fallback) => {
+  const value = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
 module.exports = {
   // Default AI provider: 'openai' or 'anthropic'
   // Can be overridden via AI_PROVIDER environment variable
@@ -13,13 +18,13 @@ module.exports = {
   // Document processing limits
   documentLimits: {
     // Maximum characters to process for different document types
-    // Claude has much larger context windows, so we can process more
-    treatise: 800000,     // For Masters treatises - increased for Claude's 200K token context
-    assignment: 15000,     // For regular assignments (approximately 3,750 tokens)
-    report: 25000,         // For research reports (approximately 6,250 tokens)
-    question_paper: 30000, // For exam/test papers (approximately 7,500 tokens)
-    memo: 50000,          // For memos/answer keys (approximately 12,500 tokens)
-    default: 10000         // Default limit (approximately 2,500 tokens)
+    // These are prompt-processing caps, not PDF extraction caps. Extracted text is stored in full.
+    treatise: envInt('MARKING_TREATISE_MAX_CHARS', 800000),
+    assignment: envInt('MARKING_ASSIGNMENT_MAX_CHARS', 60000),
+    report: envInt('MARKING_REPORT_MAX_CHARS', 60000),
+    question_paper: envInt('MARKING_QUESTION_PAPER_MAX_CHARS', 60000),
+    memo: envInt('MARKING_MEMO_MAX_CHARS', 80000),
+    default: envInt('MARKING_DEFAULT_MAX_CHARS', 60000)
   },
 
   // OpenAI API settings (GPT-5.2 / GPT-5 mini; fallback to gpt-4o if your account lacks GPT-5)
