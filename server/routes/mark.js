@@ -1638,6 +1638,8 @@ ${evaluationGuidelines}
 
 ${getStrictnessGuidelines(strictnessLevel)}
 
+IMPORTANT (OUTPUT FORMAT): Use the OpenAI function named `marking_result` and return ONLY a single JSON object with a property `payload_b64` containing the base64-encoded JSON string of the full marking result (the decoded JSON must match the required marking schema). Do NOT include any commentary, markdown fences, or extra characters. Example: {"payload_b64":"eyJzY29yZXMiOiBbXX0="}
+
 CRITICAL: REALISTIC ASSESSMENT - Counteract AI positive bias. You are an assessor, not a supportive assistant. Provide ACCURATE assessments based on actual performance, not encouragement. DO NOT: soften criticism, inflate scores, give credit for effort, use euphemisms, or interpret ambiguous work favorably. Award LOW/ZERO marks for incorrect/incomplete work. If 50% understanding = ~50% marks (not 75-90%). State errors directly: "This is incorrect because..." (not "could be improved"). Identify ALL problems. Accuracy over encouragement.${(documentType === 'treatise' || documentType === 'thesis' || documentType === 'proposal') ? '\n\nFOR TREATISE, THESIS, OR PROPOSAL: Be very direct about every issue identified. State problems, gaps, and weaknesses in clear, explicit language (e.g., "The literature review fails to...", "The methodology lacks...", "This section is missing...", "The problem statement does not..."). Do not soften or hedge—candidates need to know exactly what is wrong.' : ''}
 
 MARKING STANDARDS (apply within the strictness level defined above):
@@ -1828,12 +1830,30 @@ JSON format (return ONLY this, no other text):
           console.warn('Structure check: parsed skeleton missing scores array, aborting full generation to avoid cost');
           throw new Error('Structure check failed');
         }
-        // Ensure criterion names roughly match
-        const skeletonNames = parsedSkeleton.scores.map(s => String(s.criterion_name || '').trim()).filter(Boolean);
-        const rubricNames = simpleCriteria.map(c => String(c.name || '').trim());
-        const matches = rubricNames.filter(n => skeletonNames.includes(n)).length;
-        if (matches < Math.max(1, Math.floor(rubricNames.length / 2))) {
-          console.warn('Structure check: criterion name match low, aborting full generation to avoid cost');
+        // Ensure criterion names roughly match (use token overlap / fuzzy matching)
+        const skeletonNames = parsedSkeleton.scores.map(s => String(s.criterion_name || '').trim().toLowerCase()).filter(Boolean);
+        const rubricNames = simpleCriteria.map(c => String(c.name || '').trim().toLowerCase());
+
+        const tokenize = (str) => (str || '').split(/[^a-z0-9]+/i).filter(t => t.length >= 3);
+
+        let matches = 0;
+        for (const r of rubricNames) {
+          const rTokens = new Set(tokenize(r));
+          for (const s of skeletonNames) {
+            const sTokens = new Set(tokenize(s));
+            // count common tokens
+            const common = [...rTokens].filter(t => sTokens.has(t));
+            if (common.length > 0 || s.includes(r) || r.includes(s)) {
+              matches += 1;
+              break;
+            }
+          }
+        }
+
+        // Lower threshold: require at least one match, or ~33% of rubric names
+        const required = Math.max(1, Math.floor(rubricNames.length / 3));
+        if (matches < required) {
+          console.warn('Structure check: criterion name match low, aborting full generation to avoid cost', { matches, required, skeletonPreview: JSON.stringify(skeletonNames).substring(0,200) });
           throw new Error('Structure check failed: poor name match');
         }
         console.log('Structure check passed — proceeding to full generation');
@@ -1863,36 +1883,20 @@ JSON format (return ONLY this, no other text):
     let functionsSchema = null;
     let functionCall = null;
     if (selectedProvider === 'openai') {
+      // Request a base64-encoded JSON payload to avoid quoting/escaping issues
       functionsSchema = [
         {
           name: 'marking_result',
-          description: 'Structured marking result object matching the expected schema',
+          description: 'Return a single base64-encoded JSON string containing the full marking result',
           parameters: {
             type: 'object',
             properties: {
-              scores: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    criterion_name: { type: 'string' },
-                    points_awarded: { type: 'number' },
-                    max_points: { type: 'number' },
-                    rubric_basis: { type: 'string' },
-                    feedback: { type: 'string' },
-                    confidence: { type: 'number' }
-                  },
-                  required: ['criterion_name', 'points_awarded', 'max_points']
-                }
-              },
-              corrections: { type: 'array' },
-              language_errors: { type: 'array' },
-              overall_feedback: { type: 'string' },
-              total_score: { type: 'number' },
-              overall_confidence: { type: 'number' },
-              handwriting_recognition_confidence: { type: ['number', 'null'] }
+              payload_b64: {
+                type: 'string',
+                description: 'Base64-encoded JSON payload matching the marking schema'
+              }
             },
-            required: ['scores', 'overall_feedback', 'total_score']
+            required: ['payload_b64']
           }
         }
       ];

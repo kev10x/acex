@@ -112,7 +112,8 @@ class AIService {
     const choiceMessage = completion.choices[0]?.message || {};
     let content = '';
     if (choiceMessage.function_call && choiceMessage.function_call.arguments) {
-      content = String(choiceMessage.function_call.arguments || '');
+      const decodeResult = this.decodeFunctionCallArguments(choiceMessage.function_call.arguments);
+      content = decodeResult.content;
     } else {
       const rawContent = choiceMessage.content;
       // OpenAI can return content as string or as array of parts
@@ -146,6 +147,52 @@ class AIService {
       choices: completion.choices,
       provider: 'openai'
     };
+  }
+
+  // Decode function_call.arguments payloads with support for base64-encoded JSON
+  decodeFunctionCallArguments(args) {
+    try {
+      const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
+
+      // If the model provided a base64 payload, decode and parse it
+      if (parsedArgs && typeof parsedArgs.payload_b64 === 'string') {
+        try {
+          const buf = Buffer.from(parsedArgs.payload_b64, 'base64');
+          const decoded = buf.toString('utf8');
+          const parsed = JSON.parse(decoded);
+          const valid = this.validateMarkingSchema(parsed);
+          if (!valid) {
+            console.warn('Decoded payload did not match expected marking schema');
+          }
+          return { content: JSON.stringify(parsed), parsed };
+        } catch (err) {
+          console.warn('Failed to decode/parse payload_b64:', err.message);
+          return { content: String(args), parsed: null };
+        }
+      }
+
+      // If arguments are already the object we expect, stringify after validation
+      if (parsedArgs && typeof parsedArgs === 'object') {
+        const valid = this.validateMarkingSchema(parsedArgs);
+        if (!valid) {
+          console.warn('Function arguments object did not match expected marking schema');
+        }
+        return { content: JSON.stringify(parsedArgs), parsed: parsedArgs };
+      }
+
+      return { content: String(args), parsed: null };
+    } catch (e) {
+      return { content: String(args), parsed: null };
+    }
+  }
+
+  // Basic validator for the marking result schema to catch obvious issues early
+  validateMarkingSchema(obj) {
+    if (!obj || typeof obj !== 'object') return false;
+    if (!Array.isArray(obj.scores)) return false;
+    if (typeof obj.overall_feedback !== 'string') return false;
+    if (typeof obj.total_score !== 'number') return false;
+    return true;
   }
 
   /**
