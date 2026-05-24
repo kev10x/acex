@@ -1858,12 +1858,55 @@ JSON format (return ONLY this, no other text):
 
     // Use unified AI service with retry logic (more retries for marking operations)
     // No seed is used to allow unique analysis for each document
+    // When using OpenAI, prefer function-calling with an explicit schema to
+    // force strict JSON output and reduce parsing failures / wasted cost.
+    let functionsSchema = null;
+    let functionCall = null;
+    if (selectedProvider === 'openai') {
+      functionsSchema = [
+        {
+          name: 'marking_result',
+          description: 'Structured marking result object matching the expected schema',
+          parameters: {
+            type: 'object',
+            properties: {
+              scores: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    criterion_name: { type: 'string' },
+                    points_awarded: { type: 'number' },
+                    max_points: { type: 'number' },
+                    rubric_basis: { type: 'string' },
+                    feedback: { type: 'string' },
+                    confidence: { type: 'number' }
+                  },
+                  required: ['criterion_name', 'points_awarded', 'max_points']
+                }
+              },
+              corrections: { type: 'array' },
+              language_errors: { type: 'array' },
+              overall_feedback: { type: 'string' },
+              total_score: { type: 'number' },
+              overall_confidence: { type: 'number' },
+              handwriting_recognition_confidence: { type: ['number', 'null'] }
+            },
+            required: ['scores', 'overall_feedback', 'total_score']
+          }
+        }
+      ];
+      functionCall = { name: 'marking_result' };
+    }
+
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
       model: modelToUse,
       messages,
       temperature: config.temperature,
-      maxTokens: requestMaxTokens
+      maxTokens: requestMaxTokens,
+      functions: functionsSchema,
+      function_call: functionCall
     }, 5); // Increased retries for marking operations
 
     console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
@@ -1949,6 +1992,19 @@ JSON format (return ONLY this, no other text):
         }
       } catch (aiExtractError) {
         console.error('AI-assisted JSON extraction failed:', aiExtractError.message);
+      }
+
+      // Persist raw response for offline analysis to avoid repeated wasted jobs
+      try {
+        const path = require('path');
+        const dir = path.join(process.cwd(), 'logs', 'ai_failed_responses');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const fileName = `${Date.now()}_${assignmentId || 'no_assignment'}.txt`;
+        const filePath = path.join(dir, fileName);
+        fs.writeFileSync(filePath, response, 'utf8');
+        console.error('Saved raw failed AI response to', filePath);
+      } catch (wfErr) {
+        console.error('Failed to persist raw AI response:', wfErr.message);
       }
 
       throw new Error('Failed to parse AI response as JSON: ' + parseError.message);

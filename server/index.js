@@ -88,6 +88,7 @@ apiRouter.use('/moodle', require('./routes/moodle'));
 apiRouter.use('/slide-gen', require('./routes/slideGen'));
 apiRouter.use('/pptx-jobs', require('./routes/pptxJobs'));
 apiRouter.use('/system', require('./routes/system'));
+apiRouter.use('/ai-diagnostics', require('./routes/aiDiagnostics'));
 apiRouter.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });

@@ -66,11 +66,11 @@ class AIService {
    * @param {number} params.seed - Seed for reproducibility (OpenAI only)
    * @returns {Promise<Object>} Completion result with standardized format
    */
-  async createCompletion({ provider, model, messages, temperature, maxTokens, user = 'anonymous', seed = null }) {
+  async createCompletion({ provider, model, messages, temperature, maxTokens, user = 'anonymous', seed = null, functions = null, function_call = null }) {
     const selectedProvider = provider || aiConfig.defaultProvider;
 
     if (selectedProvider === 'openai') {
-      return await this._createOpenAICompletion({ model, messages, temperature, maxTokens, user });
+      return await this._createOpenAICompletion({ model, messages, temperature, maxTokens, user, functions, function_call });
     } else if (selectedProvider === 'anthropic') {
       return await this._createAnthropicCompletion({ model, messages, temperature, maxTokens });
     } else {
@@ -81,7 +81,7 @@ class AIService {
   /**
    * Create completion using OpenAI
    */
-  async _createOpenAICompletion({ model, messages, temperature, maxTokens, user, seed = null }) {
+  async _createOpenAICompletion({ model, messages, temperature, maxTokens, user, seed = null, functions = null, function_call = null }) {
     if (!this.openai) {
       throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
     }
@@ -97,6 +97,10 @@ class AIService {
       user
     };
 
+    // Forward function-calling params if provided
+    if (functions) completionParams.functions = functions;
+    if (function_call) completionParams.function_call = function_call;
+
     // Add seed for reproducibility (OpenAI GPT-4, GPT-5 and newer models support this)
     if (seed !== null && (model.includes('gpt-4') || model.includes('gpt-5') || model.includes('gpt-3.5'))) {
       completionParams.seed = seed;
@@ -104,16 +108,24 @@ class AIService {
 
     const completion = await this.openai.chat.completions.create(completionParams);
 
-    const rawContent = completion.choices[0]?.message?.content;
-    // OpenAI can return content as string or as array of parts (e.g. [{ type: 'text', text: '...' }])
-    let content = rawContent;
-    if (Array.isArray(rawContent)) {
-      content = rawContent
-        .filter(part => part && part.type === 'text' && part.text != null)
-        .map(part => part.text)
-        .join('');
-    } else if (rawContent != null && typeof rawContent !== 'string') {
-      content = String(rawContent);
+    // If the model used function calling, extract the function_call.arguments as the response
+    const choiceMessage = completion.choices[0]?.message || {};
+    let content = '';
+    if (choiceMessage.function_call && choiceMessage.function_call.arguments) {
+      content = String(choiceMessage.function_call.arguments || '');
+    } else {
+      const rawContent = choiceMessage.content;
+      // OpenAI can return content as string or as array of parts
+      if (Array.isArray(rawContent)) {
+        content = rawContent
+          .filter(part => part && part.type === 'text' && part.text != null)
+          .map(part => part.text)
+          .join('');
+      } else if (rawContent != null && typeof rawContent !== 'string') {
+        content = String(rawContent);
+      } else {
+        content = rawContent || '';
+      }
     }
     if (!content && completion.choices[0]) {
       const finishReason = completion.choices[0].finish_reason;

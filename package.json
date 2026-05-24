@@ -15,6 +15,7 @@
     "demo": "node demo-data.js",
     "seed:sample-org": "node seed-sample-organisation.js",
     "postinstall": "node setup.js"
+    ,"reparse:failed": "node scripts/reparse-failed.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
