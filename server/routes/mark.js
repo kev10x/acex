@@ -1804,6 +1804,48 @@ JSON format (return ONLY this, no other text):
 
     console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
 
+    // --- STRUCTURE-CHECK: lightweight, low-cost JSON-only verification to avoid
+    // wasting money on a long expensive call when the model can't produce
+    // valid JSON. If this check fails, we abort the expensive generation.
+    try {
+      const skeletonPrompt = `Return ONLY a compact JSON object that matches the final schema used for marking. Do NOT include any extra commentary or markdown. Use the same criterion names in the rubric and for each criterion return numeric fields only (points_awarded set to 0 is acceptable placeholder). The object must include: scores (array of {criterion_name, points_awarded, max_points}), overall_feedback (short string), overall_confidence (number). Return JSON only.`;
+
+      const skeletonMessages = [{ role: 'user', content: `${skeletonPrompt}\n\nRubric:\n${detailedRubric}\n\nTOTAL: ${totalPoints}` }];
+
+      const skeletonModel = selectedProvider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307';
+      const skeletonResult = await aiService.createCompletionWithRetry({
+        provider: selectedProvider,
+        model: skeletonModel,
+        messages: skeletonMessages,
+        temperature: 0.0,
+        maxTokens: 800
+      }, 1);
+
+      const skeletonResponse = String(skeletonResult.content || '').trim();
+      try {
+        const parsedSkeleton = parseAiJsonResponse(skeletonResponse).parsed;
+        if (!parsedSkeleton || !Array.isArray(parsedSkeleton.scores) || parsedSkeleton.scores.length === 0) {
+          console.warn('Structure check: parsed skeleton missing scores array, aborting full generation to avoid cost');
+          throw new Error('Structure check failed');
+        }
+        // Ensure criterion names roughly match
+        const skeletonNames = parsedSkeleton.scores.map(s => String(s.criterion_name || '').trim()).filter(Boolean);
+        const rubricNames = simpleCriteria.map(c => String(c.name || '').trim());
+        const matches = rubricNames.filter(n => skeletonNames.includes(n)).length;
+        if (matches < Math.max(1, Math.floor(rubricNames.length / 2))) {
+          console.warn('Structure check: criterion name match low, aborting full generation to avoid cost');
+          throw new Error('Structure check failed: poor name match');
+        }
+        console.log('Structure check passed — proceeding to full generation');
+      } catch (sErr) {
+        console.warn('Structure check could not be parsed reliably:', sErr.message);
+        throw new Error('AI structural JSON check failed — aborting to avoid wasted cost');
+      }
+    } catch (structureError) {
+      console.error('Aborting marking due to failed structure check:', structureError.message);
+      throw structureError;
+    }
+
     let messages;
     if (imageBased) {
       const imageParts = selectedProvider === 'openai'
@@ -1860,6 +1902,7 @@ JSON format (return ONLY this, no other text):
       console.error('Raw AI Response (first 1000 chars):', response.substring(0, 1000));
       console.error('Raw AI Response length:', response.length);
 
+      // First attempt: extract the first balanced JSON object candidate and try again
       const extractedJson = extractFirstJsonObject(response);
       if (extractedJson && extractedJson !== response) {
         try {
@@ -1871,6 +1914,41 @@ JSON format (return ONLY this, no other text):
         } catch (extractError) {
           console.error('Failed to parse extracted JSON candidate:', extractError.message);
         }
+      }
+
+      // Second attempt: AI-assisted JSON extraction fallback. Ask the model to return
+      // only the valid JSON found in its previous response. This helps when the
+      // model included commentary, markdown fences, or subtle formatting issues
+      // that our local heuristics couldn't repair.
+      try {
+        console.log('Attempting AI-assisted JSON extraction fallback...');
+        const extractionPrompt = `The previous response from the model may include commentary or markdown.\nExtract and return ONLY the valid JSON object or array contained in the text below. Do NOT add any commentary, explanation, or extra characters — return raw JSON or the single token NONE if no valid JSON can be found.\n\nRESPONSE:\n${response.substring(0, 20000)}`;
+
+        const repairResult = await aiService.createCompletionWithRetry({
+          provider: selectedProvider,
+          model: selectedProvider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+          messages: [{ role: 'user', content: extractionPrompt }],
+          temperature: 0.0,
+          maxTokens: 16000
+        }, 2);
+
+        const repairedText = String(repairResult.content || '').trim();
+        if (repairedText && repairedText !== 'NONE') {
+          let candidate = repairedText.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+          try {
+            return parseMarkingResponsePayload(candidate, {
+              selectedProvider,
+              usage: result?.usage || null,
+              imageBased
+            });
+          } catch (err2) {
+            console.error('AI-assisted extraction produced invalid JSON:', err2.message);
+          }
+        } else {
+          console.warn('AI-assisted extraction returned NONE or empty');
+        }
+      } catch (aiExtractError) {
+        console.error('AI-assisted JSON extraction failed:', aiExtractError.message);
       }
 
       throw new Error('Failed to parse AI response as JSON: ' + parseError.message);
