@@ -14,10 +14,10 @@
     "setup": "node setup.js && npm install && cd client && npm install",
     "demo": "node demo-data.js",
     "seed:sample-org": "node seed-sample-organisation.js",
-    "postinstall": "node setup.js"
-    ,"reparse:failed": "node scripts/reparse-failed.js",
+    "postinstall": "node setup.js",
+    "reparse:failed": "node scripts/reparse-failed.js",
     "test:decode-payload": "node scripts/test-decode-payload.js"
-  }
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
     "archiver": "^7.0.1",
