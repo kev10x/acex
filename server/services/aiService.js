@@ -66,11 +66,11 @@ class AIService {
    * @param {number} params.seed - Seed for reproducibility (OpenAI only)
    * @returns {Promise<Object>} Completion result with standardized format
    */
-  async createCompletion({ provider, model, messages, temperature, maxTokens, user = 'anonymous', seed = null, functions = null, function_call = null }) {
+  async createCompletion({ provider, model, messages, temperature, maxTokens, user = 'anonymous', seed = null, functions = null, function_call = null, response_format = null }) {
     const selectedProvider = provider || aiConfig.defaultProvider;
 
     if (selectedProvider === 'openai') {
-      return await this._createOpenAICompletion({ model, messages, temperature, maxTokens, user, functions, function_call });
+      return await this._createOpenAICompletion({ model, messages, temperature, maxTokens, user, functions, function_call, response_format });
     } else if (selectedProvider === 'anthropic') {
       return await this._createAnthropicCompletion({ model, messages, temperature, maxTokens });
     } else {
@@ -81,7 +81,7 @@ class AIService {
   /**
    * Create completion using OpenAI
    */
-  async _createOpenAICompletion({ model, messages, temperature, maxTokens, user, seed = null, functions = null, function_call = null }) {
+  async _createOpenAICompletion({ model, messages, temperature, maxTokens, user, seed = null, functions = null, function_call = null, response_format = null }) {
     if (!this.openai) {
       throw new Error('OpenAI client not initialized. Please set OPENAI_API_KEY environment variable.');
     }
@@ -100,6 +100,7 @@ class AIService {
     // Forward function-calling params if provided
     if (functions) completionParams.functions = functions;
     if (function_call) completionParams.function_call = function_call;
+    if (response_format) completionParams.response_format = response_format;
 
     // Add seed for reproducibility (OpenAI GPT-4, GPT-5 and newer models support this)
     if (seed !== null && (model.includes('gpt-4') || model.includes('gpt-5') || model.includes('gpt-3.5'))) {

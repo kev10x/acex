@@ -1638,7 +1638,7 @@ ${evaluationGuidelines}
 
 ${getStrictnessGuidelines(strictnessLevel)}
 
-IMPORTANT (OUTPUT FORMAT): Use the OpenAI function named 'marking_result' and return ONLY a single JSON object with a property 'payload_b64' containing the base64-encoded JSON string of the full marking result (the decoded JSON must match the required marking schema). Do NOT include any commentary, markdown fences, or extra characters. Example: {"payload_b64":"eyJzY29yZXMiOiBbXX0="}
+IMPORTANT (OUTPUT FORMAT): Return ONLY a valid JSON object matching the required marking schema. Do NOT include any commentary, markdown fences, or extra characters. Return raw JSON only.
 
 CRITICAL: REALISTIC ASSESSMENT - Counteract AI positive bias. You are an assessor, not a supportive assistant. Provide ACCURATE assessments based on actual performance, not encouragement. DO NOT: soften criticism, inflate scores, give credit for effort, use euphemisms, or interpret ambiguous work favorably. Award LOW/ZERO marks for incorrect/incomplete work. If 50% understanding = ~50% marks (not 75-90%). State errors directly: "This is incorrect because..." (not "could be improved"). Identify ALL problems. Accuracy over encouragement.${(documentType === 'treatise' || documentType === 'thesis' || documentType === 'proposal') ? '\n\nFOR TREATISE, THESIS, OR PROPOSAL: Be very direct about every issue identified. State problems, gaps, and weaknesses in clear, explicit language (e.g., "The literature review fails to...", "The methodology lacks...", "This section is missing...", "The problem statement does not..."). Do not soften or hedge—candidates need to know exactly what is wrong.' : ''}
 
@@ -1878,30 +1878,9 @@ JSON format (return ONLY this, no other text):
 
     // Use unified AI service with retry logic (more retries for marking operations)
     // No seed is used to allow unique analysis for each document
-    // When using OpenAI, prefer function-calling with an explicit schema to
-    // force strict JSON output and reduce parsing failures / wasted cost.
-    let functionsSchema = null;
-    let functionCall = null;
-    if (selectedProvider === 'openai') {
-      // Request a base64-encoded JSON payload to avoid quoting/escaping issues
-      functionsSchema = [
-        {
-          name: 'marking_result',
-          description: 'Return a single base64-encoded JSON string containing the full marking result',
-          parameters: {
-            type: 'object',
-            properties: {
-              payload_b64: {
-                type: 'string',
-                description: 'Base64-encoded JSON payload matching the marking schema'
-              }
-            },
-            required: ['payload_b64']
-          }
-        }
-      ];
-      functionCall = { name: 'marking_result' };
-    }
+    // Use JSON mode for OpenAI to guarantee valid JSON output without needing
+    // function-calling or base64 encoding workarounds.
+    const responseFormat = selectedProvider === 'openai' ? { type: 'json_object' } : null;
 
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
@@ -1909,8 +1888,7 @@ JSON format (return ONLY this, no other text):
       messages,
       temperature: config.temperature,
       maxTokens: requestMaxTokens,
-      functions: functionsSchema,
-      function_call: functionCall
+      response_format: responseFormat
     }, 5); // Increased retries for marking operations
 
     console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
