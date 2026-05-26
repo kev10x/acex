@@ -571,7 +571,7 @@ const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 5
   return -1;
 };
 
-const repairJsonByParsePosition = (value, maxAttempts = 8) => {
+const repairJsonByParsePosition = (value, maxAttempts = 30) => {
   let candidate = value;
   let lastError = null;
 
@@ -632,12 +632,14 @@ const parseAiJsonResponse = (rawResponse) => {
 
   // Position-guided quote repair fallback for malformed strings like:
   // "feedback": "The learner wrote "important point", but ..."
+  // Note: seeds intentionally bypass `seen` — repairJsonByParsePosition applies
+  // additional position-guided escaping on top of repairJsonCandidate, so the
+  // resulting repaired string will differ from anything already in `seen`.
   for (const candidate of baseCandidates) {
     if (!candidate) continue;
 
-    for (const seed of [candidate, repairJsonCandidate(candidate)]) {
-      if (!seed || seen.has(seed)) continue;
-      seen.add(seed);
+    for (const seed of [repairJsonCandidate(candidate), candidate]) {
+      if (!seed) continue;
 
       try {
         const repaired = repairJsonByParsePosition(seed);
@@ -1947,14 +1949,15 @@ JSON format (return ONLY this, no other text):
       // that our local heuristics couldn't repair.
       try {
         console.log('Attempting AI-assisted JSON extraction fallback...');
-        const extractionPrompt = `The previous response from the model may include commentary or markdown.\nExtract and return ONLY the valid JSON object or array contained in the text below. Do NOT add any commentary, explanation, or extra characters — return raw JSON or the single token NONE if no valid JSON can be found.\n\nRESPONSE:\n${response.substring(0, 20000)}`;
+        const extractionPrompt = `The JSON below may have syntax errors such as unescaped double-quote characters inside string values.\nFix all JSON syntax errors and return ONLY the corrected JSON object. Do NOT add any commentary, explanation, or extra characters — return raw JSON only.\n\nRESPONSE:\n${response.substring(0, 20000)}`;
 
         const repairResult = await aiService.createCompletionWithRetry({
           provider: selectedProvider,
           model: selectedProvider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
           messages: [{ role: 'user', content: extractionPrompt }],
           temperature: 0.0,
-          maxTokens: 16000
+          maxTokens: 16000,
+          response_format: selectedProvider === 'openai' ? { type: 'json_object' } : null
         }, 2);
 
         const repairedText = String(repairResult.content || '').trim();
