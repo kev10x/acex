@@ -13,14 +13,16 @@ const getPool = () => {
       throw new Error('DATABASE_URL environment variable is required');
     }
 
+    const redactedUrl = connectionString.replace(/:([^:@]+)@/, ':***@');
+
     // Check if using MySQL
     if (connectionString.startsWith('mysql:')) {
       isMySQL = true;
-      console.log('Using MySQL database:', connectionString);
+      console.log('Using MySQL database:', redactedUrl);
       const mysqlDb = require('./mysql');
       return mysqlDb;
     } else {
-      console.log('Using PostgreSQL database:', connectionString);
+      console.log('Using PostgreSQL database:', redactedUrl);
     }
 
     pool = new Pool({
