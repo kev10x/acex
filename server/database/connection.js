@@ -2423,8 +2423,15 @@ const initDatabase = async () => {
   }
 };
 
+// Normalize DB result shapes across MySQL and PostgreSQL drivers.
+// MySQL driver returns an array directly; PostgreSQL returns { rows: [...] }.
+const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
+const firstRow = (result) => rowsOf(result)[0] ?? null;
+
 module.exports = {
   query,
   initDatabase,
-  getPool
+  getPool,
+  rowsOf,
+  firstRow
 };

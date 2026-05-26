@@ -3,7 +3,7 @@ const path = require('path');
 const OpenAI = require('openai');
 const { query } = require('../database/connection');
 const aiConfig = require('../config/ai-config');
-const { parseMarkingResponsePayload } = require('../routes/mark');
+const { parseMarkingResponsePayload } = require('./markingService');
 
 const POLL_INTERVAL_MS = 30000;
 const COMPLETION_WINDOW = '24h';
@@ -151,6 +151,7 @@ JSON FORMAT:
     model: config.model,
     temperature: config.temperature,
     max_completion_tokens: requestMaxTokens,
+    response_format: { type: 'json_object' },
     messages: [{ role: 'user', content: prompt }]
   };
 }

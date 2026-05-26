@@ -4,6 +4,7 @@ const { query } = require('../database/connection');
 const aiConfig = require('../config/ai-config');
 const aiService = require('./aiService');
 const { resolveEducationLevel, buildEducationLevelPromptBlock } = require('./educationLevelService');
+const { logger } = require('./logger');
 
 const DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS = Number.parseInt(
   process.env.DOCUMENT_TYPE_DETECTION_PREVIEW_CHARS || '6000',
@@ -1889,16 +1890,7 @@ JSON format (return ONLY this, no other text):
       }
 
       // Persist raw response for offline analysis
-      try {
-        const dir = path.join(process.cwd(), 'logs', 'ai_failed_responses');
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        const fileName = `${Date.now()}_${assignmentId || 'no_assignment'}.txt`;
-        const filePath = path.join(dir, fileName);
-        fs.writeFileSync(filePath, response, 'utf8');
-        console.error('Saved raw failed AI response to', filePath);
-      } catch (wfErr) {
-        console.error('Failed to persist raw AI response:', wfErr.message);
-      }
+      logger.saveFailedResponse(response, assignmentId);
 
       throw new Error('Failed to parse AI response as JSON: ' + parseError.message);
     }
