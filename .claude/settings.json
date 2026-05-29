@@ -11,7 +11,14 @@
       "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\pptxJobService.js\")",
       "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\routes\\\\pptxJobs.js\")",
       "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\contentService.js\")",
-      "Bash(node --test --test-concurrency=1 --test-isolation=none server/routes/mark.parse-json.test.js)"
+      "Bash(node --test --test-concurrency=1 --test-isolation=none server/routes/mark.parse-json.test.js)",
+      "Bash(find \"c:\\\\Users\\\\kkativu\\\\.claude\\\\projects\\\\c--Users-kkativu-Documents-Github-markmateio\\\\memory\" -type f -name \"*.md\" 2>/dev/null)",
+      "Read(//c/Users/kkativu/.claude/projects/c--Users-kkativu-Documents-Github-markmateio/memory/**)",
+      "Bash(node scripts/seed-ntp3011-rubric.js --email=kkativu@gmail.com)",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const {query,initDatabase}=require\\('./server/database/connection'\\); initDatabase\\(\\).then\\(\\(\\)=>query\\('SELECT id,email,name,role FROM users LIMIT 10'\\)\\).then\\(r=>console.log\\(JSON.stringify\\(\\(r.rows||r\\),null,2\\)\\)\\).then\\(\\(\\)=>process.exit\\(0\\)\\).catch\\(e=>{console.error\\(e.message\\);process.exit\\(1\\)}\\)\")",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const {query,initDatabase}=require\\('./server/database/connection'\\); initDatabase\\(\\).then\\(\\(\\)=>query\\('SELECT id,email,name,role FROM users LIMIT 10'\\)\\).then\\(r=>{const rows=r.rows||r; console.log\\('USERS:', JSON.stringify\\(rows\\)\\)}\\).then\\(\\(\\)=>process.exit\\(0\\)\\).catch\\(e=>{console.error\\(e.message\\);process.exit\\(1\\)}\\)\")",
+      "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).scripts,null,2\\)\\)\")",
+      "Bash(node -e \"require\\('./server/services/pdfReportGenerator'\\); console.log\\('OK'\\)\")"
     ]
   }
 }

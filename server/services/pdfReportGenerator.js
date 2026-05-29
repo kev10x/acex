@@ -32,6 +32,9 @@ class PDFReportGenerator {
   }
 
   generateAssignmentReport(markingResult, assignment, rubric) {
+    if ((rubric.rubric_type || '') === 'mark_sheet') {
+      return this.generateMarkSheetReport(markingResult, assignment, rubric);
+    }
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({ margin: 50 });
@@ -266,6 +269,173 @@ class PDFReportGenerator {
     }
   }
 
+
+  // Render a filled-in mark-sheet table that mirrors the rubric layout.
+  // Used automatically when rubric.rubric_type === 'mark_sheet'.
+  generateMarkSheetReport(markingResult, assignment, rubric) {
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 40, size: 'A4' });
+        const fileName = `marksheet_${markingResult.id}_${Date.now()}.pdf`;
+        const batchDir = this.ensureBatchDirectory(assignment.batch_id || null);
+        const filePath = path.join(batchDir, fileName);
+
+        const stream = fs.createWriteStream(filePath);
+        doc.pipe(stream);
+
+        // ── Layout constants ──────────────────────────────────────────────
+        const L = 40;                         // left margin
+        const pageW = doc.page.width - L * 2; // usable width (~515pt on A4)
+        const COL = {
+          num:      20,
+          task:     195,
+          max:      48,
+          awarded:  62,
+          feedback: pageW - 20 - 195 - 48 - 62  // ~190pt
+        };
+        const ROW_PAD = 5;   // vertical padding inside each cell
+        const FONT_BODY = 9;
+        const FONT_HEAD = 9;
+        const HEADER_BG = '#1e3a5f';
+        const ALT_BG    = '#f0f4f8';
+        const BORDER    = '#9ca3af';
+
+        // ── Header ────────────────────────────────────────────────────────
+        doc.fontSize(14).font('Helvetica-Bold').fillColor('#000000')
+           .text(rubric.name || 'Mark Sheet', L, L, { width: pageW, align: 'center' });
+        doc.moveDown(0.4);
+
+        doc.fontSize(10).font('Helvetica').fillColor('#333333');
+        const studentName = markingResult.student_name || 'Not specified';
+        const markedDate  = markingResult.marked_at
+          ? new Date(markingResult.marked_at).toLocaleDateString('en-GB')
+          : new Date().toLocaleDateString('en-GB');
+        doc.text(`Student: ${studentName}    File: ${assignment.filename || '—'}    Date: ${markedDate}`,
+                 L, doc.y, { width: pageW });
+        doc.moveDown(0.6);
+
+        // ── Helper: measure text height ───────────────────────────────────
+        const textHeight = (text, width, fontSize, font) => {
+          const saved = { font: doc._font, size: doc._fontSize };
+          doc.font(font || 'Helvetica').fontSize(fontSize || FONT_BODY);
+          const h = doc.heightOfString(String(text || ''), { width: width - ROW_PAD * 2 });
+          doc.font(saved.font).fontSize(saved.size);
+          return h;
+        };
+
+        // ── Helper: draw one table row ────────────────────────────────────
+        const drawRow = (y, cells, isHeader) => {
+          // cells: [{ text, width, bold? }]
+          const rowH = cells.reduce((max, c) => {
+            const h = textHeight(c.text, c.width,
+              isHeader ? FONT_HEAD : FONT_BODY,
+              isHeader || c.bold ? 'Helvetica-Bold' : 'Helvetica');
+            return Math.max(max, h + ROW_PAD * 2);
+          }, 18);
+
+          // Background
+          if (isHeader) {
+            doc.rect(L, y, pageW, rowH).fill(HEADER_BG);
+          } else if (cells._alt) {
+            doc.rect(L, y, pageW, rowH).fill(ALT_BG);
+          }
+
+          // Cell text and borders
+          let x = L;
+          cells.forEach(c => {
+            doc.rect(x, y, c.width, rowH).stroke(BORDER);
+            const font  = isHeader || c.bold ? 'Helvetica-Bold' : 'Helvetica';
+            const color = isHeader ? '#ffffff' : '#000000';
+            doc.font(font).fontSize(isHeader ? FONT_HEAD : FONT_BODY)
+               .fillColor(color)
+               .text(String(c.text || ''), x + ROW_PAD, y + ROW_PAD,
+                     { width: c.width - ROW_PAD * 2, lineBreak: true });
+            x += c.width;
+          });
+
+          return rowH;
+        };
+
+        // ── Column widths as array entries ────────────────────────────────
+        const colW = [COL.num, COL.task, COL.max, COL.awarded, COL.feedback];
+
+        // ── Table header ──────────────────────────────────────────────────
+        const headerCells = [
+          { text: '#',              width: COL.num      },
+          { text: 'Task',           width: COL.task     },
+          { text: 'Max\nMarks',     width: COL.max      },
+          { text: 'Marks\nAwarded', width: COL.awarded  },
+          { text: 'Feedback',       width: COL.feedback }
+        ];
+        let curY = doc.y;
+        curY += drawRow(curY, headerCells, true);
+
+        // ── Build score lookup keyed by criterion_name ────────────────────
+        const rawScores = typeof markingResult.scores === 'string'
+          ? JSON.parse(markingResult.scores)
+          : (markingResult.scores || []);
+        const scoreMap = {};
+        rawScores.forEach(s => { scoreMap[s.criterion_name] = s; });
+
+        // ── Criteria rows ─────────────────────────────────────────────────
+        const criteria = rubric.criteria || [];
+        criteria.forEach((criterion, idx) => {
+          const score    = scoreMap[criterion.name] || {};
+          const awarded  = score.points_awarded != null ? String(score.points_awarded) : '—';
+          const feedback = score.feedback || '';
+
+          // Page-break check: estimate row height before drawing
+          const estFeedbackH = textHeight(feedback,      COL.feedback);
+          const estTaskH     = textHeight(criterion.name, COL.task);
+          const estH         = Math.max(estTaskH, estFeedbackH) + ROW_PAD * 2 + 4;
+          if (curY + estH > doc.page.height - 60) {
+            doc.addPage();
+            curY = 40;
+          }
+
+          const cells = [
+            { text: String(idx + 1),       width: COL.num      },
+            { text: criterion.name,        width: COL.task, bold: true },
+            { text: criterion.max_points,  width: COL.max      },
+            { text: awarded,               width: COL.awarded  },
+            { text: feedback,              width: COL.feedback }
+          ];
+          cells._alt = idx % 2 === 1;
+          curY += drawRow(curY, cells, false);
+        });
+
+        // ── Totals row ────────────────────────────────────────────────────
+        const totalAwarded = rawScores.reduce((s, r) => s + (Number(r.points_awarded) || 0), 0);
+        const totals = [
+          { text: '',           width: COL.num      },
+          { text: 'TOTAL',      width: COL.task, bold: true },
+          { text: rubric.total_points, width: COL.max },
+          { text: totalAwarded, width: COL.awarded   },
+          { text: '',           width: COL.feedback  }
+        ];
+        if (curY + 24 > doc.page.height - 60) { doc.addPage(); curY = 40; }
+        curY += drawRow(curY, totals, true);
+
+        // ── Overall feedback ──────────────────────────────────────────────
+        const overall = markingResult.feedback || markingResult.overall_feedback;
+        if (overall && overall.trim()) {
+          curY += 12;
+          doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000')
+             .text('Overall feedback:', L, curY);
+          curY = doc.y + 2;
+          doc.font('Helvetica').fontSize(9)
+             .text(overall, L, curY, { width: pageW });
+        }
+
+        doc.end();
+        stream.on('finish', () => resolve({ fileName, filePath, size: fs.statSync(filePath).size }));
+        stream.on('error', reject);
+
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
 
   // Generate a batch report for multiple assignments
   generateBatchReport(markingResults, assignments, rubrics) {

@@ -14,6 +14,7 @@
     "setup": "node setup.js && npm install && cd client && npm install",
     "demo": "node demo-data.js",
     "seed:sample-org": "node seed-sample-organisation.js",
+    "seed:ntp3011": "node scripts/seed-ntp3011-rubric.js",
     "postinstall": "node setup.js",
     "reparse:failed": "node scripts/reparse-failed.js",
     "test:decode-payload": "node scripts/test-decode-payload.js"
