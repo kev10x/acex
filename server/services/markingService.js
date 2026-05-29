@@ -541,6 +541,15 @@ const repairJsonByParsePosition = (value, maxAttempts = 30) => {
       const errorPos = getJsonErrorPosition(error);
       if (errorPos == null) break;
 
+      // When the unexpected token is a `"`, a missing comma before the next
+      // property/value is more likely than an unescaped quote — an unescaped
+      // quote causes the parser to swallow the string early and then report the
+      // error on the prose text that follows (e.g. a letter), not on a `"`.
+      if (errorPos > 0 && errorPos < candidate.length && candidate[errorPos] === '"') {
+        candidate = `${candidate.slice(0, errorPos)},${candidate.slice(errorPos)}`;
+        continue;
+      }
+
       const quoteIndex = findLikelyUnescapedQuoteIndex(candidate, errorPos);
       if (quoteIndex < 0) break;
 

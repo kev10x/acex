@@ -10,7 +10,8 @@
       "Bash(node --check server/config/ai-config.js)",
       "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\pptxJobService.js\")",
       "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\routes\\\\pptxJobs.js\")",
-      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\contentService.js\")"
+      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\contentService.js\")",
+      "Bash(node --test --test-concurrency=1 --test-isolation=none server/routes/mark.parse-json.test.js)"
     ]
   }
 }

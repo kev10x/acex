@@ -361,3 +361,37 @@ test('parseMarkingResponsePayload repairs quoted prose that resembles an unknown
     'The paragraph mentions "awareness", "students": 120 as a labelled figure in the sentence, but it is not a response field.'
   );
 });
+
+test('parseMarkingResponsePayload repairs missing comma between properties', (t) => {
+  const { module: router, restore } = loadMarkRoute();
+  t.after(restore);
+
+  // Simulates the production failure: AI omits the comma after a string value,
+  // causing "Expected ',' or '}' after property value" at the opening '"' of the
+  // next property — the error position lands on a '"', triggering comma insertion.
+  const malformedResponse = `{
+    "scores": [
+      {
+        "criterion_name": "Analysis"
+        "points_awarded": 3,
+        "max_points": 5,
+        "rubric_basis": "Rubric requires analysis.",
+        "feedback": "Good analysis overall."
+        "confidence": 82
+      }
+    ],
+    "corrections": [],
+    "language_errors": [],
+    "overall_feedback": "Well done."
+    "total_score": 3,
+    "overall_confidence": 82
+  }`;
+
+  const parsed = router.parseMarkingResponsePayload(malformedResponse);
+
+  assert.equal(parsed.scores[0].criterion_name, 'Analysis');
+  assert.equal(parsed.scores[0].points_awarded, 3);
+  assert.equal(parsed.scores[0].feedback, 'Good analysis overall.');
+  assert.equal(parsed.total_score, 3);
+  assert.equal(parsed.overall_confidence, 82);
+});
