@@ -42,13 +42,19 @@ const MarkingInterface: React.FC = () => {
 
   const isDocxAssignment = (assignment?: Assignment) => /\.docx$/i.test(assignment?.filename || '');
   const isPdfAssignment = (assignment?: Assignment) => /\.pdf$/i.test(assignment?.filename || '');
+  const isCodeAssignment = (assignment?: Assignment) => /\.(py|js|jsx|ts|tsx|java|c|h|cpp|cc|cxx|hpp|cs|php|rb|go|rs|swift|kt|kts|scala|r|m|sql|sh|bash|zsh|ps1|pl|lua|dart|html|css|scss|sass|json|xml|ya?ml|toml|ini|cfg|md|txt)$/i.test(assignment?.filename || '');
   const selectedAssignmentObjects = selectedAssignments
     .map((id) => assignments.find((assignment) => assignment.id === id))
     .filter((assignment): assignment is Assignment => Boolean(assignment));
   const hasSelectedAssignments = selectedAssignmentObjects.length > 0;
   const selectedOnlyDocx = hasSelectedAssignments && selectedAssignmentObjects.every(isDocxAssignment);
   const selectedOnlyPdf = hasSelectedAssignments && selectedAssignmentObjects.every(isPdfAssignment);
-  const selectedMixedDocumentTypes = hasSelectedAssignments && !selectedOnlyDocx && !selectedOnlyPdf;
+  const selectedOnlyCode = hasSelectedAssignments && selectedAssignmentObjects.every(isCodeAssignment);
+  const selectedMixedDocumentTypes = hasSelectedAssignments && !selectedOnlyDocx && !selectedOnlyPdf && !selectedOnlyCode;
+  const hasAvailableDocxAssignments = assignments.some((assignment) => (
+    (assignment.status === 'uploaded' || assignment.status === 'error') && isDocxAssignment(assignment)
+  ));
+  const showWordCommentsOption = selectedOnlyDocx || (!hasSelectedAssignments && hasAvailableDocxAssignments);
 
   useEffect(() => {
     if (!hasSelectedAssignments) return;
@@ -60,10 +66,18 @@ const MarkingInterface: React.FC = () => {
       setOutputType('annotate');
       return;
     }
+    if (selectedOnlyCode && outputType !== 'report') {
+      setOutputType('report');
+      return;
+    }
+    if (selectedOnlyCode && assessmentType === 'assignment') {
+      setAssessmentType('code');
+      return;
+    }
     if (selectedMixedDocumentTypes && outputType !== 'report') {
       setOutputType('report');
     }
-  }, [hasSelectedAssignments, outputType, selectedMixedDocumentTypes, selectedOnlyDocx, selectedOnlyPdf]);
+  }, [assessmentType, hasSelectedAssignments, outputType, selectedMixedDocumentTypes, selectedOnlyCode, selectedOnlyDocx, selectedOnlyPdf]);
 
   useEffect(() => {
     fetchData();
@@ -433,6 +447,7 @@ const MarkingInterface: React.FC = () => {
                 <option value="assignment">Assignment</option>
                 <option value="test">Test</option>
                 <option value="exam">Exam</option>
+                <option value="code">Code</option>
                 <option value="project_proposal">Project Proposal</option>
                 <option value="treatise">Treatise</option>
                 <option value="thesis">Thesis</option>
@@ -652,14 +667,15 @@ const MarkingInterface: React.FC = () => {
                 </div>
               </label>
             )}
-            {selectedOnlyDocx && (
-              <label className="flex items-start">
+            {showWordCommentsOption && (
+              <label className={`flex items-start ${hasSelectedAssignments && !selectedOnlyDocx ? 'opacity-60' : ''}`}>
                 <input
                   type="radio"
                   name="outputType"
                   value="word_comments"
                   checked={outputType === 'word_comments'}
                   onChange={(e) => setOutputType(e.target.value as MarkingOutputType)}
+                  disabled={hasSelectedAssignments && !selectedOnlyDocx}
                   className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
                 />
                 <div className="ml-3">
@@ -669,6 +685,11 @@ const MarkingInterface: React.FC = () => {
                   <div className="text-sm text-gray-500">
                     Insert MarkMate feedback as native comments into the uploaded DOCX file.
                   </div>
+                  {!hasSelectedAssignments && (
+                    <div className="text-xs text-primary-700 mt-1">
+                      Select one or more Word documents below to use this output.
+                    </div>
+                  )}
                 </div>
               </label>
             )}
@@ -693,6 +714,11 @@ const MarkingInterface: React.FC = () => {
             {selectedMixedDocumentTypes && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                 Select only PDF files for PDF annotation, or only DOCX files for commented Word output. Mixed selections can use the assessment report.
+              </p>
+            )}
+            {selectedOnlyCode && (
+              <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+                Code files are marked from source text and use the assessment report output.
               </p>
             )}
           </div>

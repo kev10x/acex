@@ -990,6 +990,7 @@ const normalizeDocumentType = (documentType) => {
   const value = String(documentType || '').trim().toLowerCase();
   if (value === 'project_proposal' || value === 'project proposal' || value === 'proposal') return 'project_proposal';
   if (value === 'exam' || value === 'examination') return 'exam';
+  if (value === 'code' || value === 'source_code' || value === 'programming') return 'code';
   return documentType;
 };
 
@@ -1292,6 +1293,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
           ? `You are a supervisor evaluating a Project Proposal. Emphasize clarity of the problem or project aim, significance, feasibility, scope, implementation plan, risk management, and methodology/design plan. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Provide ${terms.feedback} feedback appropriate for ${levelBandLabel}.`
           : `You are evaluating a Project Proposal. Emphasize clarity of the project aim, significance, feasibility, scope, and plan. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
         exam: `You are an examiner marking an Exam. Focus on accuracy of answers, completeness, clarity of explanations, adherence to instructions, and correct allocation of marks according to the rubric or memo.`,
+        code: `You are an expert programming instructor marking source code. Evaluate functional correctness, algorithmic approach, syntax, readability, maintainability, error handling, security where relevant, and how well the code satisfies the rubric or task requirements.`,
         question_paper: `You are an examiner evaluating a Question Paper/Exam. Focus on accuracy of answers, completeness, clarity of explanations, and adherence to expected responses.`,
         memo: `You are an examiner using a MEMO (Marking Memorandum/Answer Key) to evaluate student responses. Compare student answers against the model answers and marking scheme in the memo.`
       };
@@ -1411,6 +1413,24 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
       }
 
+      if (assessmentType === 'code') {
+        return `EVALUATION GUIDELINES FOR CODE:
+- This is a source-code submission. Mark it against the rubric and the task requirements, not as a prose essay.
+- Apply STRICT programming assessment standards - be precise about defects and do not infer functionality that is not present in the code.
+- Evaluate functional correctness: does the code solve the stated problem, produce the expected outputs, handle required inputs, and meet all specified constraints?
+- Evaluate code structure: decomposition, naming, control flow, data structures, modularity, and avoidance of unnecessary duplication.
+- Evaluate syntax and runtime risk: identify syntax errors, missing imports, undefined variables, type issues, likely exceptions, and logic errors.
+- Evaluate robustness: input validation, error handling, edge cases, resource cleanup, security concerns, and performance where relevant.
+- Reference specific functions, variables, statements, or code blocks from the submission when giving feedback.
+- When code is wrong, say exactly what is wrong and why it would fail. Do not soften errors or call broken code "partially correct" unless the rubric supports partial credit.
+- Recognize correct, efficient, readable code when present, then state gaps and improvements directly.
+- Provide actionable fixes: name what to change, where to change it, and what behavior the fix should produce.
+- ${guidance.tone}
+- ${guidance.feedback}
+- ${guidance.terminology}
+- Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
+      }
+
       if (assessmentType === 'test') {
         return `EVALUATION GUIDELINES FOR TEST:
 - Apply STRICT marking standards - be precise and critical
@@ -1474,6 +1494,8 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       contentLabel = 'PROJECT PROPOSAL CONTENT:';
     } else if (documentType === 'exam') {
       contentLabel = 'EXAM SUBMISSION:';
+    } else if (documentType === 'code') {
+      contentLabel = 'SOURCE CODE SUBMISSION:';
     }
 
     const evaluationGuidelines = getEvaluationGuidelines(documentType, levelCategory, isMemo);

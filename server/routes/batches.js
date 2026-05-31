@@ -3,6 +3,7 @@ const { query } = require('../database/connection');
 const { requireAuth } = require('../middleware/auth');
 const { generateMarking } = require('./mark');
 const { runOpenAIBatchPollingCycle } = require('../services/openaiBatchMarkingService');
+const { isCodeDocument } = require('../services/documentExtractService');
 
 const router = express.Router();
 const scheduledTimers = new Map();
@@ -10,7 +11,7 @@ const scheduledTimers = new Map();
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const firstRow = (result) => rowsOf(result)[0];
 const isManagementUser = (user) => ['management', 'admin'].includes(String(user?.role || '').toLowerCase());
-const stripAssignmentExtension = (filename) => String(filename || '').replace(/\.(pdf|docx)$/i, '');
+const stripAssignmentExtension = (filename) => String(filename || '').replace(/\.[^.]+$/i, '');
 
 const scheduleJobProcessor = (jobId, when) => {
   if (scheduledTimers.has(jobId)) {
@@ -77,7 +78,8 @@ const runMarkingJob = async (jobId) => {
       const text = (assignment.extracted_text || '').trim();
       if (!text) throw new Error(`No extracted text for ${assignment.filename}`);
 
-      const result = await generateMarking(text, rubric);
+      const documentType = isCodeDocument(assignment.filename) ? 'code' : null;
+      const result = await generateMarking(text, rubric, documentType);
       const insertResult = await query(
         `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -560,8 +562,6 @@ router.get('/jobs/health', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-
-
 
 
 

@@ -21,6 +21,7 @@ module.exports = {
     // These are prompt-processing caps, not PDF extraction caps. Extracted text is stored in full.
     treatise: envInt('MARKING_TREATISE_MAX_CHARS', 800000),
     assignment: envInt('MARKING_ASSIGNMENT_MAX_CHARS', 60000),
+    code: envInt('MARKING_CODE_MAX_CHARS', 120000),
     project_proposal: envInt('MARKING_PROJECT_PROPOSAL_MAX_CHARS', 120000),
     proposal: envInt('MARKING_PROJECT_PROPOSAL_MAX_CHARS', 120000),
     report: envInt('MARKING_REPORT_MAX_CHARS', 60000),
@@ -35,6 +36,7 @@ module.exports = {
     models: {
       treatise: "gpt-5.2",           // Flagship for large documents and complex JSON
       assignment: "gpt-5-mini",      // Faster, cost-efficient for smaller assignments
+      code: "gpt-5.2",
       project_proposal: "gpt-5-mini",
       proposal: "gpt-5-mini",
       exam: "gpt-5.2",
@@ -48,6 +50,7 @@ module.exports = {
     maxTokens: {
       treatise: 32000,
       assignment: 32000,
+      code: 32000,
       project_proposal: 32000,
       proposal: 32000,
       exam: 32000,
@@ -63,6 +66,7 @@ module.exports = {
     temperature: {
       treatise: 0.4,       // Moderate for varied but accurate academic evaluation
       assignment: 0.3,      // Moderate for natural variation in marking
+      code: 0.2,
       project_proposal: 0.3,
       proposal: 0.3,
       exam: 0.25,
@@ -80,6 +84,7 @@ module.exports = {
     models: {
       treatise: "claude-3-haiku-20240307",  // Using Haiku (Sonnet requires account upgrade)
       assignment: "claude-3-haiku-20240307", // Using Haiku (Sonnet requires account upgrade)
+      code: "claude-3-haiku-20240307",
       project_proposal: "claude-3-haiku-20240307",
       proposal: "claude-3-haiku-20240307",
       exam: "claude-3-haiku-20240307",
@@ -94,6 +99,7 @@ module.exports = {
     maxTokens: {
       treatise: 16000,
       assignment: 16000,
+      code: 16000,
       project_proposal: 16000,
       proposal: 16000,
       exam: 16000,
@@ -109,6 +115,7 @@ module.exports = {
     temperature: {
       treatise: 0.4,       // Moderate for varied but accurate academic evaluation
       assignment: 0.3,      // Moderate for natural variation in marking
+      code: 0.2,
       project_proposal: 0.3,
       proposal: 0.3,
       exam: 0.25,

@@ -11,6 +11,7 @@ const {
   extractTextFromDocument,
   getPdfPageImages,
   getSupportedDocumentLabel,
+  isCodeDocument,
   isDocxDocument,
   isPdfDocument
 } = require('../services/documentExtractService');
@@ -22,6 +23,7 @@ const pdfGenerator = new PDFReportGenerator();
 
 const getAssignmentDisplayName = (assignment) => assignment?.filename || assignment?.file_path || '';
 const getCommentedDocxPath = (filePath) => filePath.replace(/\.docx$/i, '.marked-comments.docx');
+const inferDocumentTypeFromAssignment = (assignment) => (isCodeDocument(getAssignmentDisplayName(assignment)) ? 'code' : null);
 
 // Debug endpoint to test marking functionality
 router.post('/debug', requireAuth, async (req, res) => {
@@ -408,7 +410,7 @@ router.post('/single', requireAuth, async (req, res) => {
         });
       }
 
-      const docType = assessment_type || document_type || null;
+      const docType = assessment_type || document_type || inferDocumentTypeFromAssignment(assignment);
       const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
 
       if (checkAborted()) {
@@ -904,7 +906,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
             continue;
           }
 
-          const docType = assessment_type || document_type || null;
+          const docType = assessment_type || document_type || inferDocumentTypeFromAssignment(assignment);
           const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
 
           if (checkAborted()) {

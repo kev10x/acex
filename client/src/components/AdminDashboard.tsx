@@ -69,6 +69,7 @@ interface UserData {
   department_name?: string | null;
 }
 type UserRole = 'management' | 'lecturer' | 'student';
+type ImpersonableRole = Exclude<UserRole, 'management'>;
 const normalizeRole = (role?: string): UserRole => {
   const r = String(role || '').toLowerCase();
   if (r === 'admin') return 'management';
@@ -82,6 +83,8 @@ const AdminDashboard: React.FC = () => {
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'performance' | 'system'>('pending');
+  const [impersonationRole, setImpersonationRole] = useState<ImpersonableRole>('lecturer');
+  const [impersonationUserId, setImpersonationUserId] = useState<number | ''>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
@@ -550,6 +553,23 @@ const AdminDashboard: React.FC = () => {
       return userAllowed !== effectiveAllowed;
     });
   });
+  const impersonationCandidates = allUsers.filter((userData) => (
+    userData.id !== user.id &&
+    normalizeRole(userData.role) === impersonationRole &&
+    userData.is_approved &&
+    userData.is_active !== false
+  ));
+  const selectedImpersonationCandidate = impersonationUserId === ''
+    ? impersonationCandidates[0]
+    : impersonationCandidates.find((userData) => userData.id === Number(impersonationUserId));
+
+  const handleRoleImpersonation = async () => {
+    if (!selectedImpersonationCandidate) {
+      notifyError(`No active approved ${impersonationRole} user is available to impersonate.`);
+      return;
+    }
+    await handleImpersonate(selectedImpersonationCandidate.id);
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -564,6 +584,64 @@ const AdminDashboard: React.FC = () => {
             Role={user?.role || 'none'}
           </div>
         )}
+      </div>
+
+      <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-indigo-900 mb-1">Role impersonation</h3>
+            <p className="text-xs text-indigo-800">
+              Start an admin-only test session as an active approved lecturer or student account.
+            </p>
+          </div>
+          <div className="grid w-full gap-3 sm:grid-cols-[160px_minmax(220px,1fr)_auto] lg:w-auto">
+            <div>
+              <label className="block text-xs font-medium text-indigo-900 mb-1">Role</label>
+              <select
+                value={impersonationRole}
+                onChange={(e) => {
+                  setImpersonationRole(e.target.value as ImpersonableRole);
+                  setImpersonationUserId('');
+                }}
+                className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="lecturer">Lecturer</option>
+                <option value="student">Student</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-indigo-900 mb-1">Account</label>
+              <select
+                value={impersonationUserId}
+                onChange={(e) => setImpersonationUserId(e.target.value ? Number(e.target.value) : '')}
+                disabled={impersonationCandidates.length === 0}
+                className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm disabled:bg-indigo-100 disabled:text-indigo-400"
+              >
+                {impersonationCandidates.length === 0 ? (
+                  <option value="">No eligible users</option>
+                ) : (
+                  <>
+                    <option value="">First available {impersonationRole}</option>
+                    {impersonationCandidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name || candidate.email} ({candidate.email})
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRoleImpersonation()}
+              disabled={!selectedImpersonationCandidate || actionLoading === selectedImpersonationCandidate.id}
+              className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              <User className="mr-2 h-4 w-4" />
+              {actionLoading === selectedImpersonationCandidate?.id ? 'Starting...' : 'Start session'}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">

@@ -44,6 +44,10 @@ function isDocxResult(result?: MarkingResult | null): boolean {
   return /\.docx$/i.test(result?.filename || '');
 }
 
+function isPdfResult(result?: MarkingResult | null): boolean {
+  return /\.pdf$/i.test(result?.filename || '');
+}
+
 const ResultsDashboard: React.FC = () => {
   const { user } = useAuth();
   const allowDownloadResults = user?.features?.download_results !== false;
@@ -1368,7 +1372,7 @@ const ResultsDashboard: React.FC = () => {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {!isStudent && !isDocxResult(result) && <button
+                            {!isStudent && isPdfResult(result) && <button
                               onClick={() => handleViewAnnotatedPDF(result.id)}
                               className="text-green-600 hover:text-green-900"
                               title="View Annotated PDF"
@@ -1762,6 +1766,7 @@ const ResultsDashboard: React.FC = () => {
                               <option value="assignment">Assignment</option>
                               <option value="test">Test / Quiz</option>
                               <option value="exam">Exam</option>
+                              <option value="code">Code</option>
                               <option value="project_proposal">Project Proposal</option>
                               <option value="treatise">Treatise / Dissertation</option>
                               <option value="thesis">Thesis</option>
@@ -2205,7 +2210,7 @@ const ResultsDashboard: React.FC = () => {
                       <FileCheck className="w-4 h-4 mr-2" />
                       Download Commented Word
                     </button>
-                  ) : (
+                  ) : isPdfResult(selectedResult) ? (
                     <button
                       onClick={() => handleViewAnnotatedPDF(selectedResult.id)}
                       className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
@@ -2213,7 +2218,7 @@ const ResultsDashboard: React.FC = () => {
                       <FileCheck className="w-4 h-4 mr-2" />
                       View Annotated PDF
                     </button>
-                  )}
+                  ) : null}
                   {allowDownloadResults && (
                     <button
                       onClick={() => handleDownloadPDF(selectedResult.id)}

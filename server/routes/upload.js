@@ -84,7 +84,7 @@ const fileFilter = (req, file, cb) => {
   if (isSupportedDocument(file.originalname, file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF or DOCX Word documents are allowed'), false);
+    cb(new Error('Only PDF, DOCX Word documents, or source-code files are allowed'), false);
   }
 };
 
@@ -142,7 +142,7 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
-      return res.status(400).json({ error: 'Only PDF or DOCX Word documents are allowed' });
+      return res.status(400).json({ error: 'Only PDF, DOCX Word documents, or source-code files are allowed' });
     }
 
     const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
@@ -380,7 +380,7 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
     try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch {}
 
     if (extractedAssignments.length === 0) {
-      return res.status(400).json({ error: 'No PDF or DOCX files found in ZIP' });
+      return res.status(400).json({ error: 'No PDF, DOCX, or source-code files found in ZIP' });
     }
 
     res.json({

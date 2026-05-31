@@ -23,6 +23,8 @@ This file is shared working memory for Codex sessions in this repository. Read i
 - 2026-05-31: Assignment uploads and marking now support DOCX Word documents alongside PDFs. DOCX marking uses extracted text; inline annotation remains PDF-only.
 - 2026-05-31: DOCX marking can produce a commented Word document output. Native Word comments are inserted into `.docx` files; result downloads can generate the commented DOCX on demand if needed.
 - 2026-05-31: Marking assessment types include Assignment, Test, Exam, Project Proposal, Treatise, and Thesis. Backend document type values include `exam` and `project_proposal` (`proposal` remains an alias).
+- 2026-05-31: Admin dashboard exposes role impersonation for active approved lecturer/student accounts. Backend impersonation remains admin-only and blocks management/admin targets.
+- 2026-05-31: Source-code uploads are supported for marking. Common code/text extensions such as `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.sql`, `.sh`, `.html`, `.css`, `.json`, and `.yaml` are extracted as text and marked with document type `code`.
 
 ## Update Protocol
 

@@ -397,7 +397,7 @@ export const rubricsAPI = {
 
 // Marking API
 export type MarkingOutputType = 'annotate' | 'report' | 'word_comments';
-export type MarkingAssessmentType = 'assignment' | 'test' | 'exam' | 'project_proposal' | 'treatise' | 'thesis';
+export type MarkingAssessmentType = 'assignment' | 'test' | 'exam' | 'code' | 'project_proposal' | 'treatise' | 'thesis';
 
 export const markingAPI = {
   markSingle: (data: {

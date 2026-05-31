@@ -4,6 +4,7 @@ const OpenAI = require('openai');
 const { query } = require('../database/connection');
 const aiConfig = require('../config/ai-config');
 const { parseMarkingResponsePayload } = require('./markingService');
+const { isCodeDocument } = require('./documentExtractService');
 
 const POLL_INTERVAL_MS = 30000;
 const COMPLETION_WINDOW = '24h';
@@ -14,7 +15,7 @@ const TEMP_DIR = path.join(__dirname, '../uploads/temp/openai-batches');
 
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const firstRow = (result) => rowsOf(result)[0];
-const stripAssignmentExtension = (filename) => String(filename || '').replace(/\.(pdf|docx)$/i, '');
+const stripAssignmentExtension = (filename) => String(filename || '').replace(/\.[^.]+$/i, '');
 
 let pollingTimer = null;
 let cycleInProgress = false;
@@ -77,7 +78,8 @@ function buildDetailedRubric(criteria) {
 }
 
 function buildBatchMarkingPrompt(assignmentText, rubric, options = {}) {
-  const config = aiConfig.getConfig('assignment', 'openai');
+  const documentType = options.documentType || 'assignment';
+  const config = aiConfig.getConfig(documentType, 'openai');
   const criteria = Array.isArray(rubric.criteria)
     ? rubric.criteria
     : typeof rubric.criteria === 'string'
@@ -90,7 +92,11 @@ function buildBatchMarkingPrompt(assignmentText, rubric, options = {}) {
   const detailedRubric = buildDetailedRubric(criteria);
   const strictnessLevel = options.strictnessLevel || 'strict';
 
-  const prompt = `You are marking a student's academic submission against the provided ${rubricLabel.toLowerCase()}.
+  const codeGuidance = documentType === 'code'
+    ? '\n- This is a source-code submission. Evaluate functional correctness, syntax/runtime risks, algorithmic approach, readability, maintainability, and task fit.\n- Reference specific functions, variables, statements, or code blocks when giving feedback.\n- Do not infer functionality that is not present in the code.'
+    : '';
+
+  const prompt = `You are marking a student's ${documentType === 'code' ? 'source-code' : 'academic'} submission against the provided ${rubricLabel.toLowerCase()}.
 
 STUDENT SUBMISSION:
 ${truncatedText}
@@ -106,6 +112,7 @@ MARKING REQUIREMENTS:
 - Be direct and realistic. Do not inflate marks.
 - Give useful feedback with concrete references to the student's work.
 - If the rubric is a memo/answer key, compare the student's answer directly against the expected answer.
+${codeGuidance}
 - Keep per-criterion feedback concise but useful (2-4 sentences).
 - Keep overall feedback practical and specific (roughly 120-220 words).
 - Include confidence scores from 0 to 100.
@@ -422,7 +429,8 @@ async function submitOpenAIBatchJob(job) {
 
   const jsonl = validAssignments.map((assignment) => {
     const body = buildBatchMarkingPrompt(assignment.extracted_text, rubric, {
-      strictnessLevel: job.strictness_level || 'strict'
+      strictnessLevel: job.strictness_level || 'strict',
+      documentType: isCodeDocument(assignment.filename) ? 'code' : 'assignment'
     });
 
     return JSON.stringify({
