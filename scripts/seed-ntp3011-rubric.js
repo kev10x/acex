@@ -9,6 +9,9 @@
  * of the default paragraph layout.
  */
 
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+
 const { query, initDatabase } = require('../server/database/connection');
 
 const EMAIL_ARG = process.argv.find(a => a.startsWith('--email='));
