@@ -80,9 +80,9 @@ const FileUpload: React.FC = () => {
       if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
         setError('Network error: Cannot connect to server. Please ensure the server is running on port 3001.');
       } else if (err.response?.status === 413) {
-        setError('File too large. Maximum file size is 10MB for PDFs, 100MB for ZIP files.');
+        setError('File too large. Maximum file size is 10MB for PDF/DOCX files, 100MB for ZIP files.');
       } else if (err.response?.status === 400) {
-        setError(err.response?.data?.error || 'Invalid file. Only PDF files are allowed.');
+        setError(err.response?.data?.error || 'Invalid file. Only PDF or DOCX Word documents are allowed.');
       } else {
         setError(err.response?.data?.error || err.message || 'Failed to upload files. Please check your connection and try again.');
       }
@@ -95,6 +95,7 @@ const FileUpload: React.FC = () => {
     onDrop,
     accept: {
       'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/zip': ['.zip']
     },
     multiple: true,
@@ -178,9 +179,9 @@ const FileUpload: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">Upload PDF Assignments</h2>
+        <h2 className="text-2xl font-bold text-gray-900">Upload Assignments</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Upload one or multiple PDF files to get started with marking.
+          Upload PDF or DOCX Word documents to get started with marking.
         </p>
       </div>
 
@@ -271,11 +272,11 @@ const FileUpload: React.FC = () => {
         <div className="mt-4">
           <p className="text-lg font-medium text-gray-900">
             {isDragActive
-              ? 'Drop the PDF or ZIP files here'
-              : 'Drag & drop PDF or ZIP files here, or click to select'}
+              ? 'Drop the assignment files here'
+              : 'Drag & drop PDF, DOCX, or ZIP files here, or click to select'}
           </p>
           <p className="mt-1 text-sm text-gray-500">
-            Supports multiple PDFs up to 10MB each, or a ZIP up to 100MB
+            Supports multiple PDF/DOCX files up to 10MB each, or a ZIP up to 100MB
           </p>
         </div>
       </div>

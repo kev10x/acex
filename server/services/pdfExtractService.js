@@ -1,4 +1,4 @@
-const { extractTextFromPDF: extractWithOCR, getPdfPageImages } = require('./pdfOCR');
+const { extractTextFromPDF: extractWithOCR, getPdfPageImages } = require('./documentExtractService');
 
 const extractTextFromPDF = async (filePath) => {
   try {

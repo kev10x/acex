@@ -396,13 +396,16 @@ export const rubricsAPI = {
 };
 
 // Marking API
+export type MarkingOutputType = 'annotate' | 'report' | 'word_comments';
+export type MarkingAssessmentType = 'assignment' | 'test' | 'exam' | 'project_proposal' | 'treatise' | 'thesis';
+
 export const markingAPI = {
   markSingle: (data: {
     assignment_id: number;
     rubric_id: number;
     student_name?: string;
-    output_type?: 'annotate' | 'report';
-    assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
+    output_type?: MarkingOutputType;
+    assessment_type?: MarkingAssessmentType;
     level?: string;
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
@@ -416,8 +419,8 @@ export const markingAPI = {
     assignment_ids: number[];
     rubric_id: number;
     student_names?: (string | null)[];
-    output_type?: 'annotate' | 'report';
-    assessment_type?: 'assignment' | 'test' | 'treatise' | 'thesis';
+    output_type?: MarkingOutputType;
+    assessment_type?: MarkingAssessmentType;
     level?: string;
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
@@ -454,6 +457,7 @@ export const resultsAPI = {
   downloadAll: () => api.get('/results/download/all', { responseType: 'blob' }),
   downloadCSV: () => api.get('/results/download/csv', { responseType: 'blob' }),
   getAnnotatedPDF: (resultId: number) => api.get(`/results/annotated-pdf/${resultId}`, { responseType: 'blob' }),
+  getCommentedDocx: (resultId: number) => api.get(`/results/commented-docx/${resultId}`, { responseType: 'blob' }),
   getAnalyticsOverview: () => api.get('/results/analytics/overview'),
   getManagementPerformance: () => api.get<ManagementPerformanceResponse>('/results/analytics/management-performance'),
   getCriteriaAnalytics: (rubricId: number) => api.get(`/results/analytics/criteria/${rubricId}`),

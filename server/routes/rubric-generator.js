@@ -1,10 +1,9 @@
 const express = require('express');
-const fs = require('fs');
-const pdfParse = require('pdf-parse');
 const { query } = require('../database/connection');
 const { requireAuth } = require('../middleware/auth');
 const aiService = require('../services/aiService');
 const aiConfig = require('../config/ai-config');
+const { extractTextFromDocument } = require('../services/documentExtractService');
 
 const router = express.Router();
 
@@ -309,20 +308,6 @@ Respond with ONLY a JSON object:
   } catch (error) {
     console.warn('Document type detection failed, defaulting to rubric:', error.message);
     return 'rubric';
-  }
-};
-
-// Extract text from PDF (with OCR/Vision API fallback for handwritten text)
-const extractTextFromPDF = async (filePath) => {
-  try {
-    const { extractTextFromPDF: extractWithOCR } = require('../services/pdfOCR');
-    return await extractWithOCR(filePath, {
-      useVisionAPI: true, // Automatically use Vision API if standard extraction fails
-      useOCR: false
-    });
-  } catch (error) {
-    console.error('PDF parsing error:', error);
-    throw error;
   }
 };
 
@@ -749,13 +734,13 @@ router.post('/from-pdf', async (req, res) => {
     const assignment = assignmentResult.rows[0];
 
     try {
-      // Extract text from PDF
-      console.log('Starting PDF text extraction for file:', assignment.file_path);
-      const assignmentText = await extractTextFromPDF(assignment.file_path);
-      console.log('PDF text extraction completed. Text length:', assignmentText ? assignmentText.length : 0);
+      // Extract text from the uploaded document
+      console.log('Starting document text extraction for file:', assignment.file_path);
+      const assignmentText = await extractTextFromDocument(assignment.file_path, assignment.filename);
+      console.log('Document text extraction completed. Text length:', assignmentText ? assignmentText.length : 0);
       
       if (!assignmentText || assignmentText.trim().length === 0) {
-        throw new Error('No text could be extracted from the PDF');
+        throw new Error('No text could be extracted from the document');
       }
 
       // Determine what to generate based on user selection or auto-detection
@@ -798,7 +783,7 @@ router.post('/from-pdf', async (req, res) => {
       // Generate or extract based on final type
       if (finalType === 'answer_key') {
         console.log('📋 Generating answer key from question paper...');
-        const answerKeyName = rubric_name || `Answer Key - ${assignment.filename.replace('.pdf', '')}`;
+        const answerKeyName = rubric_name || `Answer Key - ${assignment.filename.replace(/\.(pdf|docx)$/i, '')}`;
         const answerKeyData = await generateAnswerKeyFromQuestionPaper(assignmentText, answerKeyName);
         return res.json({
           success: true,
@@ -812,7 +797,7 @@ router.post('/from-pdf', async (req, res) => {
       }
       if (finalType === 'extract_memo') {
         console.log('📋 Document is a memorandum: extracting structure...');
-        const memoName = rubric_name || assignment.filename.replace(/\.pdf$/i, '');
+        const memoName = rubric_name || assignment.filename.replace(/\.(pdf|docx)$/i, '');
         const extractedData = await extractRubricFromMemo(assignmentText, memoName);
         return res.json({
           success: true,
@@ -830,7 +815,7 @@ router.post('/from-pdf', async (req, res) => {
       return res.json({
         success: true,
         rubric: rubricData,
-        message: 'Rubric generated successfully from PDF',
+        message: 'Rubric generated successfully from document',
         detected_type: autoDetectedType || detectedType,
         final_type: 'rubric',
         is_answer_key: false,
@@ -842,7 +827,7 @@ router.post('/from-pdf', async (req, res) => {
   } catch (error) {
     console.error('Rubric generation error:', error);
     res.status(500).json({ 
-      error: 'Failed to generate rubric from PDF',
+      error: 'Failed to generate rubric from document',
       details: error.message
     });
   }
@@ -907,4 +892,3 @@ router.post('/save', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-

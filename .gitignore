@@ -52,3 +52,4 @@ pnpm-lock.yaml
 
 # Documentation files
 *.md
+!CODEX_CONTEXT.md

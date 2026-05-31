@@ -986,6 +986,13 @@ const FEEDBACK_TYPE_DESCRIPTIONS = {
   standard: 'Use the standard narrative feedback field only (scores[].feedback). No special table or structured output needed for this criterion.'
 };
 
+const normalizeDocumentType = (documentType) => {
+  const value = String(documentType || '').trim().toLowerCase();
+  if (value === 'project_proposal' || value === 'project proposal' || value === 'proposal') return 'project_proposal';
+  if (value === 'exam' || value === 'examination') return 'exam';
+  return documentType;
+};
+
 const getFeedbackTypePromptBlock = (feedbackType, criterionFeedbackTypes = null) => {
   // Per-criterion mixing mode
   if (criterionFeedbackTypes && typeof criterionFeedbackTypes === 'object' && Object.keys(criterionFeedbackTypes).length > 0) {
@@ -1075,6 +1082,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
         console.log('📝 Detected document type:', documentType);
       }
     }
+    documentType = normalizeDocumentType(documentType);
 
     // Check if rubric is actually a memo (answer key)
     let rubricText = (rubric.name || '') + ' ';
@@ -1280,9 +1288,10 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
           : level === 'undergraduate'
           ? `You are a university lecturer evaluating an undergraduate research report. Emphasize methodology, analysis depth, synthesis, and academic rigor. Provide ${terms.feedback} feedback appropriate for university-level work.`
           : `You are a supervisor evaluating a postgraduate research report. Emphasize methodology, analytical depth, synthesis, theoretical framework, and scholarly contribution. Provide ${terms.feedback} feedback appropriate for advanced academic work.`,
-        proposal: level === 'undergraduate' || level === 'postgraduate'
-          ? `You are a supervisor evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Provide ${terms.feedback} feedback appropriate for ${levelBandLabel}.`
-          : `You are evaluating a Research Proposal. Emphasize clarity of problem, significance, feasibility, and methodology plan. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
+        project_proposal: level === 'undergraduate' || level === 'postgraduate'
+          ? `You are a supervisor evaluating a Project Proposal. Emphasize clarity of the problem or project aim, significance, feasibility, scope, implementation plan, risk management, and methodology/design plan. Be very direct about the issues you identify: state problems, gaps, and weaknesses clearly and explicitly—do not soften or hedge. Provide ${terms.feedback} feedback appropriate for ${levelBandLabel}.`
+          : `You are evaluating a Project Proposal. Emphasize clarity of the project aim, significance, feasibility, scope, and plan. Be very direct about the issues you identify: state problems and weaknesses clearly—do not soften or hedge.`,
+        exam: `You are an examiner marking an Exam. Focus on accuracy of answers, completeness, clarity of explanations, adherence to instructions, and correct allocation of marks according to the rubric or memo.`,
         question_paper: `You are an examiner evaluating a Question Paper/Exam. Focus on accuracy of answers, completeness, clarity of explanations, and adherence to expected responses.`,
         memo: `You are an examiner using a MEMO (Marking Memorandum/Answer Key) to evaluate student responses. Compare student answers against the model answers and marking scheme in the memo.`
       };
@@ -1341,9 +1350,9 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - ${guidance.terminology}`;
       }
 
-      if (assessmentType === 'question_paper') {
-        return `EVALUATION GUIDELINES FOR QUESTION PAPER:
-- This is a question paper/exam submission that needs to be marked
+      if (assessmentType === 'question_paper' || assessmentType === 'exam') {
+        return `EVALUATION GUIDELINES FOR ${assessmentType === 'exam' ? 'EXAM' : 'QUESTION PAPER'}:
+- This is an exam/question-paper style submission that needs to be marked
 - Apply STRICT marking standards - be precise and critical
 - Focus on the accuracy and correctness of answers with STRICT criteria
 - Evaluate completeness of responses - do not award marks for incomplete answers
@@ -1385,16 +1394,16 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 - Award points STRICTLY based on the performance levels described in the rubric - do not be generous`;
       }
 
-      if (assessmentType === 'proposal') {
-        return `EVALUATION GUIDELINES FOR RESEARCH PROPOSAL:
-- This is a research proposal requiring rigorous evaluation of problem, significance, feasibility, and methodology plan
+      if (assessmentType === 'project_proposal' || assessmentType === 'proposal') {
+        return `EVALUATION GUIDELINES FOR PROJECT PROPOSAL:
+- This is a project proposal requiring rigorous evaluation of problem or project aim, significance, feasibility, scope, and methodology/design plan
 - Apply STRICT standards - be critical and demanding in your evaluation
-- BE VERY DIRECT ABOUT ISSUES: State every problem, gap, and weakness clearly and explicitly. Do not soften, hedge, or use euphemisms. Name the issue directly (e.g., "The problem statement fails to identify a clear gap", "The methodology lacks detail on...", "Significance is not justified because...", "This section is missing..."). Candidates need unambiguous feedback on what is wrong.
-- Focus on: clarity of research problem and gap, justification of significance, feasibility (resources, timeline, scope), and quality of methodology plan
+- BE VERY DIRECT ABOUT ISSUES: State every problem, gap, and weakness clearly and explicitly. Do not soften, hedge, or use euphemisms. Name the issue directly (e.g., "The problem statement fails to identify a clear gap", "The implementation plan lacks detail on...", "Significance is not justified because...", "This section is missing..."). Candidates need unambiguous feedback on what is wrong.
+- Focus on: clarity of project aim/problem and gap, justification of significance, feasibility (resources, timeline, scope), risk awareness, and quality of methodology/design/implementation plan
 - Provide comprehensive feedback for each criterion (3-5 sentences minimum)
 - Reference specific sections and arguments from the proposal
-- BALANCED EVALUATION: For each criterion, identify and praise strengths where present, then state issues directly. When something is wrong or missing, say so plainly (e.g., "The problem statement does not establish a clear gap", "The methodology omits...", "Significance is weak because...").
-- Be critical - identify missing elements, weak justification, unclear methodology, and unrealistic or vague plans; state each one directly
+- BALANCED EVALUATION: For each criterion, identify and praise strengths where present, then state issues directly. When something is wrong or missing, say so plainly (e.g., "The project aim does not establish a clear gap", "The implementation plan omits...", "Significance is weak because...").
+- Be critical - identify missing elements, weak justification, unclear methodology/design, and unrealistic or vague plans; state each one directly
 - CRITICAL: Provide specific, actionable improvement suggestions; state what is wrong before suggesting fixes
 - Identify ALL missing elements, weak arguments, or areas needing more detail - name them explicitly
 - ${guidance.tone}
@@ -1461,8 +1470,10 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       contentLabel = 'QUESTION PAPER SUBMISSION:';
     } else if (documentType === 'treatise' || documentType === 'thesis') {
       contentLabel = `${documentType.toUpperCase()} CONTENT:`;
-    } else if (documentType === 'proposal') {
-      contentLabel = 'PROPOSAL CONTENT:';
+    } else if (documentType === 'project_proposal' || documentType === 'proposal') {
+      contentLabel = 'PROJECT PROPOSAL CONTENT:';
+    } else if (documentType === 'exam') {
+      contentLabel = 'EXAM SUBMISSION:';
     }
 
     const evaluationGuidelines = getEvaluationGuidelines(documentType, levelCategory, isMemo);

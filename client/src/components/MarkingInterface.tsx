@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw, Folder, X } from 'lucide-react';
-import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch } from '../services/api';
+import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch, MarkingAssessmentType, MarkingOutputType } from '../services/api';
 import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 const MarkingInterface: React.FC = () => {
@@ -11,8 +11,8 @@ const MarkingInterface: React.FC = () => {
   const [selectedBatch, setSelectedBatch] = useState<number | null>(null);
   const [selectedAssignments, setSelectedAssignments] = useState<number[]>([]);
   const [studentNames, setStudentNames] = useState<{ [key: number]: string }>({});
-  const [outputType, setOutputType] = useState<'annotate' | 'report'>('annotate');
-  const [assessmentType, setAssessmentType] = useState<'assignment' | 'test' | 'treatise' | 'thesis'>('assignment');
+  const [outputType, setOutputType] = useState<MarkingOutputType>('annotate');
+  const [assessmentType, setAssessmentType] = useState<MarkingAssessmentType>('assignment');
   const [level, setLevel] = useState<string>(DEFAULT_MARKING_LEVEL);
   const [provider] = useState<'openai' | 'anthropic'>('openai');
   const [strictnessLevel, setStrictnessLevel] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
@@ -39,6 +39,31 @@ const MarkingInterface: React.FC = () => {
     feedback_verbosity?: string;
     criterion_feedback_types?: Record<string, string> | null;
   } | null>(null);
+
+  const isDocxAssignment = (assignment?: Assignment) => /\.docx$/i.test(assignment?.filename || '');
+  const isPdfAssignment = (assignment?: Assignment) => /\.pdf$/i.test(assignment?.filename || '');
+  const selectedAssignmentObjects = selectedAssignments
+    .map((id) => assignments.find((assignment) => assignment.id === id))
+    .filter((assignment): assignment is Assignment => Boolean(assignment));
+  const hasSelectedAssignments = selectedAssignmentObjects.length > 0;
+  const selectedOnlyDocx = hasSelectedAssignments && selectedAssignmentObjects.every(isDocxAssignment);
+  const selectedOnlyPdf = hasSelectedAssignments && selectedAssignmentObjects.every(isPdfAssignment);
+  const selectedMixedDocumentTypes = hasSelectedAssignments && !selectedOnlyDocx && !selectedOnlyPdf;
+
+  useEffect(() => {
+    if (!hasSelectedAssignments) return;
+    if (selectedOnlyDocx && outputType === 'annotate') {
+      setOutputType('word_comments');
+      return;
+    }
+    if (selectedOnlyPdf && outputType === 'word_comments') {
+      setOutputType('annotate');
+      return;
+    }
+    if (selectedMixedDocumentTypes && outputType !== 'report') {
+      setOutputType('report');
+    }
+  }, [hasSelectedAssignments, outputType, selectedMixedDocumentTypes, selectedOnlyDocx, selectedOnlyPdf]);
 
   useEffect(() => {
     fetchData();
@@ -330,8 +355,8 @@ const MarkingInterface: React.FC = () => {
         assignment_id: assignmentId,
         rubric_id: lastMarkingParams.rubric_id,
         student_name: studentName,
-        output_type: lastMarkingParams.output_type as 'annotate' | 'report',
-        assessment_type: lastMarkingParams.assessment_type as 'assignment' | 'test' | 'treatise' | 'thesis',
+        output_type: lastMarkingParams.output_type as MarkingOutputType,
+        assessment_type: lastMarkingParams.assessment_type as MarkingAssessmentType,
         level: lastMarkingParams.level,
         provider: lastMarkingParams.provider as 'openai' | 'anthropic',
         strictness_level: lastMarkingParams.strictness_level as 'very_strict' | 'strict' | 'moderate' | 'lenient',
@@ -402,11 +427,13 @@ const MarkingInterface: React.FC = () => {
               </label>
               <select
                 value={assessmentType}
-                onChange={(e) => setAssessmentType(e.target.value as 'assignment' | 'test' | 'treatise' | 'thesis')}
+                onChange={(e) => setAssessmentType(e.target.value as MarkingAssessmentType)}
                 className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
               >
                 <option value="assignment">Assignment</option>
                 <option value="test">Test</option>
+                <option value="exam">Exam</option>
+                <option value="project_proposal">Project Proposal</option>
                 <option value="treatise">Treatise</option>
                 <option value="thesis">Thesis</option>
               </select>
@@ -605,31 +632,53 @@ const MarkingInterface: React.FC = () => {
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Output Type</h3>
           <div className="space-y-3">
-            <label className="flex items-start">
-              <input
-                type="radio"
-                name="outputType"
-                value="annotate"
-                checked={outputType === 'annotate'}
-                onChange={(e) => setOutputType(e.target.value as 'annotate' | 'report')}
-                className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-              />
-              <div className="ml-3">
-                <div className="text-sm font-medium text-gray-900">
-                  Annotate PDF
+            {(!hasSelectedAssignments || selectedOnlyPdf) && (
+              <label className="flex items-start">
+                <input
+                  type="radio"
+                  name="outputType"
+                  value="annotate"
+                  checked={outputType === 'annotate'}
+                  onChange={(e) => setOutputType(e.target.value as MarkingOutputType)}
+                  className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                />
+                <div className="ml-3">
+                  <div className="text-sm font-medium text-gray-900">
+                    Annotate PDF
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Add feedback comments and highlights directly on the original PDF.
+                  </div>
                 </div>
-                <div className="text-sm text-gray-500">
-                  Add feedback comments and highlights directly on the original PDF
+              </label>
+            )}
+            {selectedOnlyDocx && (
+              <label className="flex items-start">
+                <input
+                  type="radio"
+                  name="outputType"
+                  value="word_comments"
+                  checked={outputType === 'word_comments'}
+                  onChange={(e) => setOutputType(e.target.value as MarkingOutputType)}
+                  className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                />
+                <div className="ml-3">
+                  <div className="text-sm font-medium text-gray-900">
+                    Commented Word Document
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Insert MarkMate feedback as native comments into the uploaded DOCX file.
+                  </div>
                 </div>
-              </div>
-            </label>
+              </label>
+            )}
             <label className="flex items-start">
               <input
                 type="radio"
                 name="outputType"
                 value="report"
                 checked={outputType === 'report'}
-                onChange={(e) => setOutputType(e.target.value as 'annotate' | 'report')}
+                onChange={(e) => setOutputType(e.target.value as MarkingOutputType)}
                 className="mt-1 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
               />
               <div className="ml-3">
@@ -641,6 +690,11 @@ const MarkingInterface: React.FC = () => {
                 </div>
               </div>
             </label>
+            {selectedMixedDocumentTypes && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                Select only PDF files for PDF annotation, or only DOCX files for commented Word output. Mixed selections can use the assessment report.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -769,7 +823,7 @@ const MarkingInterface: React.FC = () => {
           </h3>
           
           {availableAssignments.length === 0 ? (
-            <p className="text-gray-500">No assignments available to mark. Upload PDFs or retry failed ones from above.</p>
+            <p className="text-gray-500">No assignments available to mark. Upload PDF or DOCX files, or retry failed ones from above.</p>
           ) : (
             <div className="space-y-4">
               {availableAssignments.map((assignment, index) => {

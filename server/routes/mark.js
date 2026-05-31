@@ -7,11 +7,21 @@ const aiService = require('../services/aiService');
 const { annotatePdfWithIssues, buildIssuesFromMarking } = require('../services/pdfAnnotator');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
 const { requireAuth } = require('../middleware/auth');
-const { extractTextFromPDF, getPdfPageImages } = require('../services/pdfExtractService');
+const {
+  extractTextFromDocument,
+  getPdfPageImages,
+  getSupportedDocumentLabel,
+  isDocxDocument,
+  isPdfDocument
+} = require('../services/documentExtractService');
+const { addCommentsToDocx } = require('../services/docxCommenter');
 const { generateMarking, parseMarkingResponsePayload, parseAiJsonResponse } = require('../services/markingService');
 
 const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
+
+const getAssignmentDisplayName = (assignment) => assignment?.filename || assignment?.file_path || '';
+const getCommentedDocxPath = (filePath) => filePath.replace(/\.docx$/i, '.marked-comments.docx');
 
 // Debug endpoint to test marking functionality
 router.post('/debug', requireAuth, async (req, res) => {
@@ -75,10 +85,10 @@ router.post('/debug', requireAuth, async (req, res) => {
 
     let assignmentText;
     try {
-      assignmentText = await extractTextFromPDF(assignment.file_path);
+      assignmentText = await extractTextFromDocument(assignment.file_path, getAssignmentDisplayName(assignment));
     } catch (error) {
       return res.status(500).json({
-        error: 'PDF extraction failed',
+        error: 'Document extraction failed',
         details: error.message
       });
     }
@@ -363,6 +373,9 @@ router.post('/single', requireAuth, async (req, res) => {
       let assignmentImages = null;
 
       if (mark_as_image) {
+        if (!isPdfDocument(getAssignmentDisplayName(assignment))) {
+          throw new Error('Mark as image is only available for PDF files. DOCX Word documents are marked from extracted text.');
+        }
         const { base64Images, lastError } = await getPdfPageImages(assignment.file_path, 15);
         if (!base64Images || base64Images.length === 0) {
           if (lastError) {
@@ -375,9 +388,11 @@ router.post('/single', requireAuth, async (req, res) => {
         }
         assignmentImages = base64Images;
       } else {
-        assignmentText = await extractTextFromPDF(assignment.file_path);
+        assignmentText = assignment.extracted_text && String(assignment.extracted_text).trim().length > 0
+          ? assignment.extracted_text
+          : await extractTextFromDocument(assignment.file_path, getAssignmentDisplayName(assignment));
         if (!assignmentText || assignmentText.trim().length === 0) {
-          throw new Error('No text could be extracted from the PDF');
+          throw new Error(`No text could be extracted from the ${getSupportedDocumentLabel(getAssignmentDisplayName(assignment))}`);
         }
       }
 
@@ -489,6 +504,8 @@ router.post('/single', requireAuth, async (req, res) => {
         criterion_feedback_types: criterion_feedback_types || null
       };
 
+      const canAnnotatePdf = isPdfDocument(getAssignmentDisplayName(assignment));
+
       if (output_type === 'report') {
         try {
           const report = await pdfGenerator.generateAssignmentReport(
@@ -501,6 +518,20 @@ router.post('/single', requireAuth, async (req, res) => {
         } catch (e) {
           console.warn('Report generation failed (non-fatal):', e.message);
         }
+      } else if (output_type === 'word_comments') {
+        if (!isDocxDocument(getAssignmentDisplayName(assignment))) {
+          throw new Error('Commented Word document output is only available for DOCX uploads.');
+        }
+        try {
+          const commentedPath = getCommentedDocxPath(assignment.file_path);
+          await addCommentsToDocx(assignment.file_path, commentedPath, markingResult);
+          markingWithId.commented_docx_path = commentedPath;
+        } catch (e) {
+          console.error('❌ Word comment insertion failed:', e.message);
+          markingWithId.annotation_error = e.message;
+        }
+      } else if (!canAnnotatePdf) {
+        markingWithId.annotation_error = 'Inline annotation is only available for PDF files. This Word document was marked successfully.';
       } else {
         try {
           console.log('📝 Starting PDF annotation process...');
@@ -841,6 +872,9 @@ router.post('/multiple', requireAuth, async (req, res) => {
           let assignmentImages = null;
 
           if (mark_as_image) {
+            if (!isPdfDocument(getAssignmentDisplayName(assignment))) {
+              throw new Error('Mark as image is only available for PDF files. DOCX Word documents are marked from extracted text.');
+            }
             const { base64Images, lastError } = await getPdfPageImages(assignment.file_path, 15);
             if (!base64Images || base64Images.length === 0) {
               if (lastError) {
@@ -853,9 +887,11 @@ router.post('/multiple', requireAuth, async (req, res) => {
             }
             assignmentImages = base64Images;
           } else {
-            assignmentText = await extractTextFromPDF(assignment.file_path);
+            assignmentText = assignment.extracted_text && String(assignment.extracted_text).trim().length > 0
+              ? assignment.extracted_text
+              : await extractTextFromDocument(assignment.file_path, getAssignmentDisplayName(assignment));
             if (!assignmentText || assignmentText.trim().length === 0) {
-              throw new Error('No text could be extracted from the PDF');
+              throw new Error(`No text could be extracted from the ${getSupportedDocumentLabel(getAssignmentDisplayName(assignment))}`);
             }
           }
 
@@ -961,6 +997,8 @@ router.post('/multiple', requireAuth, async (req, res) => {
             criterion_feedback_types: criterion_feedback_types || null
           };
 
+          const canAnnotatePdf = isPdfDocument(getAssignmentDisplayName(assignment));
+
           if (output_type === 'report') {
             try {
               const report = await pdfGenerator.generateAssignmentReport(
@@ -973,6 +1011,20 @@ router.post('/multiple', requireAuth, async (req, res) => {
             } catch (e) {
               console.warn('Report generation failed (non-fatal):', e.message);
             }
+          } else if (output_type === 'word_comments') {
+            if (!isDocxDocument(getAssignmentDisplayName(assignment))) {
+              throw new Error('Commented Word document output is only available for DOCX uploads.');
+            }
+            try {
+              const commentedPath = getCommentedDocxPath(assignment.file_path);
+              await addCommentsToDocx(assignment.file_path, commentedPath, markingResult);
+              markingWithId.commented_docx_path = commentedPath;
+            } catch (e) {
+              console.error(`❌ Word comment insertion failed for assignment ${assignment_id}:`, e.message);
+              markingWithId.annotation_error = e.message;
+            }
+          } else if (!canAnnotatePdf) {
+            markingWithId.annotation_error = 'Inline annotation is only available for PDF files. This Word document was marked successfully.';
           } else {
             try {
               console.log(`📝 Starting PDF annotation for assignment ${assignment_id}...`);

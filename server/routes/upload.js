@@ -5,7 +5,11 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const yauzl = require('yauzl');
 const { query } = require('../database/connection');
-const { extractTextFromPDF } = require('../services/pdfOCR');
+const {
+  extractTextFromDocument,
+  getSupportedDocumentLabel,
+  isSupportedDocument
+} = require('../services/documentExtractService');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -65,7 +69,7 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Configure multer for PDF uploads
+// Configure multer for assignment uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
@@ -77,10 +81,10 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  if (file.mimetype === 'application/pdf') {
+  if (isSupportedDocument(file.originalname, file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF files are allowed'), false);
+    cb(new Error('Only PDF or DOCX Word documents are allowed'), false);
   }
 };
 
@@ -114,7 +118,7 @@ const uploadZip = multer({
   }
 });
 
-// Upload single PDF
+// Upload single assignment document
 router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
   try {
     console.log('Upload request received:', {
@@ -129,16 +133,16 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
     });
 
     if (!req.file) {
-      return res.status(400).json({ error: 'No PDF file uploaded' });
+      return res.status(400).json({ error: 'No assignment file uploaded' });
     }
 
     // Validate file type
-    if (req.file.mimetype !== 'application/pdf') {
-      // Delete the uploaded file if it's not a PDF
+    if (!isSupportedDocument(req.file.originalname, req.file.mimetype)) {
+      // Delete the uploaded file if it's not supported
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
-      return res.status(400).json({ error: 'Only PDF files are allowed' });
+      return res.status(400).json({ error: 'Only PDF or DOCX Word documents are allowed' });
     }
 
     const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
@@ -152,18 +156,20 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
 
     console.log('Saving assignment to database:', assignment);
 
-    // Extract text from PDF and store it
+    const documentLabel = getSupportedDocumentLabel(req.file.originalname, req.file.mimetype);
+
+    // Extract text from the document and store it
     let extractedText = null;
     try {
-      console.log('Extracting text from PDF...');
-      extractedText = await extractTextFromPDF(req.file.path);
+      console.log(`Extracting text from ${documentLabel}...`);
+      extractedText = await extractTextFromDocument(req.file.path, req.file.originalname, req.file.mimetype);
       if (extractedText && extractedText.trim().length > 0) {
         console.log(`✅ Extracted ${extractedText.length} characters of text`);
       } else {
-        console.log('⚠️  No text extracted from PDF');
+        console.log(`⚠️  No text extracted from ${documentLabel}`);
       }
     } catch (error) {
-      console.warn('⚠️  Error extracting text from PDF (continuing anyway):', error.message);
+      console.warn(`⚠️  Error extracting text from ${documentLabel} (continuing anyway):`, error.message);
       // Continue even if extraction fails - text can be extracted later
     }
 
@@ -189,7 +195,7 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
     res.json({
       success: true,
       assignment: assignmentWithId,
-      message: 'PDF uploaded successfully'
+      message: `${documentLabel} uploaded successfully`
     });
   } catch (error) {
     console.error('Upload error:', error);
@@ -204,17 +210,17 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
     }
     
     res.status(500).json({ 
-      error: 'Failed to upload PDF',
+      error: 'Failed to upload assignment document',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
-// Upload multiple PDFs
+// Upload multiple assignment documents
 router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No PDF files uploaded' });
+      return res.status(400).json({ error: 'No assignment files uploaded' });
     }
 
     const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
@@ -229,10 +235,12 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
         batch_id: batchId
       };
 
-      // Extract text from PDF and store it
+      const documentLabel = getSupportedDocumentLabel(file.originalname, file.mimetype);
+
+      // Extract text from the document and store it
       let extractedText = null;
       try {
-        extractedText = await extractTextFromPDF(file.path);
+        extractedText = await extractTextFromDocument(file.path, file.originalname, file.mimetype);
         if (!extractedText || extractedText.trim().length === 0) {
           extractedText = null;
         }
@@ -265,15 +273,15 @@ router.post('/multiple', requireAuth, upload.array('pdfs', 10), async (req, res)
       success: true,
       assignments,
       count: assignments.length,
-      message: `${assignments.length} PDF(s) uploaded successfully`
+      message: `${assignments.length} assignment document(s) uploaded successfully`
     });
   } catch (error) {
     console.error('Multiple upload error:', error);
-    res.status(500).json({ error: 'Failed to upload PDFs' });
+    res.status(500).json({ error: 'Failed to upload assignment documents' });
   }
 });
 
-// Upload ZIP of PDFs
+// Upload ZIP of assignment documents
 router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
   try {
     if (!req.file) {
@@ -286,10 +294,10 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
 
     // Helper to insert assignment row
     const insertAssignment = async (filename, filePath, fileSize) => {
-      // Extract text from PDF and store it
+      // Extract text from the document and store it
       let extractedText = null;
       try {
-        extractedText = await extractTextFromPDF(filePath);
+        extractedText = await extractTextFromDocument(filePath, filename);
         if (!extractedText || extractedText.trim().length === 0) {
           extractedText = null;
         }
@@ -328,9 +336,9 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
             return;
           }
 
-          // Only process PDFs
+          // Only process supported assignment documents
           const lower = entry.fileName.toLowerCase();
-          if (!lower.endsWith('.pdf')) {
+          if (!isSupportedDocument(lower)) {
             zipfile.readEntry();
             return;
           }
@@ -372,14 +380,14 @@ router.post('/zip', requireAuth, uploadZip.single('zip'), async (req, res) => {
     try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch {}
 
     if (extractedAssignments.length === 0) {
-      return res.status(400).json({ error: 'No PDFs found in ZIP' });
+      return res.status(400).json({ error: 'No PDF or DOCX files found in ZIP' });
     }
 
     res.json({
       success: true,
       count: extractedAssignments.length,
       assignments: extractedAssignments,
-      message: `Extracted ${extractedAssignments.length} PDF(s) from ZIP`
+      message: `Extracted ${extractedAssignments.length} assignment document(s) from ZIP`
     });
   } catch (error) {
     console.error('ZIP upload error:', error);

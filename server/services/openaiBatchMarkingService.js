@@ -14,6 +14,7 @@ const TEMP_DIR = path.join(__dirname, '../uploads/temp/openai-batches');
 
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const firstRow = (result) => rowsOf(result)[0];
+const stripAssignmentExtension = (filename) => String(filename || '').replace(/\.(pdf|docx)$/i, '');
 
 let pollingTimer = null;
 let cycleInProgress = false;
@@ -203,7 +204,7 @@ async function saveMarkingResult(job, assignment, markingResult, usage = null) {
     [
       assignment.id,
       job.rubric_id,
-      submissionRow?.student_name || assignment.filename.replace(/\.pdf$/i, ''),
+      submissionRow?.student_name || stripAssignmentExtension(assignment.filename),
       JSON.stringify(markingResult.scores || []),
       markingResult.overall_feedback || '',
       Number(markingResult.total_score || 0),

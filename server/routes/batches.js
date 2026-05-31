@@ -10,6 +10,7 @@ const scheduledTimers = new Map();
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const firstRow = (result) => rowsOf(result)[0];
 const isManagementUser = (user) => ['management', 'admin'].includes(String(user?.role || '').toLowerCase());
+const stripAssignmentExtension = (filename) => String(filename || '').replace(/\.(pdf|docx)$/i, '');
 
 const scheduleJobProcessor = (jobId, when) => {
   if (scheduledTimers.has(jobId)) {
@@ -83,7 +84,7 @@ const runMarkingJob = async (jobId) => {
         [
           assignment.id,
           job.rubric_id,
-          assignment.filename.replace(/\.pdf$/i, ''),
+          stripAssignmentExtension(assignment.filename),
           JSON.stringify(result.scores || []),
           result.feedback || '',
           Number(result.total_score || 0),
@@ -559,7 +560,6 @@ router.get('/jobs/health', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-
 
 
 

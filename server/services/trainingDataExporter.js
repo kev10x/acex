@@ -4,7 +4,7 @@
  */
 
 const { query } = require('../database/connection');
-const { extractTextFromPDF } = require('./pdfOCR');
+const { extractTextFromDocument } = require('./documentExtractService');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -135,7 +135,7 @@ class TrainingDataExporter {
         let assignmentText = null;
         if (includeText && row.file_path) {
           try {
-            assignmentText = await extractTextFromPDF(row.file_path);
+            assignmentText = await extractTextFromDocument(row.file_path, row.filename);
             if (!assignmentText || assignmentText.trim().length === 0) {
               console.warn(`⚠️  No text extracted from ${row.filename}`);
               assignmentText = null;
@@ -412,7 +412,6 @@ ${example.assignment_text.substring(0, 8000)}`;
 }
 
 module.exports = new TrainingDataExporter();
-
 
 
 

@@ -40,6 +40,10 @@ function formatModeratorLabel(result: MarkingResult): string | null {
   return null;
 }
 
+function isDocxResult(result?: MarkingResult | null): boolean {
+  return /\.docx$/i.test(result?.filename || '');
+}
+
 const ResultsDashboard: React.FC = () => {
   const { user } = useAuth();
   const allowDownloadResults = user?.features?.download_results !== false;
@@ -408,6 +412,30 @@ const ResultsDashboard: React.FC = () => {
         setError('Annotated PDF not found. This result may have been marked with report generation instead of annotation.');
       } else {
         setError(err.response?.data?.error || 'Failed to view annotated PDF');
+      }
+    }
+  };
+
+  const handleDownloadCommentedDocx = async (result: MarkingResult) => {
+    try {
+      const response = await resultsAPI.getCommentedDocx(result.id);
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const baseName = (result.filename || `assignment_${result.id}`).replace(/\.docx$/i, '');
+      link.href = url;
+      link.download = `${baseName}_marked_comments.docx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        setError('Commented Word document not found. This result may have been marked with a different output type.');
+      } else {
+        setError(err.response?.data?.error || 'Failed to download commented Word document');
       }
     }
   };
@@ -1340,10 +1368,17 @@ const ResultsDashboard: React.FC = () => {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {!isStudent && <button
+                            {!isStudent && !isDocxResult(result) && <button
                               onClick={() => handleViewAnnotatedPDF(result.id)}
                               className="text-green-600 hover:text-green-900"
                               title="View Annotated PDF"
+                            >
+                              <FileCheck className="w-4 h-4" />
+                            </button>}
+                            {!isStudent && isDocxResult(result) && <button
+                              onClick={() => handleDownloadCommentedDocx(result)}
+                              className="text-green-600 hover:text-green-900"
+                              title="Download Commented Word Document"
                             >
                               <FileCheck className="w-4 h-4" />
                             </button>}
@@ -1726,6 +1761,8 @@ const ResultsDashboard: React.FC = () => {
                             >
                               <option value="assignment">Assignment</option>
                               <option value="test">Test / Quiz</option>
+                              <option value="exam">Exam</option>
+                              <option value="project_proposal">Project Proposal</option>
                               <option value="treatise">Treatise / Dissertation</option>
                               <option value="thesis">Thesis</option>
                             </select>
@@ -2160,13 +2197,23 @@ const ResultsDashboard: React.FC = () => {
                 </div>
 
                 {!isStudent && <div className="flex flex-wrap gap-2 pt-4">
-                  <button
-                    onClick={() => handleViewAnnotatedPDF(selectedResult.id)}
-                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                  >
-                    <FileCheck className="w-4 h-4 mr-2" />
-                    View Annotated PDF
-                  </button>
+                  {isDocxResult(selectedResult) ? (
+                    <button
+                      onClick={() => handleDownloadCommentedDocx(selectedResult)}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    >
+                      <FileCheck className="w-4 h-4 mr-2" />
+                      Download Commented Word
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleViewAnnotatedPDF(selectedResult.id)}
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    >
+                      <FileCheck className="w-4 h-4 mr-2" />
+                      View Annotated PDF
+                    </button>
+                  )}
                   {allowDownloadResults && (
                     <button
                       onClick={() => handleDownloadPDF(selectedResult.id)}

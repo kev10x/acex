@@ -11,6 +11,8 @@ const {
 } = require('../services/generationTelemetryService');
 const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../services/generationJobService');
 const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
+const { isDocxDocument } = require('../services/documentExtractService');
+const { addCommentsToDocx } = require('../services/docxCommenter');
 
 const router = express.Router();
 const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
@@ -1239,6 +1241,65 @@ router.get('/annotated-pdf/:resultId', requireAuth, async (req, res) => {
   }
 });
 
+// Get commented Word document for a marking result
+router.get('/commented-docx/:resultId', requireAuth, async (req, res) => {
+  try {
+    const { resultId } = req.params;
+
+    const result = await query(`
+      SELECT
+        mr.*,
+        a.filename,
+        a.file_path
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      WHERE mr.id = ? AND mr.user_id = ?
+    `, [resultId, req.user.id]);
+
+    const markingResult = rowsOf(result)[0];
+    if (!markingResult) {
+      return res.status(404).json({ error: 'Marking result not found' });
+    }
+
+    if (!isDocxDocument(markingResult.filename || markingResult.file_path)) {
+      return res.status(400).json({ error: 'Commented Word output is only available for DOCX assignments' });
+    }
+
+    const commentedPath = markingResult.file_path.replace(/\.docx$/i, '.marked-comments.docx');
+    if (!fs.existsSync(commentedPath)) {
+      try {
+        await addCommentsToDocx(markingResult.file_path, commentedPath, mapResultRow(markingResult));
+      } catch (commentError) {
+        console.error('On-demand commented DOCX generation failed:', commentError);
+        return res.status(404).json({
+          error: 'Commented Word document not found',
+          message: 'The commented Word document does not exist and could not be generated from this result.'
+        });
+      }
+    }
+
+    const filename = `${markingResult.filename.replace(/\.docx$/i, '')}_marked_comments.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const fileStream = fs.createReadStream(commentedPath);
+    fileStream.pipe(res);
+
+    fileStream.on('error', (error) => {
+      console.error('Error streaming commented DOCX:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream commented Word document' });
+      }
+    });
+  } catch (error) {
+    console.error('Get commented DOCX error:', error);
+    res.status(500).json({
+      error: 'Failed to get commented Word document',
+      details: error.message
+    });
+  }
+});
+
 // Download all results as detailed CSV
 router.get('/download/csv', requireAuth, requireFeature('download_results'), async (req, res) => {
   try {
@@ -1724,4 +1785,3 @@ When answering in-scope questions:
 });
 
 module.exports = router;
-
