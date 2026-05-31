@@ -1292,11 +1292,62 @@ const initDatabase = async () => {
         if ((plannerIncludeMascotCheck.rows?.[0]?.count || plannerIncludeMascotCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_mascot TINYINT(1) DEFAULT 0`);
         }
+
+        const feedbackTypeCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'feedback_type'
+        `);
+        if ((feedbackTypeCheck.rows?.[0]?.count || feedbackTypeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN feedback_type VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const feedbackVerbosityCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'feedback_verbosity'
+        `);
+        if ((feedbackVerbosityCheck.rows?.[0]?.count || feedbackVerbosityCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN feedback_verbosity VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const prescriptiveTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'prescriptive_table'
+        `);
+        if ((prescriptiveTableCheck.rows?.[0]?.count || prescriptiveTableCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN prescriptive_table JSON`);
+          await query(`ALTER TABLE marking_results ADD COLUMN reflective_questions JSON`);
+          await query(`ALTER TABLE marking_results ADD COLUMN critical_table JSON`);
+          await query(`ALTER TABLE marking_results ADD COLUMN genie_output JSON`);
+        }
+
+        const improvementForecastCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'improvement_forecast'
+        `);
+        if ((improvementForecastCheck.rows?.[0]?.count || improvementForecastCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN improvement_forecast TEXT`);
+        }
+
+        const comparativeInsightCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'comparative_insight'
+        `);
+        if ((comparativeInsightCheck.rows?.[0]?.count || comparativeInsightCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN comparative_insight TEXT`);
+        }
+
+        const criterionFeedbackTypesCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'criterion_feedback_types'
+        `);
+        if ((criterionFeedbackTypesCheck.rows?.[0]?.count || criterionFeedbackTypesCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSON`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
       }
-      
+
       // Add indexes for better query performance (MySQL doesn't support IF NOT EXISTS)
       // Check if indexes exist before creating them
       try {
@@ -2402,10 +2453,61 @@ const initDatabase = async () => {
         if ((plannerIncludeMascotCheck.rows?.[0]?.count || plannerIncludeMascotCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE content_planner_jobs ADD COLUMN include_mascot BOOLEAN DEFAULT FALSE`);
         }
+
+        const feedbackTypeCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'feedback_type'
+        `);
+        if ((feedbackTypeCheckPg.rows?.[0]?.count || feedbackTypeCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN feedback_type VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const feedbackVerbosityCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'feedback_verbosity'
+        `);
+        if ((feedbackVerbosityCheckPg.rows?.[0]?.count || feedbackVerbosityCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN feedback_verbosity VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const prescriptiveTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'prescriptive_table'
+        `);
+        if ((prescriptiveTableCheckPg.rows?.[0]?.count || prescriptiveTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN prescriptive_table JSONB`);
+          await query(`ALTER TABLE marking_results ADD COLUMN reflective_questions JSONB`);
+          await query(`ALTER TABLE marking_results ADD COLUMN critical_table JSONB`);
+          await query(`ALTER TABLE marking_results ADD COLUMN genie_output JSONB`);
+        }
+
+        const improvementForecastCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'improvement_forecast'
+        `);
+        if ((improvementForecastCheckPg.rows?.[0]?.count || improvementForecastCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN improvement_forecast TEXT`);
+        }
+
+        const comparativeInsightCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'comparative_insight'
+        `);
+        if ((comparativeInsightCheckPg.rows?.[0]?.count || comparativeInsightCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN comparative_insight TEXT`);
+        }
+
+        const criterionFeedbackTypesCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'criterion_feedback_types'
+        `);
+        if ((criterionFeedbackTypesCheckPg.rows?.[0]?.count || criterionFeedbackTypesCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSONB`);
+        }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);
       }
-      
+
       // Add indexes for better query performance (PostgreSQL supports IF NOT EXISTS)
       try {
         await query(`CREATE INDEX IF NOT EXISTS idx_marking_results_assignment ON marking_results(assignment_id)`);

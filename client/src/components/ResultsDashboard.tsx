@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './resultsReview';
 import StatePanel from './feedback/StatePanel';
 import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
+import FeedbackChatWidget from './FeedbackChatWidget';
 
 type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
@@ -91,7 +92,7 @@ const ResultsDashboard: React.FC = () => {
   }>({ assessment_type: 'assignment', level: DEFAULT_MARKING_LEVEL, provider: 'openai', strictness_level: 'strict', mark_as_image: false });
   const [remarking, setRemarking] = useState(false);
   const [remarkError, setRemarkError] = useState<string | null>(null);
-  
+
   // Filtering and grouping state
   const [selectedRubric, setSelectedRubric] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<string>('');
@@ -1902,6 +1903,154 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 )}
 
+                {/* Comparative Insight (batch context) */}
+                {selectedResult.comparative_insight && (
+                  <div className="bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-200 rounded-lg p-4">
+                    <div className="flex items-center mb-2">
+                      <span className="text-sky-700 font-semibold text-sm">Class Comparison</span>
+                    </div>
+                    <p className="text-sm text-sky-900 leading-relaxed">
+                      {selectedResult.comparative_insight}
+                    </p>
+                  </div>
+                )}
+
+                {/* Improvement Forecast (always shown when present) */}
+                {selectedResult.improvement_forecast && (
+                  <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-4">
+                    <div className="flex items-center mb-2">
+                      <span className="text-emerald-700 font-semibold text-sm">Improvement Forecast</span>
+                    </div>
+                    <p className="text-sm text-emerald-900 leading-relaxed">
+                      {selectedResult.improvement_forecast}
+                    </p>
+                  </div>
+                )}
+
+                {/* Prescriptive Feedback Table */}
+                {Array.isArray(selectedResult.prescriptive_table) && selectedResult.prescriptive_table.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Prescriptive Feedback — What to Fix</h4>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600 w-32">Criterion</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Issue</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600 w-40">Location</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">What to Do</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600 w-24">Priority</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-100">
+                          {selectedResult.prescriptive_table.map((row: any, i: number) => (
+                            <tr key={i} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-gray-700 font-medium align-top">{row.criterion}</td>
+                              <td className="px-4 py-3 text-gray-700 align-top whitespace-pre-wrap">{row.issue}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs align-top">{row.location}</td>
+                              <td className="px-4 py-3 text-gray-800 align-top whitespace-pre-wrap">{row.fix}</td>
+                              <td className="px-4 py-3 align-top">
+                                <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
+                                  row.priority === 'high' ? 'bg-red-100 text-red-800' :
+                                  row.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {row.priority}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reflective Questions */}
+                {Array.isArray(selectedResult.reflective_questions) && selectedResult.reflective_questions.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Reflective Questions</h4>
+                    <div className="space-y-3">
+                      {selectedResult.reflective_questions.map((item: any, i: number) => (
+                        <div key={i} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">{item.criterion}</p>
+                          <p className="text-sm text-blue-900 italic leading-relaxed">"{item.question}"</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Critical Analysis Table */}
+                {Array.isArray(selectedResult.critical_table) && selectedResult.critical_table.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Critical Analysis</h4>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600 w-32">Criterion</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Weakness</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Academic Impact</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Evidence</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600 w-28">Severity</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-100">
+                          {selectedResult.critical_table.map((row: any, i: number) => (
+                            <tr key={i} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-gray-700 font-medium align-top">{row.criterion}</td>
+                              <td className="px-4 py-3 text-gray-800 align-top whitespace-pre-wrap">{row.weakness}</td>
+                              <td className="px-4 py-3 text-gray-700 align-top whitespace-pre-wrap">{row.impact}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs italic align-top whitespace-pre-wrap">"{row.evidence}"</td>
+                              <td className="px-4 py-3 align-top">
+                                <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
+                                  row.severity === 'fundamental' ? 'bg-red-100 text-red-800' :
+                                  row.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                                  'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {row.severity}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Genie Output */}
+                {Array.isArray(selectedResult.genie_output) && selectedResult.genie_output.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Genie — AI-Corrected Rewrite</h4>
+                    <div className="space-y-4">
+                      {selectedResult.genie_output.map((item: any, i: number) => (
+                        <div key={i} className="border border-purple-200 rounded-lg overflow-hidden">
+                          <div className="bg-purple-50 px-4 py-2 border-b border-purple-200">
+                            <span className="text-xs font-semibold text-purple-700 uppercase tracking-wide">{item.criterion}</span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-purple-100">
+                            <div className="p-4">
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Original</p>
+                              <p className="text-sm text-gray-700 italic leading-relaxed whitespace-pre-wrap">"{item.original_excerpt}"</p>
+                            </div>
+                            <div className="p-4 bg-purple-50">
+                              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-2">Corrected Version</p>
+                              <p className="text-sm text-purple-900 leading-relaxed whitespace-pre-wrap">{item.corrected_version}</p>
+                            </div>
+                          </div>
+                          {item.changes_made && (
+                            <div className="bg-gray-50 px-4 py-3 border-t border-purple-100">
+                              <p className="text-xs text-gray-600"><span className="font-semibold">Changes: </span>{item.changes_made}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {Array.isArray(selectedResult.corrections) && selectedResult.corrections.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Corrections & Suggestions Report</h4>
@@ -2042,6 +2191,9 @@ const ResultsDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Floating feedback chat widget — persists regardless of scroll position */}
+      <FeedbackChatWidget selectedResult={selectedResult} />
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (

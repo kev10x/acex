@@ -255,6 +255,15 @@ export interface MarkingResult {
   estimated_cost_usd?: number | null;
   corrections?: Correction[]; // Array of corrections and suggestions with location information
   language_errors?: LanguageError[]; // Array of grammar, spelling, and reference errors
+  feedback_type?: 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie';
+  feedback_verbosity?: 'brief' | 'standard' | 'comprehensive';
+  prescriptive_table?: Array<{ criterion: string; issue: string; location: string; fix: string; priority: string }>;
+  reflective_questions?: Array<{ criterion: string; question: string }>;
+  critical_table?: Array<{ criterion: string; weakness: string; impact: string; evidence: string; severity: string }>;
+  genie_output?: Array<{ criterion: string; original_excerpt: string; corrected_version: string; changes_made: string }>;
+  improvement_forecast?: string | null;
+  comparative_insight?: string | null;
+  criterion_feedback_types?: Record<string, string> | null;
   flagged_for_moderation?: boolean;
   moderation_reason?: string | null;
   moderation_updated_by?: number | null;
@@ -398,6 +407,9 @@ export const markingAPI = {
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
     mark_as_image?: boolean;
+    feedback_type?: 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie';
+    feedback_verbosity?: 'brief' | 'standard' | 'comprehensive';
+    criterion_feedback_types?: Record<string, string> | null;
   }) => api.post('/mark/single', data),
 
   markMultiple: (data: {
@@ -410,6 +422,9 @@ export const markingAPI = {
     provider?: 'openai' | 'anthropic';
     strictness_level?: 'very_strict' | 'strict' | 'moderate' | 'lenient';
     mark_as_image?: boolean;
+    feedback_type?: 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie';
+    feedback_verbosity?: 'brief' | 'standard' | 'comprehensive';
+    criterion_feedback_types?: Record<string, string> | null;
   }, signal?: AbortSignal) => api.post('/mark/multiple', data, { signal }),
 
   markManual: (data: {
@@ -453,6 +468,8 @@ export const resultsAPI = {
     api.post(`/results/${id}/moderation-flag`, data),
   saveLecturerOverride: (id: number, data: { custom_feedback?: string | null; override_total_score?: number | null; moderation_reason?: string | null }) =>
     api.put(`/results/${id}/lecturer-override`, data),
+  chat: (id: number, data: { question: string; history?: Array<{ role: string; content: string }> }) =>
+    api.post<{ answer: string }>(`/results/${id}/chat`, data),
 };
 
 export interface SystemHealthCheck {

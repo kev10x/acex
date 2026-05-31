@@ -16,6 +16,10 @@ const MarkingInterface: React.FC = () => {
   const [level, setLevel] = useState<string>(DEFAULT_MARKING_LEVEL);
   const [provider] = useState<'openai' | 'anthropic'>('openai');
   const [strictnessLevel, setStrictnessLevel] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
+  const [feedbackType, setFeedbackType] = useState<'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie'>('standard');
+  const [feedbackVerbosity, setFeedbackVerbosity] = useState<'brief' | 'standard' | 'comprehensive'>('standard');
+  const [criterionFeedbackTypes, setCriterionFeedbackTypes] = useState<Record<string, string>>({});
+  const [showCriterionOverrides, setShowCriterionOverrides] = useState(false);
   const [markAsImage, setMarkAsImage] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +35,9 @@ const MarkingInterface: React.FC = () => {
     output_type: string;
     strictness_level: string;
     mark_as_image?: boolean;
+    feedback_type?: string;
+    feedback_verbosity?: string;
+    criterion_feedback_types?: Record<string, string> | null;
   } | null>(null);
 
   useEffect(() => {
@@ -136,6 +143,8 @@ const MarkingInterface: React.FC = () => {
       const batchAssignmentIds = batchAssignments.map(a => a.id);
       const studentNamesArray = batchAssignmentIds.map(id => studentNames[id] || null);
       
+      const activeCriterionTypes = Object.keys(criterionFeedbackTypes).length > 0 ? criterionFeedbackTypes : null;
+
       // Store marking parameters for retry functionality
       setLastMarkingParams({
         rubric_id: selectedRubric,
@@ -144,7 +153,10 @@ const MarkingInterface: React.FC = () => {
         provider: provider,
         output_type: outputType,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage
+        mark_as_image: markAsImage,
+        feedback_type: feedbackType,
+        feedback_verbosity: feedbackVerbosity,
+        criterion_feedback_types: activeCriterionTypes
       });
 
       const response = await markingAPI.markMultiple({
@@ -156,7 +168,10 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage
+        mark_as_image: markAsImage,
+        feedback_type: feedbackType,
+        feedback_verbosity: feedbackVerbosity,
+        criterion_feedback_types: activeCriterionTypes
       });
 
       setSuccess(`Successfully remarked ${response.data.results.length} assignment(s) in batch`);
@@ -192,7 +207,8 @@ const MarkingInterface: React.FC = () => {
 
     try {
       const studentNamesArray = selectedAssignments.map(id => studentNames[id] || null);
-      
+      const activeCriterionTypes = Object.keys(criterionFeedbackTypes).length > 0 ? criterionFeedbackTypes : null;
+
       // Store marking parameters for retry functionality
       setLastMarkingParams({
         rubric_id: selectedRubric,
@@ -201,7 +217,10 @@ const MarkingInterface: React.FC = () => {
         provider: provider,
         output_type: outputType,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage
+        mark_as_image: markAsImage,
+        feedback_type: feedbackType,
+        feedback_verbosity: feedbackVerbosity,
+        criterion_feedback_types: activeCriterionTypes
       });
 
       const response = await markingAPI.markMultiple({
@@ -213,7 +232,10 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage
+        mark_as_image: markAsImage,
+        feedback_type: feedbackType,
+        feedback_verbosity: feedbackVerbosity,
+        criterion_feedback_types: activeCriterionTypes
       }, abortControllerRef.current.signal);
 
       // Check if request was aborted
@@ -313,7 +335,10 @@ const MarkingInterface: React.FC = () => {
         level: lastMarkingParams.level,
         provider: lastMarkingParams.provider as 'openai' | 'anthropic',
         strictness_level: lastMarkingParams.strictness_level as 'very_strict' | 'strict' | 'moderate' | 'lenient',
-        mark_as_image: lastMarkingParams.mark_as_image
+        mark_as_image: lastMarkingParams.mark_as_image,
+        feedback_type: (lastMarkingParams.feedback_type || 'standard') as 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie',
+        feedback_verbosity: (lastMarkingParams.feedback_verbosity || 'standard') as 'brief' | 'standard' | 'comprehensive',
+        criterion_feedback_types: lastMarkingParams.criterion_feedback_types || null
       });
 
       setSuccess(`Successfully retried marking for ${response.data.result.filename || 'assignment'}`);
@@ -431,6 +456,129 @@ const MarkingInterface: React.FC = () => {
                 {strictnessLevel === 'lenient' && 'Supportive - focus on learning and improvement'}
               </p>
             </div>
+
+            {/* Feedback Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Feedback Type
+              </label>
+              <select
+                value={feedbackType}
+                onChange={(e) => setFeedbackType(e.target.value as typeof feedbackType)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="standard">Standard</option>
+                <option value="prescriptive">Prescriptive (table)</option>
+                <option value="reflective">Reflective (questions)</option>
+                <option value="critical">Critical Analysis (table)</option>
+                <option value="genie">Genie (AI rewrite)</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {feedbackType === 'standard' && 'Comprehensive narrative feedback per criterion'}
+                {feedbackType === 'prescriptive' && 'Table of exact issues to fix, with location and priority'}
+                {feedbackType === 'reflective' && 'Thought-provoking questions to prompt self-reflection'}
+                {feedbackType === 'critical' && 'Table of weaknesses with evidence and severity rating'}
+                {feedbackType === 'genie' && 'AI-rewritten corrected version of weak sections'}
+              </p>
+            </div>
+
+            {/* Feedback Verbosity */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Feedback Verbosity
+              </label>
+              <select
+                value={feedbackVerbosity}
+                onChange={(e) => setFeedbackVerbosity(e.target.value as typeof feedbackVerbosity)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="brief">Brief</option>
+                <option value="standard">Standard</option>
+                <option value="comprehensive">Comprehensive</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {feedbackVerbosity === 'brief' && '1-2 sentences per criterion, top-level overview only'}
+                {feedbackVerbosity === 'standard' && '3-5 sentences per criterion with examples and guidance'}
+                {feedbackVerbosity === 'comprehensive' && '6-10 sentences per criterion, exhaustive analysis'}
+              </p>
+            </div>
+
+            {/* Per-criterion feedback type overrides */}
+            {selectedRubric && (() => {
+              const rubric = rubrics.find(r => r.id === selectedRubric);
+              if (!rubric?.criteria?.length) return null;
+              return (
+                <div className="col-span-1 md:col-span-2 lg:col-span-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowCriterionOverrides(v => !v)}
+                    className="flex items-center text-sm text-indigo-600 hover:text-indigo-800 font-medium mb-2"
+                  >
+                    <ChevronDown className={`w-4 h-4 mr-1 transition-transform ${showCriterionOverrides ? 'rotate-180' : ''}`} />
+                    Per-criterion feedback type overrides
+                    {Object.keys(criterionFeedbackTypes).length > 0 && (
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+                        {Object.keys(criterionFeedbackTypes).length} override{Object.keys(criterionFeedbackTypes).length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </button>
+                  {showCriterionOverrides && (
+                    <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Criterion</th>
+                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Max pts</th>
+                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Feedback type</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {rubric.criteria.map((criterion) => (
+                            <tr key={criterion.name}>
+                              <td className="px-4 py-2 text-gray-800 font-medium">{criterion.name}</td>
+                              <td className="px-4 py-2 text-gray-500">{criterion.max_points}</td>
+                              <td className="px-4 py-2">
+                                <select
+                                  value={criterionFeedbackTypes[criterion.name] || ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setCriterionFeedbackTypes(prev => {
+                                      const next = { ...prev };
+                                      if (val) next[criterion.name] = val;
+                                      else delete next[criterion.name];
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-sm border-gray-300 rounded shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                                >
+                                  <option value="">Same as overall ({feedbackType})</option>
+                                  <option value="standard">Standard</option>
+                                  <option value="prescriptive">Prescriptive (table)</option>
+                                  <option value="reflective">Reflective (questions)</option>
+                                  <option value="critical">Critical Analysis (table)</option>
+                                  <option value="genie">Genie (rewrite)</option>
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {Object.keys(criterionFeedbackTypes).length > 0 && (
+                        <div className="px-4 py-2 bg-gray-50 border-t border-gray-100">
+                          <button
+                            type="button"
+                            onClick={() => setCriterionFeedbackTypes({})}
+                            className="text-xs text-gray-500 hover:text-red-600"
+                          >
+                            Clear all overrides
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Mark as image (for handwritten/scanned PDFs) */}
             <div className="flex items-start">

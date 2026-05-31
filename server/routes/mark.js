@@ -287,7 +287,7 @@ function buildIssuesWithAnchors(markingResult, anchorsMap) {
 // Mark a single assignment
 router.post('/single', requireAuth, async (req, res) => {
   try {
-    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict', mark_as_image = false } = req.body;
+    const { assignment_id, rubric_id, student_name, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict', mark_as_image = false, feedback_type = 'standard', feedback_verbosity = 'standard', criterion_feedback_types = null } = req.body;
 
     if (!assignment_id || !rubric_id) {
       return res.status(400).json({
@@ -394,7 +394,7 @@ router.post('/single', requireAuth, async (req, res) => {
       }
 
       const docType = assessment_type || document_type || null;
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages);
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
 
       if (checkAborted()) {
         await query(
@@ -423,7 +423,7 @@ router.post('/single', requireAuth, async (req, res) => {
       const usage = markingResult.usage || {};
       const estimatedCostUsd = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -442,7 +442,15 @@ router.post('/single', requireAuth, async (req, res) => {
           usage.completion_tokens != null ? usage.completion_tokens : null,
           usage.total_tokens != null ? usage.total_tokens : null,
           estimatedCostUsd,
-          req.user.id
+          req.user.id,
+          feedback_type,
+          feedback_verbosity,
+          markingResult.prescriptive_table && markingResult.prescriptive_table.length > 0 ? JSON.stringify(markingResult.prescriptive_table) : null,
+          markingResult.reflective_questions && markingResult.reflective_questions.length > 0 ? JSON.stringify(markingResult.reflective_questions) : null,
+          markingResult.critical_table && markingResult.critical_table.length > 0 ? JSON.stringify(markingResult.critical_table) : null,
+          markingResult.genie_output && markingResult.genie_output.length > 0 ? JSON.stringify(markingResult.genie_output) : null,
+          markingResult.improvement_forecast || null,
+          criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null
         ]
       );
 
@@ -470,7 +478,15 @@ router.post('/single', requireAuth, async (req, res) => {
         prompt_tokens: usage.prompt_tokens ?? null,
         completion_tokens: usage.completion_tokens ?? null,
         total_tokens: usage.total_tokens ?? null,
-        estimated_cost_usd: estimatedCostUsd
+        estimated_cost_usd: estimatedCostUsd,
+        feedback_type: feedback_type,
+        feedback_verbosity: feedback_verbosity,
+        prescriptive_table: markingResult.prescriptive_table || null,
+        reflective_questions: markingResult.reflective_questions || null,
+        critical_table: markingResult.critical_table || null,
+        genie_output: markingResult.genie_output || null,
+        improvement_forecast: markingResult.improvement_forecast || null,
+        criterion_feedback_types: criterion_feedback_types || null
       };
 
       if (output_type === 'report') {
@@ -698,7 +714,7 @@ router.get('/rubric/:id', async (req, res) => {
 // Mark multiple assignments
 router.post('/multiple', requireAuth, async (req, res) => {
   try {
-    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict', mark_as_image = false } = req.body;
+    const { assignment_ids, rubric_id, student_names, document_type, output_type = 'annotate', assessment_type, level, provider, strictness_level = 'strict', mark_as_image = false, feedback_type = 'standard', feedback_verbosity = 'standard', criterion_feedback_types = null } = req.body;
 
     if (!assignment_ids || !Array.isArray(assignment_ids) || assignment_ids.length === 0) {
       return res.status(400).json({
@@ -853,7 +869,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
           }
 
           const docType = assessment_type || document_type || null;
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages);
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
 
           if (checkAborted()) {
             await query(
@@ -879,7 +895,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
           const usageBatch = markingResult.usage || {};
           const estimatedCostUsdBatch = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -898,7 +914,15 @@ router.post('/multiple', requireAuth, async (req, res) => {
               usageBatch.completion_tokens != null ? usageBatch.completion_tokens : null,
               usageBatch.total_tokens != null ? usageBatch.total_tokens : null,
               estimatedCostUsdBatch,
-              req.user.id
+              req.user.id,
+              feedback_type,
+              feedback_verbosity,
+              markingResult.prescriptive_table && markingResult.prescriptive_table.length > 0 ? JSON.stringify(markingResult.prescriptive_table) : null,
+              markingResult.reflective_questions && markingResult.reflective_questions.length > 0 ? JSON.stringify(markingResult.reflective_questions) : null,
+              markingResult.critical_table && markingResult.critical_table.length > 0 ? JSON.stringify(markingResult.critical_table) : null,
+              markingResult.genie_output && markingResult.genie_output.length > 0 ? JSON.stringify(markingResult.genie_output) : null,
+              markingResult.improvement_forecast || null,
+              criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null
             ]
           );
 
@@ -926,7 +950,15 @@ router.post('/multiple', requireAuth, async (req, res) => {
             prompt_tokens: usageBatch.prompt_tokens ?? null,
             completion_tokens: usageBatch.completion_tokens ?? null,
             total_tokens: usageBatch.total_tokens ?? null,
-            estimated_cost_usd: estimatedCostUsdBatch
+            estimated_cost_usd: estimatedCostUsdBatch,
+            feedback_type: feedback_type,
+            feedback_verbosity: feedback_verbosity,
+            prescriptive_table: markingResult.prescriptive_table || null,
+            reflective_questions: markingResult.reflective_questions || null,
+            critical_table: markingResult.critical_table || null,
+            genie_output: markingResult.genie_output || null,
+            improvement_forecast: markingResult.improvement_forecast || null,
+            criterion_feedback_types: criterion_feedback_types || null
           };
 
           if (output_type === 'report') {
@@ -1024,6 +1056,41 @@ router.post('/multiple', requireAuth, async (req, res) => {
 
         errors.push(errorDetails);
         console.error(`Error processing assignment ${assignment_id}:`, error);
+      }
+    }
+
+    // Compute comparative insight for each result once all marks are in
+    if (results.length > 1) {
+      const totalPossible = results[0]?.scores?.reduce((s, c) => s + (c.max_points || 0), 0) || 0;
+      const scores = results.map(r => r.total_score || 0);
+      const batchAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const batchMax = Math.max(...scores);
+      const batchMin = Math.min(...scores);
+
+      for (const result of results) {
+        const score = result.total_score || 0;
+        const aboveCount = scores.filter(s => s < score).length;
+        const percentile = Math.round((aboveCount / scores.length) * 100);
+        const diff = score - batchAvg;
+        const diffLabel = diff > 0
+          ? `${Math.abs(diff).toFixed(1)} marks above`
+          : diff < 0
+          ? `${Math.abs(diff).toFixed(1)} marks below`
+          : 'equal to';
+        const tier = percentile >= 75 ? 'top performer in this batch'
+          : percentile >= 50 ? 'above the batch average'
+          : percentile >= 25 ? 'below the batch average'
+          : 'in the lower quartile of this batch';
+
+        const insight = `In this batch of ${results.length} submissions, the average score was ${batchAvg.toFixed(1)}${totalPossible ? `/${totalPossible}` : ''} (range: ${batchMin}–${batchMax}). Your score of ${score}${totalPossible ? `/${totalPossible}` : ''} is ${diffLabel} the batch average, placing you in the ${tier} (top ${100 - percentile}%).`;
+
+        result.comparative_insight = insight;
+        if (result.id) {
+          query(
+            'UPDATE marking_results SET comparative_insight = ? WHERE id = ?',
+            [insight, result.id]
+          ).catch(e => console.warn('comparative_insight update failed:', e.message));
+        }
       }
     }
 

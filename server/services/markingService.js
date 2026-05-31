@@ -68,12 +68,91 @@ const MARKING_SCHEMA = {
     overall_confidence: { type: 'number' },
     handwriting_recognition_confidence: {
       anyOf: [{ type: 'number' }, { type: 'null' }]
-    }
+    },
+    prescriptive_table: {
+      anyOf: [
+        {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              criterion: { type: 'string' },
+              issue: { type: 'string' },
+              location: { type: 'string' },
+              fix: { type: 'string' },
+              priority: { type: 'string' }
+            },
+            required: ['criterion', 'issue', 'location', 'fix', 'priority'],
+            additionalProperties: false
+          }
+        },
+        { type: 'null' }
+      ]
+    },
+    reflective_questions: {
+      anyOf: [
+        {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              criterion: { type: 'string' },
+              question: { type: 'string' }
+            },
+            required: ['criterion', 'question'],
+            additionalProperties: false
+          }
+        },
+        { type: 'null' }
+      ]
+    },
+    critical_table: {
+      anyOf: [
+        {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              criterion: { type: 'string' },
+              weakness: { type: 'string' },
+              impact: { type: 'string' },
+              evidence: { type: 'string' },
+              severity: { type: 'string' }
+            },
+            required: ['criterion', 'weakness', 'impact', 'evidence', 'severity'],
+            additionalProperties: false
+          }
+        },
+        { type: 'null' }
+      ]
+    },
+    genie_output: {
+      anyOf: [
+        {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              criterion: { type: 'string' },
+              original_excerpt: { type: 'string' },
+              corrected_version: { type: 'string' },
+              changes_made: { type: 'string' }
+            },
+            required: ['criterion', 'original_excerpt', 'corrected_version', 'changes_made'],
+            additionalProperties: false
+          }
+        },
+        { type: 'null' }
+      ]
+    },
+    improvement_forecast: { type: 'string' }
   },
   required: [
     'scores', 'corrections', 'language_errors',
     'overall_feedback', 'total_score', 'overall_confidence',
-    'handwriting_recognition_confidence'
+    'handwriting_recognition_confidence',
+    'prescriptive_table', 'reflective_questions', 'critical_table', 'genie_output',
+    'improvement_forecast'
   ],
   additionalProperties: false
 };
@@ -877,9 +956,108 @@ const parseMarkingResponsePayload = (response, { selectedProvider = 'openai', us
 // Core marking function
 // ---------------------------------------------------------------------------
 
+const getFeedbackVerbosityPromptBlock = (feedbackVerbosity) => {
+  switch (feedbackVerbosity) {
+    case 'brief':
+      return `FEEDBACK VERBOSITY: BRIEF
+- Per-criterion feedback: 1-2 sentences maximum. Identify the single most important point only.
+- Overall feedback: 2-4 sentences. Focus on the top strength and top area for improvement.
+- Corrections: list only the most critical issues (maximum 5 total).
+- Language errors: flag only the most impactful errors (maximum 5).
+- Keep all text tightly focused — no elaboration, no examples, no learning context.`;
+    case 'comprehensive':
+      return `FEEDBACK VERBOSITY: COMPREHENSIVE
+- Per-criterion feedback: 6-10 sentences minimum. Cover every observable dimension of the work for that criterion.
+- Include: exact quotes from the submission, connections to wider academic discourse, comparison to the highest possible standard, step-by-step improvement roadmap.
+- Overall feedback: 400-600 words minimum. Leave no significant aspect unaddressed.
+- Corrections: be exhaustive — every correction and suggestion warranted.
+- Language errors: report every identifiable error.
+- Prioritise depth and completeness over conciseness.`;
+    default:
+      return '';
+  }
+};
+
+const FEEDBACK_TYPE_DESCRIPTIONS = {
+  prescriptive: 'Populate prescriptive_table for this criterion: issue, location, fix, priority (high/medium/low).',
+  reflective: 'Populate reflective_questions for this criterion: 2-3 open thought-provoking questions (no answers/hints).',
+  critical: 'Populate critical_table for this criterion: weakness, impact, evidence (direct quote), severity (fundamental/major/minor).',
+  genie: 'Populate genie_output for this criterion: original_excerpt (verbatim from submission), corrected_version (rewritten to expected standard), changes_made.',
+  standard: 'Use the standard narrative feedback field only (scores[].feedback). No special table or structured output needed for this criterion.'
+};
+
+const getFeedbackTypePromptBlock = (feedbackType, criterionFeedbackTypes = null) => {
+  // Per-criterion mixing mode
+  if (criterionFeedbackTypes && typeof criterionFeedbackTypes === 'object' && Object.keys(criterionFeedbackTypes).length > 0) {
+    const overrideLines = Object.entries(criterionFeedbackTypes)
+      .map(([name, type]) => `  - "${name}": ${FEEDBACK_TYPE_DESCRIPTIONS[type] || FEEDBACK_TYPE_DESCRIPTIONS.standard}`)
+      .join('\n');
+
+    // Determine which schema fields to populate
+    const activeTypes = new Set(Object.values(criterionFeedbackTypes));
+    const needsPrescriptive = activeTypes.has('prescriptive');
+    const needsReflective = activeTypes.has('reflective');
+    const needsCritical = activeTypes.has('critical');
+    const needsGenie = activeTypes.has('genie');
+
+    return `FEEDBACK TYPE: PER-CRITERION MIXING
+Each criterion has its own feedback type override. For each criterion, follow the instruction below:
+${overrideLines}
+
+SCHEMA FIELD RULES:
+- prescriptive_table: ${needsPrescriptive ? 'Populate rows ONLY for criteria assigned "prescriptive" type.' : 'Set to null.'}
+- reflective_questions: ${needsReflective ? 'Populate rows ONLY for criteria assigned "reflective" type.' : 'Set to null.'}
+- critical_table: ${needsCritical ? 'Populate rows ONLY for criteria assigned "critical" type.' : 'Set to null.'}
+- genie_output: ${needsGenie ? 'Populate rows ONLY for criteria assigned "genie" type.' : 'Set to null.'}
+For criteria assigned "standard", include only the normal narrative scores[].feedback field.`;
+  }
+  switch (feedbackType) {
+    case 'prescriptive':
+      return `FEEDBACK TYPE: PRESCRIPTIVE
+You must populate the "prescriptive_table" field. For EVERY criterion, produce one or more rows that tell the student exactly what to fix. Rules:
+- "issue": state the specific problem concisely (1-2 sentences)
+- "location": pinpoint where in the document (section name, paragraph, page reference)
+- "fix": give a concrete, actionable instruction — what specifically must the student do? No vague advice.
+- "priority": "high" (affects grade significantly), "medium" (notable gap), or "low" (minor polish)
+Produce multiple rows per criterion when there are multiple distinct issues.
+Set "reflective_questions", "critical_table", and "genie_output" to null.`;
+
+    case 'reflective':
+      return `FEEDBACK TYPE: REFLECTIVE
+You must populate the "reflective_questions" field. For EVERY criterion, produce 2-3 open questions that prompt the student to think critically about their own work. Rules:
+- Questions must be genuinely thought-provoking — not yes/no questions, not rhetorical.
+- Questions should probe assumptions, ask for evidence, invite comparison, or push for deeper analysis.
+- Phrase as if speaking directly to the student: "How did you arrive at...?", "What evidence would strengthen...?", "If you were to reconsider X, what would change?"
+- Do NOT provide answers or hints — the goal is to trigger self-reflection.
+Set "prescriptive_table", "critical_table", and "genie_output" to null.`;
+
+    case 'critical':
+      return `FEEDBACK TYPE: CRITICAL ANALYSIS
+You must populate the "critical_table" field. For EVERY criterion, identify and catalogue the weaknesses with scholarly rigour. Rules:
+- "weakness": name the specific flaw or gap directly and precisely (no softening)
+- "impact": explain the academic or practical consequence of this weakness on the work's quality or argument
+- "evidence": quote or specifically reference the exact text, section, or passage that demonstrates this weakness
+- "severity": "fundamental" (undermines the entire criterion), "major" (significantly reduces quality), or "minor" (limited scope)
+Be critical and direct — this mode is not for encouragement, it is for rigorous academic critique.
+Set "prescriptive_table", "reflective_questions", and "genie_output" to null.`;
+
+    case 'genie':
+      return `FEEDBACK TYPE: GENIE (AI-CORRECTED ALTERNATIVE)
+You must populate the "genie_output" field. For EVERY criterion where the student's work has room for improvement, provide a corrected rewrite. Rules:
+- "original_excerpt": copy verbatim the specific passage, sentence, or section from the student's submission that needs improvement (keep it focused — a paragraph or less)
+- "corrected_version": rewrite that excerpt to the standard expected at this level — improved argument, corrected structure, proper academic language, added depth
+- "changes_made": list the specific changes made and the academic reason behind each (e.g. "Added methodological justification — the rubric requires evidence of process rationale")
+Produce one entry per criterion. If a criterion is already excellent, produce an entry with original_excerpt set to the strongest excerpt and corrected_version matching it, with changes_made noting it meets the standard.
+Set "prescriptive_table", "reflective_questions", and "critical_table" to null.`;
+
+    default:
+      return `Set "prescriptive_table", "reflective_questions", "critical_table", and "genie_output" all to null — standard feedback mode is active.`;
+  }
+};
+
 // Generate AI marking using OpenAI or Anthropic.
 // When assignmentImages (array of base64 strings) is provided, the PDF is marked from images instead of extracted text (vision-based).
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null) => {
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null) => {
   const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
   try {
     const resolvedLevel = resolveEducationLevel(level || 'level_4');
@@ -1696,6 +1874,12 @@ For each error, provide:
 - The correction (what it should be)
 - A brief explanation of why it's an error
 
+${getFeedbackTypePromptBlock(feedbackType, criterionFeedbackTypes)}
+${getFeedbackVerbosityPromptBlock(feedbackVerbosity)}
+
+IMPROVEMENT FORECAST (always required):
+Populate the "improvement_forecast" field with a concise 2-4 sentence statement estimating how many marks the student could recover and which specific issues to address. Format: "By addressing [top 2-3 specific issues], you could potentially gain approximately [X] additional marks, bringing your score from [current] to approximately [projected]/[total]." Be realistic — only forecast marks that the rubric criteria could plausibly award if the issues were resolved.
+
 CRITICAL: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Return ONLY the JSON object.
 
 JSON format (return ONLY this, no other text):
@@ -1731,7 +1915,12 @@ JSON format (return ONLY this, no other text):
   ],
   "overall_feedback": "EXTENSIVE, COMPREHENSIVE feedback (minimum 200-300 words) written as if you are a real teacher speaking directly to the student. Use 'you' and 'your' throughout.",
   "total_score": number,
-  "overall_confidence": number${imageBased ? ',\n  "handwriting_recognition_confidence": number' : ''}
+  "overall_confidence": number${imageBased ? ',\n  "handwriting_recognition_confidence": number' : ''},
+  "prescriptive_table": ${feedbackType === 'prescriptive' ? '[{"criterion": "criterion name", "issue": "specific problem to fix", "location": "where in the document", "fix": "exactly what to do to fix it", "priority": "high|medium|low"}]' : 'null'},
+  "reflective_questions": ${feedbackType === 'reflective' ? '[{"criterion": "criterion name", "question": "Thought-provoking question to prompt self-reflection and deeper thinking?"}]' : 'null'},
+  "critical_table": ${feedbackType === 'critical' ? '[{"criterion": "criterion name", "weakness": "specific weakness identified", "impact": "how this weakness affects the work or grade", "evidence": "direct quote or specific reference from the submission", "severity": "fundamental|major|minor"}]' : 'null'},
+  "genie_output": ${feedbackType === 'genie' ? '[{"criterion": "criterion name", "original_excerpt": "verbatim excerpt from the submission that needs improvement", "corrected_version": "AI-rewritten, corrected version of that excerpt", "changes_made": "concise explanation of what was changed and why"}]' : 'null'},
+  "improvement_forecast": "By addressing [specific issues], you could potentially gain approximately X additional marks, bringing your score from [current] to approximately [projected]/[total]."
 }`;
 
     console.log(`📤 Sending request to ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}...`);
