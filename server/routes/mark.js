@@ -24,6 +24,13 @@ const pdfGenerator = new PDFReportGenerator();
 const getAssignmentDisplayName = (assignment) => assignment?.filename || assignment?.file_path || '';
 const getCommentedDocxPath = (filePath) => filePath.replace(/\.docx$/i, '.marked-comments.docx');
 const inferDocumentTypeFromAssignment = (assignment) => (isCodeDocument(getAssignmentDisplayName(assignment)) ? 'code' : null);
+const resolveStudentName = (studentName, assignment) => {
+  const providedName = String(studentName || '').trim();
+  if (providedName) return providedName;
+
+  const displayName = getAssignmentDisplayName(assignment);
+  return displayName ? path.basename(displayName) : null;
+};
 
 // Debug endpoint to test marking functionality
 router.post('/debug', requireAuth, async (req, res) => {
@@ -326,6 +333,7 @@ router.post('/single', requireAuth, async (req, res) => {
     if (!assignment) {
       return res.status(404).json({ error: 'Assignment not found' });
     }
+    const resolvedStudentName = resolveStudentName(student_name, assignment);
 
     const rubricResult = await query(
       'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
@@ -444,7 +452,7 @@ router.post('/single', requireAuth, async (req, res) => {
         [
           assignment_id,
           rubric_id,
-          student_name || null,
+          resolvedStudentName,
           JSON.stringify(markingResult.scores),
           markingResult.overall_feedback,
           markingResult.total_score,
@@ -476,7 +484,7 @@ router.post('/single', requireAuth, async (req, res) => {
         id: insertedId,
         assignment_id,
         rubric_id,
-        student_name: student_name || null,
+        student_name: resolvedStudentName,
         scores: markingResult.scores,
         feedback: markingResult.overall_feedback,
         total_score: markingResult.total_score,
@@ -627,6 +635,7 @@ router.post('/manual', async (req, res) => {
     }
 
     const assignment = assignmentResult.rows[0];
+    const resolvedStudentName = resolveStudentName(student_name, assignment);
 
     const rubricResult = await query(
       'SELECT * FROM rubrics WHERE id = ? AND user_id = ?',
@@ -664,7 +673,7 @@ router.post('/manual', async (req, res) => {
         [
           assignment_id,
           rubric_id,
-          student_name || null,
+          resolvedStudentName,
           JSON.stringify(scores),
           overall_feedback || 'Manual marking completed',
           total_score,
@@ -677,7 +686,7 @@ router.post('/manual', async (req, res) => {
         id: insertedId,
         assignment_id,
         rubric_id,
-        student_name: student_name || null,
+        student_name: resolvedStudentName,
         scores: scores,
         feedback: overall_feedback || 'Manual marking completed',
         total_score: total_score,
@@ -848,6 +857,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
           errors.push({ assignment_id, error: 'Assignment not found' });
           continue;
         }
+        const resolvedStudentName = resolveStudentName(student_name, assignment);
 
         if (checkAborted()) {
           console.log(`⚠️  Request cancelled before processing assignment ${assignment_id}`);
@@ -937,7 +947,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
             [
               assignment_id,
               rubric_id,
-              student_name,
+              resolvedStudentName,
               JSON.stringify(markingResult.scores),
               markingResult.overall_feedback,
               markingResult.total_score,
@@ -969,7 +979,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
             id: insertedId,
             assignment_id,
             rubric_id,
-            student_name: student_name,
+            student_name: resolvedStudentName,
             scores: markingResult.scores,
             feedback: markingResult.overall_feedback,
             total_score: markingResult.total_score,
