@@ -211,7 +211,22 @@ const BatchManager: React.FC = () => {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: onDropToBatch,
-    accept: { 'application/pdf': ['.pdf'], 'application/zip': ['.zip'] },
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/json': ['.json'],
+      'application/xml': ['.xml'],
+      'application/javascript': ['.js'],
+      'text/html': ['.html'],
+      'text/css': ['.css', '.scss', '.sass'],
+      'text/plain': [
+        '.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp',
+        '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.kts', '.scala', '.r', '.m',
+        '.sql', '.sh', '.bash', '.zsh', '.ps1', '.pl', '.lua', '.dart', '.yaml', '.yml',
+        '.toml', '.ini', '.cfg', '.md', '.txt'
+      ],
+      'application/zip': ['.zip'],
+    },
     disabled: uploading,
   });
 
@@ -735,8 +750,8 @@ const BatchManager: React.FC = () => {
                 <p className="text-sm text-indigo-600 font-medium">Drop files here…</p>
               ) : (
                 <>
-                  <p className="text-sm font-medium text-gray-700">Drag &amp; drop PDF or ZIP files here</p>
-                  <p className="text-xs text-gray-500 mt-1">or click to browse</p>
+                  <p className="text-sm font-medium text-gray-700">Drag &amp; drop files here</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, Word, code files (.py, .js, .java, …), or ZIP — or click to browse</p>
                   <p className="text-xs text-gray-400 mt-2">ZIP files are automatically extracted</p>
                 </>
               )}
