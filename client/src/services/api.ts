@@ -579,6 +579,7 @@ export const batchesAPI = {
     api.post(`/batches/${id}/schedule-marking`, data),
   getAllJobs: () => api.get('/batches/jobs/all'),
   getJobsHealth: () => api.get<BatchJobsHealthResponse>('/batches/jobs/health'),
+  runJobNow: (jobId: number) => api.post(`/batches/jobs/${jobId}/run-now`),
 };
 
 // Assessments API

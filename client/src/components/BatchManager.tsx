@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock } from 'lucide-react';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle } from 'lucide-react';
 import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob } from '../services/api';
 
 const BatchManager: React.FC = () => {
@@ -183,6 +183,16 @@ const BatchManager: React.FC = () => {
     }
   };
 
+  const handleRunNow = async (job: MarkingJob) => {
+    try {
+      setError(null);
+      await batchesAPI.runJobNow(job.id);
+      setSuccess(`Job started for "${job.batch_name || `Folder #${job.batch_id}`}"`);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to start job');
+    }
+  };
+
   const openEditModal = (batch: Batch) => {
     setShowEditModal(batch);
     setNewBatchName(batch.name);
@@ -266,9 +276,27 @@ const BatchManager: React.FC = () => {
           <div className="space-y-3">
             {jobs.slice(0, 6).map((job) => (
               <div key={job.id} className="bg-white border border-indigo-100 rounded-md p-3">
-                <div className="flex justify-between text-sm mb-1">
+                <div className="flex justify-between items-start text-sm mb-1">
                   <span className="font-medium text-gray-800">{job.batch_name || `Folder #${job.batch_id}`}</span>
-                  <span className="text-gray-600">{job.status}</span>
+                  <div className="flex items-center gap-2">
+                    {job.status === 'scheduled' && job.processing_mode === 'standard' && (
+                      <button
+                        onClick={() => handleRunNow(job)}
+                        title="Start marking now"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
+                      >
+                        <PlayCircle className="h-4 w-4" />
+                        Run now
+                      </button>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      job.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      job.status === 'completed_with_errors' ? 'bg-yellow-100 text-yellow-700' :
+                      job.status === 'failed' ? 'bg-red-100 text-red-700' :
+                      job.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>{job.status}</span>
+                  </div>
                 </div>
                 <div className="w-full h-2 bg-gray-200 rounded">
                   <div className="h-2 bg-indigo-600 rounded" style={{ width: `${getJobProgress(job)}%` }} />
@@ -276,6 +304,11 @@ const BatchManager: React.FC = () => {
                 <div className="text-xs text-gray-600 mt-1">
                   {job.processed_count}/{job.total_count} processed • {job.success_count} succeeded • {job.failed_count} failed
                 </div>
+                {job.last_error && job.status === 'failed' && (
+                  <div className="text-xs text-red-600 mt-1 truncate" title={job.last_error}>
+                    {job.last_error}
+                  </div>
+                )}
               </div>
             ))}
           </div>
