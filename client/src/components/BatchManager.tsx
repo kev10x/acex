@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob } from '../services/api';
 
 const BatchManager: React.FC = () => {
@@ -20,6 +21,9 @@ const BatchManager: React.FC = () => {
   const [jobs, setJobs] = useState<MarkingJob[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | ''>('');
   const [scheduledFor, setScheduledFor] = useState('');
+  const [showUploadModal, setShowUploadModal] = useState<Batch | null>(null);
+  const [uploadResults, setUploadResults] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -182,6 +186,34 @@ const BatchManager: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const onDropToBatch = useCallback(async (acceptedFiles: File[]) => {
+    if (!showUploadModal || acceptedFiles.length === 0) return;
+    setUploading(true);
+    const results: { name: string; ok: boolean; error?: string }[] = [];
+    for (const file of acceptedFiles) {
+      try {
+        const isZip = file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip');
+        if (isZip) {
+          await uploadAPI.uploadZip(file, showUploadModal.id);
+        } else {
+          await uploadAPI.uploadSingle(file, showUploadModal.id);
+        }
+        results.push({ name: file.name, ok: true });
+      } catch (err: any) {
+        results.push({ name: file.name, ok: false, error: err.response?.data?.error || err.message });
+      }
+    }
+    setUploadResults(prev => [...results, ...prev]);
+    setUploading(false);
+    fetchData();
+  }, [showUploadModal]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: onDropToBatch,
+    accept: { 'application/pdf': ['.pdf'], 'application/zip': ['.zip'] },
+    disabled: uploading,
+  });
 
   const handleRunNow = async (job: MarkingJob) => {
     try {
@@ -401,12 +433,21 @@ const BatchManager: React.FC = () => {
                 )}
               </div>
 
-              <button
-                onClick={() => openAssignModal(batch)}
-                className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Edit Contents
-              </button>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => openAssignModal(batch)}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Edit Contents
+                </button>
+                <button
+                  onClick={() => { setShowUploadModal(batch); setUploadResults([]); }}
+                  className="inline-flex items-center justify-center gap-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload here
+                </button>
+              </div>
               <button
                 onClick={() => openScheduleModal(batch)}
                 className="w-full mt-2 px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
@@ -659,6 +700,71 @@ const BatchManager: React.FC = () => {
                   {loading ? 'Saving...' : `Save Changes (${selectedAssignments.length + selectedAssignmentsToRemove.length})`}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload directly to batch modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+                <Upload className="h-5 w-5 text-indigo-600" />
+                Upload to "{showUploadModal.name}"
+              </h3>
+              <button
+                onClick={() => { setShowUploadModal(null); setUploadResults([]); fetchData(); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Dropzone */}
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
+              } ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input {...getInputProps()} />
+              <Upload className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+              {isDragActive ? (
+                <p className="text-sm text-indigo-600 font-medium">Drop files here…</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-gray-700">Drag &amp; drop PDF or ZIP files here</p>
+                  <p className="text-xs text-gray-500 mt-1">or click to browse</p>
+                  <p className="text-xs text-gray-400 mt-2">ZIP files are automatically extracted</p>
+                </>
+              )}
+              {uploading && <p className="text-xs text-indigo-600 mt-2 animate-pulse">Uploading…</p>}
+            </div>
+
+            {/* Results */}
+            {uploadResults.length > 0 && (
+              <div className="mt-4 space-y-1 max-h-48 overflow-y-auto">
+                {uploadResults.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs px-2 py-1 rounded ${r.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {r.ok
+                      ? <CheckCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                    <span className="truncate flex-1">{r.name}</span>
+                    {r.error && <span className="flex-shrink-0">{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => { setShowUploadModal(null); setUploadResults([]); fetchData(); }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
