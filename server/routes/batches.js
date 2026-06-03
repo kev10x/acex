@@ -473,6 +473,50 @@ router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
   }
 });
 
+// Retry a failed or partially-failed job by re-queuing only the failed assignments.
+router.post('/jobs/:jobId/retry', requireAuth, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = firstRow(await query(
+      'SELECT * FROM marking_jobs WHERE id = ? AND user_id = ?',
+      [jobId, req.user.id]
+    ));
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.status !== 'failed' && job.status !== 'completed_with_errors') {
+      return res.status(400).json({ error: `Only failed or completed_with_errors jobs can be retried (current status: ${job.status})` });
+    }
+
+    // Reset assignments that errored back to 'uploaded' so runMarkingJob picks them up.
+    await query(
+      'UPDATE assignments SET status = ?, processing_job_id = NULL WHERE batch_id = ? AND user_id = ? AND status = ?',
+      ['uploaded', job.batch_id, job.user_id, 'error']
+    );
+    await query(
+      `UPDATE assessment_submissions SET status = 'pending', failure_reason = NULL, completed_at = NULL
+       WHERE assignment_id IN (
+         SELECT id FROM assignments WHERE batch_id = ? AND user_id = ? AND status = 'uploaded'
+       )`,
+      [job.batch_id, job.user_id]
+    );
+
+    // Put job back into scheduled state and increment retry_count.
+    await query(
+      `UPDATE marking_jobs
+       SET status = 'scheduled', started_at = NULL, completed_at = NULL,
+           processed_count = 0, success_count = 0, failed_count = 0, last_error = NULL,
+           retry_count = COALESCE(retry_count, 0) + 1
+       WHERE id = ?`,
+      [jobId]
+    );
+
+    scheduleJobProcessor(jobId, new Date());
+    res.json({ success: true, message: 'Job retry started' });
+  } catch (error) {
+    console.error('Retry job error:', error);
+    res.status(500).json({ error: 'Failed to retry job' });
+  }
+});
+
 // Immediately trigger a scheduled standard-mode job without waiting for its timer.
 router.post('/jobs/:jobId/run-now', requireAuth, async (req, res) => {
   try {

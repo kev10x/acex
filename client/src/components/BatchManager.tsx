@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle, Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle, RotateCcw, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob } from '../services/api';
 
 const BatchManager: React.FC = () => {
@@ -240,6 +240,16 @@ const BatchManager: React.FC = () => {
     }
   };
 
+  const handleRetry = async (job: MarkingJob) => {
+    try {
+      setError(null);
+      await batchesAPI.retryJob(job.id);
+      setSuccess(`Retrying failed assignments for "${job.batch_name || `Folder #${job.batch_id}`}"`);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to retry job');
+    }
+  };
+
   const openEditModal = (batch: Batch) => {
     setShowEditModal(batch);
     setNewBatchName(batch.name);
@@ -336,6 +346,16 @@ const BatchManager: React.FC = () => {
                         Run now
                       </button>
                     )}
+                    {(job.status === 'failed' || job.status === 'completed_with_errors') && (
+                      <button
+                        onClick={() => handleRetry(job)}
+                        title="Retry failed assignments"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 hover:text-orange-800"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Retry
+                      </button>
+                    )}
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       job.status === 'completed' ? 'bg-green-100 text-green-700' :
                       job.status === 'completed_with_errors' ? 'bg-yellow-100 text-yellow-700' :
@@ -351,7 +371,7 @@ const BatchManager: React.FC = () => {
                 <div className="text-xs text-gray-600 mt-1">
                   {job.processed_count}/{job.total_count} processed • {job.success_count} succeeded • {job.failed_count} failed
                 </div>
-                {job.last_error && job.status === 'failed' && (
+                {job.last_error && (job.status === 'failed' || job.status === 'completed_with_errors') && (
                   <div className="text-xs text-red-600 mt-1 truncate" title={job.last_error}>
                     {job.last_error}
                   </div>

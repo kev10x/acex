@@ -770,7 +770,7 @@ Respond with ONLY a JSON object:
       model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
-      maxTokens: 200
+      maxTokens: 1500
     });
 
     const response = aiResult.content.trim();
@@ -1972,7 +1972,7 @@ JSON format (return ONLY this, no other text):
         model: skeletonModel,
         messages: skeletonMessages,
         temperature: 0.0,
-        maxTokens: 800
+        maxTokens: 2500
       }, 1);
 
       const skeletonResponse = String(skeletonResult.content || '').trim();
