@@ -45,7 +45,7 @@ const RubricGenerator: React.FC = () => {
       setSelectedAssignment(newAssignment.id);
       setSuccess(`"${newAssignment.filename}" uploaded. You can generate a rubric from it below.`);
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to upload PDF');
+      setError(err.response?.data?.error || err.message || 'Failed to upload file');
     } finally {
       setUploading(false);
     }
@@ -53,7 +53,31 @@ const RubricGenerator: React.FC = () => {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'text/plain': ['.txt', '.md', '.sh', '.bash', '.zsh', '.pl', '.r', '.lua', '.ini', '.cfg', '.toml', '.yaml', '.yml'],
+      'text/html': ['.html'],
+      'text/css': ['.css', '.scss', '.sass'],
+      'text/x-python': ['.py'],
+      'text/javascript': ['.js', '.jsx'],
+      'text/typescript': ['.ts', '.tsx'],
+      'application/json': ['.json'],
+      'application/xml': ['.xml'],
+      'text/x-java-source': ['.java'],
+      'text/x-csrc': ['.c', '.h', '.cpp', '.cc', '.cxx', '.hpp'],
+      'text/x-csharp': ['.cs'],
+      'text/x-php': ['.php'],
+      'text/x-ruby': ['.rb'],
+      'text/x-go': ['.go'],
+      'text/x-rustsrc': ['.rs'],
+      'text/x-swift': ['.swift'],
+      'text/x-kotlin': ['.kt', '.kts'],
+      'text/x-scala': ['.scala'],
+      'text/x-sql': ['.sql'],
+      'text/x-powershell': ['.ps1'],
+      'text/x-dart': ['.dart'],
+    },
     maxFiles: 1,
     disabled: uploading
   });
@@ -132,7 +156,7 @@ const RubricGenerator: React.FC = () => {
       <div>
         <h2 className="text-2xl font-bold text-gray-900">AI Rubric Generator</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Generate a marking rubric based on a PDF document using AI analysis.
+          Generate a marking rubric from a PDF, Word document, or code file using AI analysis.
         </p>
       </div>
 
@@ -164,9 +188,9 @@ const RubricGenerator: React.FC = () => {
       {/* Assignment Selection */}
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Select PDF Document</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Select Document</h3>
 
-          {/* Upload PDF directly */}
+          {/* Upload document directly */}
           <div
             {...getRootProps()}
             className={`mb-4 border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
@@ -176,7 +200,7 @@ const RubricGenerator: React.FC = () => {
             <input {...getInputProps()} />
             <Upload className="mx-auto h-8 w-8 text-gray-400" />
             <p className="mt-2 text-sm font-medium text-gray-700">
-              {isDragActive ? 'Drop PDF here' : 'Upload a PDF here'}
+              {isDragActive ? 'Drop file here' : 'Upload a PDF, Word doc, or code file'}
             </p>
             <p className="text-xs text-gray-500">or choose from existing uploads below</p>
             {uploading && (
@@ -188,12 +212,12 @@ const RubricGenerator: React.FC = () => {
           </div>
           
           {assignments.length === 0 ? (
-            <p className="text-gray-500">No PDF documents yet. Upload one above or add files from the Upload page.</p>
+            <p className="text-gray-500">No documents yet. Upload one above or add files from the Upload page.</p>
           ) : (
             <div className="space-y-4">
               <div>
                 <label htmlFor="assignment" className="block text-sm font-medium text-gray-700">
-                  Choose a PDF to analyze
+                  Choose a document to analyze
                 </label>
                 <select
                   id="assignment"
@@ -201,7 +225,7 @@ const RubricGenerator: React.FC = () => {
                   onChange={(e) => setSelectedAssignment(parseInt(e.target.value) || null)}
                   className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 >
-                  <option value="">Select a PDF document...</option>
+                  <option value="">Select a document...</option>
                   {assignments.map((assignment, index) => (
                     <option key={assignment.id || `assignment-option-${index}`} value={assignment.id}>
                       {assignment.filename}
