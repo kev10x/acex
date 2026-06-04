@@ -895,7 +895,7 @@ function chooseHeroAssetForSlide(heroPool, slideType, index) {
 
 // ─── Grok image generation for slides ────────────────────────────────────────
 
-const XAI_IMAGE_MODEL = 'grok-imagine-image';
+const XAI_IMAGE_MODEL = 'grok-2-image';
 const SLIDE_IMAGE_TYPES = new Set(['content', 'title', 'question', 'activity']);
 const MAX_SLIDE_IMAGES = 6;
 

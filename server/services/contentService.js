@@ -11,7 +11,7 @@ const { buildEducationLevelPromptBlock, buildAcademicWritingGuidance } = require
 
 const OPENAI_IMAGE_MODEL = 'gpt-image-1';
 const OPENAI_IMAGE_SIZE = '1024x1024';
-const XAI_IMAGE_MODEL = 'grok-imagine-image';
+const XAI_IMAGE_MODEL = 'grok-2-image';
 const IMAGE_CONCURRENCY = 3;
 const XAI_TTS_ENDPOINT = 'https://api.x.ai/v1/tts';
 const XAI_TTS_DEFAULT_VOICE = 'eve';
