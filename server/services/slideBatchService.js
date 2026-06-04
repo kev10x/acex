@@ -89,11 +89,15 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
 
 async function processUnits(jobId, { units, subject, level, detailLevel, backgrounds }) {
   const cfg = aiConfig.getTaskConfig('contentGeneration', 'anthropic');
+  console.log(`[slideBatch] job ${jobId} starting — ${units.length} units, model: ${cfg.model}`);
+
   const contentByUnit = {};
+  let consecutiveErrors = 0;
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     try {
+      console.log(`[slideBatch] job ${jobId} unit ${i + 1}/${units.length}: "${unit.title}"`);
       const result = await aiService.createCompletionWithRetry({
         provider: 'anthropic',
         model: cfg.model,
@@ -108,11 +112,26 @@ async function processUnits(jobId, { units, subject, level, detailLevel, backgro
       const raw = String(result?.content || '').trim();
       const match = raw.match(/\[[\s\S]*\]/);
       contentByUnit[i] = JSON.parse(match ? match[0] : raw);
-    } catch (_) {
+      consecutiveErrors = 0;
+      console.log(`[slideBatch] job ${jobId} unit ${i + 1} OK — ${contentByUnit[i].length} slides`);
+    } catch (err) {
+      console.error(`[slideBatch] job ${jobId} unit ${i + 1} failed:`, err?.message || err);
       contentByUnit[i] = fallbackSlides(unit, i);
+      consecutiveErrors++;
+
+      // If first unit fails, the problem is likely systemic (bad API key, wrong model) — abort early
+      if (consecutiveErrors >= 2 || i === 0) {
+        const errMsg = `Unit generation failed: ${String(err?.message || err).slice(0, 300)}`;
+        await updateGenerationJob(jobId, {
+          status: 'failed',
+          error_message: errMsg,
+          completed_at: new Date(),
+        }).catch(() => {});
+        console.error(`[slideBatch] job ${jobId} aborting after consecutive errors`);
+        return;
+      }
     }
 
-    // Write progress after each unit so the status endpoint reflects real-time state
     await updateGenerationJob(jobId, {
       result: { completedUnits: i + 1, totalUnits: units.length, contentReady: false },
     }).catch(() => {});
@@ -125,6 +144,7 @@ async function processUnits(jobId, { units, subject, level, detailLevel, backgro
     result: { completedUnits: units.length, totalUnits: units.length, contentReady: true },
     completed_at: new Date(),
   });
+  console.log(`[slideBatch] job ${jobId} completed`);
 }
 
 // ─── Status ───────────────────────────────────────────────────────────────────
