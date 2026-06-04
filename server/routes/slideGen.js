@@ -173,9 +173,14 @@ router.get('/batch', requireAuth, async (req, res) => {
         scheduledFor: row.scheduled_for || null,
         errorMessage: row.error_message || null,
         unitCount: Array.isArray(payload.units) ? payload.units.length : (progress.unitCount || 0),
-        units: Array.isArray(payload.units) ? payload.units.map((u) => ({ title: u.title })) : [],
+        units: Array.isArray(payload.units) ? payload.units.map((u) => ({
+          title: u.title || '',
+          slideCount: u.slideCount || 8,
+          includeQuiz: !!u.includeQuiz,
+        })) : [],
         subject: payload.subject || '',
         level: payload.level || '',
+        detailLevel: payload.detailLevel || 'standard',
       };
     });
     res.json({ success: true, jobs });

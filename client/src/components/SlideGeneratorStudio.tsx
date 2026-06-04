@@ -12,6 +12,7 @@ import {
   Plus,
   Presentation,
   RefreshCw,
+  RotateCcw,
   Trash2,
   Upload,
   X,
@@ -328,6 +329,18 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
     } finally {
       setPastBatchDownloading(null);
     }
+  };
+
+  const handleRerunBatch = (job: SlideBatchListItem) => {
+    resetBatch();
+    setMode('batch');
+    setBatchUnits(job.units.map((u) => ({ title: u.title, slideCount: u.slideCount, includeQuiz: u.includeQuiz })));
+    setSubject(job.subject);
+    setLevel(job.level || 'undergraduate');
+    const validDetailLevels = ['minimal', 'standard', 'detailed', 'comprehensive'];
+    setDetailLevel(validDetailLevels.includes(job.detailLevel) ? job.detailLevel as DetailLevel : 'standard');
+    setShowPastBatches(false);
+    setError(null);
   };
 
   // ── Single mode reset ─────────────────────────────────────────────────────
@@ -867,16 +880,25 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
                           <p className="mt-0.5 text-xs text-red-500 truncate">{job.errorMessage}</p>
                         )}
                       </div>
-                      {isCompleted && (
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {isCompleted && (
+                          <button
+                            onClick={() => handlePastBatchDownload(job.id)}
+                            disabled={isDownloading}
+                            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {isDownloading ? <Loader className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                            ZIP
+                          </button>
+                        )}
                         <button
-                          onClick={() => handlePastBatchDownload(job.id)}
-                          disabled={isDownloading}
-                          className="shrink-0 inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                          onClick={() => handleRerunBatch(job)}
+                          title="Re-run this batch with the same settings"
+                          className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
                         >
-                          {isDownloading ? <Loader className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                          ZIP
+                          <RotateCcw className="h-3 w-3" /> Rerun
                         </button>
-                      )}
+                      </div>
                     </li>
                   );
                 })}

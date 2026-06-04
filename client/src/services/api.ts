@@ -1733,9 +1733,10 @@ export interface SlideBatchListItem {
   scheduledFor: string | null;
   errorMessage: string | null;
   unitCount: number;
-  units: { title: string }[];
+  units: { title: string; slideCount: number; includeQuiz: boolean }[];
   subject: string;
   level: string;
+  detailLevel: string;
 }
 
 export interface SlideBatchStatus {
