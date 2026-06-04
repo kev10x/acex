@@ -2,8 +2,11 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   AlertCircle,
   CheckCircle,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Download,
+  History,
   Layers,
   Loader,
   Plus,
@@ -14,7 +17,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { slideGenAPI, GeneratedSlide, GeneratedContent, TemplateBackground, TemplateImageAsset, DetailLevel, SlideBatchUnit, SlideBatchStatus } from '../services/api';
+import { slideGenAPI, GeneratedSlide, GeneratedContent, TemplateBackground, TemplateImageAsset, DetailLevel, SlideBatchUnit, SlideBatchStatus, SlideBatchListItem } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS } from '../constants/educationLevels';
 
 type Step = 'input' | 'generating' | 'preview' | 'done';
@@ -60,6 +63,13 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
   const [isBatchPolling, setIsBatchPolling] = useState(false);
   const [isDownloadingBatch, setIsDownloadingBatch] = useState(false);
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Past batches
+  const [showPastBatches, setShowPastBatches] = useState(false);
+  const [pastBatches, setPastBatches] = useState<SlideBatchListItem[]>([]);
+  const [isLoadingPastBatches, setIsLoadingPastBatches] = useState(false);
+  const [pastBatchDownloading, setPastBatchDownloading] = useState<number | null>(null);
+  const pastBatchesLoadedRef = useRef(false);
 
   // Template state
   const [templateFile, setTemplateFile] = useState<File | null>(null);
@@ -287,6 +297,37 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
     setScheduledFor('');
     setGenerateImages(false);
     setError(null);
+  };
+
+  const togglePastBatches = async () => {
+    const next = !showPastBatches;
+    setShowPastBatches(next);
+    if (next && !pastBatchesLoadedRef.current) {
+      setIsLoadingPastBatches(true);
+      try {
+        const { jobs } = await slideGenAPI.listBatches(20);
+        setPastBatches(jobs);
+        pastBatchesLoadedRef.current = true;
+      } catch (_) {}
+      finally { setIsLoadingPastBatches(false); }
+    }
+  };
+
+  const handlePastBatchDownload = async (jobId: number) => {
+    setPastBatchDownloading(jobId);
+    try {
+      const blob = await slideGenAPI.downloadBatch(jobId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `slide_batch_${jobId}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Download failed');
+    } finally {
+      setPastBatchDownloading(null);
+    }
   };
 
   // ── Single mode reset ─────────────────────────────────────────────────────
@@ -774,6 +815,76 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
           </button>
         </div>
       )}
+
+      {/* ── PAST BATCHES ─────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <button
+          onClick={togglePastBatches}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <History className="h-4 w-4 text-gray-500" />
+            Past Batch Jobs
+          </span>
+          {showPastBatches ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+        </button>
+
+        {showPastBatches && (
+          <div className="border-t border-gray-100 px-4 py-3">
+            {isLoadingPastBatches ? (
+              <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
+                <Loader className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            ) : pastBatches.length === 0 ? (
+              <p className="py-4 text-sm text-gray-500">No past batch jobs found.</p>
+            ) : (
+              <ul className="space-y-2">
+                {pastBatches.map((job) => {
+                  const isCompleted = job.status === 'completed';
+                  const isFailed = job.status === 'failed';
+                  const isDownloading = pastBatchDownloading === job.id;
+                  const titlePreview = job.units.slice(0, 3).map((u) => u.title).join(', ');
+                  const overflow = job.unitCount > 3 ? ` +${job.unitCount - 3} more` : '';
+                  return (
+                    <li key={job.id} className="flex items-start justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium text-gray-800">Job #{job.id}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                            isCompleted ? 'bg-emerald-100 text-emerald-700' :
+                            isFailed    ? 'bg-red-100 text-red-700' :
+                            job.status === 'scheduled' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-indigo-100 text-indigo-700'
+                          }`}>
+                            {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                          </span>
+                          <span className="text-xs text-gray-400">{new Date(job.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-gray-600 truncate">
+                          {job.unitCount} unit{job.unitCount !== 1 ? 's' : ''}{job.subject ? ` · ${job.subject}` : ''}{titlePreview ? ` — ${titlePreview}${overflow}` : ''}
+                        </p>
+                        {isFailed && job.errorMessage && (
+                          <p className="mt-0.5 text-xs text-red-500 truncate">{job.errorMessage}</p>
+                        )}
+                      </div>
+                      {isCompleted && (
+                        <button
+                          onClick={() => handlePastBatchDownload(job.id)}
+                          disabled={isDownloading}
+                          className="shrink-0 inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isDownloading ? <Loader className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                          ZIP
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

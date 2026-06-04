@@ -11,6 +11,7 @@ const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const slideGenService = require('../services/slideGenService');
 const slideBatchService = require('../services/slideBatchService');
+const { listGenerationJobs } = require('../services/generationJobService');
 
 const router = express.Router();
 
@@ -148,6 +149,39 @@ router.post('/populate', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Slide populate error:', error);
     res.status(500).json({ error: 'Failed to build presentation' });
+  }
+});
+
+/**
+ * GET /slide-gen/batch
+ * List the authenticated user's past slide batch jobs.
+ * Returns { jobs: [{ id, status, createdAt, scheduledFor, unitCount, units, subject, level, errorMessage }] }
+ */
+router.get('/batch', requireAuth, async (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  try {
+    const rows = await listGenerationJobs({ user_id: req.user.id, job_type: 'slide_batch', limit });
+    const jobs = rows.map((row) => {
+      let payload = {};
+      let progress = {};
+      try { payload = JSON.parse(row.payload_json || '{}'); } catch (_) {}
+      try { progress = JSON.parse(row.result_json || '{}'); } catch (_) {}
+      return {
+        id: row.id,
+        status: row.status,
+        createdAt: row.created_at,
+        scheduledFor: row.scheduled_for || null,
+        errorMessage: row.error_message || null,
+        unitCount: Array.isArray(payload.units) ? payload.units.length : (progress.unitCount || 0),
+        units: Array.isArray(payload.units) ? payload.units.map((u) => ({ title: u.title })) : [],
+        subject: payload.subject || '',
+        level: payload.level || '',
+      };
+    });
+    res.json({ success: true, jobs });
+  } catch (error) {
+    console.error('List slide batches error:', error);
+    res.status(500).json({ error: 'Failed to list batch jobs' });
   }
 });
 

@@ -1724,9 +1724,23 @@ export interface SlideBatchUnit {
   includeQuiz: boolean;
 }
 
+export type SlideBatchJobStatus = 'scheduled' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface SlideBatchListItem {
+  id: number;
+  status: SlideBatchJobStatus;
+  createdAt: string;
+  scheduledFor: string | null;
+  errorMessage: string | null;
+  unitCount: number;
+  units: { title: string }[];
+  subject: string;
+  level: string;
+}
+
 export interface SlideBatchStatus {
   id: number;
-  status: 'scheduled' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  status: SlideBatchJobStatus;
   scheduledFor: string | null;
   unitCount: number;
   errorMessage: string | null;
@@ -1784,6 +1798,9 @@ export const slideGenAPI = {
     generateImages?: boolean;
   }): Promise<{ success: boolean; jobId: number }> => {
     return api.post('/slide-gen/batch', params).then((r) => r.data);
+  },
+  listBatches: (limit?: number): Promise<{ success: boolean; jobs: SlideBatchListItem[] }> => {
+    return api.get('/slide-gen/batch', { params: limit ? { limit } : {} }).then((r) => r.data);
   },
   getBatchStatus: (jobId: number): Promise<{ success: boolean } & SlideBatchStatus> => {
     return api.get(`/slide-gen/batch/${jobId}`).then((r) => r.data);
