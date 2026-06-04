@@ -102,7 +102,7 @@ async function processUnits(jobId, { units, subject, level, detailLevel, backgro
         provider: 'anthropic',
         model: cfg.model,
         temperature: 0.6,
-        maxTokens: Math.min(cfg.maxTokens, 2500),
+        maxTokens: Math.min(cfg.maxTokens, 8192),
         messages: [
           { role: 'system', content: 'You generate educational PowerPoint slide content. Return ONLY a valid JSON array, no markdown.' },
           { role: 'user', content: buildUnitPrompt({ ...unit, subject, level, detailLevel, backgrounds }) },
