@@ -6,6 +6,15 @@ const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const PptxGenJS = require('pptxgenjs').default || require('pptxgenjs');
 
+// ─── Detail level specs ───────────────────────────────────────────────────────
+
+const DETAIL_SPECS = {
+  minimal:       { bulletCount: '2-3', wordLimit: 10,  style: 'short keyword/headline fragments' },
+  standard:      { bulletCount: '3-5', wordLimit: 15,  style: 'concise phrases' },
+  detailed:      { bulletCount: '5-7', wordLimit: 25,  style: 'complete clauses with supporting context' },
+  comprehensive: { bulletCount: '6-8', wordLimit: 40,  style: 'full explanatory sentences' },
+};
+
 // ─── ZIP helpers ──────────────────────────────────────────────────────────────
 
 function listZipEntries(zipPath) {
@@ -694,8 +703,9 @@ async function extractTemplateAssets(zipPath, mediaDir, options = {}) {
 
 // ─── Fresh slide generation (blank deck via pptxgenjs) ────────────────────────
 
-async function generateFreshSlideContent({ topic, subject = '', level = 'undergraduate', slideCount = 8, backgrounds = [] }) {
+async function generateFreshSlideContent({ topic, subject = '', level = 'undergraduate', slideCount = 8, detailLevel = 'standard', backgrounds = [] }) {
   const cfg = aiConfig.getTaskConfig('contentGeneration');
+  const spec = DETAIL_SPECS[detailLevel] || DETAIL_SPECS.standard;
 
   let backgroundInfo = '';
   if (backgrounds.length > 0) {
@@ -710,7 +720,7 @@ For each slide generate:
 - slideIndex (0-based, 0 to ${slideCount - 1})
 - slideType
 - title (clear, assertive heading)
-- bullets (3-5 concise points under 15 words each)${backgrounds.length > 0 ? '\n- backgroundId (the ID of the most suitable background from the list above, or null if none fit)' : ''}
+- bullets (${spec.bulletCount} points — ${spec.style} — under ${spec.wordLimit} words each)${backgrounds.length > 0 ? '\n- backgroundId (the ID of the most suitable background from the list above, or null if none fit)' : ''}
 
 Return ONLY valid JSON:
 [{"slideIndex":0,"slideType":"title","title":"...","bullets":["..."]${backgrounds.length > 0 ? ',"backgroundId":"..."' : ''}}]${backgroundInfo}`;
@@ -883,14 +893,88 @@ function chooseHeroAssetForSlide(heroPool, slideType, index) {
   return null;
 }
 
-// Build fresh slide deck (blank pptxgenjs + injected backgrounds)
+// ─── Grok image generation for slides ────────────────────────────────────────
 
-async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templateImagesOrSessionDir, maybeSessionMediaDir) {
+const XAI_IMAGE_MODEL = 'grok-imagine-image';
+const SLIDE_IMAGE_TYPES = new Set(['content', 'title', 'question', 'activity']);
+const MAX_SLIDE_IMAGES = 6;
+
+function buildSlideImagePrompt(slide, { topic = '', subject = '', level = '' } = {}) {
+  const title = String(slide.title || topic || '').trim();
+  const firstBullet = String((slide.bullets || [])[0] || '').trim();
+  const ctx = [subject, level].filter(Boolean).join(', ');
+  const ctxSuffix = ctx ? ` (${ctx})` : '';
+  const type = String(slide.slideType || '').toLowerCase();
+
+  if (type === 'title') {
+    return `Educational hero image for a presentation titled "${title}"${ctxSuffix}. Inspiring, conceptual, academic style. No text. High quality, 16:9 widescreen.`;
+  }
+  if (type === 'question') {
+    return `Thought-provoking conceptual illustration for the educational question: "${title}". Abstract, academic, no text. High quality.`;
+  }
+  if (type === 'activity') {
+    return `Illustration of students or professionals engaged in a learning activity: "${title}"${ctxSuffix}. Professional, collaborative, no text.`;
+  }
+  // content slide
+  const detail = firstBullet ? `Specifically illustrating: ${firstBullet}.` : '';
+  return `Clean educational illustration for the topic "${title}"${ctxSuffix}. ${detail} Professional infographic style, no text overlays, suitable for academic slides.`;
+}
+
+async function generateSlideImages(slides, sessionMediaDir, options = {}) {
+  if (!aiService.xai) {
+    console.warn('[slideGen] xAI not configured — skipping Grok image generation');
+    return {};
+  }
+  if (!sessionMediaDir) return {};
+
+  const candidates = slides
+    .filter((s) => SLIDE_IMAGE_TYPES.has(String(s.slideType || '').toLowerCase()))
+    .slice(0, MAX_SLIDE_IMAGES);
+
+  if (!candidates.length) return {};
+
+  fs.mkdirSync(sessionMediaDir, { recursive: true });
+
+  const results = await Promise.allSettled(
+    candidates.map(async (slide) => {
+      const prompt = buildSlideImagePrompt(slide, options);
+      const response = await aiService.xai.images.generate({
+        model: XAI_IMAGE_MODEL,
+        prompt,
+        n: 1,
+        response_format: 'b64_json',
+        extra_body: { resolution: '1k' },
+      });
+      const b64 = response.data?.[0]?.b64_json;
+      if (!b64) throw new Error('No image data returned');
+
+      const filename = `grok_slide_${slide.slideIndex}.png`;
+      fs.writeFileSync(path.join(sessionMediaDir, filename), Buffer.from(b64, 'base64'));
+      return { slideIndex: slide.slideIndex, filename };
+    })
+  );
+
+  const imageMap = {};
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      imageMap[r.value.slideIndex] = r.value.filename;
+    } else {
+      console.warn('[slideGen] Grok image failed (non-fatal):', r.reason?.message || r.reason);
+    }
+  }
+  return imageMap;
+}
+
+// ─── Build fresh slide deck (blank pptxgenjs + injected backgrounds) ──────────
+
+async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templateImagesOrSessionDir, maybeSessionMediaDir, slideImages) {
   // Backward-compatible signature:
   // buildFreshSlidePptx(content, slideBackgrounds, templateBgs, sessionMediaDir)
   // buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templateImages, sessionMediaDir)
+  // buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templateImages, sessionMediaDir, slideImages)
   const templateImages = Array.isArray(templateImagesOrSessionDir) ? templateImagesOrSessionDir : [];
   const sessionMediaDir = Array.isArray(templateImagesOrSessionDir) ? maybeSessionMediaDir : templateImagesOrSessionDir;
+  const grokImages = (slideImages && typeof slideImages === 'object') ? slideImages : {};
 
   // Build a unified background lookup: id -> { bgXml, isDark, imageFilename, parsed }
   const bgMap = new Map();
@@ -914,9 +998,17 @@ async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templ
     const isDark = bg?.isDark ?? false;
     const titleColor = isDark ? 'F8FAFC' : '1F2937';
     const bodyColor = isDark ? 'CBD5E1' : '374151';
-    const hero = chooseHeroAssetForSlide(heroPool, sc.slideType, i);
-    const heroPath = hero?.filename && sessionMediaDir ? path.join(sessionMediaDir, hero.filename) : null;
-    const hasHero = !!(heroPath && fs.existsSync(heroPath));
+
+    // Prefer Grok-generated image over template hero
+    const grokFilename = grokImages[sc.slideIndex];
+    const grokPath = grokFilename && sessionMediaDir ? path.join(sessionMediaDir, grokFilename) : null;
+    const hasGrokImage = !!(grokPath && fs.existsSync(grokPath));
+
+    const templateHero = hasGrokImage ? null : chooseHeroAssetForSlide(heroPool, sc.slideType, i);
+    const heroPath = hasGrokImage
+      ? grokPath
+      : (templateHero?.filename && sessionMediaDir ? path.join(sessionMediaDir, templateHero.filename) : null);
+    const hasHero = hasGrokImage || !!(heroPath && fs.existsSync(heroPath));
     const textW = hasHero ? 8.7 : 9.2;
 
     const slide = pptx.addSlide();
@@ -937,10 +1029,10 @@ async function buildFreshSlidePptx(content, slideBackgrounds, templateBgs, templ
     if (hasHero) {
       const type = String(sc.slideType || '').toLowerCase();
       const isTitleLike = type === 'title' || type === 'transition';
-      const hx = 9.5;
+      const hx = hasGrokImage ? 9.3 : 9.5;
       const hy = isTitleLike ? 1.1 : 1.5;
-      const hw = 3.3;
-      const hh = isTitleLike ? 5.6 : 4.8;
+      const hw = hasGrokImage ? 3.5 : 3.3;
+      const hh = isTitleLike ? 5.6 : (hasGrokImage ? 5.0 : 4.8);
       slide.addImage({
         path: heroPath,
         x: hx, y: hy, w: hw, h: hh,
@@ -976,6 +1068,7 @@ module.exports = {
   analyseSlideTypes,
   generateSlideContent,
   generateFreshSlideContent,
+  generateSlideImages,
   extractTemplateBackgrounds,
   extractTemplateAssets,
   buildFreshSlidePptx,
@@ -983,5 +1076,6 @@ module.exports = {
   injectBackgroundIntoSlide,
   buildPopulatedPptx,
   PPTX_BACKGROUNDS,
+  DETAIL_SPECS,
 };
 

@@ -1716,6 +1716,29 @@ export interface TemplateImageAsset {
   } | null;
 }
 
+export type DetailLevel = 'minimal' | 'standard' | 'detailed' | 'comprehensive';
+
+export interface SlideBatchUnit {
+  title: string;
+  slideCount: number;
+  includeQuiz: boolean;
+}
+
+export interface SlideBatchStatus {
+  id: number;
+  status: 'scheduled' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  scheduledFor: string | null;
+  unitCount: number;
+  errorMessage: string | null;
+  progress: {
+    anthropicBatchId?: string;
+    anthropicStatus?: string;
+    requestCounts?: { processing: number; succeeded: number; errored: number; canceled: number; expired: number };
+    contentReady?: boolean;
+    unitCount?: number;
+  };
+}
+
 export const slideGenAPI = {
   analyse: (file: File): Promise<{ sessionId: string; backgrounds: TemplateBackground[]; images?: TemplateImageAsset[] }> => {
     const form = new FormData();
@@ -1725,9 +1748,11 @@ export const slideGenAPI = {
   },
   generateContent: (params: {
     topic: string;
+    teachingGoal?: string;
     subject?: string;
     level?: string;
     slideCount?: number;
+    detailLevel?: DetailLevel;
     backgrounds?: TemplateBackground[];
   }): Promise<{ content: GeneratedSlide[] }> => {
     return api.post('/slide-gen/generate-content', params).then((r) => r.data);
@@ -1735,14 +1760,38 @@ export const slideGenAPI = {
   populate: (params: {
     sessionId: string;
     topic: string;
+    subject?: string;
+    level?: string;
     content: GeneratedSlide[];
     backgrounds: Record<number, string>;
     templateBgs: TemplateBackground[];
     templateImages?: TemplateImageAsset[];
+    generateImages?: boolean;
   }): Promise<Blob> => {
     return api.post('/slide-gen/populate', params, { responseType: 'blob' })
       .then((r) => r.data as Blob);
-  }
+  },
+  createBatch: (params: {
+    units: SlideBatchUnit[];
+    subject?: string;
+    level?: string;
+    detailLevel?: DetailLevel;
+    scheduledFor?: string | null;
+    sessionId?: string;
+    backgrounds?: TemplateBackground[];
+    templateBgs?: TemplateBackground[];
+    templateImages?: TemplateImageAsset[];
+    generateImages?: boolean;
+  }): Promise<{ success: boolean; jobId: number }> => {
+    return api.post('/slide-gen/batch', params).then((r) => r.data);
+  },
+  getBatchStatus: (jobId: number): Promise<{ success: boolean } & SlideBatchStatus> => {
+    return api.get(`/slide-gen/batch/${jobId}`).then((r) => r.data);
+  },
+  downloadBatch: (jobId: number): Promise<Blob> => {
+    return api.get(`/slide-gen/batch/${jobId}/download`, { responseType: 'blob' })
+      .then((r) => r.data as Blob);
+  },
 };
 
 // ── Moodle integration API ─────────────────────────────────────
