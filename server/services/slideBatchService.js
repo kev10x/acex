@@ -99,11 +99,8 @@ async function submitAnthropicBatch(jobId, { units, subject, level, detailLevel,
     params: {
       model: batchModel,
       max_tokens: 2500,
+      system: 'You generate educational PowerPoint slide content. Return ONLY a valid JSON array, no markdown.',
       messages: [
-        {
-          role: 'system',
-          content: 'You generate educational PowerPoint slide content. Return ONLY a valid JSON array, no markdown.',
-        },
         {
           role: 'user',
           content: buildUnitPrompt({ ...unit, subject, level, detailLevel, backgrounds }),
