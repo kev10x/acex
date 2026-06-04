@@ -1,14 +1,14 @@
 /**
  * Slide Batch Service
  *
- * Manages batch generation of slide decks using Anthropic's Message Batches API
- * (50% cheaper than standard API). Supports scheduling for off-peak token costs.
+ * Generates multiple slide decks in a single job using OpenAI, processing each
+ * unit sequentially in the background. Supports optional scheduling.
  *
  * Flow:
- *   1. createBatchJob() — stores units + options in generation_jobs, optionally schedules
- *   2. If not scheduled: immediately submits to Anthropic Batches API
- *   3. getBatchStatus() — polls Anthropic for completion; processes results when done
- *   4. buildAndDownloadZip() — builds individual PPTXs and returns a ZIP buffer
+ *   1. createBatchJob()  — stores units + options in generation_jobs, optionally schedules
+ *   2. If not scheduled: immediately fires processUnitsWithOpenAI() in the background
+ *   3. getBatchStatus()  — returns current DB status; triggers processing when a scheduled time arrives
+ *   4. buildBatchZip()   — builds individual PPTXs from stored content.json and returns a ZIP buffer
  */
 
 const fs = require('fs');
@@ -66,7 +66,7 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
   const jobId = await createGenerationJob({
     user_id: userId,
     job_type: 'slide_batch',
-    status: isScheduled ? 'scheduled' : 'queued',
+    status: isScheduled ? 'scheduled' : 'processing',
     source_route: '/slide-gen/batch',
     payload: { units, subject, level, detailLevel, sessionId, backgrounds, templateBgs, templateImages, generateImages: !!generateImages },
     scheduled_for: scheduledFor || null,
@@ -76,9 +76,8 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
   fs.mkdirSync(jobDir(jobId), { recursive: true });
 
   if (!isScheduled) {
-    // Fire-and-forget: submit immediately to Anthropic
-    submitAnthropicBatch(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
-      console.error('[slideBatch] Submit error for job', jobId, err?.message);
+    processUnitsWithOpenAI(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
+      console.error('[slideBatch] Processing error for job', jobId, err?.message);
       updateGenerationJob(jobId, { status: 'failed', error_message: String(err?.message || err) }).catch(() => {});
     });
   }
@@ -86,43 +85,49 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
   return jobId;
 }
 
-// ─── Anthropic Batch submission ───────────────────────────────────────────────
+// ─── OpenAI unit processing ───────────────────────────────────────────────────
 
-async function submitAnthropicBatch(jobId, { units, subject, level, detailLevel, backgrounds }) {
-  if (!aiService.anthropic) throw new Error('Anthropic client not configured');
+async function processUnitsWithOpenAI(jobId, { units, subject, level, detailLevel, backgrounds }) {
+  const cfg = aiConfig.getTaskConfig('contentGeneration', 'openai');
+  const contentByUnit = {};
 
-  const cfg = aiConfig.getTaskConfig('contentGeneration', 'anthropic');
-  const batchModel = cfg.model;
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
+    try {
+      const result = await aiService.createCompletionWithRetry({
+        provider: 'openai',
+        model: cfg.model,
+        temperature: 0.6,
+        maxTokens: Math.min(cfg.maxTokens, 2500),
+        messages: [
+          { role: 'system', content: 'You generate educational PowerPoint slide content. Return ONLY a valid JSON array, no markdown.' },
+          { role: 'user', content: buildUnitPrompt({ ...unit, subject, level, detailLevel, backgrounds }) },
+        ],
+      }, 3);
 
-  const requests = units.map((unit, i) => ({
-    custom_id: `unit-${i}`,
-    params: {
-      model: batchModel,
-      max_tokens: 2500,
-      system: 'You generate educational PowerPoint slide content. Return ONLY a valid JSON array, no markdown.',
-      messages: [
-        {
-          role: 'user',
-          content: buildUnitPrompt({ ...unit, subject, level, detailLevel, backgrounds }),
-        },
-      ],
-    },
-  }));
+      const raw = String(result?.content || '').trim();
+      const match = raw.match(/\[[\s\S]*\]/);
+      contentByUnit[i] = JSON.parse(match ? match[0] : raw);
+    } catch (_) {
+      contentByUnit[i] = fallbackSlides(unit, i);
+    }
 
-  const batch = await aiService.anthropic.messages.batches.create({ requests });
+    // Write progress after each unit so the status endpoint reflects real-time state
+    await updateGenerationJob(jobId, {
+      result: { completedUnits: i + 1, totalUnits: units.length, contentReady: false },
+    }).catch(() => {});
+  }
+
+  fs.writeFileSync(contentPath(jobId), JSON.stringify({ units, contentByUnit }));
 
   await updateGenerationJob(jobId, {
-    status: 'processing',
-    result: {
-      anthropicBatchId: batch.id,
-      units: units.map((u) => ({ title: u.title, slideCount: u.slideCount, includeQuiz: u.includeQuiz })),
-    },
+    status: 'completed',
+    result: { completedUnits: units.length, totalUnits: units.length, contentReady: true },
+    completed_at: new Date(),
   });
-
-  return batch.id;
 }
 
-// ─── Status polling ───────────────────────────────────────────────────────────
+// ─── Status ───────────────────────────────────────────────────────────────────
 
 async function getBatchStatus(jobId, userId) {
   const row = await getGenerationJobById(jobId, userId);
@@ -133,45 +138,18 @@ async function getBatchStatus(jobId, userId) {
   try { payload = JSON.parse(row.payload_json || '{}'); } catch (_) {}
   try { progress = JSON.parse(row.result_json || '{}'); } catch (_) {}
 
-  const status = row.status;
-
-  // If scheduled and time has arrived, trigger submission now
-  if (status === 'scheduled' && row.scheduled_for) {
+  // If scheduled and time has arrived, kick off processing now
+  if (row.status === 'scheduled' && row.scheduled_for) {
     const scheduledAt = new Date(row.scheduled_for);
     if (scheduledAt <= new Date()) {
-      try {
-        const { units, subject, level, detailLevel, backgrounds } = payload;
-        await submitAnthropicBatch(jobId, { units, subject, level, detailLevel, backgrounds });
-        const refreshed = await getGenerationJobById(jobId, userId);
-        let refreshedProgress = {};
-        try { refreshedProgress = JSON.parse(refreshed.result_json || '{}'); } catch (_) {}
-        return formatStatus(refreshed, refreshedProgress, payload);
-      } catch (err) {
-        await updateGenerationJob(jobId, { status: 'failed', error_message: String(err?.message || err) });
-      }
-    }
-  }
-
-  // If processing, check Anthropic batch status
-  if ((status === 'processing' || status === 'queued') && progress.anthropicBatchId && !progress.contentReady) {
-    try {
-      const batch = await aiService.anthropic.messages.batches.retrieve(progress.anthropicBatchId);
-
-      if (batch.processing_status === 'ended') {
-        await processBatchResults(jobId, batch.id, payload);
-        const refreshed = await getGenerationJobById(jobId, userId);
-        let refreshedProgress = {};
-        try { refreshedProgress = JSON.parse(refreshed.result_json || '{}'); } catch (_) {}
-        return formatStatus(refreshed, refreshedProgress, payload);
-      }
-
-      return formatStatus(row, {
-        ...progress,
-        anthropicStatus: batch.processing_status,
-        requestCounts: batch.request_counts,
-      }, payload);
-    } catch (err) {
-      console.error('[slideBatch] Status check error:', err?.message);
+      const { units, subject, level, detailLevel, backgrounds } = payload;
+      await updateGenerationJob(jobId, { status: 'processing' });
+      processUnitsWithOpenAI(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
+        console.error('[slideBatch] Scheduled processing error for job', jobId, err?.message);
+        updateGenerationJob(jobId, { status: 'failed', error_message: String(err?.message || err) }).catch(() => {});
+      });
+      const refreshed = await getGenerationJobById(jobId, userId);
+      return formatStatus(refreshed, progress, payload);
     }
   }
 
@@ -186,42 +164,9 @@ function formatStatus(row, progress, payload) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     progress,
-    unitCount: Array.isArray(payload?.units) ? payload.units.length : (progress.unitCount || 0),
+    unitCount: Array.isArray(payload?.units) ? payload.units.length : (progress.totalUnits || 0),
     errorMessage: row.error_message || null,
   };
-}
-
-// ─── Process Anthropic batch results ─────────────────────────────────────────
-
-async function processBatchResults(jobId, anthropicBatchId, payload) {
-  const { units } = payload;
-  const contentByUnit = {};
-
-  for await (const result of await aiService.anthropic.messages.batches.results(anthropicBatchId)) {
-    const i = parseInt(String(result.custom_id).replace('unit-', ''), 10);
-    const unit = units[i];
-
-    if (result.result.type === 'succeeded') {
-      const text = result.result.message.content[0]?.text || '';
-      try {
-        const match = text.match(/\[[\s\S]*\]/);
-        contentByUnit[i] = JSON.parse(match ? match[0] : text);
-      } catch (_) {
-        contentByUnit[i] = fallbackSlides(unit, i);
-      }
-    } else {
-      contentByUnit[i] = fallbackSlides(unit, i);
-    }
-  }
-
-  fs.mkdirSync(jobDir(jobId), { recursive: true });
-  fs.writeFileSync(contentPath(jobId), JSON.stringify({ units, contentByUnit }));
-
-  await updateGenerationJob(jobId, {
-    status: 'completed',
-    result: { anthropicBatchId, contentReady: true, unitCount: units.length },
-    completed_at: new Date(),
-  });
 }
 
 function fallbackSlides(unit, unitIndex) {
@@ -242,16 +187,14 @@ async function buildBatchZip(jobId, { templateBgs = [], templateImages = [], ses
 
   const { units, contentByUnit } = JSON.parse(fs.readFileSync(file, 'utf8'));
 
-  // Build each PPTX sequentially
   const pptxEntries = [];
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     const slides = contentByUnit[i] || fallbackSlides(unit, i);
 
-    // Generate Grok images into a per-unit subdirectory to avoid filename collisions
     let slideImages = {};
     if (generateImages && sessionMediaDir) {
-      const unitImgDir = require('path').join(sessionMediaDir, `unit_${i}_imgs`);
+      const unitImgDir = path.join(sessionMediaDir, `unit_${i}_imgs`);
       slideImages = await generateSlideImages(slides, unitImgDir, {
         topic: unit.title,
         subject,
@@ -261,7 +204,7 @@ async function buildBatchZip(jobId, { templateBgs = [], templateImages = [], ses
 
     const buf = await buildFreshSlidePptx(
       slides,
-      {}, // no per-slide bg overrides for batch (AI assigned backgroundId on slides)
+      {},
       templateBgs,
       templateImages,
       sessionMediaDir || undefined,
@@ -275,7 +218,6 @@ async function buildBatchZip(jobId, { templateBgs = [], templateImages = [], ses
     pptxEntries.push({ name: `${safeName}.pptx`, buffer: buf });
   }
 
-  // Stream all into a ZIP buffer
   return new Promise((resolve, reject) => {
     const pass = new PassThrough();
     const chunks = [];

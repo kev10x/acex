@@ -1746,11 +1746,9 @@ export interface SlideBatchStatus {
   unitCount: number;
   errorMessage: string | null;
   progress: {
-    anthropicBatchId?: string;
-    anthropicStatus?: string;
-    requestCounts?: { processing: number; succeeded: number; errored: number; canceled: number; expired: number };
+    completedUnits?: number;
+    totalUnits?: number;
     contentReady?: boolean;
-    unitCount?: number;
   };
 }
 

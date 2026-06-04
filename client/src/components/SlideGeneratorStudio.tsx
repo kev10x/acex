@@ -555,7 +555,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
           <div className="flex items-center gap-2">
             <Layers className="h-4 w-4 text-indigo-600" />
             <h3 className="text-sm font-semibold text-gray-900">Batch Generation</h3>
-            <span className="ml-auto text-xs text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">50% cheaper via Anthropic Batch API</span>
+            <span className="ml-auto text-xs text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">Powered by OpenAI</span>
           </div>
 
           {/* Global settings */}
@@ -636,7 +636,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               min={new Date().toISOString().slice(0, 16)}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white" />
             {scheduledFor && (
-              <p className="mt-1 text-xs text-indigo-700">Batch will be submitted to Anthropic at the scheduled time for off-peak savings.</p>
+              <p className="mt-1 text-xs text-indigo-700">Batch will be processed with OpenAI at the scheduled time.</p>
             )}
           </div>
 
@@ -675,12 +675,16 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               {batchScheduled && batchStatus.scheduledFor && (
                 <p className="text-yellow-700">Scheduled for {new Date(batchStatus.scheduledFor).toLocaleString()}</p>
               )}
-              {batchStatus.progress?.requestCounts && (
-                <div className="flex gap-4 text-xs">
-                  <span className="text-emerald-600">✓ {batchStatus.progress.requestCounts.succeeded} done</span>
-                  <span className="text-indigo-600">⟳ {batchStatus.progress.requestCounts.processing} processing</span>
-                  {batchStatus.progress.requestCounts.errored > 0 && (
-                    <span className="text-red-600">✗ {batchStatus.progress.requestCounts.errored} errored</span>
+              {batchStatus.progress?.totalUnits > 0 && (
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-emerald-600">✓ {batchStatus.progress.completedUnits} / {batchStatus.progress.totalUnits} units done</span>
+                  {!batchDone && (
+                    <div className="flex-1 max-w-[120px] h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-500 rounded-full transition-all"
+                        style={{ width: `${Math.round((batchStatus.progress.completedUnits / batchStatus.progress.totalUnits) * 100)}%` }}
+                      />
+                    </div>
                   )}
                 </div>
               )}
@@ -691,7 +695,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
           )}
 
           {!batchDone && !batchFailed && (
-            <p className="text-xs text-gray-500">Anthropic processes batch requests asynchronously — polling every 5 seconds.</p>
+            <p className="text-xs text-gray-500">Generating slides with OpenAI — polling every 5 seconds.</p>
           )}
 
           <div className="flex gap-3">
