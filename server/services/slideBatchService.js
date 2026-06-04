@@ -17,6 +17,7 @@ const { PassThrough } = require('stream');
 const archiver = require('archiver');
 const aiService = require('./aiService');
 const { DETAIL_SPECS, buildFreshSlidePptx, generateSlideImages } = require('./slideGenService');
+const aiConfig = require('../config/ai-config');
 const { createGenerationJob, updateGenerationJob, getGenerationJobById } = require('./generationJobService');
 
 const BATCH_DIR = path.join(__dirname, '..', 'uploads', 'slide-batches');
@@ -90,10 +91,13 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
 async function submitAnthropicBatch(jobId, { units, subject, level, detailLevel, backgrounds }) {
   if (!aiService.anthropic) throw new Error('Anthropic client not configured');
 
+  const cfg = aiConfig.getTaskConfig('contentGeneration');
+  const batchModel = cfg.anthropic.model;
+
   const requests = units.map((unit, i) => ({
     custom_id: `unit-${i}`,
     params: {
-      model: 'claude-haiku-4-5-20251001', // cheapest model for batch
+      model: batchModel,
       max_tokens: 2500,
       messages: [
         {
