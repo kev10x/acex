@@ -91,8 +91,8 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
 async function submitAnthropicBatch(jobId, { units, subject, level, detailLevel, backgrounds }) {
   if (!aiService.anthropic) throw new Error('Anthropic client not configured');
 
-  const cfg = aiConfig.getTaskConfig('contentGeneration');
-  const batchModel = cfg.anthropic.model;
+  const cfg = aiConfig.getTaskConfig('contentGeneration', 'anthropic');
+  const batchModel = cfg.model;
 
   const requests = units.map((unit, i) => ({
     custom_id: `unit-${i}`,
