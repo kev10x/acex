@@ -76,7 +76,7 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
   fs.mkdirSync(jobDir(jobId), { recursive: true });
 
   if (!isScheduled) {
-    processUnitsWithOpenAI(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
+    processUnits(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
       console.error('[slideBatch] Processing error for job', jobId, err?.message);
       updateGenerationJob(jobId, { status: 'failed', error_message: String(err?.message || err) }).catch(() => {});
     });
@@ -85,17 +85,17 @@ async function createBatchJob({ userId, units, subject, level, detailLevel, sche
   return jobId;
 }
 
-// ─── OpenAI unit processing ───────────────────────────────────────────────────
+// ─── Unit processing ──────────────────────────────────────────────────────────
 
-async function processUnitsWithOpenAI(jobId, { units, subject, level, detailLevel, backgrounds }) {
-  const cfg = aiConfig.getTaskConfig('contentGeneration', 'openai');
+async function processUnits(jobId, { units, subject, level, detailLevel, backgrounds }) {
+  const cfg = aiConfig.getTaskConfig('contentGeneration', 'anthropic');
   const contentByUnit = {};
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     try {
       const result = await aiService.createCompletionWithRetry({
-        provider: 'openai',
+        provider: 'anthropic',
         model: cfg.model,
         temperature: 0.6,
         maxTokens: Math.min(cfg.maxTokens, 2500),
@@ -144,7 +144,7 @@ async function getBatchStatus(jobId, userId) {
     if (scheduledAt <= new Date()) {
       const { units, subject, level, detailLevel, backgrounds } = payload;
       await updateGenerationJob(jobId, { status: 'processing' });
-      processUnitsWithOpenAI(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
+      processUnits(jobId, { units, subject, level, detailLevel, backgrounds }).catch((err) => {
         console.error('[slideBatch] Scheduled processing error for job', jobId, err?.message);
         updateGenerationJob(jobId, { status: 'failed', error_message: String(err?.message || err) }).catch(() => {});
       });
