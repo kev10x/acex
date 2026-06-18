@@ -21,6 +21,9 @@ const BatchManager: React.FC = () => {
   const [jobs, setJobs] = useState<MarkingJob[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | ''>('');
   const [scheduledFor, setScheduledFor] = useState('');
+  const [scheduleStrictness, setScheduleStrictness] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
+  const [scheduleFeedbackType, setScheduleFeedbackType] = useState<'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie'>('standard');
+  const [scheduleFeedbackVerbosity, setScheduleFeedbackVerbosity] = useState<'brief' | 'standard' | 'comprehensive'>('standard');
   const [showUploadModal, setShowUploadModal] = useState<Batch | null>(null);
   const [uploadResults, setUploadResults] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -173,12 +176,18 @@ const BatchManager: React.FC = () => {
       setError(null);
       await batchesAPI.scheduleMarking(showScheduleModal.id, {
         rubric_id: Number(selectedRubricId),
-        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : undefined
+        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
+        strictness_level: scheduleStrictness,
+        feedback_type: scheduleFeedbackType,
+        feedback_verbosity: scheduleFeedbackVerbosity
       });
       setSuccess('Batch marking job scheduled');
       setShowScheduleModal(null);
       setSelectedRubricId('');
       setScheduledFor('');
+      setScheduleStrictness('strict');
+      setScheduleFeedbackType('standard');
+      setScheduleFeedbackVerbosity('standard');
       fetchData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to schedule marking');
@@ -266,6 +275,9 @@ const BatchManager: React.FC = () => {
     setShowScheduleModal(batch);
     setSelectedRubricId('');
     setScheduledFor('');
+    setScheduleStrictness('strict');
+    setScheduleFeedbackType('standard');
+    setScheduleFeedbackVerbosity('standard');
   };
 
   const getUnassignedAssignments = () => {
@@ -808,7 +820,7 @@ const BatchManager: React.FC = () => {
       {/* Schedule Marking Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-10 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-900 flex items-center">
                 <CalendarClock className="h-5 w-5 mr-2 text-indigo-600" />
@@ -819,6 +831,9 @@ const BatchManager: React.FC = () => {
                   setShowScheduleModal(null);
                   setSelectedRubricId('');
                   setScheduledFor('');
+                  setScheduleStrictness('strict');
+                  setScheduleFeedbackType('standard');
+                  setScheduleFeedbackVerbosity('standard');
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -854,9 +869,61 @@ const BatchManager: React.FC = () => {
                 />
                 <p className="text-xs text-gray-500 mt-1">Leave empty to start immediately.</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Marking Strictness</label>
+                <select
+                  value={scheduleStrictness}
+                  onChange={(e) => setScheduleStrictness(e.target.value as typeof scheduleStrictness)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="very_strict">Very Strict</option>
+                  <option value="strict">Strict</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="lenient">Lenient</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {scheduleStrictness === 'very_strict' && 'Extremely rigorous — expect near-perfect work'}
+                  {scheduleStrictness === 'strict' && 'High standards — award marks only when criteria are fully met'}
+                  {scheduleStrictness === 'moderate' && 'Fair but firm — allow minor gaps'}
+                  {scheduleStrictness === 'lenient' && 'Supportive — focus on learning and improvement'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Type</label>
+                <select
+                  value={scheduleFeedbackType}
+                  onChange={(e) => setScheduleFeedbackType(e.target.value as typeof scheduleFeedbackType)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="prescriptive">Prescriptive (table)</option>
+                  <option value="reflective">Reflective (questions)</option>
+                  <option value="critical">Critical Analysis (table)</option>
+                  <option value="genie">Genie (AI rewrite)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {scheduleFeedbackType === 'standard' && 'Comprehensive narrative feedback per criterion'}
+                  {scheduleFeedbackType === 'prescriptive' && 'Table of exact issues to fix, with location and priority'}
+                  {scheduleFeedbackType === 'reflective' && 'Thought-provoking questions to prompt self-reflection'}
+                  {scheduleFeedbackType === 'critical' && 'Table of weaknesses with evidence and severity rating'}
+                  {scheduleFeedbackType === 'genie' && 'AI-rewritten corrected version of weak sections'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Verbosity</label>
+                <select
+                  value={scheduleFeedbackVerbosity}
+                  onChange={(e) => setScheduleFeedbackVerbosity(e.target.value as typeof scheduleFeedbackVerbosity)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="brief">Brief</option>
+                  <option value="standard">Standard</option>
+                  <option value="comprehensive">Comprehensive</option>
+                </select>
+              </div>
               <div className="flex justify-end space-x-3 pt-2">
                 <button
-                  onClick={() => setShowScheduleModal(null)}
+                  onClick={() => { setShowScheduleModal(null); setScheduleStrictness('strict'); setScheduleFeedbackType('standard'); setScheduleFeedbackVerbosity('standard'); }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
