@@ -1,0 +1,15 @@
+# Allow access to built files (helps avoid 403 when Alias is used)
+<IfModule mod_authz_core.c>
+  Require all granted
+</IfModule>
+Options -Indexes +FollowSymLinks
+
+# React Router: send all requests to index.html if not a file
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /tools/
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /tools/index.html [L]
+</IfModule>

@@ -1,0 +1,652 @@
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import {
+  BarChart3,
+  Brain,
+  ChevronLeft,
+  ClipboardCheck,
+  Edit3,
+  FileText,
+  FlaskConical,
+  Folder,
+  Globe,
+  Layers,
+  LogOut,
+  Presentation,
+  Shield,
+  Sparkles,
+  Upload,
+  User,
+  Wand2
+} from 'lucide-react';
+import LoginForm from './components/LoginForm';
+import ErrorBoundary from './components/ErrorBoundary';
+import OnboardingBanner from './components/OnboardingBanner';
+import RegisterForm from './components/RegisterForm';
+import VerifyEmail from './components/VerifyEmail';
+import ResetPassword from './components/ResetPassword';
+import ToolsLanding from './components/ToolsLanding';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import type { GeneratedContent } from './services/api';
+
+const FileUpload = lazy(() => import('./components/FileUpload'));
+const RubricManager = lazy(() => import('./components/RubricManager'));
+const MarkingInterface = lazy(() => import('./components/MarkingInterface'));
+const ManualMarkingInterface = lazy(() => import('./components/ManualMarkingInterface'));
+const ResultsDashboard = lazy(() => import('./components/ResultsDashboard'));
+const RubricGenerator = lazy(() => import('./components/RubricGenerator'));
+const MCQInterface = lazy(() => import('./components/MCQInterface'));
+const BatchManager = lazy(() => import('./components/BatchManager'));
+const TrainingDataManager = lazy(() => import('./components/TrainingDataManager'));
+const AssessmentGenerator = lazy(() => import('./components/AssessmentGenerator'));
+const PracticalGenerator = lazy(() => import('./components/PracticalGenerator'));
+const TakeAssessment = lazy(() => import('./components/TakeAssessment'));
+const ContentGenerator = lazy(() => import('./components/ContentGenerator'));
+const TakeContent = lazy(() => import('./components/TakeContent'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const ModuleOrganizer = lazy(() => import('./components/ModuleOrganizer'));
+const StudentModules = lazy(() => import('./components/StudentModules'));
+const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'));
+const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
+const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
+
+type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
+
+const TOOL_WORKSPACES: Record<NonNullable<ToolContext>, WorkspaceType[]> = {
+  marking: ['marking'],
+  content: ['student'],
+  labs: ['labs'],
+  admin: ['admin']
+};
+
+function getToolContext(pathname: string): ToolContext | 'landing' {
+  const match = pathname.match(/\/tools\/?([a-z-]*)?$/);
+  if (!match) return null;
+  const segment = match[1] || '';
+  if (segment === '') return 'landing';
+  if (segment in TOOL_WORKSPACES) return segment as NonNullable<ToolContext>;
+  return null;
+}
+
+type TabType =
+  | 'upload'
+  | 'rubrics'
+  | 'generator'
+  | 'marking'
+  | 'manual-marking'
+  | 'results'
+  | 'mcq'
+  | 'batches'
+  | 'training'
+  | 'assessments'
+  | 'practicals'
+  | 'content'
+  | 'modules'
+  | 'moodle'
+  | 'slide-gen'
+  | 'admin';
+type AppRole = 'management' | 'lecturer' | 'student';
+type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
+type IconType = typeof BarChart3;
+
+const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
+  student: ['modules', 'mcq', 'results']
+};
+
+const WORKSPACE_ORDER: WorkspaceType[] = ['marking', 'student', 'labs', 'admin'];
+
+const TAB_META: Record<TabType, { label: string; description: string; icon: IconType }> = {
+  upload: {
+    label: 'Upload Scripts',
+    description: 'Bring student work into the marking pipeline.',
+    icon: Upload
+  },
+  rubrics: {
+    label: 'Manage Rubrics',
+    description: 'Create, refine, and maintain the memorandums you mark against.',
+    icon: FileText
+  },
+  generator: {
+    label: 'AI Rubric Generator',
+    description: 'Draft rubrics and memorandums faster with AI assistance.',
+    icon: Wand2
+  },
+  marking: {
+    label: 'AI Marking',
+    description: 'Run automated marking against your selected rubric.',
+    icon: BarChart3
+  },
+  'manual-marking': {
+    label: 'Manual Marking',
+    description: 'Capture marks and feedback manually when you want full control.',
+    icon: Edit3
+  },
+  results: {
+    label: 'Results',
+    description: 'Review, moderate, and export marked work.',
+    icon: BarChart3
+  },
+  mcq: {
+    label: 'MCQ Forms',
+    description: 'Process multiple-choice answer sheets and answer keys.',
+    icon: ClipboardCheck
+  },
+  batches: {
+    label: 'Batches',
+    description: 'Organise uploads into manageable marking groups.',
+    icon: Folder
+  },
+  training: {
+    label: 'Model Training',
+    description: 'Export curated data for training and quality-improvement workflows.',
+    icon: Brain
+  },
+  'slide-gen': {
+    label: 'Slide Populator',
+    description: 'Upload a PowerPoint template and let AI populate each slide with matching content.',
+    icon: Presentation
+  },
+  assessments: {
+    label: 'Assessment Generator',
+    description: 'Prepare and publish student-facing assessments.',
+    icon: Sparkles
+  },
+  practicals: {
+    label: 'Practical Generator',
+    description: 'Create practical guides or assessable practical tasks.',
+    icon: FlaskConical
+  },
+  content: {
+    label: 'Lesson Generator',
+    description: 'Create lesson materials and publish learning content.',
+    icon: Presentation
+  },
+  modules: {
+    label: 'Learning Modules',
+    description: 'Organise assessments and content into learning modules for students.',
+    icon: Layers
+  },
+  moodle: {
+    label: 'Moodle Integration',
+    description: 'Browse courses, push grades to Moodle, and import quiz questions.',
+    icon: Globe
+  },
+  admin: {
+    label: 'Admin Dashboard',
+    description: 'Manage organisations, approvals, permissions, and system health.',
+    icon: Shield
+  }
+};
+
+const WORKSPACE_META: Record<WorkspaceType, { label: string; description: string; icon: IconType; accent: string }> = {
+  marking: {
+    label: 'Marking Workspace',
+    description: 'The core lecturer journey: upload, prepare memorandums, mark, review, and export.',
+    icon: BarChart3,
+    accent: 'bg-blue-50 text-blue-700 border-blue-200'
+  },
+  student: {
+    label: 'Student Workspace',
+    description: 'Student-facing assessments, practicals, lesson content, and outcomes live here.',
+    icon: Presentation,
+    accent: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  },
+  labs: {
+    label: 'Labs and Advanced Tools',
+    description: 'Specialist utilities for scanning, training, and advanced workflows.',
+    icon: Brain,
+    accent: 'bg-amber-50 text-amber-700 border-amber-200'
+  },
+  admin: {
+    label: 'Admin Workspace',
+    description: 'Organisation oversight, approvals, permissions, and operational visibility.',
+    icon: Shield,
+    accent: 'bg-slate-100 text-slate-700 border-slate-300'
+  }
+};
+
+function TabLoadingFallback() {
+  return (
+    <div className="min-h-[16rem] flex items-center justify-center rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mx-auto"></div>
+        <p className="mt-3 text-sm text-gray-600">Loading workspace...</p>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceShell({
+  activeTab,
+  canAccessTab,
+  normalizedRole,
+  pendingSlideContent,
+  onCreateSlides,
+}: {
+  activeTab: TabType;
+  canAccessTab: (tab: TabType) => boolean;
+  normalizedRole: AppRole;
+  pendingSlideContent: GeneratedContent | null;
+  onCreateSlides: (content: GeneratedContent) => void;
+}) {
+  return (
+    <ErrorBoundary>
+    <Suspense fallback={<TabLoadingFallback />}>
+      {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
+      {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
+      {activeTab === 'generator' && canAccessTab('generator') && <RubricGenerator />}
+      {activeTab === 'assessments' && canAccessTab('assessments') && <AssessmentGenerator />}
+      {activeTab === 'practicals' && canAccessTab('practicals') && <PracticalGenerator />}
+      {activeTab === 'content' && canAccessTab('content') && <ContentGenerator onCreateSlides={onCreateSlides} />}
+      {activeTab === 'marking' && canAccessTab('marking') && <MarkingInterface />}
+      {activeTab === 'manual-marking' && canAccessTab('manual-marking') && <ManualMarkingInterface />}
+      {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
+      {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
+      {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
+      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGenerator initialContent={pendingSlideContent} />}
+      {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+      {activeTab === 'modules' && canAccessTab('modules') && (
+        normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
+      )}
+      {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
+      {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
+    </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
+  const [activeTab, setActiveTab] = useState<TabType>(
+    () => (localStorage.getItem('ax:activeTab') as TabType | null) || 'marking'
+  );
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>(
+    () => (localStorage.getItem('ax:activeWorkspace') as WorkspaceType | null) || 'marking'
+  );
+  const [pendingSlideContent, setPendingSlideContent] = useState<GeneratedContent | null>(null);
+  // Track which onboarding steps the user has completed
+  const [completedOnboardingSteps, setCompletedOnboardingSteps] = useState<string[]>(
+    () => JSON.parse(localStorage.getItem('ax:onboarding-steps') || '[]')
+  );
+  const markOnboardingStep = (step: string) => {
+    setCompletedOnboardingSteps(prev => {
+      if (prev.includes(step)) return prev;
+      const next = [...prev, step];
+      localStorage.setItem('ax:onboarding-steps', JSON.stringify(next));
+      return next;
+    });
+  };
+
+
+  // Persist active tab + workspace across page refreshes
+  useEffect(() => { localStorage.setItem('ax:activeTab', activeTab); }, [activeTab]);
+  useEffect(() => { localStorage.setItem('ax:activeWorkspace', activeWorkspace); }, [activeWorkspace]);
+
+  const handleCreateSlides = (content: GeneratedContent) => {
+    setPendingSlideContent(content);
+    setActiveTab('slide-gen'); localStorage.setItem('ax:activeTab', 'slide-gen'); markOnboardingStep('slides');
+  };
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify' | 'reset'>('login');
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const { user, loading, logout, impersonation, stopImpersonation } = useAuth();
+
+  const navigate = (path: string) => {
+    window.history.pushState(null, '', path);
+    setCurrentPath(path);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const normalizedRole: AppRole = user?.role === 'admin'
+    ? 'management'
+    : (user?.role as AppRole) || 'lecturer';
+
+  const toolContext = getToolContext(currentPath);
+
+  const canAccessTab = (tab: TabType) => ROLE_TAB_ACCESS[normalizedRole].includes(tab);
+  const allowAssessmentCreation = user?.features?.assessment_creation !== false;
+  const allowContentCreation = user?.features?.content_creation !== false;
+  const allowPracticalCreation = allowAssessmentCreation || allowContentCreation;
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('token') && window.location.pathname.includes('verify-email')) {
+      setAuthMode('verify');
+    }
+    if (urlParams.get('token') && window.location.pathname.includes('reset-password')) {
+      setAuthMode('reset');
+    }
+  }, []);
+
+  const workspaceTabs = useMemo<Record<WorkspaceType, TabType[]>>(
+    () => ({
+      marking:
+        normalizedRole === 'student'
+          ? []
+          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'] as TabType[]).filter((tab) =>
+              ROLE_TAB_ACCESS[normalizedRole].includes(tab)
+            ),
+      student:
+        normalizedRole === 'student'
+          ? (['modules', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+          : (['assessments', 'practicals', 'content', 'modules', 'moodle'] as TabType[])
+              .filter((tab) => {
+                if (tab === 'assessments') return allowAssessmentCreation;
+                if (tab === 'practicals') return allowPracticalCreation;
+                if (tab === 'content') return allowContentCreation;
+                return true;
+              })
+              .filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
+      labs:
+        normalizedRole === 'student'
+          ? []
+          : (['mcq', 'training', 'slide-gen'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
+      admin: normalizedRole === 'management' ? (['admin'] as TabType[]) : []
+    }),
+    [allowAssessmentCreation, allowContentCreation, allowPracticalCreation, normalizedRole]
+  );
+
+  const availableWorkspaces = useMemo(() => {
+    const all = WORKSPACE_ORDER.filter((w) => workspaceTabs[w].length > 0);
+    if (toolContext && toolContext !== 'landing') {
+      const allowed = TOOL_WORKSPACES[toolContext];
+      return all.filter((w) => allowed.includes(w));
+    }
+    return all;
+  }, [workspaceTabs, toolContext]);
+
+  const currentWorkspaceTabs = workspaceTabs[activeWorkspace] || [];
+  const activeTabMeta = TAB_META[activeTab] || TAB_META.results;
+  const activeWorkspaceMeta = WORKSPACE_META[activeWorkspace] || WORKSPACE_META.marking;
+
+  useEffect(() => {
+    if (!user || availableWorkspaces.length === 0) return;
+
+    const defaultWorkspace =
+      normalizedRole === 'student' && availableWorkspaces.includes('student')
+        ? 'student'
+        : availableWorkspaces[0];
+    const activeTabWorkspace = workspaceTabs[activeWorkspace]?.includes(activeTab)
+      ? activeWorkspace
+      : WORKSPACE_ORDER.find((workspace) => workspaceTabs[workspace].includes(activeTab));
+
+    if (!activeTabWorkspace) {
+      setActiveWorkspace(defaultWorkspace);
+      setActiveTab(workspaceTabs[defaultWorkspace][0]);
+      return;
+    }
+
+    if (!availableWorkspaces.includes(activeWorkspace)) {
+      setActiveWorkspace(defaultWorkspace);
+      if (!workspaceTabs[defaultWorkspace].includes(activeTab)) {
+        setActiveTab(workspaceTabs[defaultWorkspace][0]);
+      }
+      return;
+    }
+
+    if (activeWorkspace !== activeTabWorkspace) {
+      setActiveWorkspace(activeTabWorkspace);
+    }
+  }, [activeTab, activeWorkspace, availableWorkspaces, normalizedRole, user, workspaceTabs]);
+
+  const switchWorkspace = (workspace: WorkspaceType) => {
+    const tabs = workspaceTabs[workspace];
+    if (!tabs?.length) return;
+    setActiveWorkspace(workspace);
+    if (!tabs.includes(activeTab)) {
+      setActiveTab(tabs[0]);
+    }
+  };
+
+  if (currentPath.includes('take-assessment')) {
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <TakeAssessment />
+      </Suspense>
+    );
+  }
+
+  if (currentPath.includes('take-content')) {
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <TakeContent />
+      </Suspense>
+    );
+  }
+
+  if (currentPath.includes('take-module')) {
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <StudentModulePlayer />
+      </Suspense>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    if (authMode === 'verify') {
+      return (
+        <VerifyEmail
+          onBackToLogin={() => {
+            setAuthMode('login');
+            window.history.replaceState({}, '', window.location.pathname);
+          }}
+        />
+      );
+    }
+
+    if (authMode === 'reset') {
+      return (
+        <ResetPassword
+          onBackToLogin={() => {
+            setAuthMode('login');
+            window.history.replaceState({}, '', window.location.pathname);
+          }}
+        />
+      );
+    }
+
+    return authMode === 'login' ? (
+      <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
+    ) : (
+      <RegisterForm onSwitchToLogin={() => setAuthMode('login')} />
+    );
+  }
+
+  if (toolContext === 'landing') {
+    return (
+      <ToolsLanding
+        role={normalizedRole}
+        userName={user.name || user.email || ''}
+        orgName={user.organisation_name ?? undefined}
+        onNavigate={navigate}
+        onLogout={logout}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm border-b">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              {toolContext && (
+                <button
+                  onClick={() => navigate('/tools')}
+                  className="mb-2 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  All tools
+                </button>
+              )}
+              <div className="flex items-center">
+                <h1 className="text-2xl font-bold text-gray-900">Acexen</h1>
+                <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
+              </div>
+              {user.organisation_name && (
+                <p className="mt-1 text-sm text-gray-500">{user.organisation_name}</p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
+                <User className="mr-2 h-4 w-4" />
+                <span>{user.name || user.email}</span>
+              </div>
+              <div className="inline-flex items-center rounded-full bg-primary-50 px-3 py-1.5 text-sm font-medium text-primary-700">
+                {normalizedRole === 'management'
+                  ? 'Management'
+                  : normalizedRole === 'student'
+                    ? 'Student'
+                    : 'Lecturer'}
+              </div>
+              <button
+                onClick={logout}
+                className="flex items-center space-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {impersonation?.active && (
+        <div className="bg-amber-50 border-b border-amber-200">
+          <div className="w-full px-4 sm:px-6 lg:px-8 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2 text-sm text-amber-900">
+              <Shield className="h-4 w-4" />
+              <span>
+                Impersonating `{user?.name || user?.email}`. Admin session: {impersonation.admin_name || impersonation.admin_email}
+              </span>
+            </div>
+            <button
+              onClick={() => void stopImpersonation()}
+              className="inline-flex items-center justify-center rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+            >
+              Stop impersonating
+            </button>
+          </div>
+        </div>
+      )}
+
+      <nav className="sticky top-0 z-30 bg-white border-b border-gray-200">
+        <div className="w-full px-4 sm:px-6 lg:px-8 py-4">
+          {!toolContext && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {availableWorkspaces.map((workspace) => {
+                const meta = WORKSPACE_META[workspace];
+                const Icon = meta.icon;
+                const isActive = workspace === activeWorkspace;
+
+                return (
+                  <button
+                    key={workspace}
+                    onClick={() => switchWorkspace(workspace)}
+                    className={`h-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                      isActive
+                        ? `${meta.accent} shadow-sm`
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Icon className="h-4 w-4" />
+                      <span>{meta.label}</span>
+                    </div>
+                    <div className="mt-1 max-w-sm text-xs opacity-80">
+                      {meta.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {currentWorkspaceTabs.length > 0 && (
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+                    {activeWorkspaceMeta.label}
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-gray-900">
+                    {activeTabMeta.label}
+                  </h2>
+                  <p className="mt-1 max-w-2xl text-sm text-gray-600">
+                    {activeTabMeta.description}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {currentWorkspaceTabs.map((tab) => {
+                    const meta = TAB_META[tab];
+                    const Icon = meta.icon;
+                    const isActive = activeTab === tab;
+
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`inline-flex items-center rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Icon className="mr-2 h-4 w-4" />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </nav>
+
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
+        {normalizedRole !== 'student' && (
+          <OnboardingBanner
+            completedSteps={completedOnboardingSteps}
+            onNavigate={(tab) => { setActiveTab(tab as any); markOnboardingStep(tab === 'rubrics' ? 'rubric' : tab === 'upload' ? 'upload' : tab === 'marking' ? 'mark' : tab === 'results' ? 'results' : tab); }}
+          />
+        )}
+        <WorkspaceShell
+          activeTab={activeTab}
+          canAccessTab={canAccessTab}
+          normalizedRole={normalizedRole}
+          pendingSlideContent={pendingSlideContent}
+          onCreateSlides={handleCreateSlides}
+        />
+      </main>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <NotificationProvider>
+        <AppContent />
+      </NotificationProvider>
+    </AuthProvider>
+  );
+}
+
+export default App;

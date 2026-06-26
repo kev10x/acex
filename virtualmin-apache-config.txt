@@ -1,0 +1,75 @@
+# Virtualmin Apache Configuration for Acexen
+# 
+# Add this configuration to your Virtualmin domain's Apache settings
+# 
+# In Virtualmin: 
+#   Go to: Server Configuration > Apache Configuration > Directives
+#   Or edit: /etc/apache2/sites-available/your-domain.conf
+#
+# Replace /path/to/Acexen with your actual deployment path
+# Replace acexen.com with your actual domain
+#
+# This configuration serves Acexen at acexen.com/tools
+
+<VirtualHost *:80>
+    ServerName acexen.com
+    ServerAlias www.acexen.com
+    
+    # Redirect HTTP to HTTPS
+    Redirect permanent / https://acexen.com/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName acexen.com
+    ServerAlias www.acexen.com
+    
+    # SSL Configuration (Virtualmin usually handles this)
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/acexen.com.crt
+    SSLCertificateKeyFile /etc/ssl/private/acexen.com.key
+    
+    # Document Root - Your main site root
+    DocumentRoot /path/to/your/main/site
+    
+    # Explicitly allow /tools (fixes "client denied by server configuration")
+    <Location /tools>
+        Require all granted
+    </Location>
+    
+    # Serve Acexen React app at /tools
+    Alias /tools /path/to/Acexen/client/build
+    
+    <Directory "/path/to/Acexen/client/build">
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        
+        # React Router support - redirect all requests to index.html
+        RewriteEngine On
+        RewriteBase /tools/
+        RewriteRule ^index\.html$ - [L]
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule . /tools/index.html [L]
+    </Directory>
+    
+    # Proxy API requests to Node.js backend at /tools/api
+    ProxyPreserveHost On
+    ProxyPass /tools/api http://localhost:3001/api
+    ProxyPassReverse /tools/api http://localhost:3001/api
+    
+    # WebSocket support (if needed in future)
+    # ProxyPass /tools/socket.io http://localhost:3001/socket.io
+    # ProxyPassReverse /tools/socket.io http://localhost:3001/socket.io
+    
+    # Error and access logs
+    ErrorLog ${APACHE_LOG_DIR}/acexen-error.log
+    CustomLog ${APACHE_LOG_DIR}/acexen-access.log combined
+</VirtualHost>
+
+# Enable required Apache modules (run as root):
+# a2enmod proxy
+# a2enmod proxy_http
+# a2enmod rewrite
+# a2enmod ssl
+# systemctl restart apache2

@@ -1,0 +1,47 @@
+Slide Outline Template (Upload This as DOCX or PDF)
+
+Use this structure when you want auto section detection to map one section per slide.
+
+Metadata
+Course Title: [Course name]
+Grade/Level: [Level]
+Term: [Term]
+Lesson Theme: [Theme]
+
+Slide List
+Slide 1: [Title sentence for slide 1]
+Objective: [One clear learning objective]
+Key Point: [Main takeaway for this slide]
+Notes: [Optional context, examples, references]
+
+Slide 2: [Title sentence for slide 2]
+Objective: [...]
+Key Point: [...]
+Notes: [...]
+
+Slide 3: [Title sentence for slide 3]
+Objective: [...]
+Key Point: [...]
+Notes: [...]
+
+[Repeat until your final slide number]
+
+Example for Large Decks
+If you need 62 generated sections, include explicit markers from Slide 1 through Slide 62.
+
+Slide 61: [Title sentence]
+Objective: [Objective text]
+Key Point: [Key point text]
+Notes: [Optional]
+
+Slide 62: [Title sentence]
+Objective: [Objective text]
+Key Point: [Key point text]
+Notes: [Optional]
+
+Authoring Rules
+1. Keep each slide marker on its own line, starting with Slide N:.
+2. Use ascending numbers with no gaps.
+3. Keep title and key point concise.
+4. Avoid decorative separators that break the Slide N pattern.
+5. If content is very long, split into multiple slide markers instead of long paragraphs.

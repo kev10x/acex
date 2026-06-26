@@ -1,0 +1,183 @@
+================================================================================
+MARKING MEMORANDUM / ANSWER KEY TEMPLATE
+================================================================================
+
+Course: [COURSE NAME/CODE]
+Exam/Test: [EXAM NAME]
+Date: [DATE]
+Total Marks: [TOTAL POINTS]
+
+================================================================================
+INSTRUCTIONS
+================================================================================
+
+This template is designed to help you create answer keys that can be uploaded
+as rubrics in Acexen. When uploaded, the system will automatically detect it
+as a memo and use it for marking question papers.
+
+For each question:
+1. Write the question number and title
+2. Specify the maximum points
+3. Provide the complete model answer
+4. Define the marking scheme with levels for partial credit
+
+================================================================================
+QUESTION TEMPLATE
+================================================================================
+
+QUESTION [NUMBER]: [QUESTION TITLE]
+
+Max Points: [POINTS]
+
+Model Answer / Expected Response:
+[Write the complete correct answer here.
+Include:
+- All key points that must be covered
+- Worked examples or calculations (if applicable)
+- Specific details required for full marks
+- Alternative acceptable answers (if any)
+- Marking allocations for each part]
+
+Marking Scheme:
+- Full Marks ([X-Y] points): [Description of what earns full marks]
+- Partial Marks ([X-Y] points): [Description of what earns partial marks]
+- Partial Marks ([X-Y] points): [Description of lower partial marks]
+- No/Low Marks (0-[X] points): [Description of what earns no or minimal marks]
+
+Examiner Notes (if applicable):
+[Any special considerations, common mistakes to watch for, or additional guidance]
+
+================================================================================
+EXAMPLE QUESTIONS
+================================================================================
+
+QUESTION 1: Define DevOps and explain its key principles
+
+Max Points: 10
+
+Model Answer:
+DevOps is a set of practices that combines software development (Dev) and IT
+operations (Ops) to shorten the development lifecycle and provide continuous
+delivery with high quality.
+
+Key principles that must be covered:
+1. Collaboration between development and operations teams
+2. Automation of processes (CI/CD pipelines)
+3. Continuous monitoring and feedback
+4. Infrastructure as Code
+5. Microservices architecture
+
+Marking Scheme:
+- Full Marks (9-10 points): Complete definition with all 5 principles 
+  explained clearly and accurately
+- Good (7-8 points): Definition with 3-4 principles covered, minor gaps 
+  or slight inaccuracies
+- Fair (5-6 points): Basic definition with 2-3 principles, some 
+  inaccuracies or missing key concepts
+- Poor (0-4 points): Incomplete or incorrect definition, missing most 
+  principles, or fundamental misunderstandings
+
+---
+QUESTION 2: Calculate deployment frequency
+
+Max Points: 5
+
+Model Answer:
+Given: 120 deployments in 30 days
+
+Calculation:
+Deployment frequency = Total deployments / Number of days
+= 120 / 30
+= 4 deployments per day
+
+Alternative acceptable formats:
+- 120 ÷ 30 = 4
+- 4 deployments/day
+- 4 deployments per day
+
+Marking Scheme:
+- Full Marks (5 points): Correct calculation showing work, answer is 
+  4 deployments per day
+- Partial (3 points): Correct formula used but arithmetic error in 
+  calculation
+- Partial (1 point): Shows understanding of concept but incorrect 
+  approach or formula
+- No Marks (0 points): Incorrect answer or no attempt
+
+---
+QUESTION 3: Compare monolithic and microservices architectures
+
+Max Points: 15
+
+Model Answer:
+A comprehensive comparison should cover three main areas:
+
+1. Monolithic Architecture Characteristics:
+   - Single, unified application containing all functionality
+   - All components tightly coupled together
+   - Easier initial development and deployment
+   - Harder to scale and maintain as application grows
+   - Uses single technology stack
+   - Single deployment unit
+
+2. Microservices Architecture Characteristics:
+   - Multiple independent services working together
+   - Loosely coupled components
+   - More complex initial setup and coordination
+   - Easier to scale and maintain individual services
+   - Can use multiple technology stacks
+   - Independent deployment of services
+
+3. Key Differences:
+   - Deployment: Monolithic = single deployment, Microservices = 
+     independent deployments
+   - Scalability: Monolithic = scale entire app, Microservices = scale 
+     individual services
+   - Technology: Monolithic = single stack, Microservices = multiple 
+     stacks possible
+   - Team structure: Monolithic = single team, Microservices = multiple 
+     teams per service
+   - Fault tolerance: Monolithic = single point of failure, Microservices 
+     = isolated failures
+
+Marking Scheme:
+- Excellent (13-15 points): Comprehensive comparison covering all three 
+  sections with clear explanations, examples, and accurate information
+- Good (10-12 points): Good comparison covering most aspects from 2-3 
+  sections, may miss some details or have minor inaccuracies
+- Fair (7-9 points): Basic comparison covering 1-2 sections but missing 
+  significant aspects or has notable inaccuracies
+- Poor (0-6 points): Inadequate comparison, missing most key points, 
+  incorrect information, or fundamental misunderstandings
+
+================================================================================
+COPY THIS TEMPLATE FOR EACH ADDITIONAL QUESTION
+================================================================================
+
+QUESTION [N]: [QUESTION TITLE]
+
+Max Points: [POINTS]
+
+Model Answer / Expected Response:
+[Your model answer here]
+
+Marking Scheme:
+- Full Marks ([X-Y] points): [Description]
+- Partial Marks ([X-Y] points): [Description]
+- Partial Marks ([X-Y] points): [Description]
+- No/Low Marks (0-[X] points): [Description]
+
+================================================================================
+END OF TEMPLATE
+================================================================================
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,759 @@
+const fs = require('fs');
+const path = require('path');
+const pdfParse = require('pdf-parse');
+const { spawnSync } = require('child_process');
+const aiConfig = require('../config/ai-config');
+
+/**
+ * Resolve path to GraphicsMagick (gm) binary. Under PM2/cron PATH may not include /usr/bin.
+ * @returns {string|null} Full path to gm binary, or null if not found
+ */
+function getGraphicsMagickPath() {
+  const candidates = [
+    process.env.GRAPHICSMAGICK_PATH,
+    '/bin/gm',
+    '/usr/bin/gm',
+    '/usr/local/bin/gm'
+  ].filter(Boolean);
+  for (const gmPath of candidates) {
+    try {
+      const r = spawnSync(gmPath, ['version'], { encoding: 'utf8', timeout: 3000 });
+      if (r.status === 0) {
+        return gmPath;
+      }
+    } catch (_) {
+      // skip
+    }
+  }
+  // Last resort: try 'gm' in PATH (for dev / full PATH environments)
+  try {
+    const r = spawnSync('gm', ['version'], { shell: true, encoding: 'utf8', timeout: 3000 });
+    if (r.status === 0) return 'gm';
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * Resolve directory containing Ghostscript (gs) so we can prepend it to PATH for gm.
+ * @returns {string|null} Directory path (e.g. /usr/bin) or null
+ */
+function getGhostscriptDir() {
+  const explicit = process.env.GHOSTSCRIPT_PATH;
+  if (explicit) {
+    const dir = path.dirname(explicit);
+    try {
+      const r = spawnSync(explicit, ['--version'], { encoding: 'utf8', timeout: 3000 });
+      if (r.status === 0) return dir;
+    } catch (_) {}
+  }
+  const candidates = ['/usr/bin/gs', '/bin/gs', '/usr/local/bin/gs'];
+  for (const gsPath of candidates) {
+    try {
+      const r = spawnSync(gsPath, ['--version'], { encoding: 'utf8', timeout: 3000 });
+      if (r.status === 0) return path.dirname(gsPath);
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * Resolve directory containing ImageMagick "convert" (or full path to convert).
+ * Used so pdf2pic can find convert when PATH is minimal (e.g. PM2).
+ * @returns {{ dir: string, convertPath: string } | null} Dir for PATH and full path to convert, or null
+ */
+function getImageMagickDir() {
+  const explicit = process.env.IMAGEMAGICK_PATH;
+  if (explicit) {
+    const dir = explicit.replace(/\/$/, '');
+    const toTry = [path.join(dir, 'convert'), explicit];
+    for (const convertPath of toTry) {
+      try {
+        const r = spawnSync(convertPath, ['-version'], { encoding: 'utf8', timeout: 3000 });
+        if (r.status === 0) {
+          const dir = path.dirname(convertPath) + path.sep;
+          return { dir, convertPath };
+        }
+      } catch (_) {}
+    }
+  }
+  const candidates = ['/usr/bin/convert', '/usr/local/bin/convert', '/bin/convert'];
+  for (const convertPath of candidates) {
+    try {
+      const r = spawnSync(convertPath, ['-version'], { encoding: 'utf8', timeout: 3000 });
+      if (r.status === 0) return { dir: path.dirname(convertPath) + path.sep, convertPath };
+    } catch (_) {}
+  }
+  try {
+    const r = spawnSync('convert', ['-version'], { shell: true, encoding: 'utf8', timeout: 3000 });
+    if (r.status === 0) return { dir: '', convertPath: 'convert' };
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * Enhanced PDF text extraction with OCR fallback for handwritten/scanned content
+ * This service attempts regular text extraction first, then falls back to OCR if needed
+ */
+
+// Check if text extraction was successful (has substantial content)
+const isTextExtractionSuccessful = (text) => {
+  if (!text || text.trim().length === 0) return false;
+  // Check if we got meaningful text (more than just a few characters)
+  const cleanedText = text.trim().replace(/\s+/g, ' ');
+  return cleanedText.length > 50; // At least 50 characters suggests real content
+};
+
+/**
+ * Extract text from PDF using standard method (pdf-parse)
+ */
+const extractTextStandard = async (filePath) => {
+  try {
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdfParse(dataBuffer);
+    return data.text || '';
+  } catch (error) {
+    console.error('Standard PDF extraction error:', error);
+    return '';
+  }
+};
+
+/**
+ * Extract text using OCR (requires additional setup)
+ * This is a placeholder - you'll need to install and configure OCR libraries
+ */
+const extractTextOCR = async (filePath) => {
+  // TODO: Implement OCR extraction
+  // Options:
+  // 1. Tesseract.js (requires tesseract.js and language data)
+  // 2. pdf2pic + tesseract (convert PDF to images, then OCR)
+  // 3. OpenAI Vision API (send images to GPT-4 Vision)
+  
+  console.warn('OCR extraction not yet implemented. Please install OCR dependencies.');
+  throw new Error('OCR extraction not available. Please install tesseract.js or use OpenAI Vision API.');
+};
+
+/**
+ * Main extraction function with fallback logic
+ */
+const extractTextFromPDF = async (filePath, options = {}) => {
+  const { 
+    useOCR = false, 
+    useVisionAPI = true, // Default to true for automatic fallback
+    forceOCR = false 
+  } = options;
+
+  try {
+    // If force OCR is enabled, skip standard extraction
+    if (!forceOCR) {
+      // First, try standard text extraction; if it throws or returns too little text, use vision as fallback
+      console.log('📄 Attempting standard text extraction...');
+      try {
+        const text = await extractTextStandard(filePath);
+        if (isTextExtractionSuccessful(text)) {
+          console.log('✅ Standard extraction successful');
+          return text;
+        }
+        console.log('⚠️ Standard extraction returned insufficient text. Text length:', text?.length || 0);
+      } catch (standardError) {
+        console.warn('⚠️ Standard text extraction failed, will try Vision API:', standardError.message);
+      }
+    }
+
+    // If standard extraction failed (error or insufficient text), try Vision API as fallback
+    if (useVisionAPI && process.env.ENABLE_VISION_API !== 'false') {
+      console.log('📸 Using Vision AI fallback (handwritten/scanned text support)...');
+      
+      try {
+        const visionText = await extractTextWithVisionAPI(filePath);
+        if (visionText && visionText.trim().length > 0) {
+          console.log('✅ Vision OCR succeeded. Tip: For handwritten scripts, "Mark as image" (if available) lets the marker see the script directly for best accuracy.');
+          return visionText;
+        }
+        // If Vision API returned empty text, fall through to error
+        throw new Error('Vision API returned empty text');
+      } catch (visionError) {
+        console.error('❌ Vision API extraction failed:', visionError.message);
+        if (visionError.technicalDetails) {
+          console.error('Technical details:', visionError.technicalDetails);
+        }
+        console.error('Full error details:', visionError);
+
+        // If Vision API fails and OCR is enabled, try OCR
+        if (useOCR) {
+          console.log('📸 Attempting Tesseract OCR as fallback...');
+          try {
+            return await extractTextOCR(filePath);
+          } catch (ocrError) {
+            console.error('❌ OCR fallback also failed:', ocrError.message);
+          }
+        }
+
+        // Rethrow user-facing message if we set one (e.g. handwritten doc could not be read)
+        if (visionError.message && visionError.message.includes('could not be read')) {
+          throw visionError;
+        }
+
+        // Otherwise provide troubleshooting in logs and a short message for user
+        let imageMagickStatus = 'Unknown';
+        try {
+          const { spawnSync } = require('child_process');
+          const result = spawnSync('magick', ['-version'], { shell: true, timeout: 5000 });
+          imageMagickStatus = result.error ? 'NOT INSTALLED' : 'INSTALLED';
+        } catch (e) {
+          imageMagickStatus = 'CHECK FAILED';
+        }
+        console.error(
+          `Troubleshooting: ImageMagick=${imageMagickStatus}, verify OPENAI_API_KEY, check PDF has content.`
+        );
+        throw new Error(
+          'This document could not be read. Handwritten or low-quality scans may not be recognised—try a clearer scan, a typed PDF, or ensure OpenAI API key is set for Vision.'
+        );
+      }
+    } else if (useOCR) {
+      // Use Tesseract OCR
+      console.log('📸 Attempting Tesseract OCR...');
+      return await extractTextOCR(filePath);
+    }
+
+    // If no OCR options enabled and standard extraction failed
+    const standardText = await extractTextStandard(filePath);
+    if (!standardText || standardText.trim().length === 0) {
+      throw new Error(
+        'No text could be extracted from the PDF. ' +
+        'This appears to be a scanned image or handwritten document. ' +
+        'Vision API extraction is enabled but failed. Please check your OpenAI API key and ensure ENABLE_VISION_API is set correctly.'
+      );
+    }
+
+    return standardText;
+  } catch (error) {
+    console.error('❌ PDF text extraction error:', error);
+    throw error;
+  }
+};
+
+// Vision prompt tuned for handwritten and scanned documents
+const VISION_EXTRACT_PROMPT = `Extract ALL text from this image. The document may be handwritten, typed, or a mix.
+- Transcribe handwritten text even if it is messy or partially legible; do your best.
+- Preserve structure: sections, questions, bullet points, line breaks.
+- Include numbers, formulas, and annotations.
+- If you truly see no text at all, reply with exactly: NO_TEXT_FOUND
+Otherwise return only the extracted text, no commentary.`;
+const VISION_TASK_CONFIG = aiConfig.getTaskConfig('visionOCR', 'openai');
+
+/**
+ * Extract text using OpenAI Vision API (GPT-4 Vision)
+ * This can handle handwritten text in images
+ */
+const extractTextWithVisionAPI = async (filePath) => {
+  try {
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.trim() === '') {
+      throw new Error('OPENAI_API_KEY is not set. Vision API (for handwritten/scanned PDFs) requires an OpenAI API key.');
+    }
+    const OpenAI = require('openai');
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+
+    // Convert PDF pages to images
+    const pdf2pic = require('pdf2pic');
+    const { fromPath } = pdf2pic;
+    
+    // Create temp directory if it doesn't exist
+    const tempDir = path.join(__dirname, '../uploads/temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Get number of pages first
+    const pdfData = await pdfParse(fs.readFileSync(filePath));
+    const numPages = pdfData.numpages || 1;
+
+    console.log(`📸 Converting ${numPages} PDF page(s) to images for OCR...`);
+
+    // ImageMagick and Ghostscript need gs and convert on PATH (e.g. under PM2 with minimal PATH)
+    const gsDirVision = getGhostscriptDir();
+    const imInfoVision = getImageMagickDir();
+    const pathPartsVision = (process.env.PATH || '').split(path.delimiter);
+    if (gsDirVision && !pathPartsVision.includes(gsDirVision)) {
+      process.env.PATH = gsDirVision + path.delimiter + (process.env.PATH || '');
+    }
+    if (imInfoVision && imInfoVision.dir && !pathPartsVision.includes(imInfoVision.dir.replace(/\/$/, ''))) {
+      process.env.PATH = imInfoVision.dir.replace(/\/$/, '') + path.delimiter + (process.env.PATH || '');
+    }
+
+    // Density 200 and 1400px keep legibility while speeding conversion and reducing size (was 350 / 2000)
+    const convert = fromPath(filePath, {
+      density: 200,
+      saveFilename: 'ocr_temp',
+      savePath: tempDir,
+      format: 'jpeg',
+      quality: 88,
+      width: 1400,
+      height: 1400
+    });
+    try {
+      convert.setGMClass(true); // Use ImageMagick (magick/convert)
+      console.log('✅ Vision OCR: using ImageMagick');
+    } catch (e) {
+      console.warn('Vision OCR: setGMClass(true) failed', e.message);
+    }
+
+    // Process all pages and combine text
+    const allTexts = [];
+    const pageErrors = [];
+    
+    for (let pageNum = 1; pageNum <= Math.min(numPages, 10); pageNum++) { // Limit to 10 pages for cost control
+      try {
+        console.log(`📄 Processing page ${pageNum}/${numPages}...`);
+        
+        // Convert PDF page to image
+        let result;
+        try {
+          // Try default response first (pdf2pic typically returns { path: string } or { name: string })
+          result = await convert(pageNum);
+        } catch (convertError) {
+          // If default fails, try with buffer response
+          try {
+            console.log(`⚠️ Default conversion failed, trying buffer response...`);
+            result = await convert(pageNum, { responseType: 'buffer' });
+          } catch (bufferError) {
+            console.error(`❌ Failed to convert page ${pageNum} to image:`, convertError.message);
+            console.error('Conversion error details:', convertError);
+            console.error('Buffer conversion error:', bufferError.message);
+            pageErrors.push(`Page ${pageNum}: Conversion failed - ${convertError.message}`);
+            
+            // If ImageMagick error, provide helpful message
+            if (convertError.message && (
+              convertError.message.includes('magick') || 
+              convertError.message.includes('ImageMagick') ||
+              convertError.message.includes('GraphicsMagick') ||
+              convertError.message.includes('gm')
+            )) {
+              pageErrors.push(`Page ${pageNum}: ImageMagick/GraphicsMagick may not be installed or configured correctly`);
+            }
+            continue;
+          }
+        }
+        
+        // Log detailed result information
+        console.log(`📸 Conversion result type for page ${pageNum}:`, typeof result);
+        console.log(`📸 Conversion result is null/undefined:`, result == null);
+        if (result) {
+          if (typeof result === 'object') {
+            console.log(`📸 Conversion result keys:`, Object.keys(result));
+            console.log(`📸 Conversion result stringified (first 500 chars):`, JSON.stringify(result).substring(0, 500));
+          } else {
+            console.log(`📸 Conversion result value:`, result);
+          }
+        }
+
+        // Handle different result formats from pdf2pic
+        let imageBuffer = null;
+        let imagePath = null;
+        
+        // Check if result is a buffer (direct image data)
+        if (Buffer.isBuffer(result)) {
+          imageBuffer = result;
+          console.log(`✅ Received image buffer (${imageBuffer.length} bytes)`);
+        } else if (result === null || result === undefined) {
+          console.warn(`⚠️ Conversion returned null/undefined for page ${pageNum}`);
+          pageErrors.push(`Page ${pageNum}: Conversion returned null/undefined`);
+          continue;
+        } else if (typeof result === 'string') {
+          // Result is a file path
+          imagePath = result;
+          console.log(`✅ Received image path: ${imagePath}`);
+        } else if (result && typeof result === 'object') {
+          // Handle object responses
+          if (result.path) {
+            imagePath = result.path;
+            console.log(`✅ Found path in result: ${imagePath}`);
+          } else if (result.name) {
+            imagePath = result.name;
+            console.log(`✅ Found name in result: ${imagePath}`);
+          } else if (result.filePath) {
+            imagePath = result.filePath;
+            console.log(`✅ Found filePath in result: ${imagePath}`);
+          } else if (result.buffer && Buffer.isBuffer(result.buffer)) {
+            imageBuffer = result.buffer;
+            console.log(`✅ Found buffer in result (${imageBuffer.length} bytes)`);
+          } else if (result.data && Buffer.isBuffer(result.data)) {
+            imageBuffer = result.data;
+            console.log(`✅ Found data buffer in result (${imageBuffer.length} bytes)`);
+          } else if (result.base64) {
+            // If base64 is returned directly, use it
+            imageBuffer = Buffer.from(result.base64, 'base64');
+            console.log(`✅ Found base64 in result, converted to buffer (${imageBuffer.length} bytes)`);
+          } else if (result.image) {
+            // Some libraries return image as a property
+            if (Buffer.isBuffer(result.image)) {
+              imageBuffer = result.image;
+              console.log(`✅ Found image buffer in result (${imageBuffer.length} bytes)`);
+            } else if (typeof result.image === 'string') {
+              imagePath = result.image;
+              console.log(`✅ Found image path in result: ${imagePath}`);
+            }
+          } else {
+            // Try to find any buffer-like property
+            const bufferKeys = Object.keys(result).filter(key => Buffer.isBuffer(result[key]));
+            if (bufferKeys.length > 0) {
+              imageBuffer = result[bufferKeys[0]];
+              console.log(`✅ Found buffer in property '${bufferKeys[0]}' (${imageBuffer.length} bytes)`);
+            } else {
+              // Try to find any string property that might be a path
+              const pathKeys = Object.keys(result).filter(key => 
+                typeof result[key] === 'string' && 
+                (result[key].includes('/') || result[key].includes('\\') || result[key].endsWith('.png'))
+              );
+              if (pathKeys.length > 0) {
+                imagePath = result[pathKeys[0]];
+                console.log(`✅ Found potential path in property '${pathKeys[0]}': ${imagePath}`);
+              } else {
+                console.warn(`⚠️ Unexpected result format for page ${pageNum}. Full result:`, JSON.stringify(result, null, 2));
+                pageErrors.push(`Page ${pageNum}: Unexpected conversion result format - ${typeof result}`);
+                continue;
+              }
+            }
+          }
+        } else {
+          console.warn(`⚠️ Unexpected result type for page ${pageNum}: ${typeof result}`);
+          pageErrors.push(`Page ${pageNum}: Unexpected conversion result type - ${typeof result}`);
+          continue;
+        }
+
+        // If we have a buffer, use it directly
+        if (imageBuffer) {
+          const base64Image = imageBuffer.toString('base64');
+          console.log(`📤 Sending page ${pageNum} to Vision API (${Math.round(base64Image.length / 1024)}KB base64)...`);
+          
+          try {
+            const response = await openai.chat.completions.create({
+              model: VISION_TASK_CONFIG.model,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: VISION_EXTRACT_PROMPT
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:image/png;base64,${base64Image}`
+                      }
+                    }
+                  ]
+                }
+              ],
+              max_completion_tokens: VISION_TASK_CONFIG.maxTokens,
+              temperature: VISION_TASK_CONFIG.temperature
+            });
+
+            const pageText = response?.choices?.[0]?.message?.content;
+            
+            if (pageText && pageText.trim().length > 0 && pageText.trim().toUpperCase() !== 'NO_TEXT_FOUND') {
+              console.log(`✅ Extracted ${pageText.length} characters from page ${pageNum}`);
+              allTexts.push(`--- Page ${pageNum} ---\n${pageText}`);
+            } else {
+              console.warn(`⚠️ Vision API returned no text for page ${pageNum}`);
+              pageErrors.push(`Page ${pageNum}: No text found in image`);
+            }
+          } catch (apiError) {
+            const status = apiError.status ?? apiError.statusCode;
+            const msg = (apiError.message || '').toLowerCase();
+            const isQuotaOrRateLimit = status === 429 || msg.includes('quota') || msg.includes('billing') || msg.includes('exceeded');
+            if (isQuotaOrRateLimit) {
+              throw new Error(
+                'OpenAI API quota exceeded or rate limited. Please check your plan and billing at https://platform.openai.com/account/billing. ' +
+                'Vision (handwritten/scanned PDFs) uses your OpenAI usage; add credits or wait before retrying.'
+              );
+            }
+            console.error(`❌ Vision API error for page ${pageNum}:`, apiError.message);
+            pageErrors.push(`Page ${pageNum}: Vision API error - ${apiError.message}`);
+          }
+          continue;
+        }
+
+        if (!imagePath) {
+          console.warn(`⚠️ No image path returned for page ${pageNum}`);
+          pageErrors.push(`Page ${pageNum}: No image path returned`);
+          continue;
+        }
+
+        // Check if file exists (handle both absolute and relative paths)
+        const fullImagePath = path.isAbsolute(imagePath) ? imagePath : path.join(tempDir, imagePath);
+        if (!fs.existsSync(fullImagePath)) {
+          console.warn(`⚠️ Image file does not exist: ${fullImagePath}`);
+          pageErrors.push(`Page ${pageNum}: Image file not found`);
+          continue;
+        }
+
+        console.log(`✅ Image created: ${fullImagePath} (${fs.statSync(fullImagePath).size} bytes)`);
+
+        // Read image as base64
+        let fileImageBuffer;
+        try {
+          fileImageBuffer = fs.readFileSync(fullImagePath);
+          if (!fileImageBuffer || fileImageBuffer.length === 0) {
+            throw new Error('Image file is empty');
+          }
+        } catch (readError) {
+          console.error(`❌ Failed to read image file:`, readError.message);
+          pageErrors.push(`Page ${pageNum}: Failed to read image - ${readError.message}`);
+          continue;
+        }
+
+        const base64Image = fileImageBuffer.toString('base64');
+        console.log(`📤 Sending page ${pageNum} to Vision API (${Math.round(base64Image.length / 1024)}KB base64)...`);
+
+        // Use OpenAI Vision API
+        let response;
+        try {
+          response = await openai.chat.completions.create({
+            model: VISION_TASK_CONFIG.model,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: VISION_EXTRACT_PROMPT
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:image/png;base64,${base64Image}`
+                    }
+                  }
+                ]
+              }
+            ],
+            max_completion_tokens: VISION_TASK_CONFIG.maxTokens,
+            temperature: VISION_TASK_CONFIG.temperature
+          });
+        } catch (apiError) {
+          const status = apiError.status ?? apiError.statusCode;
+          const msg = (apiError.message || '').toLowerCase();
+          const isQuotaOrRateLimit = status === 429 || msg.includes('quota') || msg.includes('billing') || msg.includes('exceeded');
+          if (isQuotaOrRateLimit) {
+            if (fs.existsSync(fullImagePath)) {
+              try { fs.unlinkSync(fullImagePath); } catch (_) {}
+            }
+            throw new Error(
+              'OpenAI API quota exceeded or rate limited. Please check your plan and billing at https://platform.openai.com/account/billing. ' +
+              'Vision (handwritten/scanned PDFs) uses your OpenAI usage; add credits or wait before retrying.'
+            );
+          }
+          console.error(`❌ Vision API error for page ${pageNum}:`, apiError.message);
+          pageErrors.push(`Page ${pageNum}: Vision API error - ${apiError.message}`);
+          // Clean up image before continuing
+          if (fs.existsSync(fullImagePath)) {
+            fs.unlinkSync(fullImagePath);
+          }
+          continue;
+        }
+
+        const pageText = response?.choices?.[0]?.message?.content;
+        
+        if (!pageText) {
+          console.warn(`⚠️ Vision API returned no content for page ${pageNum}`);
+          pageErrors.push(`Page ${pageNum}: No content returned from Vision API`);
+        } else if (pageText.trim().toUpperCase() === 'NO_TEXT_FOUND') {
+          console.warn(`⚠️ Vision API detected no text in page ${pageNum}`);
+          pageErrors.push(`Page ${pageNum}: Vision API detected no text`);
+        } else if (pageText.trim().length > 0) {
+          console.log(`✅ Extracted ${pageText.length} characters from page ${pageNum}`);
+          allTexts.push(`--- Page ${pageNum} ---\n${pageText}`);
+        } else {
+          console.warn(`⚠️ Vision API returned empty text for page ${pageNum}`);
+          pageErrors.push(`Page ${pageNum}: Empty text returned`);
+        }
+
+        // Clean up temp image
+        try {
+          if (fs.existsSync(fullImagePath)) {
+            fs.unlinkSync(fullImagePath);
+          }
+        } catch (cleanupError) {
+          console.warn(`⚠️ Failed to cleanup image file: ${cleanupError.message}`);
+        }
+
+      } catch (pageError) {
+        console.error(`❌ Unexpected error processing page ${pageNum}:`, pageError.message);
+        console.error('Stack trace:', pageError.stack);
+        pageErrors.push(`Page ${pageNum}: ${pageError.message}`);
+        // Continue with other pages
+      }
+    }
+
+    // Provide detailed error information (user-friendly message + technical details in log)
+    if (allTexts.length === 0) {
+      const errorDetails = pageErrors.length > 0
+        ? `\nPage errors:\n${pageErrors.join('\n')}`
+        : '\nNo specific page errors logged, but no text was extracted.';
+      const technicalMsg = `No text could be extracted from any pages using Vision API.${errorDetails}\n\nPossible causes:\n1. PDF conversion to image failed (check ImageMagick installation)\n2. Vision API returned no text\n3. Images are empty or corrupted\n4. API key issues or rate limits`;
+      console.error('Vision API extraction failed:', technicalMsg);
+      const isQuotaError = pageErrors.some((e) => /429|quota|billing|exceeded/i.test(e));
+      const userFacing = new Error(
+        isQuotaError
+          ? 'OpenAI API quota exceeded. Check your plan and billing at https://platform.openai.com/account/billing and add credits if needed. Vision (handwritten/scanned PDFs) uses your OpenAI usage.'
+          : 'This document could not be read. Handwritten or low-quality scans may not be recognised—try a clearer scan, a typed PDF, or ensure OpenAI API key is set for Vision.'
+      );
+      userFacing.technicalDetails = technicalMsg;
+      throw userFacing;
+    }
+
+    const extractedText = allTexts.join('\n\n');
+    console.log(`✅ Vision API extraction successful (${allTexts.length} page(s))`);
+    return extractedText;
+
+  } catch (error) {
+    console.error('❌ Vision API extraction error:', error);
+    throw new Error('Failed to extract text using Vision API: ' + error.message);
+  }
+};
+
+/**
+ * Convert PDF to an array of base64 image strings (one per page).
+ * Used for "mark as image" so the AI can score from the visual document.
+ * Requires ImageMagick and Ghostscript (same as Vision OCR).
+ * @param {string} filePath - Path to the PDF file
+ * @param {number} maxPages - Maximum number of pages to convert (default 15 for cost/size)
+ * @returns {Promise<{ base64Images: string[], numPages: number }>}
+ */
+async function getPdfPageImages(filePath, maxPages = 15) {
+  const pdf2pic = require('pdf2pic');
+  const { fromPath } = pdf2pic;
+  const tempDir = path.join(__dirname, '../uploads/temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const pdfData = await pdfParse(fs.readFileSync(filePath));
+  const numPages = pdfData.numpages || 1;
+  // Prepend Ghostscript and ImageMagick dirs to PATH (PM2/Virtualmin often have minimal PATH)
+  const gsDir = getGhostscriptDir();
+  const imInfo = getImageMagickDir();
+  const pathParts = (process.env.PATH || '').split(path.delimiter);
+  if (gsDir && !pathParts.includes(gsDir)) {
+    process.env.PATH = gsDir + path.delimiter + (process.env.PATH || '');
+    console.log('PDF→image: PATH includes gs dir:', gsDir);
+  }
+  if (imInfo && imInfo.dir && !pathParts.includes(imInfo.dir.replace(/\/$/, ''))) {
+    process.env.PATH = imInfo.dir.replace(/\/$/, '') + path.delimiter + (process.env.PATH || '');
+    console.log('PDF→image: PATH includes ImageMagick dir:', imInfo.dir.replace(/\/$/, ''));
+  }
+  // Pre-flight: fail fast with a clear message if convert or gs are missing
+  if (!gsDir) {
+    const msg = 'Ghostscript (gs) not found. Install ghostscript and set GHOSTSCRIPT_PATH (e.g. /usr/bin/gs) in .env.';
+    console.error('PDF→image:', msg);
+    return { base64Images: [], numPages, lastError: msg };
+  }
+  if (!imInfo) {
+    const msg = 'ImageMagick (convert) not found. Install imagemagick and set IMAGEMAGICK_PATH to the directory containing convert (e.g. /usr/bin) in .env.';
+    console.error('PDF→image:', msg);
+    return { base64Images: [], numPages, lastError: msg };
+  }
+  const convert = fromPath(filePath, {
+    density: 200,
+    saveFilename: 'mark_img_temp',
+    savePath: tempDir,
+    format: 'jpeg',
+    quality: 88,
+    width: 1400,
+    height: 1400
+  });
+  // Use ImageMagick (convert). PATH already includes gs and convert dirs from above.
+  try {
+    convert.setGMClass(true);
+    console.log('PDF→image: using ImageMagick (convert)', imInfo.convertPath !== 'convert' ? `at ${imInfo.convertPath}` : 'from PATH');
+  } catch (e) {
+    console.warn('PDF→image: setGMClass(true) failed', e.message);
+  }
+  // Read file at fullPath when it appears and has size (retry to avoid race with convert finishing write)
+  const readFileWhenReady = (fullPath, maxAttempts = 10, ms = 80) => {
+    return new Promise((resolve) => {
+      let attempts = 0;
+      const tryRead = () => {
+        try {
+          if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            if (buf && buf.length > 0) {
+              try { fs.unlinkSync(fullPath); } catch (_) {}
+              return resolve(buf);
+            }
+          }
+        } catch (_) {}
+        attempts++;
+        if (attempts >= maxAttempts) return resolve(null);
+        setTimeout(tryRead, ms);
+      };
+      tryRead();
+    });
+  };
+
+  let base64Images = [];
+  let lastError = null;
+  const toProcess = Math.min(numPages, maxPages);
+  for (let pageNum = 1; pageNum <= toProcess; pageNum++) {
+    try {
+      let result = await convert(pageNum, { responseType: 'buffer' }).catch((e) => {
+        lastError = e;
+        return null;
+      });
+      if (!result) {
+        result = await convert(pageNum).catch((e) => {
+          lastError = e;
+          return null;
+        });
+      }
+      let buffer = null;
+      if (Buffer.isBuffer(result)) {
+        buffer = result;
+      } else if (result && typeof result === 'object') {
+        if (result.buffer && Buffer.isBuffer(result.buffer)) buffer = result.buffer;
+        else if (result.data && Buffer.isBuffer(result.data)) buffer = result.data;
+        else if (result.path || result.name || result.filePath) {
+          const p = result.path || result.name || result.filePath;
+          const fullPath = path.isAbsolute(p) ? p : path.join(tempDir, p);
+          buffer = await readFileWhenReady(fullPath);
+        }
+      } else if (typeof result === 'string') {
+        const fullPath = path.isAbsolute(result) ? result : path.join(tempDir, result);
+        buffer = await readFileWhenReady(fullPath);
+      }
+      if (buffer && buffer.length > 0) {
+        base64Images.push(buffer.toString('base64'));
+      }
+    } catch (err) {
+      lastError = err;
+      console.error('PDF→image: page', pageNum, 'error:', err.message, err.stack || '');
+    }
+  }
+  const errStr = lastError ? (lastError.message || String(lastError)) : null;
+  if (base64Images.length === 0) {
+    if (lastError) {
+      console.error('PDF→image: no images produced. Last error:', lastError.message || lastError, lastError.stack || '');
+    } else {
+      console.error('PDF→image: no images produced and no error was captured. ImageMagick may have failed silently (check policy.xml allows PDF).');
+    }
+    console.error('PDF→image: If ImageMagick reports "not authorized" for PDF, edit policy.xml to allow PDF: see docs/PDF-TO-IMAGE-TROUBLESHOOTING.md');
+  }
+  // When we have no images but no captured error, still return a hint so the user sees something useful
+  const finalError = base64Images.length === 0
+    ? (errStr || 'Conversion produced no images. Check policy.xml allows PDF and PM2 logs for PDF→image messages.')
+    : null;
+  console.log('PDF→image: returning', base64Images.length, 'images, lastError:', finalError ? finalError.substring(0, 120) : 'none');
+  return { base64Images, numPages, lastError: finalError };
+}
+
+module.exports = {
+  extractTextFromPDF,
+  extractTextStandard,
+  extractTextOCR,
+  extractTextWithVisionAPI,
+  getPdfPageImages,
+  isTextExtractionSuccessful
+};
+
