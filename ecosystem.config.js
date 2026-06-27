@@ -13,12 +13,12 @@ module.exports = {
       node_args: '--max-old-space-size=4096',
       env: {
         NODE_ENV: 'production',
-        PORT: 3001,
+        PORT: 3002,
         BASE_PATH: '/tools',
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3001,
+        PORT: 3002,
         BASE_PATH: '/tools',
       },
     },
