@@ -5,6 +5,8 @@ const { query } = require('../database/connection');
 const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30m';
+const REFRESH_SECRET = process.env.REFRESH_JWT_SECRET || (JWT_SECRET + '_refresh');
+const REFRESH_EXPIRES_IN = process.env.REFRESH_JWT_EXPIRES_IN || '7d';
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com';
 const ROLE_ALIASES = {
   admin: 'management',
