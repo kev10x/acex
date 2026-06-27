@@ -41,11 +41,11 @@ const OnboardingBanner: React.FC<Props> = ({ completedSteps = [], onNavigate }) 
 
       <div className="mb-3">
         <h3 className="text-sm font-bold text-slate-800">
-          {allDone ? '🎉 You're all set!' : 'Get started with Acexen'}
+          {allDone ? "🎉 You're all set!" : 'Get started with Acexen'}
         </h3>
         <p className="text-xs text-slate-500 mt-0.5">
           {allDone
-            ? 'You've completed the setup. Dismiss this whenever you're ready.'
+            ? "You've completed the setup. Dismiss this whenever you're ready."
             : 'Four steps to your first AI-marked batch.'}
         </p>
       </div>
