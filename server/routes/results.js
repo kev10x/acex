@@ -1087,6 +1087,29 @@ router.get('/stats/overview', requireAuth, async (req, res) => {
   }
 });
 
+// Rename a marking result
+router.put('/:id/rename', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (typeof name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const trimmed = name.trim().slice(0, 500);
+    const result = await query(
+      'UPDATE marking_results SET custom_name = ? WHERE id = ? AND user_id = ?',
+      [trimmed || null, id, req.user.id]
+    );
+    if ((result.affectedRows ?? result.changes ?? 0) === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+    res.json({ success: true, custom_name: trimmed || null });
+  } catch (error) {
+    console.error('Rename result error:', error);
+    res.status(500).json({ error: 'Failed to rename result' });
+  }
+});
+
 // Delete a marking result
 router.delete('/:id', requireAuth, async (req, res) => {
   try {

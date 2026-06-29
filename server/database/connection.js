@@ -1367,6 +1367,14 @@ const initDatabase = async () => {
         if ((criterionFeedbackTypesCheck.rows?.[0]?.count || criterionFeedbackTypesCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSON`);
         }
+
+        const customNameCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'custom_name'
+        `);
+        if ((customNameCheck.rows?.[0]?.count || customNameCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN custom_name VARCHAR(500) DEFAULT NULL`);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist

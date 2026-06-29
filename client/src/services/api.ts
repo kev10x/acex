@@ -277,6 +277,7 @@ export interface MarkingResult {
   folder_name?: string | null;
   review_status?: 'none' | 'queued' | 'reviewed';
   review_reasons?: string[];
+  custom_name?: string | null;
 }
 
 export interface FeatureFlags {
@@ -475,6 +476,8 @@ export const resultsAPI = {
     api.put(`/results/${id}/lecturer-override`, data),
   chat: (id: number, data: { question: string; history?: Array<{ role: string; content: string }> }) =>
     api.post<{ answer: string }>(`/results/${id}/chat`, data),
+  renameResult: (id: number, name: string) =>
+    api.put<{ success: boolean; custom_name: string | null }>(`/results/${id}/rename`, { name }),
 };
 
 export interface SystemHealthCheck {
