@@ -403,6 +403,22 @@ const ResultsDashboard: React.FC = () => {
     }
   };
 
+  const handleViewOriginalDocument = async (result: MarkingResult) => {
+    try {
+      const response = await resultsAPI.getOriginalDocument(result.id);
+      const ext = (result.filename || '').toLowerCase();
+      const mimeType = ext.endsWith('.pdf')
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const blob = new Blob([response.data], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to open original document');
+    }
+  };
+
   const handleViewAnnotatedPDF = async (resultId: number) => {
     try {
       const response = await resultsAPI.getAnnotatedPDF(resultId);
@@ -1509,7 +1525,17 @@ const ResultsDashboard: React.FC = () => {
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                     <h4 className="text-sm font-medium text-gray-700">Assignment</h4>
-                    <p className="mt-1 text-sm text-gray-900 whitespace-normal break-words">{selectedResult.filename}</p>
+                    <div className="mt-1 flex items-start justify-between gap-2">
+                      <p className="text-sm text-gray-900 whitespace-normal break-words flex-1">{selectedResult.filename}</p>
+                      <button
+                        onClick={() => handleViewOriginalDocument(selectedResult)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-primary-700 bg-primary-50 border border-primary-200 rounded hover:bg-primary-100 flex-shrink-0"
+                        title="View original document"
+                      >
+                        <Eye className="w-3 h-3" />
+                        Original
+                      </button>
+                    </div>
                     {selectedResult.student_name && (
                       <p className="mt-2 text-sm text-gray-600 whitespace-normal break-words">Student: {selectedResult.student_name}</p>
                     )}

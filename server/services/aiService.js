@@ -37,20 +37,31 @@ class AIService {
     } else {
       console.warn('⚠️  ANTHROPIC_API_KEY not found. Anthropic provider will not be available.');
     }
-    
+
+    // Initialize Ollama client (OpenAI-compatible local API)
+    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
+    this.ollama = new OpenAI({
+      apiKey: 'ollama',
+      baseURL: ollamaBaseUrl
+    });
+    console.log(`🦙 Ollama client initialised at ${ollamaBaseUrl}`);
+
     // Request throttling: Track last request time per provider
     // Add minimum delay between requests to avoid rate limits
     this.lastRequestTime = {
       openai: 0,
-      anthropic: 0
+      anthropic: 0,
+      ollama: 0
     };
-    
+
     // Minimum delay between requests (in milliseconds)
     // OpenAI: ~60 requests/minute for GPT-4o = ~1 request/second
     // Anthropic: ~50 requests/minute = ~1.2 requests/second
+    // Ollama: local, no rate limits
     this.minRequestInterval = {
       openai: 1200,    // 1.2 seconds between requests (50 req/min)
-      anthropic: 1500  // 1.5 seconds between requests (40 req/min)
+      anthropic: 1500, // 1.5 seconds between requests (40 req/min)
+      ollama: 0        // No throttling for local inference
     };
   }
 
@@ -73,8 +84,10 @@ class AIService {
       return await this._createOpenAICompletion({ model, messages, temperature, maxTokens, user, functions, function_call, response_format });
     } else if (selectedProvider === 'anthropic') {
       return await this._createAnthropicCompletion({ model, messages, temperature, maxTokens });
+    } else if (selectedProvider === 'ollama') {
+      return await this._createOllamaCompletion({ model, messages, temperature, maxTokens, response_format });
     } else {
-      throw new Error(`Unsupported provider: ${selectedProvider}. Must be 'openai' or 'anthropic'`);
+      throw new Error(`Unsupported provider: ${selectedProvider}. Must be 'openai', 'anthropic', or 'ollama'`);
     }
   }
 
@@ -274,11 +287,46 @@ class AIService {
   }
 
   /**
+   * Create completion using Ollama (local LLM, OpenAI-compatible API)
+   */
+  async _createOllamaCompletion({ model, messages, temperature, maxTokens, response_format }) {
+    const params = {
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens
+    };
+
+    // Ollama supports json_object mode but not the full json_schema strict mode
+    if (response_format?.type === 'json_schema' || response_format?.type === 'json_object') {
+      params.response_format = { type: 'json_object' };
+    }
+
+    const completion = await this.ollama.chat.completions.create(params);
+    const content = completion.choices[0]?.message?.content || '';
+
+    if (!content) {
+      const finishReason = completion.choices[0]?.finish_reason;
+      console.warn('Ollama returned empty content. finish_reason:', finishReason);
+    }
+
+    return {
+      content,
+      usage: {
+        prompt_tokens: completion.usage?.prompt_tokens,
+        completion_tokens: completion.usage?.completion_tokens,
+        total_tokens: completion.usage?.total_tokens
+      },
+      provider: 'ollama'
+    };
+  }
+
+  /**
    * Throttle requests to avoid rate limits
    * Ensures minimum time between requests per provider
    */
   async _throttleRequest(provider) {
-    const providerKey = provider === 'openai' ? 'openai' : 'anthropic';
+    const providerKey = provider === 'openai' ? 'openai' : (provider === 'ollama' ? 'ollama' : 'anthropic');
     const minInterval = this.minRequestInterval[providerKey] || 1000;
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime[providerKey];

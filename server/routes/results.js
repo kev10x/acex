@@ -1241,6 +1241,50 @@ router.get('/annotated-pdf/:resultId', requireAuth, async (req, res) => {
   }
 });
 
+// Serve the original uploaded document for a marking result
+router.get('/original/:resultId', requireAuth, async (req, res) => {
+  try {
+    const { resultId } = req.params;
+
+    const result = await query(`
+      SELECT mr.id, a.filename, a.file_path
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      WHERE mr.id = ? AND mr.user_id = ?
+    `, [resultId, req.user.id]);
+
+    if (!result.rows || result.rows.length === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
+    const { filename, file_path } = result.rows[0];
+
+    if (!file_path || !fs.existsSync(file_path)) {
+      return res.status(404).json({ error: 'Original document file not found on disk' });
+    }
+
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === '.pdf'
+      ? 'application/pdf'
+      : ext === '.docx'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+    const stream = fs.createReadStream(file_path);
+    stream.pipe(res);
+    stream.on('error', (err) => {
+      console.error('Error streaming original document:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to stream document' });
+    });
+  } catch (error) {
+    console.error('Get original document error:', error);
+    res.status(500).json({ error: 'Failed to get original document' });
+  }
+});
+
 // Get commented Word document for a marking result
 router.get('/commented-docx/:resultId', requireAuth, async (req, res) => {
   try {

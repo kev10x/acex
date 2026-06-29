@@ -767,10 +767,10 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('default');
     const aiResult = await aiService.createCompletionWithRetry({
       provider: config.provider,
-      model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+      model: config.model,
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
-      maxTokens: 200
+      maxTokens: 1500
     });
 
     const response = aiResult.content.trim();
@@ -814,7 +814,7 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('default');
     const aiResult = await aiService.createCompletionWithRetry({
       provider: config.provider,
-      model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+      model: config.model,
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
       maxTokens: 150
@@ -1972,7 +1972,7 @@ JSON format (return ONLY this, no other text):
         model: skeletonModel,
         messages: skeletonMessages,
         temperature: 0.0,
-        maxTokens: 800
+        maxTokens: 2500
       }, 1);
 
       const skeletonResponse = String(skeletonResult.content || '').trim();
@@ -2027,10 +2027,13 @@ JSON format (return ONLY this, no other text):
 
     // Use OpenAI Structured Outputs (json_schema + strict: true) to guarantee the model
     // produces valid JSON matching MARKING_SCHEMA exactly — eliminates malformed JSON for OpenAI.
-    // Anthropic does not support json_schema; fall back to no response_format constraint.
-    const responseFormat = selectedProvider === 'openai'
-      ? { type: 'json_schema', json_schema: { name: 'marking_result', strict: true, schema: MARKING_SCHEMA } }
-      : null;
+    // Ollama supports json_object mode (not the full schema). Anthropic has no response_format.
+    let responseFormat = null;
+    if (selectedProvider === 'openai') {
+      responseFormat = { type: 'json_schema', json_schema: { name: 'marking_result', strict: true, schema: MARKING_SCHEMA } };
+    } else if (selectedProvider === 'ollama') {
+      responseFormat = { type: 'json_object' };
+    }
 
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
@@ -2041,7 +2044,8 @@ JSON format (return ONLY this, no other text):
       response_format: responseFormat
     }, 5);
 
-    console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
+    const providerLabel = selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : selectedProvider === 'ollama' ? 'Ollama (local)' : 'OpenAI';
+    console.log(`📥 Received response from ${providerLabel}`);
     const response = (result.content != null ? String(result.content) : '');
     console.log('Response length:', response.length);
     console.log('Response preview:', response.substring(0, 200) + (response.length > 200 ? '...' : ''));
@@ -2094,11 +2098,11 @@ JSON format (return ONLY this, no other text):
 
         const repairResult = await aiService.createCompletionWithRetry({
           provider: selectedProvider,
-          model: selectedProvider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+          model: config.model,
           messages: [{ role: 'user', content: extractionPrompt }],
           temperature: 0.0,
           maxTokens: 16000,
-          response_format: selectedProvider === 'openai' ? { type: 'json_object' } : null
+          response_format: (selectedProvider === 'openai' || selectedProvider === 'ollama') ? { type: 'json_object' } : null
         }, 2);
 
         const repairedText = String(repairResult.content || '').trim();

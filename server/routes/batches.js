@@ -8,6 +8,9 @@ const { isCodeDocument } = require('../services/documentExtractService');
 const router = express.Router();
 const scheduledTimers = new Map();
 
+// How many assignments to mark in parallel within a single job.
+const BATCH_CONCURRENCY = Math.max(1, Number(process.env.BATCH_CONCURRENCY || 3));
+
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const firstRow = (result) => rowsOf(result)[0];
 const isManagementUser = (user) => ['management', 'admin'].includes(String(user?.role || '').toLowerCase());
@@ -56,16 +59,14 @@ const runMarkingJob = async (jobId) => {
     return;
   }
 
+  // Reset counters to reflect what is actually about to be processed.
   await query(
     'UPDATE marking_jobs SET total_count = ?, processed_count = 0, success_count = 0, failed_count = 0, last_error = NULL WHERE id = ?',
     [assignments.length, jobId]
   );
 
-  let processed = 0;
-  let success = 0;
-  let failed = 0;
-
-  for (const assignment of assignments) {
+  // Process one assignment; use atomic DB increments to avoid counter races.
+  const processOne = async (assignment) => {
     try {
       await query(
         'UPDATE assignments SET status = ?, processing_job_id = ? WHERE id = ? AND user_id = ?',
@@ -102,9 +103,11 @@ const runMarkingJob = async (jobId) => {
         'UPDATE assessment_submissions SET status = ?, result_id = ?, failure_reason = NULL, completed_at = NOW() WHERE assignment_id = ?',
         ['completed', resultId, assignment.id]
       );
-      success += 1;
+      await query(
+        'UPDATE marking_jobs SET processed_count = processed_count + 1, success_count = success_count + 1 WHERE id = ?',
+        [jobId]
+      );
     } catch (err) {
-      failed += 1;
       await query(
         'UPDATE assignments SET status = ?, processing_job_id = NULL WHERE id = ? AND user_id = ?',
         ['error', assignment.id, job.user_id]
@@ -113,17 +116,27 @@ const runMarkingJob = async (jobId) => {
         'UPDATE assessment_submissions SET status = ?, failure_reason = ?, completed_at = NOW() WHERE assignment_id = ?',
         ['failed', err?.message || 'Unknown error', assignment.id]
       );
-      await query('UPDATE marking_jobs SET last_error = ? WHERE id = ?', [err?.message || 'Unknown error', jobId]);
-    } finally {
-      processed += 1;
       await query(
-        'UPDATE marking_jobs SET processed_count = ?, success_count = ?, failed_count = ? WHERE id = ?',
-        [processed, success, failed, jobId]
+        'UPDATE marking_jobs SET processed_count = processed_count + 1, failed_count = failed_count + 1, last_error = ? WHERE id = ?',
+        [err?.message || 'Unknown error', jobId]
       );
     }
+  };
+
+  // Run BATCH_CONCURRENCY assignments at a time.
+  for (let i = 0; i < assignments.length; i += BATCH_CONCURRENCY) {
+    const chunk = assignments.slice(i, i + BATCH_CONCURRENCY);
+    await Promise.all(chunk.map(processOne));
   }
 
-  const finalStatus = failed > 0 && success === 0 ? 'failed' : failed > 0 ? 'completed_with_errors' : 'completed';
+  // Read final counts from DB (written atomically above) to determine outcome.
+  const finalJob = firstRow(await query(
+    'SELECT success_count, failed_count FROM marking_jobs WHERE id = ?',
+    [jobId]
+  ));
+  const s = Number(finalJob?.success_count || 0);
+  const f = Number(finalJob?.failed_count || 0);
+  const finalStatus = f > 0 && s === 0 ? 'failed' : f > 0 ? 'completed_with_errors' : 'completed';
   await query(
     'UPDATE marking_jobs SET status = ?, completed_at = NOW() WHERE id = ?',
     [finalStatus, jobId]
@@ -131,6 +144,25 @@ const runMarkingJob = async (jobId) => {
   if (scheduledTimers.has(jobId)) {
     clearTimeout(scheduledTimers.get(jobId));
     scheduledTimers.delete(jobId);
+  }
+};
+
+// Re-register timers for standard-mode jobs that were scheduled before a
+// server restart. Called once at startup after the DB is ready.
+const recoverScheduledJobs = async () => {
+  try {
+    const pending = rowsOf(await query(
+      `SELECT id, scheduled_for FROM marking_jobs
+       WHERE status = 'scheduled' AND processing_mode = 'standard'`
+    ));
+    if (pending.length > 0) {
+      console.log(`[batch] Recovering ${pending.length} scheduled standard job(s) after restart`);
+      for (const job of pending) {
+        scheduleJobProcessor(job.id, job.scheduled_for || new Date());
+      }
+    }
+  } catch (err) {
+    console.error('[batch] Failed to recover scheduled jobs:', err.message);
   }
 };
 
@@ -441,6 +473,73 @@ router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
   }
 });
 
+// Retry a failed or partially-failed job by re-queuing only the failed assignments.
+router.post('/jobs/:jobId/retry', requireAuth, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = firstRow(await query(
+      'SELECT * FROM marking_jobs WHERE id = ? AND user_id = ?',
+      [jobId, req.user.id]
+    ));
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.status !== 'failed' && job.status !== 'completed_with_errors') {
+      return res.status(400).json({ error: `Only failed or completed_with_errors jobs can be retried (current status: ${job.status})` });
+    }
+
+    // Reset assignments that errored back to 'uploaded' so runMarkingJob picks them up.
+    await query(
+      'UPDATE assignments SET status = ?, processing_job_id = NULL WHERE batch_id = ? AND user_id = ? AND status = ?',
+      ['uploaded', job.batch_id, job.user_id, 'error']
+    );
+    await query(
+      `UPDATE assessment_submissions SET status = 'pending', failure_reason = NULL, completed_at = NULL
+       WHERE assignment_id IN (
+         SELECT id FROM assignments WHERE batch_id = ? AND user_id = ? AND status = 'uploaded'
+       )`,
+      [job.batch_id, job.user_id]
+    );
+
+    // Put job back into scheduled state and increment retry_count.
+    await query(
+      `UPDATE marking_jobs
+       SET status = 'scheduled', started_at = NULL, completed_at = NULL,
+           processed_count = 0, success_count = 0, failed_count = 0, last_error = NULL,
+           retry_count = COALESCE(retry_count, 0) + 1
+       WHERE id = ?`,
+      [jobId]
+    );
+
+    scheduleJobProcessor(jobId, new Date());
+    res.json({ success: true, message: 'Job retry started' });
+  } catch (error) {
+    console.error('Retry job error:', error);
+    res.status(500).json({ error: 'Failed to retry job' });
+  }
+});
+
+// Immediately trigger a scheduled standard-mode job without waiting for its timer.
+router.post('/jobs/:jobId/run-now', requireAuth, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = firstRow(await query(
+      'SELECT * FROM marking_jobs WHERE id = ? AND user_id = ?',
+      [jobId, req.user.id]
+    ));
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.status !== 'scheduled') {
+      return res.status(400).json({ error: `Job is already ${job.status} — only scheduled jobs can be started now` });
+    }
+    if (job.processing_mode !== 'standard') {
+      return res.status(400).json({ error: 'Run-now is only supported for standard-mode jobs' });
+    }
+    scheduleJobProcessor(jobId, new Date());
+    res.json({ success: true, message: 'Job started' });
+  } catch (error) {
+    console.error('Run-now error:', error);
+    res.status(500).json({ error: 'Failed to start job' });
+  }
+});
+
 // List all jobs for current user
 router.get('/jobs/all', requireAuth, async (req, res) => {
   try {
@@ -561,6 +660,7 @@ router.get('/jobs/health', requireAuth, async (req, res) => {
   }
 });
 
+router.recoverScheduledJobs = recoverScheduledJobs;
 module.exports = router;
 
 

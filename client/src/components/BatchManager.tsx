@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle, RotateCcw, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob } from '../services/api';
 
 const BatchManager: React.FC = () => {
@@ -20,6 +21,9 @@ const BatchManager: React.FC = () => {
   const [jobs, setJobs] = useState<MarkingJob[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | ''>('');
   const [scheduledFor, setScheduledFor] = useState('');
+  const [showUploadModal, setShowUploadModal] = useState<Batch | null>(null);
+  const [uploadResults, setUploadResults] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -183,6 +187,69 @@ const BatchManager: React.FC = () => {
     }
   };
 
+  const onDropToBatch = useCallback(async (acceptedFiles: File[]) => {
+    if (!showUploadModal || acceptedFiles.length === 0) return;
+    setUploading(true);
+    const results: { name: string; ok: boolean; error?: string }[] = [];
+    for (const file of acceptedFiles) {
+      try {
+        const isZip = file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip');
+        if (isZip) {
+          await uploadAPI.uploadZip(file, showUploadModal.id);
+        } else {
+          await uploadAPI.uploadSingle(file, showUploadModal.id);
+        }
+        results.push({ name: file.name, ok: true });
+      } catch (err: any) {
+        results.push({ name: file.name, ok: false, error: err.response?.data?.error || err.message });
+      }
+    }
+    setUploadResults(prev => [...results, ...prev]);
+    setUploading(false);
+    fetchData();
+  }, [showUploadModal]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: onDropToBatch,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/json': ['.json'],
+      'application/xml': ['.xml'],
+      'application/javascript': ['.js'],
+      'text/html': ['.html'],
+      'text/css': ['.css', '.scss', '.sass'],
+      'text/plain': [
+        '.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp',
+        '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.kts', '.scala', '.r', '.m',
+        '.sql', '.sh', '.bash', '.zsh', '.ps1', '.pl', '.lua', '.dart', '.yaml', '.yml',
+        '.toml', '.ini', '.cfg', '.md', '.txt'
+      ],
+      'application/zip': ['.zip'],
+    },
+    disabled: uploading,
+  });
+
+  const handleRunNow = async (job: MarkingJob) => {
+    try {
+      setError(null);
+      await batchesAPI.runJobNow(job.id);
+      setSuccess(`Job started for "${job.batch_name || `Folder #${job.batch_id}`}"`);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to start job');
+    }
+  };
+
+  const handleRetry = async (job: MarkingJob) => {
+    try {
+      setError(null);
+      await batchesAPI.retryJob(job.id);
+      setSuccess(`Retrying failed assignments for "${job.batch_name || `Folder #${job.batch_id}`}"`);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to retry job');
+    }
+  };
+
   const openEditModal = (batch: Batch) => {
     setShowEditModal(batch);
     setNewBatchName(batch.name);
@@ -266,9 +333,37 @@ const BatchManager: React.FC = () => {
           <div className="space-y-3">
             {jobs.slice(0, 6).map((job) => (
               <div key={job.id} className="bg-white border border-indigo-100 rounded-md p-3">
-                <div className="flex justify-between text-sm mb-1">
+                <div className="flex justify-between items-start text-sm mb-1">
                   <span className="font-medium text-gray-800">{job.batch_name || `Folder #${job.batch_id}`}</span>
-                  <span className="text-gray-600">{job.status}</span>
+                  <div className="flex items-center gap-2">
+                    {job.status === 'scheduled' && job.processing_mode === 'standard' && (
+                      <button
+                        onClick={() => handleRunNow(job)}
+                        title="Start marking now"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
+                      >
+                        <PlayCircle className="h-4 w-4" />
+                        Run now
+                      </button>
+                    )}
+                    {(job.status === 'failed' || job.status === 'completed_with_errors') && (
+                      <button
+                        onClick={() => handleRetry(job)}
+                        title="Retry failed assignments"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 hover:text-orange-800"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Retry
+                      </button>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      job.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      job.status === 'completed_with_errors' ? 'bg-yellow-100 text-yellow-700' :
+                      job.status === 'failed' ? 'bg-red-100 text-red-700' :
+                      job.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>{job.status}</span>
+                  </div>
                 </div>
                 <div className="w-full h-2 bg-gray-200 rounded">
                   <div className="h-2 bg-indigo-600 rounded" style={{ width: `${getJobProgress(job)}%` }} />
@@ -276,6 +371,11 @@ const BatchManager: React.FC = () => {
                 <div className="text-xs text-gray-600 mt-1">
                   {job.processed_count}/{job.total_count} processed • {job.success_count} succeeded • {job.failed_count} failed
                 </div>
+                {job.last_error && (job.status === 'failed' || job.status === 'completed_with_errors') && (
+                  <div className="text-xs text-red-600 mt-1 truncate" title={job.last_error}>
+                    {job.last_error}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -368,12 +468,21 @@ const BatchManager: React.FC = () => {
                 )}
               </div>
 
-              <button
-                onClick={() => openAssignModal(batch)}
-                className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Edit Contents
-              </button>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => openAssignModal(batch)}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Edit Contents
+                </button>
+                <button
+                  onClick={() => { setShowUploadModal(batch); setUploadResults([]); }}
+                  className="inline-flex items-center justify-center gap-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload here
+                </button>
+              </div>
               <button
                 onClick={() => openScheduleModal(batch)}
                 className="w-full mt-2 px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
@@ -626,6 +735,71 @@ const BatchManager: React.FC = () => {
                   {loading ? 'Saving...' : `Save Changes (${selectedAssignments.length + selectedAssignmentsToRemove.length})`}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload directly to batch modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+                <Upload className="h-5 w-5 text-indigo-600" />
+                Upload to "{showUploadModal.name}"
+              </h3>
+              <button
+                onClick={() => { setShowUploadModal(null); setUploadResults([]); fetchData(); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Dropzone */}
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
+              } ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input {...getInputProps()} />
+              <Upload className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+              {isDragActive ? (
+                <p className="text-sm text-indigo-600 font-medium">Drop files here…</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-gray-700">Drag &amp; drop files here</p>
+                  <p className="text-xs text-gray-500 mt-1">PDF, Word, code files (.py, .js, .java, …), or ZIP — or click to browse</p>
+                  <p className="text-xs text-gray-400 mt-2">ZIP files are automatically extracted</p>
+                </>
+              )}
+              {uploading && <p className="text-xs text-indigo-600 mt-2 animate-pulse">Uploading…</p>}
+            </div>
+
+            {/* Results */}
+            {uploadResults.length > 0 && (
+              <div className="mt-4 space-y-1 max-h-48 overflow-y-auto">
+                {uploadResults.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs px-2 py-1 rounded ${r.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {r.ok
+                      ? <CheckCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                    <span className="truncate flex-1">{r.name}</span>
+                    {r.error && <span className="flex-shrink-0">{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => { setShowUploadModal(null); setUploadResults([]); fetchData(); }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>

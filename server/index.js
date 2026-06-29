@@ -76,7 +76,8 @@ apiRouter.use('/upload', require('./routes/upload'));
 apiRouter.use('/rubrics', require('./routes/rubrics'));
 apiRouter.use('/mark', require('./routes/mark'));
 apiRouter.use('/results', require('./routes/results'));
-apiRouter.use('/batches', require('./routes/batches'));
+const batchesRouter = require('./routes/batches');
+apiRouter.use('/batches', batchesRouter);
 apiRouter.use('/rubric-generator', require('./routes/rubric-generator'));
 apiRouter.use('/reports', require('./routes/reports'));
 apiRouter.use('/mcq', require('./routes/mcq'));
@@ -118,6 +119,7 @@ app.use('*', (req, res) => {
 const startServer = async () => {
   try {
     await initDatabase();
+    batchesRouter.recoverScheduledJobs();
     startOpenAIBatchPolling();
     startContentPlannerPolling();
     startGenerationJobWorkerPolling();

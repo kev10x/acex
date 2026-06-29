@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, Trash2, AlertCircle, CheckCircle, FolderPlus, Plus, X } from 'lucide-react';
-import { uploadAPI, batchesAPI, Assignment, Batch } from '../services/api';
+import { Upload, File, Trash2, AlertCircle, CheckCircle, FolderPlus, Plus, X, RefreshCw } from 'lucide-react';
+import { uploadAPI, batchesAPI, rubricsAPI, markingAPI, Assignment, Batch, Rubric } from '../services/api';
 
 const FileUpload: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -13,6 +13,9 @@ const FileUpload: React.FC = () => {
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderDescription, setNewFolderDescription] = useState('');
   const [creatingFolder, setCreatingFolder] = useState(false);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [retryPanel, setRetryPanel] = useState<{ assignmentId: number; rubricId: number | '' } | null>(null);
+  const [retryLoading, setRetryLoading] = useState(false);
 
   const fetchAssignments = useCallback(async () => {
     try {
@@ -32,10 +35,20 @@ const FileUpload: React.FC = () => {
     }
   }, []);
 
+  const fetchRubrics = useCallback(async () => {
+    try {
+      const response = await rubricsAPI.getRubrics();
+      setRubrics(response.data.rubrics || []);
+    } catch (err) {
+      console.error('Failed to fetch rubrics:', err);
+    }
+  }, []);
+
   React.useEffect(() => {
     fetchAssignments();
     fetchBatches();
-  }, [fetchAssignments, fetchBatches]);
+    fetchRubrics();
+  }, [fetchAssignments, fetchBatches, fetchRubrics]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     console.log('Files dropped:', acceptedFiles);
@@ -150,6 +163,25 @@ const FileUpload: React.FC = () => {
       setError(err.response?.data?.error || 'Failed to create folder');
     } finally {
       setCreatingFolder(false);
+    }
+  };
+
+  const handleRetryMark = async () => {
+    if (!retryPanel || !retryPanel.rubricId) return;
+    setRetryLoading(true);
+    try {
+      await markingAPI.markSingle({
+        assignment_id: retryPanel.assignmentId,
+        rubric_id: retryPanel.rubricId as number,
+      });
+      setAssignments(prev =>
+        prev.map(a => a.id === retryPanel.assignmentId ? { ...a, status: 'processing' } : a)
+      );
+      setRetryPanel(null);
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to start marking');
+    } finally {
+      setRetryLoading(false);
     }
   };
 
@@ -323,40 +355,97 @@ const FileUpload: React.FC = () => {
               Uploaded Assignments ({assignments.length})
             </h3>
             <div className="space-y-3">
-              {assignments.map((assignment, index) => (
-                <div
-                  key={assignment.id || `assignment-${index}`}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg"
-                >
-                  <div className="flex items-center space-x-3">
-                    {getStatusIcon(assignment.status)}
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {assignment.filename}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatFileSize(assignment.file_size)} • Uploaded{' '}
-                        {new Date(assignment.uploaded_at).toLocaleDateString()}
-                      </p>
+              {assignments.map((assignment, index) => {
+                const canRetry = assignment.status !== 'completed' && assignment.status !== 'processing';
+                const isPanelOpen = retryPanel?.assignmentId === assignment.id;
+                return (
+                  <div
+                    key={assignment.id || `assignment-${index}`}
+                    className="border border-gray-200 rounded-lg overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between p-3">
+                      <div className="flex items-center space-x-3">
+                        {getStatusIcon(assignment.status)}
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">
+                            {assignment.filename}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {formatFileSize(assignment.file_size)} • Uploaded{' '}
+                            {new Date(assignment.uploaded_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
+                            assignment.status
+                          )}`}
+                        >
+                          {assignment.status}
+                        </span>
+                        {canRetry && (
+                          <button
+                            onClick={() =>
+                              setRetryPanel(isPanelOpen ? null : { assignmentId: assignment.id, rubricId: '' })
+                            }
+                            title="Mark this document"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 transition-colors"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Mark
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(assignment.id)}
+                          className="text-red-400 hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
+                    {isPanelOpen && (
+                      <div className="border-t border-gray-100 bg-gray-50 px-3 py-3 flex flex-wrap items-end gap-3">
+                        <div className="flex-1 min-w-[200px]">
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Select rubric</label>
+                          <select
+                            value={retryPanel.rubricId}
+                            onChange={(e) =>
+                              setRetryPanel(prev => prev ? { ...prev, rubricId: e.target.value ? Number(e.target.value) : '' } : null)
+                            }
+                            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          >
+                            <option value="">Choose a rubric…</option>
+                            {rubrics.map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleRetryMark}
+                            disabled={!retryPanel.rubricId || retryLoading}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {retryLoading ? (
+                              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3 h-3" />
+                            )}
+                            Start marking
+                          </button>
+                          <button
+                            onClick={() => setRetryPanel(null)}
+                            className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-600 hover:bg-gray-100"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center space-x-3">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
-                        assignment.status
-                      )}`}
-                    >
-                      {assignment.status}
-                    </span>
-                    <button
-                      onClick={() => handleDelete(assignment.id)}
-                      className="text-red-400 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

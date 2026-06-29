@@ -458,6 +458,7 @@ export const resultsAPI = {
   downloadCSV: () => api.get('/results/download/csv', { responseType: 'blob' }),
   getAnnotatedPDF: (resultId: number) => api.get(`/results/annotated-pdf/${resultId}`, { responseType: 'blob' }),
   getCommentedDocx: (resultId: number) => api.get(`/results/commented-docx/${resultId}`, { responseType: 'blob' }),
+  getOriginalDocument: (resultId: number) => api.get(`/results/original/${resultId}`, { responseType: 'blob' }),
   getAnalyticsOverview: () => api.get('/results/analytics/overview'),
   getManagementPerformance: () => api.get<ManagementPerformanceResponse>('/results/analytics/management-performance'),
   getCriteriaAnalytics: (rubricId: number) => api.get(`/results/analytics/criteria/${rubricId}`),
@@ -579,6 +580,8 @@ export const batchesAPI = {
     api.post(`/batches/${id}/schedule-marking`, data),
   getAllJobs: () => api.get('/batches/jobs/all'),
   getJobsHealth: () => api.get<BatchJobsHealthResponse>('/batches/jobs/health'),
+  runJobNow: (jobId: number) => api.post(`/batches/jobs/${jobId}/run-now`),
+  retryJob: (jobId: number) => api.post(`/batches/jobs/${jobId}/retry`),
 };
 
 // Assessments API

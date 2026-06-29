@@ -19,9 +19,13 @@
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const {query,initDatabase}=require\\('./server/database/connection'\\); initDatabase\\(\\).then\\(\\(\\)=>query\\('SELECT id,email,name,role FROM users LIMIT 10'\\)\\).then\\(r=>{const rows=r.rows||r; console.log\\('USERS:', JSON.stringify\\(rows\\)\\)}\\).then\\(\\(\\)=>process.exit\\(0\\)\\).catch\\(e=>{console.error\\(e.message\\);process.exit\\(1\\)}\\)\")",
       "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).scripts,null,2\\)\\)\")",
       "Bash(node -e \"require\\('./server/services/pdfReportGenerator'\\); console.log\\('OK'\\)\")",
+<<<<<<< HEAD
       "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/MarkMate add client/src/components/MarkingInterface.tsx client/src/components/ResultsDashboard.tsx client/src/components/FeedbackChatWidget.tsx client/src/services/api.ts server/database/connection.js server/routes/mark.js server/routes/results.js server/services/markingService.js)",
       "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/MarkMate commit -m \"Add advanced feedback modes, floating chat widget, and chat guardrails\")",
       "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/MarkMate push origin main)"
+=======
+      "Bash(xargs grep -l \"scheduleMarking\")"
+>>>>>>> 05c0c8527d3a0a01ec556a11a2b980f7a50a2df0
     ]
   }
 }
