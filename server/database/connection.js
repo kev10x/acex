@@ -900,6 +900,30 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_jobs ADD COLUMN last_status_at TIMESTAMP NULL`);
         }
 
+        const markingJobStrictnessCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'strictness_level'
+        `);
+        if ((markingJobStrictnessCheck.rows?.[0]?.count || markingJobStrictnessCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN strictness_level VARCHAR(50) DEFAULT 'strict'`);
+        }
+
+        const markingJobFeedbackTypeCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'feedback_type'
+        `);
+        if ((markingJobFeedbackTypeCheck.rows?.[0]?.count || markingJobFeedbackTypeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_type VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const markingJobFeedbackVerbosityCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'feedback_verbosity'
+        `);
+        if ((markingJobFeedbackVerbosityCheck.rows?.[0]?.count || markingJobFeedbackVerbosityCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_verbosity VARCHAR(50) DEFAULT 'standard'`);
+        }
+
         const publishedAssessmentBatchCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
           WHERE table_schema = DATABASE() AND table_name = 'published_assessments' AND column_name = 'batch_id'
@@ -2098,6 +2122,30 @@ const initDatabase = async () => {
         `);
         if ((markingJobLastStatusCheckPg.rows?.[0]?.count || markingJobLastStatusCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_jobs ADD COLUMN last_status_at TIMESTAMP NULL`);
+        }
+
+        const markingJobStrictnessCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'strictness_level'
+        `);
+        if ((markingJobStrictnessCheckPg.rows?.[0]?.count || markingJobStrictnessCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN strictness_level VARCHAR(50) DEFAULT 'strict'`);
+        }
+
+        const markingJobFeedbackTypeCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'feedback_type'
+        `);
+        if ((markingJobFeedbackTypeCheckPg.rows?.[0]?.count || markingJobFeedbackTypeCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_type VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const markingJobFeedbackVerbosityCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'feedback_verbosity'
+        `);
+        if ((markingJobFeedbackVerbosityCheckPg.rows?.[0]?.count || markingJobFeedbackVerbosityCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_verbosity VARCHAR(50) DEFAULT 'standard'`);
         }
 
         const publishedAssessmentBatchCheckPg = await query(`

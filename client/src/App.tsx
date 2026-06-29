@@ -46,6 +46,7 @@ const StudentModules = lazy(() => import('./components/StudentModules'));
 const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'));
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
+const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudio'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
 
@@ -141,8 +142,8 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     icon: Brain
   },
   'slide-gen': {
-    label: 'Slide Populator',
-    description: 'Upload a PowerPoint template and let AI populate each slide with matching content.',
+    label: 'Presentation Studio',
+    description: 'Generate full PowerPoint presentations from topics or unit plans, with AI-designed slides and Grok images.',
     icon: Presentation
   },
   assessments: {
@@ -241,7 +242,7 @@ function WorkspaceShell({
       {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
-      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGenerator initialContent={pendingSlideContent} />}
+      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGeneratorStudio initialContent={pendingSlideContent} />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />

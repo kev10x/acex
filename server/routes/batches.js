@@ -80,7 +80,7 @@ const runMarkingJob = async (jobId) => {
       if (!text) throw new Error(`No extracted text for ${assignment.filename}`);
 
       const documentType = isCodeDocument(assignment.filename) ? 'code' : null;
-      const result = await generateMarking(text, rubric, documentType);
+      const result = await generateMarking(text, rubric, documentType, null, job.provider, job.strictness_level || 'strict', assignment.id, null, job.feedback_type || 'standard', job.feedback_verbosity || 'standard', null);
       const insertResult = await query(
         `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -402,7 +402,7 @@ router.post('/:id/unassign', requireAuth, async (req, res) => {
 router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { rubric_id, scheduled_for, provider = 'openai', processing_mode } = req.body;
+    const { rubric_id, scheduled_for, provider = 'openai', processing_mode, strictness_level = 'strict', feedback_type = 'standard', feedback_verbosity = 'standard' } = req.body;
 
     if (!rubric_id) return res.status(400).json({ error: 'rubric_id is required' });
 
@@ -440,9 +440,9 @@ router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
     }
 
     const insert = await query(
-      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, provider, processing_mode, status, scheduled_for, total_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, rubric_id, req.user.id, requestedProvider, finalProcessingMode, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount]
+      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, provider, processing_mode, status, scheduled_for, total_count, strictness_level, feedback_type, feedback_verbosity)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, rubric_id, req.user.id, requestedProvider, finalProcessingMode, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount, strictness_level, feedback_type, feedback_verbosity]
     );
     const jobId = insert.lastID || insert.insertId || insert.rows?.[0]?.id;
 

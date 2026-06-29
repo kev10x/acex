@@ -576,7 +576,7 @@ export const batchesAPI = {
   deleteBatch: (id: number) => api.delete(`/batches/${id}`),
   assignToBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/assign`, { assignment_ids }),
   unassignFromBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/unassign`, { assignment_ids }),
-  scheduleMarking: (id: number, data: { rubric_id: number; scheduled_for?: string }) =>
+  scheduleMarking: (id: number, data: { rubric_id: number; scheduled_for?: string; strictness_level?: string; feedback_type?: string; feedback_verbosity?: string }) =>
     api.post(`/batches/${id}/schedule-marking`, data),
   getAllJobs: () => api.get('/batches/jobs/all'),
   getJobsHealth: () => api.get<BatchJobsHealthResponse>('/batches/jobs/health'),
@@ -1717,6 +1717,42 @@ export interface TemplateImageAsset {
   } | null;
 }
 
+export type DetailLevel = 'minimal' | 'standard' | 'detailed' | 'comprehensive';
+
+export interface SlideBatchUnit {
+  title: string;
+  slideCount: number;
+  includeQuiz: boolean;
+}
+
+export type SlideBatchJobStatus = 'scheduled' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface SlideBatchListItem {
+  id: number;
+  status: SlideBatchJobStatus;
+  createdAt: string;
+  scheduledFor: string | null;
+  errorMessage: string | null;
+  unitCount: number;
+  units: { title: string; slideCount: number; includeQuiz: boolean }[];
+  subject: string;
+  level: string;
+  detailLevel: string;
+}
+
+export interface SlideBatchStatus {
+  id: number;
+  status: SlideBatchJobStatus;
+  scheduledFor: string | null;
+  unitCount: number;
+  errorMessage: string | null;
+  progress: {
+    completedUnits?: number;
+    totalUnits?: number;
+    contentReady?: boolean;
+  };
+}
+
 export const slideGenAPI = {
   analyse: (file: File): Promise<{ sessionId: string; backgrounds: TemplateBackground[]; images?: TemplateImageAsset[] }> => {
     const form = new FormData();
@@ -1726,9 +1762,11 @@ export const slideGenAPI = {
   },
   generateContent: (params: {
     topic: string;
+    teachingGoal?: string;
     subject?: string;
     level?: string;
     slideCount?: number;
+    detailLevel?: DetailLevel;
     backgrounds?: TemplateBackground[];
   }): Promise<{ content: GeneratedSlide[] }> => {
     return api.post('/slide-gen/generate-content', params).then((r) => r.data);
@@ -1736,14 +1774,41 @@ export const slideGenAPI = {
   populate: (params: {
     sessionId: string;
     topic: string;
+    subject?: string;
+    level?: string;
     content: GeneratedSlide[];
     backgrounds: Record<number, string>;
     templateBgs: TemplateBackground[];
     templateImages?: TemplateImageAsset[];
+    generateImages?: boolean;
   }): Promise<Blob> => {
     return api.post('/slide-gen/populate', params, { responseType: 'blob' })
       .then((r) => r.data as Blob);
-  }
+  },
+  createBatch: (params: {
+    units: SlideBatchUnit[];
+    subject?: string;
+    level?: string;
+    detailLevel?: DetailLevel;
+    scheduledFor?: string | null;
+    sessionId?: string;
+    backgrounds?: TemplateBackground[];
+    templateBgs?: TemplateBackground[];
+    templateImages?: TemplateImageAsset[];
+    generateImages?: boolean;
+  }): Promise<{ success: boolean; jobId: number }> => {
+    return api.post('/slide-gen/batch', params).then((r) => r.data);
+  },
+  listBatches: (limit?: number): Promise<{ success: boolean; jobs: SlideBatchListItem[] }> => {
+    return api.get('/slide-gen/batch', { params: limit ? { limit } : {} }).then((r) => r.data);
+  },
+  getBatchStatus: (jobId: number): Promise<{ success: boolean } & SlideBatchStatus> => {
+    return api.get(`/slide-gen/batch/${jobId}`).then((r) => r.data);
+  },
+  downloadBatch: (jobId: number): Promise<Blob> => {
+    return api.get(`/slide-gen/batch/${jobId}/download`, { responseType: 'blob' })
+      .then((r) => r.data as Blob);
+  },
 };
 
 // ── Moodle integration API ─────────────────────────────────────

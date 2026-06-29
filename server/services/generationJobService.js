@@ -140,48 +140,28 @@ async function updateGenerationJob(jobId, updates = {}) {
   );
 }
 
-async function listGenerationJobs({ user_id, limit = 50 } = {}) {
+async function listGenerationJobs({ user_id, job_type, limit = 50 } = {}) {
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const SELECT = `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
+                         retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
+                  FROM generation_jobs`;
+
   if (isMySQL()) {
-    const result = user_id
-      ? await query(
-          `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
-                  retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
-           FROM generation_jobs
-           WHERE user_id = ?
-           ORDER BY created_at DESC
-           LIMIT ?`,
-          [Number(user_id), safeLimit]
-        )
-      : await query(
-          `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
-                  retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
-           FROM generation_jobs
-           ORDER BY created_at DESC
-           LIMIT ?`,
-          [safeLimit]
-        );
+    const conditions = [];
+    const params = [];
+    if (user_id) { conditions.push('user_id = ?'); params.push(Number(user_id)); }
+    if (job_type) { conditions.push('job_type = ?'); params.push(String(job_type)); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await query(`${SELECT} ${where} ORDER BY created_at DESC LIMIT ?`, [...params, safeLimit]);
     return rowsOf(result);
   }
 
-  const result = user_id
-    ? await query(
-        `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
-                retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
-         FROM generation_jobs
-         WHERE user_id = $1
-         ORDER BY created_at DESC
-         LIMIT $2`,
-        [Number(user_id), safeLimit]
-      )
-    : await query(
-        `SELECT id, user_id, job_type, status, source_route, payload_json, result_json, error_message,
-                retry_count, max_retries, scheduled_for, started_at, completed_at, created_at, updated_at
-         FROM generation_jobs
-         ORDER BY created_at DESC
-         LIMIT $1`,
-        [safeLimit]
-      );
+  const conditions = [];
+  const params = [];
+  if (user_id) { conditions.push(`user_id = $${params.length + 1}`); params.push(Number(user_id)); }
+  if (job_type) { conditions.push(`job_type = $${params.length + 1}`); params.push(String(job_type)); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const result = await query(`${SELECT} ${where} ORDER BY created_at DESC LIMIT $${params.length + 1}`, [...params, safeLimit]);
   return rowsOf(result);
 }
 
