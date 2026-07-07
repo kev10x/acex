@@ -602,7 +602,34 @@ const initDatabase = async () => {
           FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
         )
       `);
-      
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_series (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          rubric_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          student_name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_submissions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          series_id INT NOT NULL,
+          revision_number INT NOT NULL,
+          assignment_id INT NOT NULL,
+          marking_result_id INT NULL,
+          progress_score DECIMAL(5,2) DEFAULT 0,
+          comparison_json LONGTEXT NULL,
+          uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (series_id) REFERENCES revision_series(id) ON DELETE CASCADE,
+          FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+          FOREIGN KEY (marking_result_id) REFERENCES marking_results(id) ON DELETE SET NULL
+        )
+      `);
+
       // Migrate existing tables: Add new columns if they don't exist
       try {
         const orgIdCheck = await query(`
@@ -1375,6 +1402,46 @@ const initDatabase = async () => {
         if ((customNameCheck.rows?.[0]?.count || customNameCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN custom_name VARCHAR(500) DEFAULT NULL`);
         }
+
+        const revisionSeriesTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'revision_series'
+        `);
+        if ((revisionSeriesTableCheck.rows?.[0]?.count || revisionSeriesTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_series (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              rubric_id INT NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              student_name VARCHAR(255) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+            )
+          `);
+        }
+        const revisionSubmissionsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'revision_submissions'
+        `);
+        if ((revisionSubmissionsTableCheck.rows?.[0]?.count || revisionSubmissionsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_submissions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              series_id INT NOT NULL,
+              revision_number INT NOT NULL,
+              assignment_id INT NOT NULL,
+              marking_result_id INT NULL,
+              progress_score DECIMAL(5,2) DEFAULT 0,
+              comparison_json LONGTEXT NULL,
+              uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (series_id) REFERENCES revision_series(id) ON DELETE CASCADE,
+              FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+              FOREIGN KEY (marking_result_id) REFERENCES marking_results(id) ON DELETE SET NULL
+            )
+          `);
+        }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
         // Continue anyway - columns might already exist
@@ -1884,7 +1951,29 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_series (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          student_name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_submissions (
+          id SERIAL PRIMARY KEY,
+          series_id INTEGER NOT NULL REFERENCES revision_series(id) ON DELETE CASCADE,
+          revision_number INTEGER NOT NULL,
+          assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+          marking_result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+          progress_score DECIMAL(5,2) DEFAULT 0,
+          comparison_json TEXT NULL,
+          uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       // Migrate existing tables: Add new columns if they don't exist (PostgreSQL)
       try {
         const orgIdCheck = await query(`
@@ -2559,6 +2648,41 @@ const initDatabase = async () => {
         `);
         if ((criterionFeedbackTypesCheckPg.rows?.[0]?.count || criterionFeedbackTypesCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSONB`);
+        }
+
+        const revisionSeriesTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'revision_series'
+        `);
+        if ((revisionSeriesTableCheckPg.rows?.[0]?.count || revisionSeriesTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_series (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+              name VARCHAR(255) NOT NULL,
+              student_name VARCHAR(255) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+        }
+        const revisionSubmissionsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'revision_submissions'
+        `);
+        if ((revisionSubmissionsTableCheckPg.rows?.[0]?.count || revisionSubmissionsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_submissions (
+              id SERIAL PRIMARY KEY,
+              series_id INTEGER NOT NULL REFERENCES revision_series(id) ON DELETE CASCADE,
+              revision_number INTEGER NOT NULL,
+              assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+              marking_result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+              progress_score DECIMAL(5,2) DEFAULT 0,
+              comparison_json TEXT NULL,
+              uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

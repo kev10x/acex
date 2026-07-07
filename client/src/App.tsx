@@ -14,6 +14,7 @@ import {
   Presentation,
   Shield,
   Sparkles,
+  TrendingUp,
   Upload,
   User,
   Wand2
@@ -47,6 +48,7 @@ const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
 const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudio'));
+const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
 
@@ -73,6 +75,7 @@ type TabType =
   | 'marking'
   | 'manual-marking'
   | 'results'
+  | 'revision-tracking'
   | 'mcq'
   | 'batches'
   | 'training'
@@ -88,8 +91,8 @@ type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
   student: ['modules', 'mcq', 'results']
 };
 
@@ -125,6 +128,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     label: 'Results',
     description: 'Review, moderate, and export marked work.',
     icon: BarChart3
+  },
+  'revision-tracking': {
+    label: 'Revision Tracking',
+    description: 'Track longitudinal improvement across successive document revisions.',
+    icon: TrendingUp
   },
   mcq: {
     label: 'MCQ Forms',
@@ -244,6 +252,7 @@ function WorkspaceShell({
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
       {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGeneratorStudio initialContent={pendingSlideContent} />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+      {activeTab === 'revision-tracking' && canAccessTab('revision-tracking') && <RevisionTracker />}
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
       )}
@@ -300,7 +309,7 @@ function AppContent() {
       marking:
         normalizedRole === 'student'
           ? []
-          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'] as TabType[]).filter((tab) =>
+          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'batches'] as TabType[]).filter((tab) =>
               ROLE_TAB_ACCESS[normalizedRole].includes(tab)
             ),
       student:

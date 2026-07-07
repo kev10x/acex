@@ -2065,4 +2065,105 @@ export const authAPI = {
   }
 };
 
+// ─── Revision Tracking ──────────────────────────────────────────────────────
+
+export interface RevisionCriterionChange {
+  criterion: string;
+  detail: string;
+}
+
+export interface RevisionComparison {
+  improved_criteria: RevisionCriterionChange[];
+  regressed_criteria: RevisionCriterionChange[];
+  unchanged_criteria: RevisionCriterionChange[];
+  narrative_summary: string;
+  key_improvement: string;
+  key_remaining_issue: string;
+}
+
+export interface RevisionScore {
+  criterion_name: string;
+  points_awarded: number;
+  max_points: number;
+  feedback: string;
+  confidence?: number;
+}
+
+export interface RevisionSubmission {
+  id: number;
+  revision_number: number;
+  progress_score: number;
+  overall_feedback: string;
+  total_score: number;
+  scores: RevisionScore[];
+  corrections: unknown[];
+  comparison: RevisionComparison | null;
+  filename: string;
+  uploaded_at: string;
+}
+
+export interface RevisionSeries {
+  id: number;
+  name: string;
+  student_name: string;
+  rubric_id: number;
+  rubric_name: string;
+  total_points: number;
+  criteria?: unknown[];
+  created_at: string;
+}
+
+export interface RevisionSeriesListItem extends RevisionSeries {
+  revision_count: number;
+  latest_progress: number;
+  last_uploaded: string | null;
+}
+
+export const revisionsApi = {
+  createSeries: async (name: string, student_name: string, rubric_id: number) => {
+    const response = await api.post('/revisions', { name, student_name, rubric_id });
+    return response.data as { success: boolean; series: RevisionSeries };
+  },
+
+  listSeries: async () => {
+    const response = await api.get('/revisions');
+    return response.data as {
+      series: RevisionSeriesListItem[];
+      by_student: Record<string, RevisionSeriesListItem[]>;
+    };
+  },
+
+  getSeriesDetail: async (id: number) => {
+    const response = await api.get(`/revisions/${id}`);
+    return response.data as { series: RevisionSeries; revisions: RevisionSubmission[] };
+  },
+
+  uploadRevision: async (seriesId: number, file: File, onProgress?: (pct: number) => void) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post(`/revisions/${seriesId}/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress
+        ? (e) => { if (e.total) onProgress(Math.round((e.loaded / e.total) * 100)); }
+        : undefined
+    });
+    return response.data as {
+      success: boolean;
+      revision_number: number;
+      progress_score: number;
+      total_score: number;
+      total_points: number;
+      scores: RevisionScore[];
+      overall_feedback: string;
+      corrections: unknown[];
+      comparison: RevisionComparison | null;
+    };
+  },
+
+  deleteSeries: async (id: number) => {
+    const response = await api.delete(`/revisions/${id}`);
+    return response.data as { success: boolean };
+  }
+};
+
 export default api;
