@@ -268,8 +268,17 @@ router.post('/login', authLimiter, [
       [user.id]
     );
 
-    // Generate token
-    const token = generateToken(user.id);
+    // Generate token with a unique jti for session tracking
+    const jti = crypto.randomUUID();
+    const token = generateToken(user.id, { jti });
+
+    // Record session (fire-and-forget — don't block login if this fails)
+    const ipAddress = req.ip || (String(req.headers['x-forwarded-for'] || '')).split(',')[0].trim() || null;
+    const userAgent = req.headers['user-agent'] || null;
+    query(
+      'INSERT INTO user_sessions (user_id, jti, ip_address, user_agent) VALUES ($1, $2, $3, $4)',
+      [user.id, jti, ipAddress || null, userAgent || null]
+    ).catch((err) => console.error('Session record error:', err));
 
     res.json({
       message: 'Login successful',
@@ -1411,11 +1420,114 @@ router.put('/admin/users/:id/department', requireAuth, requireAdmin, [
   }
 });
 
-// Logout (client-side token removal, but we can track it server-side if needed)
+// Logout
 router.post('/logout', requireAuth, async (req, res) => {
-  // In a JWT system, logout is handled client-side by removing the token
-  // We could implement token blacklisting here if needed
+  if (req.sessionJti) {
+    query('UPDATE user_sessions SET is_active = FALSE WHERE jti = $1', [req.sessionJti])
+      .catch(() => {});
+  }
   res.json({ message: 'Logged out successfully' });
+});
+
+// Admin routes - list active sessions
+router.get('/admin/sessions', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
+
+    // Cutoff in MySQL/PG-compatible format (no T separator, no Z suffix)
+    const jwtExpiryHours = 24;
+    const cutoff = new Date(Date.now() - jwtExpiryHours * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19);
+
+    let result;
+    if (requesterIsSuperAdmin) {
+      result = await query(`
+        SELECT s.id, s.user_id, s.ip_address, s.user_agent,
+               s.logged_in_at, s.last_seen_at,
+               u.email, u.name, u.role, u.organisation_id,
+               COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM user_sessions s
+        INNER JOIN users u ON u.id = s.user_id
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE s.is_active = TRUE
+          AND s.logged_in_at > $1
+        ORDER BY s.last_seen_at DESC
+      `, [cutoff]);
+    } else if (requesterOrg != null) {
+      result = await query(`
+        SELECT s.id, s.user_id, s.ip_address, s.user_agent,
+               s.logged_in_at, s.last_seen_at,
+               u.email, u.name, u.role, u.organisation_id,
+               COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM user_sessions s
+        INNER JOIN users u ON u.id = s.user_id
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE s.is_active = TRUE
+          AND s.logged_in_at > $1
+          AND u.organisation_id = $2
+        ORDER BY s.last_seen_at DESC
+      `, [cutoff, requesterOrg]);
+    } else {
+      result = { rows: [] };
+    }
+
+    const sessions = (result.rows || result || []).map((s) => ({
+      id: s.id,
+      user_id: s.user_id,
+      email: s.email,
+      name: s.name,
+      role: normalizeRole(s.role),
+      organisation_name: s.organisation_name || null,
+      ip_address: s.ip_address || null,
+      user_agent: s.user_agent || null,
+      logged_in_at: s.logged_in_at,
+      last_seen_at: s.last_seen_at,
+    }));
+
+    res.json({ sessions });
+  } catch (error) {
+    console.error('List sessions error:', error);
+    res.status(500).json({ error: 'Failed to list sessions' });
+  }
+});
+
+// Admin routes - revoke a session
+router.delete('/admin/sessions/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sessionId = Number(req.params.id);
+    if (!Number.isFinite(sessionId) || sessionId <= 0) {
+      return res.status(400).json({ error: 'Invalid session id' });
+    }
+
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
+
+    // Fetch the session to validate scope
+    const sessionResult = await query(
+      `SELECT s.id, s.user_id, u.organisation_id
+       FROM user_sessions s
+       INNER JOIN users u ON u.id = s.user_id
+       WHERE s.id = $1`,
+      [sessionId]
+    );
+    const session = sessionResult.rows?.[0] || sessionResult?.[0];
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    if (!requesterIsSuperAdmin && requesterOrg != null && Number(session.organisation_id) !== requesterOrg) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await query('UPDATE user_sessions SET is_active = FALSE WHERE id = $1', [sessionId]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Revoke session error:', error);
+    res.status(500).json({ error: 'Failed to revoke session' });
+  }
 });
 
 module.exports = router;

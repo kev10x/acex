@@ -2166,4 +2166,29 @@ export const revisionsApi = {
   }
 };
 
+export interface UserSession {
+  id: number;
+  user_id: number;
+  email: string;
+  name: string | null;
+  role: string;
+  organisation_name: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  logged_in_at: string;
+  last_seen_at: string;
+}
+
+export const sessionsApi = {
+  getSessions: async () => {
+    const response = await api.get('/auth/admin/sessions');
+    return response.data as { sessions: UserSession[] };
+  },
+
+  revokeSession: async (id: number) => {
+    const response = await api.delete(`/auth/admin/sessions/${id}`);
+    return response.data as { success: boolean };
+  }
+};
+
 export default api;

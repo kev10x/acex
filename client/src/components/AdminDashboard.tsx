@@ -13,6 +13,8 @@ import {
   GenerationJobsResponse,
   GenerationTelemetryResponse,
   ManagementPerformanceResponse,
+  sessionsApi,
+  UserSession,
   modulesAPI,
   Organisation,
   PromptRegistryResponse,
@@ -23,7 +25,7 @@ import {
   systemAPI,
   SystemHealthResponse
 } from '../services/api';
-import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video, BarChart3, TrendingUp } from 'lucide-react';
+import { CheckCircle, XCircle, User, Mail, Clock, AlertCircle, Lock, Unlock, Trash2, Sparkles, Download, Video, BarChart3, TrendingUp, Monitor, Globe, ShieldOff } from 'lucide-react';
 import StatePanel from './feedback/StatePanel';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -82,7 +84,7 @@ const AdminDashboard: React.FC = () => {
   const { notifyError, notifySuccess, notifyInfo } = useNotification();
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'performance' | 'system'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'performance' | 'system' | 'sessions'>('pending');
   const [impersonationRole, setImpersonationRole] = useState<ImpersonableRole>('lecturer');
   const [impersonationUserId, setImpersonationUserId] = useState<number | ''>('');
   const [loading, setLoading] = useState(true);
@@ -109,6 +111,10 @@ const AdminDashboard: React.FC = () => {
   const [identityResolveBusy, setIdentityResolveBusy] = useState<number | null>(null);
   const [identityResolutionSelection, setIdentityResolutionSelection] = useState<Record<number, number>>({});
   const [showPolicyAffectedOnly, setShowPolicyAffectedOnly] = useState(false);
+  const [sessions, setSessions] = useState<UserSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [revokingSessionId, setRevokingSessionId] = useState<number | null>(null);
 
   useEffect(() => {
     console.log('AdminDashboard useEffect triggered:', { 
@@ -147,6 +153,13 @@ const AdminDashboard: React.FC = () => {
       return next;
     });
   }, [submissionIdentityConflicts]);
+
+  useEffect(() => {
+    if (activeTab === 'sessions' && sessions.length === 0 && !sessionsLoading) {
+      void loadSessions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const loadUsers = async () => {
     if (!token) {
@@ -288,6 +301,33 @@ const AdminDashboard: React.FC = () => {
       notifyError(getActionErrorMessage(err, 'Failed to delete user'));
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const data = await sessionsApi.getSessions();
+      setSessions(data.sessions);
+    } catch (err: any) {
+      setSessionsError(err?.response?.data?.error || 'Failed to load sessions');
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: number) => {
+    if (!window.confirm('Revoke this session? The user will be logged out on their next request.')) return;
+    setRevokingSessionId(sessionId);
+    try {
+      await sessionsApi.revokeSession(sessionId);
+      notifySuccess('Session revoked');
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch (err: any) {
+      notifyError(err?.response?.data?.error || 'Failed to revoke session');
+    } finally {
+      setRevokingSessionId(null);
     }
   };
 
@@ -860,6 +900,16 @@ const AdminDashboard: React.FC = () => {
             }`}
           >
             System Health
+          </button>
+          <button
+            onClick={() => setActiveTab('sessions')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'sessions'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Active Sessions
           </button>
         </nav>
       </div>
@@ -1739,6 +1789,99 @@ const AdminDashboard: React.FC = () => {
                 ))}
               </div>
             </>
+          )}
+        </div>
+      ) : activeTab === 'sessions' ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Active Sessions</h3>
+              <p className="text-sm text-gray-500 mt-1">Sessions from the past 24 hours. Revoke a session to force the user out on their next request.</p>
+            </div>
+            <button
+              onClick={() => void loadSessions()}
+              disabled={sessionsLoading}
+              className="px-3 py-1.5 text-sm font-medium text-primary-600 border border-primary-300 rounded hover:bg-primary-50 disabled:opacity-50"
+            >
+              {sessionsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+          {sessionsError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800 text-sm">{sessionsError}</div>
+          )}
+          {sessionsLoading && sessions.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">Loading sessions…</div>
+          ) : sessions.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-lg">
+              <Monitor className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">No active sessions in the past 24 hours</p>
+            </div>
+          ) : (
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device / Browser</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Logged in</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last seen</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {sessions.map((session) => {
+                    const ua = session.user_agent || '';
+                    const browserMatch = ua.match(/(?:Firefox|Chrome|Safari|Edge|OPR|Opera)[/\s]([\d.]+)/i);
+                    const browser = browserMatch ? browserMatch[0] : ua.split(' ').slice(-1)[0] || 'Unknown';
+                    return (
+                      <tr key={session.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{session.name || session.email}</div>
+                              {session.name && <div className="text-xs text-gray-500">{session.email}</div>}
+                              {session.organisation_name && (
+                                <div className="text-xs text-gray-400">{session.organisation_name}</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                            <Globe className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                            {session.ip_address || <span className="text-gray-400">Unknown</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 max-w-xs">
+                          <div className="text-sm text-gray-700 truncate" title={session.user_agent || undefined}>
+                            {browser}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(session.logged_in_at).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(session.last_seen_at).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <button
+                            onClick={() => void handleRevokeSession(session.id)}
+                            disabled={revokingSessionId === session.id}
+                            title="Revoke session"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                          >
+                            <ShieldOff className="h-3.5 w-3.5" />
+                            {revokingSessionId === session.id ? 'Revoking…' : 'Revoke'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       ) : activeTab === 'pending' ? (

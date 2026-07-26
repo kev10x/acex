@@ -1,6 +1,10 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../database/connection');
 
+// In-memory throttle: jti → timestamp of last DB last_seen_at update
+const lastSeenCache = new Map();
+const LAST_SEEN_INTERVAL_MS = 5 * 60 * 1000;
+
 const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
@@ -53,6 +57,29 @@ const authenticateToken = async (req, res, next) => {
     
     if (!user.is_active) {
       return res.status(403).json({ error: 'Account is inactive' });
+    }
+
+    // Check session validity (jti-based revocation) — only for tokens that carry a jti
+    if (decoded.jti) {
+      const sessionResult = await query(
+        'SELECT id, is_active FROM user_sessions WHERE jti = $1',
+        [decoded.jti]
+      );
+      const session = sessionResult.rows?.[0] || sessionResult?.[0];
+      if (!session || !session.is_active) {
+        return res.status(401).json({ error: 'Session has been revoked' });
+      }
+      // Throttle last_seen_at updates to avoid a DB write on every request
+      const now = Date.now();
+      const lastUpdate = lastSeenCache.get(decoded.jti) || 0;
+      if (now - lastUpdate > LAST_SEEN_INTERVAL_MS) {
+        lastSeenCache.set(decoded.jti, now);
+        query(
+          'UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE jti = $1',
+          [decoded.jti]
+        ).catch(() => {});
+      }
+      req.sessionJti = decoded.jti;
     }
 
     const features = mergeFeatures(user.user_features, user.organisation_features);

@@ -3,7 +3,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const { diffLines } = require('diff');
+let diffLines;
+try { diffLines = require('diff').diffLines; } catch (e) { diffLines = null; }
 const { query, rowsOf, firstRow } = require('../database/connection');
 const { requireAuth } = require('../middleware/auth');
 const { extractTextFromDocument } = require('../services/documentExtractService');

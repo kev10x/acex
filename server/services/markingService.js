@@ -1065,8 +1065,12 @@ Set "prescriptive_table", "reflective_questions", and "critical_table" to null.`
 
 // Generate AI marking using OpenAI or Anthropic.
 // When assignmentImages (array of base64 strings) is provided, the PDF is marked from images instead of extracted text (vision-based).
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null) => {
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null, mediaMode = null) => {
   const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
+  // Video/audio presentations: transcript text AND frame images are both real evidence and must
+  // both reach the model at full strength (not the PDF mark_as_image path, which discards text
+  // and downgrades the model for cheap bulk OCR-style marking).
+  const combinedMediaMode = mediaMode === 'video' && imageBased;
   try {
     const resolvedLevel = resolveEducationLevel(level || 'level_4');
     const levelCategory = resolvedLevel.marking_category;
@@ -1074,7 +1078,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const levelPromptBlock = buildEducationLevelPromptBlock(resolvedLevel.id);
     // Auto-detect document type if not provided (only when we have text; for image-based use provided or default)
     if (!documentType) {
-      if (imageBased) {
+      if (imageBased && !combinedMediaMode) {
         documentType = documentType || 'assignment';
         console.log('📝 Using document type (image-based):', documentType);
       } else {
@@ -1152,13 +1156,15 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     console.log('Document type:', documentType);
     console.log('Is memo:', isMemo);
     console.log('Image-based (mark from PDF images):', imageBased);
-    if (!imageBased) {
+    console.log('Combined video mode (transcript + frames):', combinedMediaMode);
+    if (!imageBased || combinedMediaMode) {
       console.log('Assignment text length:', assignmentText?.length || 0);
       console.log('Text will be truncated to:', Math.min(assignmentText?.length || 0, config.maxTextLength), 'characters');
-    } else {
-      console.log('Assignment page images:', assignmentImages.length);
     }
-    const modelToUse = imageBased
+    if (imageBased) {
+      console.log('Assignment page/frame images:', assignmentImages.length);
+    }
+    const modelToUse = (imageBased && !combinedMediaMode)
       ? (selectedProvider === 'openai' ? 'gpt-5.2' : 'claude-3-haiku-20240307')
       : config.model;
     console.log('Using model:', modelToUse);
@@ -1207,15 +1213,22 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const estimateTokens = (text) => Math.ceil((text?.length || 0) / 4);
     const contextWindowTokens = selectedProvider === 'anthropic' ? 200000 : 128000;
     const requestMaxTokens = Math.min(config.maxTokens, 16000);
-    const promptBudgetTokens = Math.max(1000, contextWindowTokens - requestMaxTokens - 1000);
+    // Combined video mode spends the budget on BOTH transcript text and frame images, unlike
+    // the PDF mark_as_image path where images replace text entirely — reserve a rough per-image
+    // token allowance so the transcript truncation below doesn't starve the images of headroom.
+    const imageTokenReserve = combinedMediaMode ? assignmentImages.length * 1100 : 0;
+    const promptBudgetTokens = Math.max(1000, contextWindowTokens - requestMaxTokens - 1000 - imageTokenReserve);
     const maxPromptCharsByContextWindow = promptBudgetTokens * 4;
 
     const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByContextWindow);
-    const truncatedText = imageBased
+    const frameNote = combinedMediaMode
+      ? `[This submission is a video/audio presentation. The transcript below captures the spoken delivery. ${assignmentImages.length} frame image(s) captured from the video are attached after this text for visual assessment of slides/on-screen content. Evaluate BOTH the spoken content in the transcript AND the visual content in the frames against the rubric — this is not a transcript-only assessment.]\n\n`
+      : '';
+    const truncatedText = (imageBased && !combinedMediaMode)
       ? `The submission is provided as ${assignmentImages.length} page image(s) below (in order). Assess the work from these images—including any handwritten or typed content—and apply the rubric. Handwriting may be messy or partially legible; assess the content and ideas, and be fair about legibility. Return only the JSON.`
       : (assignmentText.length > maxAllowedChars
-          ? assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]'
-          : assignmentText);
+          ? frameNote + assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]'
+          : frameNote + assignmentText);
 
     const detailedRubric = criteria.map((criterion, i) => {
       const pts = criterion.maxPoints ?? criterion.max_points ?? 0;
@@ -1852,7 +1865,7 @@ IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how
 - Unclear or incomplete submissions
 
 Lower confidence (< 70) indicates the assessment may need human review.
-${imageBased ? '\n\nFor submissions provided as images (handwritten): You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON: how confident you are that you correctly read the handwritten content across all pages. 100 = fully legible, easy to read; 50 = partially legible, some guesswork; 0 = largely unreadable. This helps flag work that may need human review for reading accuracy.' : ''}
+${imageBased && !combinedMediaMode ? '\n\nFor submissions provided as images (handwritten): You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON: how confident you are that you correctly read the handwritten content across all pages. 100 = fully legible, easy to read; 50 = partially legible, some guesswork; 0 = largely unreadable. This helps flag work that may need human review for reading accuracy.' : ''}${combinedMediaMode ? '\n\nFor this video/audio submission: You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON, repurposed here to indicate how confidently you could read/interpret the visual content (slides, on-screen text, diagrams) in the attached frames: 100 = fully clear and legible; 50 = partially legible; 0 = largely unreadable or the frames were uninformative. This is independent of your assessment of the spoken/transcript content.' : ''}
 
 ${correctionsInstructions}
 
