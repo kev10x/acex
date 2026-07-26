@@ -7,7 +7,8 @@
       "Bash(node -e \"require\\('./server/services/generationJobService.js'\\)\")",
       "Bash(npx --yes tsc --noEmit)",
       "Bash(node -e \"require\\('./server/services/generationJobService.js'\\); console.log\\('OK'\\)\")",
-      "Bash(xargs ls *)"
+      "Bash(xargs ls *)",
+      "Bash(DATABASE_URL=mysql://x:x@localhost/x node -e ' *)"
     ]
   }
 }

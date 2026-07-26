@@ -5,6 +5,7 @@ const { initDatabase } = require('./database/connection');
 const { startOpenAIBatchPolling } = require('./services/openaiBatchMarkingService');
 const { startContentPlannerPolling } = require('./services/contentPlannerService');
 const { startGenerationJobWorkerPolling } = require('./services/generationJobWorkerService');
+const { startVideoProcessingPolling } = require('./services/videoProcessingService');
 const { scheduleFailedResponseCleanup } = require('./services/logger');
 require('dotenv').config();
 
@@ -124,6 +125,7 @@ const startServer = async () => {
     startOpenAIBatchPolling();
     startContentPlannerPolling();
     startGenerationJobWorkerPolling();
+    startVideoProcessingPolling();
     scheduleFailedResponseCleanup();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

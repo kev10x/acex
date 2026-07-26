@@ -17,6 +17,7 @@ const {
 } = require('../services/documentExtractService');
 const { addCommentsToDocx } = require('../services/docxCommenter');
 const { generateMarking, parseMarkingResponsePayload, parseAiJsonResponse } = require('../services/markingService');
+const { loadPersistedFrameImagesAsBase64 } = require('../services/videoProcessingService');
 
 const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
@@ -333,6 +334,13 @@ router.post('/single', requireAuth, async (req, res) => {
     if (!assignment) {
       return res.status(404).json({ error: 'Assignment not found' });
     }
+    if (assignment.media_type && (!assignment.extracted_text || String(assignment.extracted_text).trim().length === 0)) {
+      return res.status(409).json({
+        error: assignment.status === 'error'
+          ? 'This video/audio submission failed to process and cannot be marked. Check the error and re-upload.'
+          : 'This video/audio submission is still being processed (transcribing/extracting frames). Please try again shortly.'
+      });
+    }
     const resolvedStudentName = resolveStudentName(student_name, assignment);
 
     const rubricResult = await query(
@@ -404,6 +412,9 @@ router.post('/single', requireAuth, async (req, res) => {
         if (!assignmentText || assignmentText.trim().length === 0) {
           throw new Error(`No text could be extracted from the ${getSupportedDocumentLabel(getAssignmentDisplayName(assignment))}`);
         }
+        if (assignment.media_type === 'video') {
+          assignmentImages = loadPersistedFrameImagesAsBase64(assignment.media_frame_paths);
+        }
       }
 
       if (checkAborted()) {
@@ -419,7 +430,8 @@ router.post('/single', requireAuth, async (req, res) => {
       }
 
       const docType = assessment_type || document_type || inferDocumentTypeFromAssignment(assignment);
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
+      const mediaMode = assignment.media_type === 'video' ? 'video' : null;
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types, mediaMode);
 
       if (checkAborted()) {
         await query(
@@ -857,6 +869,15 @@ router.post('/multiple', requireAuth, async (req, res) => {
           errors.push({ assignment_id, error: 'Assignment not found' });
           continue;
         }
+        if (assignment.media_type && (!assignment.extracted_text || String(assignment.extracted_text).trim().length === 0)) {
+          errors.push({
+            assignment_id,
+            error: assignment.status === 'error'
+              ? 'This video/audio submission failed to process and cannot be marked. Check the error and re-upload.'
+              : 'This video/audio submission is still being processed (transcribing/extracting frames). Please try again shortly.'
+          });
+          continue;
+        }
         const resolvedStudentName = resolveStudentName(student_name, assignment);
 
         if (checkAborted()) {
@@ -905,6 +926,9 @@ router.post('/multiple', requireAuth, async (req, res) => {
             if (!assignmentText || assignmentText.trim().length === 0) {
               throw new Error(`No text could be extracted from the ${getSupportedDocumentLabel(getAssignmentDisplayName(assignment))}`);
             }
+            if (assignment.media_type === 'video') {
+              assignmentImages = loadPersistedFrameImagesAsBase64(assignment.media_frame_paths);
+            }
           }
 
           if (checkAborted()) {
@@ -917,7 +941,8 @@ router.post('/multiple', requireAuth, async (req, res) => {
           }
 
           const docType = assessment_type || document_type || inferDocumentTypeFromAssignment(assignment);
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
+          const mediaMode = assignment.media_type === 'video' ? 'video' : null;
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types, mediaMode);
 
           if (checkAborted()) {
             await query(
