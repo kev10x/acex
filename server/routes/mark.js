@@ -874,6 +874,10 @@ router.post('/multiple', requireAuth, async (req, res) => {
           errors.push({ assignment_id, error: 'Assignment not found' });
           continue;
         }
+        if (assignment.status === 'completed') {
+          skipped.push({ assignment_id, filename: assignment.filename, reason: 'Already marked' });
+          continue;
+        }
         if (assignment.media_type && (!assignment.extracted_text || String(assignment.extracted_text).trim().length === 0)) {
           errors.push({
             assignment_id,
@@ -1201,10 +1205,12 @@ router.post('/multiple', requireAuth, async (req, res) => {
       success: allSucceeded || hasPartialSuccess,
       results,
       errors,
+      skipped,
       summary: {
         total: assignment_ids.length,
         successful: results.length,
         failed: errors.length,
+        skipped: skipped.length,
         success_rate: ((results.length / assignment_ids.length) * 100).toFixed(1) + '%'
       },
       message: allSucceeded
