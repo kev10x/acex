@@ -202,11 +202,16 @@ const extractFirstJsonObject = (text) => {
   return source.slice(start);
 };
 
-const normalizeJsonCandidate = (value) => String(value || '')
+// Strips code fences/BOM only. Curly quotes are left alone: inside string
+// values they are legitimate content, and converting them to ASCII quotes
+// turns otherwise-valid JSON into invalid JSON.
+const stripJsonWrappers = (value) => String(value || '')
   .trim()
   .replace(/^\`\`\`(?:json)?\s*/i, '')
   .replace(/\s*\`\`\`$/i, '')
-  .replace(/^﻿/, '')
+  .replace(/^﻿/, '');
+
+const normalizeJsonCandidate = (value) => stripJsonWrappers(value)
   .replace(/[“”]/g, '"')
   .replace(/[‘’]/g, "'");
 
@@ -666,7 +671,7 @@ const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 5
   return candidate;
 };
 
-const repairJsonByParsePosition = (value, maxAttempts = 30) => {
+const repairJsonByParsePosition = (value, maxAttempts = 100) => {
   let candidate = value;
   let lastError = null;
 
@@ -792,9 +797,30 @@ const repairJsonCandidate = (value) => {
 
 const parseAiJsonResponse = (rawResponse) => {
   const extracted = extractFirstJsonObject(rawResponse);
-  const baseCandidates = [normalizeJsonCandidate(rawResponse)];
-  if (extracted) {
-    baseCandidates.push(normalizeJsonCandidate(extracted));
+
+  // Fast path: try the response exactly as received (fences stripped only)
+  // before any smart-quote normalisation or repair, so valid JSON containing
+  // curly quotes in its text is never mangled and costs nothing to parse.
+  for (const untouched of [stripJsonWrappers(rawResponse), extracted ? stripJsonWrappers(extracted) : '']) {
+    if (!untouched) continue;
+    try {
+      return { parsed: JSON.parse(untouched), cleanedText: untouched };
+    } catch (_) {
+      // fall through to the repair strategies below
+    }
+  }
+
+  // Curly-quote-preserving candidates come first: real curly quotes in the
+  // text are content, so repairing without converting them leaves far fewer
+  // problems to fix than the ASCII-converted variants further down.
+  const baseCandidates = [];
+  for (const c of [
+    stripJsonWrappers(rawResponse),
+    extracted ? stripJsonWrappers(extracted) : '',
+    normalizeJsonCandidate(rawResponse),
+    extracted ? normalizeJsonCandidate(extracted) : ''
+  ]) {
+    if (c && !baseCandidates.includes(c)) baseCandidates.push(c);
   }
 
   const seen = new Set();
