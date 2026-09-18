@@ -270,7 +270,18 @@ const looksLikeObjectPropertyAfterComma = (text, commaIndex) => {
   if (!MARKING_RESPONSE_PROPERTY_NAMES.has(propertyName)) return false;
 
   const afterProperty = skipJsonWhitespace(text, propertyEnd + 1);
-  return text[afterProperty] === ':' && startsJsonValueAt(text, afterProperty + 1);
+  if (text[afterProperty] === ':') {
+    return startsJsonValueAt(text, afterProperty + 1);
+  }
+
+  // Tolerate a missing colon (a common AI mistake, e.g. `"feedback" "text"`):
+  // if a recognized property name is directly followed by what looks like a
+  // value, this is still a genuine new property, not prose continuing the
+  // previous string. Misclassifying it here would make the sanitizer escape
+  // the previous string's real closing quote as if it were embedded text,
+  // swallowing this property into the previous one. `repairJsonByParsePosition`
+  // inserts the missing colon afterwards.
+  return startsJsonValueAt(text, afterProperty);
 };
 
 const isLikelyJsonStringTerminator = (text, quoteIndex, { stringRole = 'unknown', container = null } = {}) => {
@@ -661,6 +672,19 @@ const repairJsonByParsePosition = (value, maxAttempts = 30) => {
       lastError = error;
       const errorPos = getJsonErrorPosition(error);
       if (errorPos == null) break;
+
+      // The AI sometimes drops the colon between a key and its value (e.g.
+      // `"feedback" "some text"`). V8 reports this distinctly as "Expected
+      // ':' after property name" with the position pointing at the offending
+      // character right after the key — insert the missing colon there.
+      // This must be checked before the generic `"` heuristic below, since
+      // that offending character is very often itself a `"` (the start of
+      // the value string) and would otherwise be mistaken for a missing
+      // comma between two adjacent values.
+      if (/Expected ':' after property name/i.test(error.message) && errorPos < candidate.length) {
+        candidate = `${candidate.slice(0, errorPos)}:${candidate.slice(errorPos)}`;
+        continue;
+      }
 
       // When the unexpected token is a `"`, a missing comma before the next
       // property/value is more likely than an unescaped quote — an unescaped
