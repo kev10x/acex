@@ -265,7 +265,13 @@ const looksLikeObjectPropertyAfterComma = (text, commaIndex) => {
   if (text[propertyStart] !== '"') return false;
 
   const propertyEnd = findUnescapedQuote(text, propertyStart + 1);
-  if (propertyEnd < 0) return false;
+  if (propertyEnd < 0) {
+    // Ran off the end of the text while reading the property name — the
+    // response was cut off mid-key (truncation), not prose continuing the
+    // previous string. Trust that the previous quote really did close the
+    // prior value; closeTruncatedJson handles finishing the dangling key.
+    return true;
+  }
   const propertyName = text.slice(propertyStart + 1, propertyEnd);
   if (!MARKING_RESPONSE_PROPERTY_NAMES.has(propertyName)) return false;
 
@@ -705,6 +711,75 @@ const repairJsonByParsePosition = (value, maxAttempts = 30) => {
   throw lastError || new Error('Failed to repair JSON from parse position');
 };
 
+// Closes JSON that was cut off mid-generation (e.g. hit a token/output limit
+// or a stop sequence) instead of a syntax mistake within otherwise-complete
+// JSON. Terminates any string left open and appends the closing `}`/`]` for
+// every container that was never closed, trimming a dangling trailing comma
+// or an incomplete trailing `"key":` with no value (which can't be closed
+// into valid JSON and is dropped instead). Returns null when the brackets
+// were already balanced, since there's nothing for this repair to do.
+const closeTruncatedJson = (value) => {
+  let result = String(value || '');
+  const containerStack = [];
+  let inStr = false;
+  let esc = false;
+  let stringRole = 'unknown';
+  let stringStart = -1;
+
+  const getPreviousSignificantChar = (index) => {
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (!/\s/.test(result[cursor])) return result[cursor];
+    }
+    return '';
+  };
+
+  for (let i = 0; i < result.length; i++) {
+    const ch = result[i];
+    if (inStr) {
+      if (esc) { esc = false; }
+      else if (ch === '\\') { esc = true; }
+      else if (ch === '"') { inStr = false; stringRole = 'unknown'; }
+      continue;
+    }
+    if (ch === '"') {
+      const previous = getPreviousSignificantChar(i - 1);
+      const container = containerStack[containerStack.length - 1] || null;
+      stringRole = previous === ':' || container === 'array' ? 'value' : 'key';
+      inStr = true;
+      stringStart = i;
+      continue;
+    }
+    if (ch === '{' || ch === '[') { containerStack.push(ch); }
+    else if (ch === '}' || ch === ']') { containerStack.pop(); }
+  }
+
+  if (containerStack.length === 0) return null;
+
+  if (inStr && stringRole === 'key') {
+    // Cut off mid-key with no colon/value yet (e.g. `..."ok","total_sco`) —
+    // there's nothing to close this into, so drop the whole dangling
+    // property, including a preceding comma.
+    let cut = stringStart;
+    let before = cut - 1;
+    while (before >= 0 && /\s/.test(result[before])) before -= 1;
+    if (before >= 0 && result[before] === ',') cut = before;
+    result = result.slice(0, cut);
+  } else if (inStr) {
+    if (esc) result = result.slice(0, -1);
+    result += '"';
+  }
+
+  result = result.replace(/,\s*$/, '');
+  result = result.replace(/,?\s*"(?:[^"\\]|\\.)*"\s*:\s*$/, '');
+  result = result.replace(/,\s*$/, '');
+
+  for (let i = containerStack.length - 1; i >= 0; i--) {
+    result += containerStack[i] === '{' ? '}' : ']';
+  }
+
+  return result;
+};
+
 const repairJsonCandidate = (value) => {
   const normalized = normalizeJsonCandidate(value);
   const sanitized = sanitizeJsonControlChars(normalized);
@@ -754,6 +829,41 @@ const parseAiJsonResponse = (rawResponse) => {
 
       try {
         const repaired = repairJsonByParsePosition(seed);
+        if (!repaired || seen.has(repaired)) continue;
+        seen.add(repaired);
+        return {
+          parsed: JSON.parse(repaired),
+          cleanedText: repaired
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  // Truncation fallback: the response was cut off mid-object (token limit,
+  // stop sequence) rather than malformed within otherwise-complete JSON.
+  // Close the dangling string/containers, then re-run the other repairs in
+  // case the truncation also left a stray quote/colon/comma behind.
+  for (const candidate of baseCandidates) {
+    if (!candidate) continue;
+
+    for (const base of [repairJsonCandidate(candidate), candidate]) {
+      const closed = closeTruncatedJson(base);
+      if (!closed || seen.has(closed)) continue;
+      seen.add(closed);
+
+      try {
+        return {
+          parsed: JSON.parse(closed),
+          cleanedText: closed
+        };
+      } catch (error) {
+        lastError = error;
+      }
+
+      try {
+        const repaired = repairJsonByParsePosition(closed);
         if (!repaired || seen.has(repaired)) continue;
         seen.add(repaired);
         return {
