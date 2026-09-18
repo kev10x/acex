@@ -123,6 +123,33 @@ export interface Batch {
   assignment_count?: number;
 }
 
+export interface BatchSummaryScript {
+  assignment_id: number;
+  filename: string;
+  student_name: string;
+  status: 'marked' | 'failed' | 'processing' | 'unmarked';
+  score: number | null;
+  total_points: number | null;
+  percent: number | null;
+  rubric_name: string | null;
+  marked_at: string | null;
+  failure_reason: string | null;
+}
+
+export interface BatchSummary {
+  success: boolean;
+  batch: { id: number; name: string };
+  counts: { total: number; marked: number; failed: number; processing: number; unmarked: number };
+  stats: {
+    average_score: number | null;
+    average_percent: number | null;
+    median_score: number | null;
+    highest_score: number | null;
+    lowest_score: number | null;
+  };
+  scripts: BatchSummaryScript[];
+}
+
 export interface MarkingJob {
   id: number;
   batch_id: number;
@@ -574,6 +601,7 @@ export const rubricGeneratorAPI = {
 export const batchesAPI = {
   getBatches: () => api.get('/batches'),
   getBatch: (id: number) => api.get(`/batches/${id}`),
+  getBatchSummary: (id: number) => api.get<BatchSummary>(`/batches/${id}/summary`),
   createBatch: (data: { name: string; description?: string }) => api.post('/batches', data),
   updateBatch: (id: number, data: { name: string; description?: string }) => api.put(`/batches/${id}`, data),
   deleteBatch: (id: number) => api.delete(`/batches/${id}`),
