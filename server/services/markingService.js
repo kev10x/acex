@@ -595,16 +595,58 @@ const isEscapedQuoteAt = (text, index) => {
   return slashCount % 2 === 1;
 };
 
+// Walks the text from the very start (not just backward from the error
+// position) so that container nesting and string-role are tracked accurately,
+// mirroring how `sanitizeJsonControlChars` classifies quotes. A context-blind
+// backward scan can misjudge a quote deep inside nested arrays/objects (e.g. a
+// quoted term like `"cum bag"` embedded in feedback prose), since
+// `isLikelyJsonStringTerminator` needs real stringRole/container info to tell
+// an embedded quote apart from a legitimate terminator.
 const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 5000) => {
-  const start = Math.max(0, parseErrorPosition - maxLookback);
+  const earliestCandidateIndex = Math.max(0, parseErrorPosition - maxLookback);
+  const containerStack = [];
+  let inStr = false;
+  let stringRole = 'unknown';
+  let esc = false;
+  let candidate = -1;
 
-  for (let i = parseErrorPosition - 1; i >= start; i--) {
-    if (text[i] !== '"' || isEscapedQuoteAt(text, i)) continue;
-    if (isLikelyJsonStringTerminator(text, i)) continue;
-    return i;
+  const getPreviousSignificantChar = (index) => {
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (!/\s/.test(text[cursor])) return text[cursor];
+    }
+    return '';
+  };
+
+  const end = Math.min(parseErrorPosition, text.length);
+  for (let i = 0; i < end; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === '"') {
+        const container = containerStack[containerStack.length - 1] || null;
+        if (isLikelyJsonStringTerminator(text, i, { stringRole, container })) {
+          inStr = false;
+          stringRole = 'unknown';
+        } else if (i >= earliestCandidateIndex) {
+          candidate = i;
+        }
+      }
+      continue;
+    }
+
+    if (ch === '{') containerStack.push('object');
+    else if (ch === '[') containerStack.push('array');
+    else if (ch === '}' || ch === ']') containerStack.pop();
+    else if (ch === '"') {
+      const previous = getPreviousSignificantChar(i - 1);
+      const container = containerStack[containerStack.length - 1] || null;
+      stringRole = previous === ':' || container === 'array' ? 'value' : 'key';
+      inStr = true;
+    }
   }
 
-  return -1;
+  return candidate;
 };
 
 const repairJsonByParsePosition = (value, maxAttempts = 30) => {

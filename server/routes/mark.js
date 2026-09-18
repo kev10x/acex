@@ -460,7 +460,7 @@ router.post('/single', requireAuth, async (req, res) => {
       const usage = markingResult.usage || {};
       const estimatedCostUsd = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types, overall_confidence, confidence_level, needs_review, min_criterion_confidence, has_low_criterion_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -487,7 +487,12 @@ router.post('/single', requireAuth, async (req, res) => {
           markingResult.critical_table && markingResult.critical_table.length > 0 ? JSON.stringify(markingResult.critical_table) : null,
           markingResult.genie_output && markingResult.genie_output.length > 0 ? JSON.stringify(markingResult.genie_output) : null,
           markingResult.improvement_forecast || null,
-          criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null
+          criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null,
+          markingResult.overall_confidence != null ? markingResult.overall_confidence : null,
+          markingResult.confidence_level || null,
+          markingResult.needs_review ? 1 : 0,
+          markingResult.min_criterion_confidence != null ? markingResult.min_criterion_confidence : null,
+          markingResult.has_low_criterion_confidence ? 1 : 0
         ]
       );
 
@@ -968,7 +973,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
           const usageBatch = markingResult.usage || {};
           const estimatedCostUsdBatch = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types, overall_confidence, confidence_level, needs_review, min_criterion_confidence, has_low_criterion_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -995,7 +1000,12 @@ router.post('/multiple', requireAuth, async (req, res) => {
               markingResult.critical_table && markingResult.critical_table.length > 0 ? JSON.stringify(markingResult.critical_table) : null,
               markingResult.genie_output && markingResult.genie_output.length > 0 ? JSON.stringify(markingResult.genie_output) : null,
               markingResult.improvement_forecast || null,
-              criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null
+              criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null,
+              markingResult.overall_confidence != null ? markingResult.overall_confidence : null,
+              markingResult.confidence_level || null,
+              markingResult.needs_review ? 1 : 0,
+              markingResult.min_criterion_confidence != null ? markingResult.min_criterion_confidence : null,
+              markingResult.has_low_criterion_confidence ? 1 : 0
             ]
           );
 

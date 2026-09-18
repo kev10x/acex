@@ -1418,6 +1418,46 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_results ADD COLUMN custom_name VARCHAR(500) DEFAULT NULL`);
         }
 
+        const overallConfidenceCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'overall_confidence'
+        `);
+        if ((overallConfidenceCheck.rows?.[0]?.count || overallConfidenceCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN overall_confidence INT DEFAULT NULL`);
+        }
+
+        const confidenceLevelCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'confidence_level'
+        `);
+        if ((confidenceLevelCheck.rows?.[0]?.count || confidenceLevelCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN confidence_level VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const needsReviewCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'needs_review'
+        `);
+        if ((needsReviewCheck.rows?.[0]?.count || needsReviewCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN needs_review TINYINT(1) DEFAULT 0`);
+        }
+
+        const minCriterionConfidenceCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'min_criterion_confidence'
+        `);
+        if ((minCriterionConfidenceCheck.rows?.[0]?.count || minCriterionConfidenceCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN min_criterion_confidence INT DEFAULT NULL`);
+        }
+
+        const hasLowCriterionConfidenceCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'has_low_criterion_confidence'
+        `);
+        if ((hasLowCriterionConfidenceCheck.rows?.[0]?.count || hasLowCriterionConfidenceCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence TINYINT(1) DEFAULT 0`);
+        }
+
         const mediaTypeCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
           WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_type'
@@ -2758,6 +2798,46 @@ const initDatabase = async () => {
         `);
         if ((criterionFeedbackTypesCheckPg.rows?.[0]?.count || criterionFeedbackTypesCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSONB`);
+        }
+
+        const overallConfidenceCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'overall_confidence'
+        `);
+        if ((overallConfidenceCheckPg.rows?.[0]?.count || overallConfidenceCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN overall_confidence INTEGER DEFAULT NULL`);
+        }
+
+        const confidenceLevelCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'confidence_level'
+        `);
+        if ((confidenceLevelCheckPg.rows?.[0]?.count || confidenceLevelCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN confidence_level VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const needsReviewCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'needs_review'
+        `);
+        if ((needsReviewCheckPg.rows?.[0]?.count || needsReviewCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN needs_review BOOLEAN DEFAULT FALSE`);
+        }
+
+        const minCriterionConfidenceCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'min_criterion_confidence'
+        `);
+        if ((minCriterionConfidenceCheckPg.rows?.[0]?.count || minCriterionConfidenceCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN min_criterion_confidence INTEGER DEFAULT NULL`);
+        }
+
+        const hasLowCriterionConfidenceCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'has_low_criterion_confidence'
+        `);
+        if ((hasLowCriterionConfidenceCheckPg.rows?.[0]?.count || hasLowCriterionConfidenceCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence BOOLEAN DEFAULT FALSE`);
         }
 
         const mediaTypeCheckPg = await query(`
