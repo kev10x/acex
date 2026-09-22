@@ -62,7 +62,12 @@ const TOOL_WORKSPACES: Record<NonNullable<ToolContext>, WorkspaceType[]> = {
 };
 
 function getToolContext(pathname: string): ToolContext | 'landing' {
-  const match = pathname.match(/\/tools\/?([a-z-]*)?$/);
+  // The same build is served both at the historical /tools subpath and at
+  // the bare domain root (e.g. acexen.com/) — strip a leading /tools, if
+  // present, so both resolve identically instead of root-only paths
+  // falling through to null (and skipping the landing cards).
+  const normalized = pathname.replace(/^\/tools(?=\/|$)/, '') || '/';
+  const match = normalized.match(/^\/([a-z-]*)?$/);
   if (!match) return null;
   const segment = match[1] || '';
   if (segment === '') return 'landing';
