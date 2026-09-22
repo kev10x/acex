@@ -66,9 +66,9 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
       <div className="w-full max-w-md">
         <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl border border-slate-200/60 overflow-hidden">
           <div className="px-8 pt-10 pb-2">
-            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Sign in to MarkMate</h1>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Sign in to Acexen</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Enter your credentials to access your account.
+              The Academic Excellence Engine
             </p>
           </div>
 

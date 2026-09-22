@@ -697,7 +697,7 @@ const MarkingInterface: React.FC = () => {
                     Commented Word Document
                   </div>
                   <div className="text-sm text-gray-500">
-                    Insert MarkMate feedback as native comments into the uploaded DOCX file.
+                    Insert Acexen feedback as native comments into the uploaded DOCX file.
                   </div>
                   {!hasSelectedAssignments && (
                     <div className="text-xs text-primary-700 mt-1">

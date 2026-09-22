@@ -470,8 +470,8 @@ function AppContent() {
                 </button>
               )}
               <div className="flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
-                <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
+                <h1 className="text-2xl font-bold text-gray-900">Acexen</h1>
+                <span className="ml-2 text-sm text-gray-500">The Academic Excellence Engine</span>
               </div>
               {user.organisation_name && (
                 <p className="mt-1 text-sm text-gray-500">{user.organisation_name}</p>

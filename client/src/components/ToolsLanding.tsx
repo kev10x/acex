@@ -101,8 +101,8 @@ export default function ToolsLanding({
           <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
-                <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
+                <h1 className="text-2xl font-bold text-gray-900">Acexen</h1>
+                <span className="ml-2 text-sm text-gray-500">The Academic Excellence Engine</span>
               </div>
               {orgName && <p className="mt-1 text-sm text-gray-500">{orgName}</p>}
             </div>
