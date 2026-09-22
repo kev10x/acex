@@ -8,6 +8,7 @@ const path = require('path');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const { buildEducationLevelPromptBlock, buildAcademicWritingGuidance } = require('./educationLevelService');
+const { inferVisualKind, buildVisualPromptFromContext } = require('../../shared/visualPrompts');
 
 const OPENAI_IMAGE_MODEL = 'gpt-image-1';
 const OPENAI_IMAGE_SIZE = '1024x1024';
@@ -711,13 +712,20 @@ Rules: heading must be a complete sentence (message, not just a topic). support 
 
   for (const attempt of attemptConfigs) {
     const { model, maxTokens, messages: attemptMessages, label } = attempt;
-    completion = await aiService.createCompletionWithRetry({
-      provider: config.provider,
-      model,
-      messages: attemptMessages,
-      temperature: config.temperature,
-      maxTokens,
-    });
+    try {
+      completion = await aiService.createCompletionWithRetry({
+        provider: config.provider,
+        model,
+        messages: attemptMessages,
+        temperature: config.temperature,
+        maxTokens,
+        response_format: { type: 'json_object' },
+      });
+    } catch (apiError) {
+      lastReason = apiError?.message || `API call failed for model ${model} (${label})`;
+      console.warn(`Content generation API error with model ${model} (${label}):`, apiError?.message || apiError);
+      continue;
+    }
     raw = completion.content || completion.choices?.[0]?.message?.content || '';
   if (Array.isArray(raw)) {
     raw = raw.filter((p) => p && p.type === 'text' && p.text).map((p) => p.text).join('');
@@ -1152,21 +1160,6 @@ function createFallbackVisual(sectionTitle, kind, ordinal = 1) {
   };
 }
 
-function buildVisualPromptFromContext(visual, section = {}) {
-  const kind = inferVisualKind(visual);
-  const parts = [
-    section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
-    visual?.title ? `Visual title: ${String(visual.title).trim()}.` : '',
-    visual?.alt_text ? `Description: ${String(visual.alt_text).trim()}.` : '',
-    section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
-    section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
-    kind === 'illustration'
-      ? 'Create a clean educational diagram or infographic for this concept, with no in-image text, labels, or numbers.'
-      : 'Create a clean educational supporting image for this concept, with no in-image text or overlays.',
-  ].filter(Boolean);
-  return parts.join(' ').trim().slice(0, 360);
-}
-
 function shouldRefreshLegacyPrompt(visual, section, fallbackPrompt = '') {
   const currentPrompt = String(visual?.prompt || '').trim();
   if (!currentPrompt) return true;
@@ -1176,22 +1169,6 @@ function shouldRefreshLegacyPrompt(visual, section, fallbackPrompt = '') {
   if (normalizedFallback && normalizedCurrent === normalizedFallback) return true;
 
   return /^(create a clean educational diagram illustrating:|create an educational scene image representing:)/i.test(currentPrompt);
-}
-
-function inferVisualKind(visual) {
-  const rawKind = String(visual?.kind || '').trim().toLowerCase();
-  if (['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(rawKind)) {
-    return 'illustration';
-  }
-  const combinedText = [
-    visual?.title,
-    visual?.alt_text,
-    visual?.prompt,
-  ].filter(Boolean).join(' ').toLowerCase();
-  if (/\b(illustration|diagram|flowchart|graph|graphs|chart|concept map|mind map|process map)\b/.test(combinedText)) {
-    return 'illustration';
-  }
-  return 'image';
 }
 
 function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, includeImages = true } = {}) {

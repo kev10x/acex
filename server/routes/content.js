@@ -34,6 +34,28 @@ const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
 const MAX_CONTENT_SECTIONS = Math.max(20, Number.parseInt(process.env.CONTENT_MAX_SECTIONS || '120', 10) || 120);
+
+// Progress percentages reported to the client during POST /content/generate, in pipeline
+// order. Each *_START/*_END pair brackets a stage whose progress is interpolated by ratio
+// (e.g. sections generated / total sections) between those two bounds.
+const GENERATION_PROGRESS = {
+  VALIDATING: 6,
+  PLAN_BUILT: 12,
+  SECTIONS_PLANNING: 16,
+  SECTIONS_START: 20,
+  SECTIONS_END: 76,
+  BEAUTIFY_START: 77,
+  BEAUTIFY_END: 84,
+  VISUALS_START: 84,
+  VISUALS_END: 94,
+  MASCOTS_START: 94,
+  MASCOTS_END: 97,
+  FINALIZING: 98,
+};
+const GENERATION_PROGRESS_SECTIONS_SPAN = GENERATION_PROGRESS.SECTIONS_END - GENERATION_PROGRESS.SECTIONS_START;
+const GENERATION_PROGRESS_BEAUTIFY_SPAN = GENERATION_PROGRESS.BEAUTIFY_END - GENERATION_PROGRESS.BEAUTIFY_START;
+const GENERATION_PROGRESS_VISUALS_SPAN = GENERATION_PROGRESS.VISUALS_END - GENERATION_PROGRESS.VISUALS_START;
+const GENERATION_PROGRESS_MASCOTS_SPAN = GENERATION_PROGRESS.MASCOTS_END - GENERATION_PROGRESS.MASCOTS_START;
 const CONTENT_VIDEOS_DIR = path.join(__dirname, '..', 'uploads', 'content-videos');
 const CONTENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'content-audio');
 const CONTENT_TTS_VOICES = ['eve', 'ara', 'leo', 'rex', 'sal'];
@@ -772,7 +794,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     reportJobProgress({
       stage: 'planning',
       task: 'content',
-      percent: 6,
+      percent: GENERATION_PROGRESS.VALIDATING,
       label: 'Preparing generation request',
       detail: 'Validating request and budget.',
     });
@@ -795,7 +817,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     reportJobProgress({
       stage: 'planning',
       task: 'content',
-      percent: 12,
+      percent: GENERATION_PROGRESS.PLAN_BUILT,
       label: 'Building generation plan',
       detail: `Preparing ${requestedSections} section(s).`,
       generated_sections: 0,
@@ -851,7 +873,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
           reportJobProgress({
             stage: 'planning',
             task: 'content',
-            percent: 16,
+            percent: GENERATION_PROGRESS.SECTIONS_PLANNING,
             label: 'Planning sections',
             detail: String(progress?.message || 'Structuring the lesson outline.'),
             generated_sections: generatedSections,
@@ -861,7 +883,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
         }
         if (stage === 'text_generation') {
           const ratio = totalSections > 0 ? Math.max(0, Math.min(1, generatedSections / totalSections)) : 0;
-          const percent = 20 + ratio * 56;
+          const percent = GENERATION_PROGRESS.SECTIONS_START + ratio * GENERATION_PROGRESS_SECTIONS_SPAN;
           const currentChunk = Number(progress?.current_chunk || 0) || 0;
           const totalChunks = Number(progress?.total_chunks || 0) || 0;
           const chunkRange = String(progress?.chunk_range || '').trim();
@@ -889,7 +911,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
             progress: {
               stage: 'text_generation',
               task: 'content',
-              percent: Math.round(20 + (chunkInfo.completedChunks / Math.max(1, chunkInfo.totalChunks)) * 56),
+              percent: Math.round(GENERATION_PROGRESS.SECTIONS_START + (chunkInfo.completedChunks / Math.max(1, chunkInfo.totalChunks)) * GENERATION_PROGRESS_SECTIONS_SPAN),
               label: 'Generating sections',
               detail: `Completed chunk ${chunkInfo.completedChunks}/${chunkInfo.totalChunks}`,
               generated_sections: Array.isArray(chunkInfo.partial_sections) ? chunkInfo.partial_sections.length : 0,
@@ -909,7 +931,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       reportJobProgress({
         stage: 'text_beautify',
         task: 'content',
-        percent: 77,
+        percent: GENERATION_PROGRESS.BEAUTIFY_START,
         label: 'Polishing lesson text',
         detail: 'Applying AI readability pass.',
         generated_sections: requestedSections,
@@ -924,7 +946,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
           reportJobProgress({
             stage: 'text_beautify',
             task: 'content',
-            percent: 77 + ratio * 7,
+            percent: GENERATION_PROGRESS.BEAUTIFY_START + ratio * GENERATION_PROGRESS_BEAUTIFY_SPAN,
             label: 'Polishing lesson text',
             detail: String(progress?.message || `Polished section text ${completed}/${total}.`),
             generated_sections: requestedSections,
@@ -937,7 +959,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
       reportJobProgress({
         stage: 'visual_generation',
         task: include_mascot === true ? 'mascot' : 'visual',
-        percent: 84,
+        percent: GENERATION_PROGRESS.VISUALS_START,
         label: 'Generating visuals',
         detail: 'Creating image assets for sections.',
         generated_sections: requestedSections,
@@ -953,7 +975,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
             reportJobProgress({
               stage: 'visual_generation',
               task: 'visual',
-              percent: 84 + ratio * 10,
+              percent: GENERATION_PROGRESS.VISUALS_START + ratio * GENERATION_PROGRESS_VISUALS_SPAN,
               label: 'Generating visuals',
               detail: String(progress?.message || `Generated visual assets ${completed}/${total}.`),
               generated_sections: requestedSections,
@@ -965,7 +987,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
             reportJobProgress({
               stage: 'mascot_generation',
               task: 'mascot',
-              percent: 94 + ratio * 3,
+              percent: GENERATION_PROGRESS.MASCOTS_START + ratio * GENERATION_PROGRESS_MASCOTS_SPAN,
               label: 'Generating mascots',
               detail: String(progress?.message || `Generated mascot assets ${completed}/${total}.`),
               generated_sections: requestedSections,
@@ -978,7 +1000,7 @@ router.post('/generate', requireAuth, requireFeature('content_creation'), async 
     reportJobProgress({
       stage: 'finalizing',
       task: 'content',
-      percent: 98,
+      percent: GENERATION_PROGRESS.FINALIZING,
       label: 'Finalizing response',
       detail: 'Preparing content payload.',
       generated_sections: Array.isArray(content?.sections) ? content.sections.length : requestedSections,
