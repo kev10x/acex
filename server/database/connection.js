@@ -536,6 +536,26 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS video_generations (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          prompt TEXT NOT NULL,
+          model VARCHAR(60) NOT NULL DEFAULT 'grok-imagine-video-1.5',
+          duration_seconds INT NOT NULL DEFAULT 10,
+          aspect_ratio VARCHAR(20) NOT NULL DEFAULT '16:9',
+          resolution VARCHAR(20) NOT NULL DEFAULT '720p',
+          generate_audio TINYINT(1) NOT NULL DEFAULT 1,
+          xai_request_id VARCHAR(255) NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'processing',
+          file_path VARCHAR(500) NULL,
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_video_generations_user_created (user_id, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
           id INT AUTO_INCREMENT PRIMARY KEY,
           published_content_id INT NOT NULL,
@@ -2027,6 +2047,27 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(published_content_id)
         )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS video_generations (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          prompt TEXT NOT NULL,
+          model VARCHAR(60) NOT NULL DEFAULT 'grok-imagine-video-1.5',
+          duration_seconds INTEGER NOT NULL DEFAULT 10,
+          aspect_ratio VARCHAR(20) NOT NULL DEFAULT '16:9',
+          resolution VARCHAR(20) NOT NULL DEFAULT '720p',
+          generate_audio BOOLEAN NOT NULL DEFAULT true,
+          xai_request_id VARCHAR(255) NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'processing',
+          file_path VARCHAR(500) NULL,
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_video_generations_user_created ON video_generations(user_id, created_at)
       `);
       await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
