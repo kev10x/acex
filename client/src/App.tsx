@@ -23,6 +23,7 @@ import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
 import ToolsLanding from './components/ToolsLanding';
+import HeroPanel from './components/HeroPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import type { GeneratedContent } from './services/api';
@@ -420,21 +421,24 @@ function AppContent() {
   }
 
   if (!user) {
-    if (authMode === 'verify') {
-      return (
-        <VerifyEmail
-          onBackToLogin={() => {
-            setAuthMode('login');
-            window.history.replaceState({}, '', window.location.pathname);
-          }}
-        />
-      );
-    }
-
-    return authMode === 'login' ? (
-      <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
-    ) : (
-      <RegisterForm onSwitchToLogin={() => setAuthMode('login')} />
+    return (
+      <div className="lg:flex lg:min-h-screen">
+        <HeroPanel />
+        <div className="lg:min-w-0 lg:flex-1">
+          {authMode === 'verify' ? (
+            <VerifyEmail
+              onBackToLogin={() => {
+                setAuthMode('login');
+                window.history.replaceState({}, '', window.location.pathname);
+              }}
+            />
+          ) : authMode === 'login' ? (
+            <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
+          ) : (
+            <RegisterForm onSwitchToLogin={() => setAuthMode('login')} />
+          )}
+        </div>
+      </div>
     );
   }
 
