@@ -429,7 +429,7 @@ const MoodleIntegration: React.FC = () => {
                         className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
                       >
                         {expandedSection === 'assignments' ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        <FileText className="w-4 h-4 text-blue-500" />
+                        <FileText className="w-4 h-4 text-primary-500" />
                         Assignments ({assignments.length})
                       </button>
                       {expandedSection === 'assignments' && (

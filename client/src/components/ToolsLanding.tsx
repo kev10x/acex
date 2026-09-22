@@ -27,9 +27,9 @@ const TOOLS: ToolCard[] = [
     description:
       'Bring student work into the pipeline, build memorandums, run AI or manual marking, and export grades.',
     icon: BarChart3,
-    accentBg: 'bg-blue-50',
-    accentText: 'text-blue-700',
-    accentBorder: 'border-blue-200',
+    accentBg: 'bg-primary-50',
+    accentText: 'text-primary-700',
+    accentBorder: 'border-primary-200',
     path: '/tools/marking',
     roles: ['management', 'lecturer']
   },

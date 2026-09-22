@@ -251,7 +251,7 @@ const TrainingDataManager: React.FC = () => {
                   onClick={() => toggleStrictness(level)}
                   className={`px-3 py-1 rounded text-sm ${
                     selectedStrictness.includes(level)
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-primary-500 text-white'
                       : 'bg-gray-200 text-gray-700'
                   }`}
                 >
@@ -272,7 +272,7 @@ const TrainingDataManager: React.FC = () => {
                   onClick={() => toggleProvider(provider)}
                   className={`px-3 py-1 rounded text-sm ${
                     selectedProviders.includes(provider)
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-primary-500 text-white'
                       : 'bg-gray-200 text-gray-700'
                   }`}
                 >
@@ -287,7 +287,7 @@ const TrainingDataManager: React.FC = () => {
           <button
             onClick={() => exportData('json')}
             disabled={exporting}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600 disabled:opacity-50 flex items-center gap-2"
           >
             <FileText className="w-4 h-4" />
             Export JSON
@@ -345,7 +345,7 @@ const TrainingDataManager: React.FC = () => {
                     <td className="p-2">
                       <span className={`px-2 py-1 rounded text-xs ${
                         file.format === 'jsonl' ? 'bg-green-100 text-green-800' :
-                        file.format === 'json' ? 'bg-blue-100 text-blue-800' :
+                        file.format === 'json' ? 'bg-primary-100 text-primary-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
                         {file.format.toUpperCase()}
@@ -359,7 +359,7 @@ const TrainingDataManager: React.FC = () => {
                       <div className="flex gap-2">
                         <button
                           onClick={() => downloadFile(file.filename)}
-                          className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                          className="p-1 text-primary-600 hover:bg-primary-50 rounded"
                           title="Download"
                         >
                           <Download className="w-4 h-4" />
@@ -382,7 +382,7 @@ const TrainingDataManager: React.FC = () => {
       </div>
 
       {/* Training Instructions */}
-      <div className="mt-6 bg-blue-50 rounded-lg p-6">
+      <div className="mt-6 bg-primary-50 rounded-lg p-6">
         <h3 className="font-semibold mb-2">How to Train Your Model</h3>
         <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
           <li>Export your training data using one of the export buttons above</li>

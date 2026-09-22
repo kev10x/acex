@@ -939,7 +939,7 @@ const AdminDashboard: React.FC = () => {
                 <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-600">Marked Scripts</span>
-                    <BarChart3 className="h-4 w-4 text-blue-500" />
+                    <BarChart3 className="h-4 w-4 text-primary-500" />
                   </div>
                   <div className="text-2xl font-bold text-gray-900 mt-2">{performance.summary.total_results}</div>
                 </div>
@@ -1005,9 +1005,9 @@ const AdminDashboard: React.FC = () => {
                         <div className="text-xs text-amber-700">Unresolved</div>
                         <div className="text-xl font-semibold text-amber-900 mt-1">{submissionIdentityHealth.summary.unresolved_submissions}</div>
                       </div>
-                      <div className="rounded border border-blue-200 bg-blue-50 p-3">
-                        <div className="text-xs text-blue-700">Potential backfill matches</div>
-                        <div className="text-xl font-semibold text-blue-900 mt-1">{submissionIdentityHealth.summary.potential_backfill_matches}</div>
+                      <div className="rounded border border-primary-200 bg-primary-50 p-3">
+                        <div className="text-xs text-primary-700">Potential backfill matches</div>
+                        <div className="text-xl font-semibold text-primary-900 mt-1">{submissionIdentityHealth.summary.potential_backfill_matches}</div>
                       </div>
                     </div>
 
@@ -1320,9 +1320,9 @@ const AdminDashboard: React.FC = () => {
                       <div className="text-xs text-amber-700">Error Rate</div>
                       <div className="text-xl font-semibold text-amber-900 mt-1">{generationTelemetry.summary.error_rate_percent.toFixed(1)}%</div>
                     </div>
-                    <div className="rounded border border-blue-200 bg-blue-50 p-3">
-                      <div className="text-xs text-blue-700">Avg Duration</div>
-                      <div className="text-xl font-semibold text-blue-900 mt-1">{Math.round(generationTelemetry.summary.average_duration_ms)} ms</div>
+                    <div className="rounded border border-primary-200 bg-primary-50 p-3">
+                      <div className="text-xs text-primary-700">Avg Duration</div>
+                      <div className="text-xl font-semibold text-primary-900 mt-1">{Math.round(generationTelemetry.summary.average_duration_ms)} ms</div>
                     </div>
                     <div className="rounded border border-violet-200 bg-violet-50 p-3">
                       <div className="text-xs text-violet-700">Estimated Cost</div>
@@ -1625,9 +1625,9 @@ const AdminDashboard: React.FC = () => {
                       <div className="text-xs text-amber-700">Fallback Mode</div>
                       <div className="text-xl font-semibold text-amber-900 mt-1">{customHomeworkTelemetry.summary.fallback_events}</div>
                     </div>
-                    <div className="rounded border border-blue-200 bg-blue-50 p-3">
-                      <div className="text-xs text-blue-700">Avg Duration</div>
-                      <div className="text-xl font-semibold text-blue-900 mt-1">{Math.round(customHomeworkTelemetry.summary.average_duration_ms)} ms</div>
+                    <div className="rounded border border-primary-200 bg-primary-50 p-3">
+                      <div className="text-xs text-primary-700">Avg Duration</div>
+                      <div className="text-xl font-semibold text-primary-900 mt-1">{Math.round(customHomeworkTelemetry.summary.average_duration_ms)} ms</div>
                     </div>
                     <div className="rounded border border-violet-200 bg-violet-50 p-3">
                       <div className="text-xs text-violet-700">Estimated Cost</div>
@@ -2134,7 +2134,7 @@ const AdminDashboard: React.FC = () => {
                                 />
                                 <span className={`${userAllowed ? 'text-gray-700' : 'text-red-700'}`}>{userStatusLabel}</span>
                               </label>
-                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${organisationAllowed ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${organisationAllowed ? 'bg-primary-100 text-primary-800' : 'bg-amber-100 text-amber-800'}`}>
                                 {orgStatusLabel}
                               </span>
                             </div>

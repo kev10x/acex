@@ -1632,14 +1632,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </details>
 
-        <details className="mb-6 bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-blue-900 flex items-center justify-between">
+        <details className="mb-6 bg-primary-50 border border-primary-200 rounded-lg overflow-hidden">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-primary-900 flex items-center justify-between">
             <span>Planner queue ({plannerJobs.length})</span>
-            <button type="button" onClick={(e) => { e.preventDefault(); loadPlannerJobs(); }} className="text-xs font-normal text-blue-700 underline hover:text-blue-900">Load</button>
+            <button type="button" onClick={(e) => { e.preventDefault(); loadPlannerJobs(); }} className="text-xs font-normal text-primary-700 underline hover:text-primary-900">Load</button>
           </summary>
           <div className="px-4 pb-4">
             {plannerJobs.length === 0 ? (
-              <p className="text-sm text-blue-900">No planner jobs yet.</p>
+              <p className="text-sm text-primary-900">No planner jobs yet.</p>
             ) : (
               <ul className="space-y-2">
                 {plannerJobs.map((job) => {
@@ -1650,9 +1650,9 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   job.status === 'completed' ? 'text-green-700' :
                   job.status === 'failed' ? 'text-red-700' :
                   job.status === 'cancelled' ? 'text-gray-700' :
-                  'text-blue-700';
+                  'text-primary-700';
                   return (
-                    <li key={job.id} className="text-sm text-gray-700 border border-blue-100 rounded p-2 bg-white">
+                    <li key={job.id} className="text-sm text-gray-700 border border-primary-100 rounded p-2 bg-white">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <span className="font-medium truncate max-w-[380px]" title={job.topics}>{job.topics}</span>
                       <span className={`text-xs font-semibold uppercase ${statusColor}`}>{job.status}</span>
@@ -1668,7 +1668,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           <button
                             type="button"
                             onClick={() => navigator.clipboard.writeText(link)}
-                            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                            className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
                           >
                             Copy link
                           </button>
@@ -1998,13 +1998,13 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     type="datetime-local"
                     value={scheduledFor}
                     onChange={(e) => setScheduledFor(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
                   />
                 </div>
                 <button
                   onClick={handleSchedulePlanner}
                   disabled={isScheduling}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                 >
                   {isScheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
                   Schedule planner generation
@@ -2459,7 +2459,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     <button
                       type="button"
                       onClick={() => addCustomVisual(i, 'image')}
-                      className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                      className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
                     >
                       Add custom image
                     </button>

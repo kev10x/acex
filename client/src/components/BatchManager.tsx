@@ -393,7 +393,7 @@ const BatchManager: React.FC = () => {
                       job.status === 'completed' ? 'bg-green-100 text-green-700' :
                       job.status === 'completed_with_errors' ? 'bg-yellow-100 text-yellow-700' :
                       job.status === 'failed' ? 'bg-red-100 text-red-700' :
-                      job.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                      job.status === 'running' ? 'bg-primary-100 text-primary-700' :
                       'bg-gray-100 text-gray-600'
                     }`}>{job.status}</span>
                   </div>
@@ -611,7 +611,7 @@ const BatchManager: React.FC = () => {
                               <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
                                 s.status === 'marked' ? 'bg-green-100 text-green-700' :
                                 s.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                s.status === 'processing' ? 'bg-blue-100 text-blue-700' :
+                                s.status === 'processing' ? 'bg-primary-100 text-primary-700' :
                                 'bg-gray-100 text-gray-600'
                               }`}>{s.status === 'unmarked' ? 'not marked' : s.status}</span>
                             </td>

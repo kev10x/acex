@@ -107,7 +107,7 @@ function ComparisonPanel({ comparison }: { comparison: RevisionComparison }) {
   return (
     <div className="space-y-4">
       {comparison.narrative_summary && (
-        <p className="text-sm text-gray-700 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 leading-relaxed">
+        <p className="text-sm text-gray-700 bg-primary-50 border border-primary-100 rounded-lg px-4 py-3 leading-relaxed">
           {comparison.narrative_summary}
         </p>
       )}

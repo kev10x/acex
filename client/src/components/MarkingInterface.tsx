@@ -345,7 +345,7 @@ const MarkingInterface: React.FC = () => {
       case 'error':
         return <AlertCircle className="w-4 h-4 text-red-500" />;
       case 'processing':
-        return <Loader className="w-4 h-4 text-blue-500 animate-spin" />;
+        return <Loader className="w-4 h-4 text-primary-500 animate-spin" />;
       default:
         return <div className="w-4 h-4 bg-gray-300 rounded" />;
     }
@@ -358,7 +358,7 @@ const MarkingInterface: React.FC = () => {
       case 'error':
         return 'text-red-600 bg-red-50';
       case 'processing':
-        return 'text-blue-600 bg-blue-50';
+        return 'text-primary-600 bg-primary-50';
       default:
         return 'text-gray-600 bg-gray-50';
     }

@@ -209,7 +209,7 @@ const FileUpload: React.FC = () => {
       case 'error':
         return <AlertCircle className="w-4 h-4 text-red-500" />;
       case 'processing':
-        return <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />;
+        return <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />;
       default:
         return <File className="w-4 h-4 text-gray-500" />;
     }
@@ -222,7 +222,7 @@ const FileUpload: React.FC = () => {
       case 'error':
         return 'text-red-600 bg-red-50';
       case 'processing':
-        return 'text-blue-600 bg-blue-50';
+        return 'text-primary-600 bg-primary-50';
       default:
         return 'text-gray-600 bg-gray-50';
     }
@@ -348,10 +348,10 @@ const FileUpload: React.FC = () => {
 
       {/* Loading State */}
       {loading && (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+        <div className="bg-primary-50 border border-primary-200 rounded-md p-4">
           <div className="flex items-center">
-            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-3" />
-            <p className="text-sm text-blue-700">Uploading files...</p>
+            <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mr-3" />
+            <p className="text-sm text-primary-700">Uploading files...</p>
           </div>
         </div>
       )}

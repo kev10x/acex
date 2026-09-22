@@ -116,7 +116,7 @@ const PRESET_CATEGORIES: { key: PresetBg['category']; label: string }[] = [
 const SLIDE_TYPE_META: Record<SlideType, { label: string; colour: string; icon: React.ReactNode }> = {
   title:               { label: 'Title',       colour: 'bg-indigo-100 text-indigo-700 border-indigo-200',    icon: <Presentation className="h-3 w-3" /> },
   learning_objectives: { label: 'Objectives',  colour: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <BookOpen className="h-3 w-3" /> },
-  content:             { label: 'Content',     colour: 'bg-blue-100 text-blue-700 border-blue-200',          icon: <FileText className="h-3 w-3" /> },
+  content:             { label: 'Content',     colour: 'bg-primary-100 text-primary-700 border-primary-200',          icon: <FileText className="h-3 w-3" /> },
   question:            { label: 'Question',    colour: 'bg-amber-100 text-amber-700 border-amber-200',       icon: <HelpCircle className="h-3 w-3" /> },
   activity:            { label: 'Activity',    colour: 'bg-orange-100 text-orange-700 border-orange-200',    icon: <Zap className="h-3 w-3" /> },
   summary:             { label: 'Summary',     colour: 'bg-teal-100 text-teal-700 border-teal-200',          icon: <ClipboardList className="h-3 w-3" /> },
@@ -429,7 +429,7 @@ const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = (
               </span>
             )}
             {templateImages.length > 0 && (
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700">
                 {templateImages.length} image asset{templateImages.length > 1 ? 's' : ''} auto-reused on export
               </span>
             )}

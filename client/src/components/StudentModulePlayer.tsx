@@ -305,7 +305,7 @@ export default function StudentModulePlayer() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         {group.itemType === 'content'
-                          ? <BookOpen className={`w-3.5 h-3.5 shrink-0 ${isActiveGroup ? 'text-emerald-600' : 'text-blue-400'}`} />
+                          ? <BookOpen className={`w-3.5 h-3.5 shrink-0 ${isActiveGroup ? 'text-emerald-600' : 'text-primary-400'}`} />
                           : <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${isActiveGroup ? 'text-emerald-600' : 'text-emerald-400'}`} />}
                         <span className="text-sm font-medium break-words leading-snug">{group.parentTitle}</span>
                       </div>
@@ -402,7 +402,7 @@ export default function StudentModulePlayer() {
                 <div>
                   <div className="flex items-center gap-2 text-sm text-slate-500">
                     {selectedItem.item_type === 'content' ? (
-                      <BookOpen className="w-4 h-4 text-blue-500" />
+                      <BookOpen className="w-4 h-4 text-primary-500" />
                     ) : (
                       <CheckCircle className="w-4 h-4 text-emerald-500" />
                     )}

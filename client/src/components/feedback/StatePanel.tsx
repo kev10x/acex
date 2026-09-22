@@ -13,7 +13,7 @@ interface StatePanelProps {
 }
 
 const styles: Record<StateVariant, string> = {
-  loading: 'bg-blue-50 border-blue-200 text-blue-900',
+  loading: 'bg-primary-50 border-primary-200 text-primary-900',
   error: 'bg-red-50 border-red-200 text-red-900',
   empty: 'bg-gray-50 border-gray-200 text-gray-800',
   info: 'bg-amber-50 border-amber-200 text-amber-900',

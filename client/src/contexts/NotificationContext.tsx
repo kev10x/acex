@@ -31,7 +31,7 @@ const NotificationContext = createContext<NotificationContextValue | null>(null)
 const variantStyles: Record<NotificationVariant, string> = {
   success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
   error: 'border-red-200 bg-red-50 text-red-900',
-  info: 'border-blue-200 bg-blue-50 text-blue-900',
+  info: 'border-primary-200 bg-primary-50 text-primary-900',
 };
 
 const variantIcon: Record<NotificationVariant, React.ComponentType<{ className?: string }>> = {

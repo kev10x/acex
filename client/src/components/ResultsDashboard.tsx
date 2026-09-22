@@ -699,7 +699,7 @@ const ResultsDashboard: React.FC = () => {
   const getGradeColor = (score: number, maxScore: number) => {
     const percentage = (score / maxScore) * 100;
     if (percentage >= 90) return 'text-green-600 bg-green-50';
-    if (percentage >= 80) return 'text-blue-600 bg-blue-50';
+    if (percentage >= 80) return 'text-primary-600 bg-primary-50';
     if (percentage >= 70) return 'text-yellow-600 bg-yellow-50';
     if (percentage >= 60) return 'text-orange-600 bg-orange-50';
     return 'text-red-600 bg-red-50';
@@ -788,9 +788,9 @@ const ResultsDashboard: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Analytics Overview</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <div className="text-sm text-blue-600 font-medium">Total Markings</div>
-              <div className="text-2xl font-bold text-blue-900 mt-1">{analytics.total_markings || 0}</div>
+            <div className="bg-primary-50 p-4 rounded-lg">
+              <div className="text-sm text-primary-600 font-medium">Total Markings</div>
+              <div className="text-2xl font-bold text-primary-900 mt-1">{analytics.total_markings || 0}</div>
             </div>
             <div className="bg-green-50 p-4 rounded-lg">
               <div className="text-sm text-green-600 font-medium">Average Score</div>
@@ -904,7 +904,7 @@ const ResultsDashboard: React.FC = () => {
             <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
-                  <TrendingUp className="h-6 w-6 text-blue-400" />
+                  <TrendingUp className="h-6 w-6 text-primary-400" />
                 </div>
                 <div className="ml-5 w-0 flex-1">
                   <dl>
@@ -1271,7 +1271,7 @@ const ResultsDashboard: React.FC = () => {
                                 <div className="flex min-w-0 flex-1 items-center gap-1">
                                   <input
                                     autoFocus
-                                    className="min-w-0 flex-1 rounded border border-blue-400 px-1.5 py-0.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    className="min-w-0 flex-1 rounded border border-primary-400 px-1.5 py-0.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-primary-500"
                                     value={renameValue}
                                     onChange={e => setRenameValue(e.target.value)}
                                     onKeyDown={e => {
@@ -1283,7 +1283,7 @@ const ResultsDashboard: React.FC = () => {
                                   <button
                                     onClick={() => handleRenameSave(result.id)}
                                     disabled={renameSaving}
-                                    className="flex-shrink-0 rounded p-0.5 text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                                    className="flex-shrink-0 rounded p-0.5 text-primary-600 hover:bg-primary-50 disabled:opacity-50"
                                     title="Save"
                                   >
                                     <Save className="h-3.5 w-3.5" />
@@ -1326,7 +1326,7 @@ const ResultsDashboard: React.FC = () => {
                                 </span>
                               )}
                               {result.override_total_score != null && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 flex-shrink-0" title="Lecturer score override">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-800 flex-shrink-0" title="Lecturer score override">
                                   Override
                                 </span>
                               )}
@@ -1471,7 +1471,7 @@ const ResultsDashboard: React.FC = () => {
                             {!isStudent && allowDownloadResults && (
                               <button
                                 onClick={() => handleDownloadPDF(result.id)}
-                                className="text-blue-600 hover:text-blue-900"
+                                className="text-primary-600 hover:text-primary-900"
                                 title="Download PDF Report"
                               >
                                 <FileText className="w-4 h-4" />
@@ -1743,9 +1743,9 @@ const ResultsDashboard: React.FC = () => {
                 </div>
 
                 {/* Comprehensive Feedback Section - Primary Focus */}
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border-l-4 border-blue-500">
+                <div className="bg-gradient-to-r from-primary-50 to-indigo-50 rounded-lg p-6 border-l-4 border-primary-500">
                   <div className="flex items-center mb-4">
-                    <FileText className="w-6 h-6 text-blue-600 mr-2" />
+                    <FileText className="w-6 h-6 text-primary-600 mr-2" />
                     <h4 className="text-lg font-semibold text-gray-900">Comprehensive Feedback</h4>
                   </div>
                   {selectedResult.handwriting_recognition_confidence != null && (
@@ -1822,7 +1822,7 @@ const ResultsDashboard: React.FC = () => {
                           type="button"
                           onClick={handleSaveLecturerOverride}
                           disabled={savingModeration}
-                          className="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                          className="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
                         >
                           <Save className="w-4 h-4 mr-2" />
                           {savingModeration ? 'Saving...' : 'Save override'}
@@ -2043,7 +2043,7 @@ const ResultsDashboard: React.FC = () => {
 
                 {/* Comparative Insight (batch context) */}
                 {selectedResult.comparative_insight && (
-                  <div className="bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-200 rounded-lg p-4">
+                  <div className="bg-gradient-to-r from-sky-50 to-primary-50 border border-sky-200 rounded-lg p-4">
                     <div className="flex items-center mb-2">
                       <span className="text-sky-700 font-semibold text-sm">Class Comparison</span>
                     </div>
@@ -2110,9 +2110,9 @@ const ResultsDashboard: React.FC = () => {
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Reflective Questions</h4>
                     <div className="space-y-3">
                       {selectedResult.reflective_questions.map((item: any, i: number) => (
-                        <div key={i} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">{item.criterion}</p>
-                          <p className="text-sm text-blue-900 italic leading-relaxed">"{item.question}"</p>
+                        <div key={i} className="bg-primary-50 border border-primary-200 rounded-lg p-4">
+                          <p className="text-xs font-semibold text-primary-600 uppercase tracking-wide mb-1">{item.criterion}</p>
+                          <p className="text-sm text-primary-900 italic leading-relaxed">"{item.question}"</p>
                         </div>
                       ))}
                     </div>
@@ -2199,14 +2199,14 @@ const ResultsDashboard: React.FC = () => {
                           className={`p-3 rounded-lg border-l-4 ${
                             correction.type === 'correction' 
                               ? 'bg-red-50 border-red-400' 
-                              : 'bg-blue-50 border-blue-400'
+                              : 'bg-primary-50 border-primary-400'
                           }`}
                         >
                           <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                               correction.type === 'correction'
                                 ? 'bg-red-100 text-red-800'
-                                : 'bg-blue-100 text-blue-800'
+                                : 'bg-primary-100 text-primary-800'
                             }`}>
                               {correction.type === 'correction' ? 'Correction' : 'Suggestion'}
                             </span>
@@ -2318,7 +2318,7 @@ const ResultsDashboard: React.FC = () => {
                   {allowDownloadResults && (
                     <button
                       onClick={() => handleDownloadPDF(selectedResult.id)}
-                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
                     >
                       <FileText className="w-4 h-4 mr-2" />
                       Download Report

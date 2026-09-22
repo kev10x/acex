@@ -617,7 +617,7 @@ const AssessmentGenerator: React.FC = () => {
                 type="button"
                 onClick={migrateLegacyHistory}
                 disabled={isMigratingHistory}
-                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
               >
                 {isMigratingHistory ? 'Migrating...' : 'Migrate local history'}
               </button>
@@ -695,10 +695,10 @@ const AssessmentGenerator: React.FC = () => {
         </details>
 
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-primary-50 rounded-lg">
             <div>
               <div className="text-sm text-gray-600">Total Assignments</div>
-              <div className="text-2xl font-bold text-blue-600">{stats.total_assignments}</div>
+              <div className="text-2xl font-bold text-primary-600">{stats.total_assignments}</div>
             </div>
             <div>
               <div className="text-sm text-gray-600">With Text</div>
@@ -810,9 +810,9 @@ const AssessmentGenerator: React.FC = () => {
                   ))}
                 </select>
                 {selectedRubric && (
-                  <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="text-sm font-semibold text-blue-900 mb-2">Selected: {selectedRubric.name}</div>
-                    <div className="text-sm text-blue-700">
+                  <div className="mt-3 p-4 bg-primary-50 border border-primary-200 rounded-lg">
+                    <div className="text-sm font-semibold text-primary-900 mb-2">Selected: {selectedRubric.name}</div>
+                    <div className="text-sm text-primary-700">
                       <div>Total Points: {selectedRubric.total_points}</div>
                       <div>Criteria: {Array.isArray(selectedRubric.criteria) ? selectedRubric.criteria.length : 0}</div>
                       {Array.isArray(selectedRubric.criteria) && selectedRubric.criteria.length > 0 && (
@@ -1067,7 +1067,7 @@ const AssessmentGenerator: React.FC = () => {
                   'zip'
                 )}
                 disabled={!!exportingFormat}
-                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
               >
                 {exportingFormat === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 SCORM
@@ -1194,9 +1194,9 @@ const AssessmentGenerator: React.FC = () => {
           )}
 
           {generatedAssessment.rubric_alignment && (
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h3 className="text-sm font-semibold text-blue-900 mb-2">Rubric Alignment</h3>
-              <p className="text-sm text-blue-700">{generatedAssessment.rubric_alignment}</p>
+            <div className="mb-6 p-4 bg-primary-50 border border-primary-200 rounded-lg">
+              <h3 className="text-sm font-semibold text-primary-900 mb-2">Rubric Alignment</h3>
+              <p className="text-sm text-primary-700">{generatedAssessment.rubric_alignment}</p>
             </div>
           )}
 
@@ -1279,10 +1279,10 @@ const AssessmentGenerator: React.FC = () => {
               <h3 className="text-lg font-semibold text-gray-800 mb-4">Suggested Rubric Criteria</h3>
               <div className="space-y-3">
                 {generatedAssessment.suggested_rubric_criteria.map((criterion, idx) => (
-                  <div key={idx} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div key={idx} className="bg-primary-50 border border-primary-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-semibold text-gray-800">{criterion.name}</span>
-                      <span className="text-sm font-medium text-blue-600">{criterion.max_points} points</span>
+                      <span className="text-sm font-medium text-primary-600">{criterion.max_points} points</span>
                     </div>
                     <p className="text-sm text-gray-700">{criterion.description}</p>
                   </div>

@@ -988,20 +988,20 @@ const ModuleOrganizer: React.FC = () => {
 
         {/* ── Modules panel ───────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-4">
-          <details className="bg-white border border-blue-200 rounded-xl shadow-sm overflow-hidden" open={trendRows.length > 0}>
-            <summary className="cursor-pointer list-none px-4 py-3 bg-blue-50 border-b border-blue-100 text-sm font-semibold text-blue-900">
+          <details className="bg-white border border-primary-200 rounded-xl shadow-sm overflow-hidden" open={trendRows.length > 0}>
+            <summary className="cursor-pointer list-none px-4 py-3 bg-primary-50 border-b border-primary-100 text-sm font-semibold text-primary-900">
               Outcome trends by student ({trendRows.length})
             </summary>
             <div className="p-3 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-xs text-blue-900 font-medium">Student view</label>
+                <label className="text-xs text-primary-900 font-medium">Student view</label>
                 <select
                   value={trendStudentId}
                   onChange={(e) => {
                     const value = e.target.value;
                     setTrendStudentId(value === 'all' ? 'all' : Number(value));
                   }}
-                  className="px-2 py-1 text-xs border border-blue-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="px-2 py-1 text-xs border border-primary-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-primary-400"
                 >
                   <option value="all">All students overview</option>
                   {trendStudents.map((student) => (
@@ -1014,7 +1014,7 @@ const ModuleOrganizer: React.FC = () => {
                   type="button"
                   onClick={handleExportOutcomeTrendsCsv}
                   disabled={trendStudentId !== 'all' && trendOutcomes.length === 0}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-blue-300 text-blue-800 bg-white hover:bg-blue-100 disabled:opacity-40"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-primary-300 text-primary-800 bg-white hover:bg-primary-100 disabled:opacity-40"
                 >
                   Export CSV
                 </button>
@@ -1022,7 +1022,7 @@ const ModuleOrganizer: React.FC = () => {
                   type="button"
                   onClick={handleExportOutcomeCriteriaCsv}
                   disabled={trendStudentId !== 'all' && trendOutcomes.length === 0}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-blue-300 text-blue-800 bg-white hover:bg-blue-100 disabled:opacity-40"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-primary-300 text-primary-800 bg-white hover:bg-primary-100 disabled:opacity-40"
                 >
                   Export Detailed CSV
                 </button>
@@ -1032,24 +1032,24 @@ const ModuleOrganizer: React.FC = () => {
                 outcomeByStudentSummary.length === 0 ? (
                   <p className="text-sm text-gray-500">No outcome trend data yet.</p>
                 ) : (
-                  <div className="overflow-x-auto rounded-lg border border-blue-100">
-                    <table className="min-w-full divide-y divide-blue-100">
-                      <thead className="bg-blue-50">
+                  <div className="overflow-x-auto rounded-lg border border-primary-100">
+                    <table className="min-w-full divide-y divide-primary-100">
+                      <thead className="bg-primary-50">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Student</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Homework cycles</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Latest score</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Avg impact</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-blue-700 uppercase tracking-wider">Total improved areas</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-primary-700 uppercase tracking-wider">Student</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-primary-700 uppercase tracking-wider">Homework cycles</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-primary-700 uppercase tracking-wider">Latest score</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-primary-700 uppercase tracking-wider">Avg impact</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-primary-700 uppercase tracking-wider">Total improved areas</th>
                         </tr>
                       </thead>
-                      <tbody className="bg-white divide-y divide-blue-50">
+                      <tbody className="bg-white divide-y divide-primary-50">
                         {outcomeByStudentSummary.map((row) => (
                           <tr key={`trend-row-${row.id}`}>
                             <td className="px-3 py-2 text-sm text-gray-800">{row.name}</td>
                             <td className="px-3 py-2 text-sm text-gray-700">{row.cycles}</td>
                             <td className="px-3 py-2 text-sm text-gray-700">{row.latestScore == null ? 'n/a' : `${row.latestScore}%`}</td>
-                            <td className={`px-3 py-2 text-sm ${row.avgImpactPercent == null ? 'text-gray-500' : row.avgImpactPercent >= 2 ? 'text-emerald-700' : row.avgImpactPercent <= -2 ? 'text-red-700' : 'text-blue-700'}`}>
+                            <td className={`px-3 py-2 text-sm ${row.avgImpactPercent == null ? 'text-gray-500' : row.avgImpactPercent >= 2 ? 'text-emerald-700' : row.avgImpactPercent <= -2 ? 'text-red-700' : 'text-primary-700'}`}>
                               {row.avgImpactPercent == null ? 'n/a' : `${row.avgImpactPercent > 0 ? '+' : ''}${row.avgImpactPercent}%`}
                             </td>
                             <td className="px-3 py-2 text-sm text-gray-700">{row.improvedTotal}</td>
@@ -1064,27 +1064,27 @@ const ModuleOrganizer: React.FC = () => {
               ) : (
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                    <div className="rounded border border-blue-100 bg-blue-50 p-2">
-                      <p className="text-[11px] text-blue-700">Homework cycles</p>
-                      <p className="text-sm font-semibold text-blue-900">{trendOutcomes.length}</p>
+                    <div className="rounded border border-primary-100 bg-primary-50 p-2">
+                      <p className="text-[11px] text-primary-700">Homework cycles</p>
+                      <p className="text-sm font-semibold text-primary-900">{trendOutcomes.length}</p>
                     </div>
-                    <div className="rounded border border-blue-100 bg-blue-50 p-2">
-                      <p className="text-[11px] text-blue-700">Latest score</p>
-                      <p className="text-sm font-semibold text-blue-900">
+                    <div className="rounded border border-primary-100 bg-primary-50 p-2">
+                      <p className="text-[11px] text-primary-700">Latest score</p>
+                      <p className="text-sm font-semibold text-primary-900">
                         {trendOutcomes[trendOutcomes.length - 1]?.latest_score_percent == null
                           ? 'n/a'
                           : `${trendOutcomes[trendOutcomes.length - 1].latest_score_percent}%`}
                       </p>
                     </div>
-                    <div className="rounded border border-blue-100 bg-blue-50 p-2">
-                      <p className="text-[11px] text-blue-700">Total improved areas</p>
-                      <p className="text-sm font-semibold text-blue-900">
+                    <div className="rounded border border-primary-100 bg-primary-50 p-2">
+                      <p className="text-[11px] text-primary-700">Total improved areas</p>
+                      <p className="text-sm font-semibold text-primary-900">
                         {trendOutcomes.reduce((sum, item) => sum + Number(item.summary?.improved_count || 0), 0)}
                       </p>
                     </div>
-                    <div className="rounded border border-blue-100 bg-blue-50 p-2">
-                      <p className="text-[11px] text-blue-700">Homework impact</p>
-                      <p className="text-sm font-semibold text-blue-900">
+                    <div className="rounded border border-primary-100 bg-primary-50 p-2">
+                      <p className="text-[11px] text-primary-700">Homework impact</p>
+                      <p className="text-sm font-semibold text-primary-900">
                         {(() => {
                           const impacts = trendOutcomes
                             .map((item) => (item.summary?.impact_percent == null ? null : Number(item.summary.impact_percent)))
@@ -1096,17 +1096,17 @@ const ModuleOrganizer: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="rounded-lg border border-blue-100 bg-white p-2">
+                  <div className="rounded-lg border border-primary-100 bg-white p-2">
                     {trendPathPoints.length < 2 ? (
                       <p className="text-xs text-gray-500">Need at least two scored cycles to draw a trend line.</p>
                     ) : (
                       <svg viewBox="0 0 300 110" className="w-full h-28">
                         <line x1="20" y1="90" x2="280" y2="90" stroke="#cbd5e1" strokeWidth="1" />
                         <line x1="20" y1="20" x2="20" y2="90" stroke="#cbd5e1" strokeWidth="1" />
-                        <polyline fill="none" stroke="#2563eb" strokeWidth="2.5" points={trendPath} />
+                        <polyline fill="none" stroke="#4f46e5" strokeWidth="2.5" points={trendPath} />
                         {trendPathPoints.map((point, idx) => (
                           <g key={`trend-point-${idx}`}>
-                            <circle cx={point.x} cy={point.y} r="3.5" fill="#2563eb" />
+                            <circle cx={point.x} cy={point.y} r="3.5" fill="#4f46e5" />
                             <text x={point.x} y={point.y - 6} textAnchor="middle" fontSize="8" fill="#1e3a8a">
                               {point.score}%
                             </text>
@@ -1117,7 +1117,7 @@ const ModuleOrganizer: React.FC = () => {
                   </div>
                   <div className="space-y-1">
                     {trendOutcomes.map((item) => (
-                      <p key={`trend-detail-${item.homework_module_id}`} className="text-xs text-blue-900">
+                      <p key={`trend-detail-${item.homework_module_id}`} className="text-xs text-primary-900">
                         {new Date(String(item.homework_created_at || '')).toLocaleDateString()} • {item.homework_module_name}
                         {' '}• Improved {item.summary?.improved_count || 0}, unchanged {item.summary?.unchanged_count || 0}, declined {item.summary?.declined_count || 0}
                         {' '}• Impact {item.summary?.impact_percent == null ? 'n/a' : `${Number(item.summary.impact_percent) > 0 ? '+' : ''}${item.summary.impact_percent}%`}
@@ -1331,7 +1331,7 @@ const ModuleOrganizer: React.FC = () => {
                         <span className={`px-2 py-0.5 text-[10px] border rounded-full ${checklist.rubricCoverage ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                           Rubric Match {checklist.rubricCoverage ? 'OK' : 'Missing'}
                         </span>
-                        <span className={`px-2 py-0.5 text-[10px] border rounded-full ${checklist.hasNotes ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        <span className={`px-2 py-0.5 text-[10px] border rounded-full ${checklist.hasNotes ? 'bg-primary-50 text-primary-700 border-primary-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                           Notes {checklist.hasNotes ? 'Added' : 'None'}
                         </span>
                         <span className={`px-2 py-0.5 text-[10px] border rounded-full ${checklist.hasPublishedContent && checklist.hasPublishedAssessment ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
@@ -1349,11 +1349,11 @@ const ModuleOrganizer: React.FC = () => {
                         )}
                       </div>
                       {outcome && (
-                        <details className="mt-2 border border-blue-200 rounded-md bg-blue-50">
-                          <summary className="cursor-pointer list-none px-2 py-1 text-xs font-medium text-blue-800">
+                        <details className="mt-2 border border-primary-200 rounded-md bg-primary-50">
+                          <summary className="cursor-pointer list-none px-2 py-1 text-xs font-medium text-primary-800">
                             Outcome tracking
                           </summary>
-                          <div className="px-2 pb-2 text-xs text-blue-900 space-y-1">
+                          <div className="px-2 pb-2 text-xs text-primary-900 space-y-1">
                             <p>
                               Attempts: {outcome.attempts_total} total, {outcome.completed_attempts} completed
                               {outcome.latest_score_percent != null ? ` • Latest score: ${outcome.latest_score_percent}%` : ''}
@@ -1390,7 +1390,7 @@ const ModuleOrganizer: React.FC = () => {
                             type="button"
                             onClick={() => handleRegenerateFromHistory(item)}
                             disabled={!!working || !item.source_module_id || !item.student?.id}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-blue-300 text-blue-800 bg-white hover:bg-blue-100 disabled:opacity-40"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-primary-300 text-primary-800 bg-white hover:bg-primary-100 disabled:opacity-40"
                           >
                             Follow-up homework
                           </button>

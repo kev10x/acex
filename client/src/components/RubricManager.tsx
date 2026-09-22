@@ -339,7 +339,7 @@ const RubricManager: React.FC = () => {
                           className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                             rubric.rubric_type === 'answer_key'
                               ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-blue-100 text-blue-800'
+                              : 'bg-primary-100 text-primary-800'
                           }`}
                         >
                           {rubric.rubric_type === 'answer_key' ? 'Answer Key / Memo' : 'Rubric'}

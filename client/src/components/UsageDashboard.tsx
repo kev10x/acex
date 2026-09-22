@@ -91,7 +91,7 @@ const UsageDashboard: React.FC = () => {
               icon={<TrendingUp className="h-5 w-5" />}
               label="Prompt tokens"
               value={fmt(data.totals.prompt_tokens)}
-              accent="text-blue-600 bg-blue-50"
+              accent="text-primary-600 bg-primary-50"
             />
             <StatCard
               icon={<FileText className="h-5 w-5" />}

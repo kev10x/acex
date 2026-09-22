@@ -191,7 +191,7 @@ const WORKSPACE_META: Record<WorkspaceType, { label: string; description: string
     label: 'Marking Workspace',
     description: 'The core lecturer journey: upload, prepare memorandums, mark, review, and export.',
     icon: BarChart3,
-    accent: 'bg-blue-50 text-blue-700 border-blue-200'
+    accent: 'bg-primary-50 text-primary-700 border-primary-200'
   },
   student: {
     label: 'Student Workspace',
