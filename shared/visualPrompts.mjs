@@ -1,11 +1,14 @@
 // Single source of truth for classifying a section visual and building its default
-// prompt text. Consumed by both the server (contentService.js, via require) and the
-// client (ContentGenerator.tsx, via import) so the "auto" prompt shown in the editor
-// always matches what the backend uses when repairing/normalizing legacy content.
-// Kept as plain CommonJS (no ESM `export`) so Node's require() and the client bundler
-// can both load it without a build step.
+// prompt text. Consumed by both the server (contentService.js, via require(esm) —
+// Node 22.12+/23.x can require() a real ES module directly) and the client
+// (ContentGenerator.tsx, via a native ESM import) so the "auto" prompt shown in the
+// editor always matches what the backend uses when repairing/normalizing legacy
+// content. Written as genuine ESM (not CommonJS) because Rollup/Vite's commonjs
+// interop only kicks in for node_modules-style dependencies, not project source
+// files — a CJS module.exports here silently produces zero named exports when
+// bundled, even with per-property assignment.
 
-function inferVisualKind(visual) {
+export function inferVisualKind(visual) {
   const rawKind = String(visual?.kind || '').trim().toLowerCase();
   if (['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(rawKind)) {
     return 'illustration';
@@ -20,7 +23,7 @@ function inferVisualKind(visual) {
   return 'image';
 }
 
-function buildVisualPromptFromContext(visual, section = {}) {
+export function buildVisualPromptFromContext(visual, section = {}) {
   const kind = inferVisualKind(visual);
   const parts = [
     section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
@@ -34,9 +37,3 @@ function buildVisualPromptFromContext(visual, section = {}) {
   ].filter(Boolean);
   return parts.join(' ').trim().slice(0, 360);
 }
-
-// Per-property assignment (rather than a single `module.exports = {...}` object)
-// so bundlers that statically analyze CJS for named exports (e.g. Rollup/Vite's
-// commonjs plugin) can resolve `import { x } from` without a default-export shim.
-module.exports.inferVisualKind = inferVisualKind;
-module.exports.buildVisualPromptFromContext = buildVisualPromptFromContext;

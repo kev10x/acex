@@ -8,7 +8,7 @@ const path = require('path');
 const aiService = require('./aiService');
 const aiConfig = require('../config/ai-config');
 const { buildEducationLevelPromptBlock, buildAcademicWritingGuidance } = require('./educationLevelService');
-const { inferVisualKind, buildVisualPromptFromContext } = require('../../shared/visualPrompts');
+const { inferVisualKind, buildVisualPromptFromContext } = require('../../shared/visualPrompts.mjs');
 
 const OPENAI_IMAGE_MODEL = 'gpt-image-1';
 const OPENAI_IMAGE_SIZE = '1024x1024';

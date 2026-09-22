@@ -10,7 +10,7 @@ import {
   plainTextToRichHtml,
   richHtmlToPlainText,
 } from '../utils/richText';
-import { inferVisualKind, buildVisualPromptFromContext } from '../../../shared/visualPrompts';
+import { inferVisualKind, buildVisualPromptFromContext } from '../../../shared/visualPrompts.mjs';
 import { useContentGenerationProgress } from '../hooks/useContentGenerationProgress';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
