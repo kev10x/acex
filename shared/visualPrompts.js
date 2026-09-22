@@ -35,4 +35,8 @@ function buildVisualPromptFromContext(visual, section = {}) {
   return parts.join(' ').trim().slice(0, 360);
 }
 
-module.exports = { inferVisualKind, buildVisualPromptFromContext };
+// Per-property assignment (rather than a single `module.exports = {...}` object)
+// so bundlers that statically analyze CJS for named exports (e.g. Rollup/Vite's
+// commonjs plugin) can resolve `import { x } from` without a default-export shim.
+module.exports.inferVisualKind = inferVisualKind;
+module.exports.buildVisualPromptFromContext = buildVisualPromptFromContext;

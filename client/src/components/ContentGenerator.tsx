@@ -10,13 +10,8 @@ import {
   plainTextToRichHtml,
   richHtmlToPlainText,
 } from '../utils/richText';
-import sharedVisualPrompts from '../../../shared/visualPrompts';
+import { inferVisualKind, buildVisualPromptFromContext } from '../../../shared/visualPrompts';
 import { useContentGenerationProgress } from '../hooks/useContentGenerationProgress';
-
-const { inferVisualKind, buildVisualPromptFromContext } = sharedVisualPrompts as {
-  inferVisualKind: (visual: any) => 'illustration' | 'image';
-  buildVisualPromptFromContext: (visual: any, section: any) => string;
-};
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const PPTX_TEMPLATE_MAX_BYTES = 30 * 1024 * 1024;
