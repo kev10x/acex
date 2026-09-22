@@ -57,7 +57,7 @@ const query = async (text, params) => {
       res = await db.query(text, params);
     }
     const duration = Date.now() - start;
-    if (process.env.NODE_ENV !== 'production') console.log('Executed query', { text: text.substring(0, 80), duration, rows: res.rowCount });
+    console.log('Executed query', { text, duration, rows: res.rowCount });
     return res;
   } catch (error) {
     console.error('Database query error:', error);
@@ -602,7 +602,49 @@ const initDatabase = async () => {
           FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
         )
       `);
-      
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_series (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          rubric_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          student_name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_submissions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          series_id INT NOT NULL,
+          revision_number INT NOT NULL,
+          assignment_id INT NOT NULL,
+          marking_result_id INT NULL,
+          progress_score DECIMAL(5,2) DEFAULT 0,
+          comparison_json LONGTEXT NULL,
+          uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (series_id) REFERENCES revision_series(id) ON DELETE CASCADE,
+          FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+          FOREIGN KEY (marking_result_id) REFERENCES marking_results(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS user_sessions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          jti VARCHAR(36) NOT NULL,
+          ip_address VARCHAR(45) NULL,
+          user_agent TEXT NULL,
+          is_active TINYINT(1) DEFAULT 1,
+          logged_in_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          UNIQUE KEY uq_user_sessions_jti (jti),
+          INDEX idx_user_sessions_user (user_id)
+        )
+      `);
+
       // Migrate existing tables: Add new columns if they don't exist
       try {
         const orgIdCheck = await query(`
@@ -898,6 +940,30 @@ const initDatabase = async () => {
         `);
         if ((markingJobLastStatusCheck.rows?.[0]?.count || markingJobLastStatusCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_jobs ADD COLUMN last_status_at TIMESTAMP NULL`);
+        }
+
+        const markingJobStrictnessCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'strictness_level'
+        `);
+        if ((markingJobStrictnessCheck.rows?.[0]?.count || markingJobStrictnessCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN strictness_level VARCHAR(50) DEFAULT 'strict'`);
+        }
+
+        const markingJobFeedbackTypeCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'feedback_type'
+        `);
+        if ((markingJobFeedbackTypeCheck.rows?.[0]?.count || markingJobFeedbackTypeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_type VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const markingJobFeedbackVerbosityCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_jobs' AND column_name = 'feedback_verbosity'
+        `);
+        if ((markingJobFeedbackVerbosityCheck.rows?.[0]?.count || markingJobFeedbackVerbosityCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_verbosity VARCHAR(50) DEFAULT 'standard'`);
         }
 
         const publishedAssessmentBatchCheck = await query(`
@@ -1342,6 +1408,175 @@ const initDatabase = async () => {
         `);
         if ((criterionFeedbackTypesCheck.rows?.[0]?.count || criterionFeedbackTypesCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSON`);
+        }
+
+        const customNameCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'custom_name'
+        `);
+        if ((customNameCheck.rows?.[0]?.count || customNameCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN custom_name VARCHAR(500) DEFAULT NULL`);
+        }
+
+        const overallConfidenceCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'overall_confidence'
+        `);
+        if ((overallConfidenceCheck.rows?.[0]?.count || overallConfidenceCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN overall_confidence INT DEFAULT NULL`);
+        }
+
+        const confidenceLevelCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'confidence_level'
+        `);
+        if ((confidenceLevelCheck.rows?.[0]?.count || confidenceLevelCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN confidence_level VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const needsReviewCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'needs_review'
+        `);
+        if ((needsReviewCheck.rows?.[0]?.count || needsReviewCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN needs_review TINYINT(1) DEFAULT 0`);
+        }
+
+        const minCriterionConfidenceCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'min_criterion_confidence'
+        `);
+        if ((minCriterionConfidenceCheck.rows?.[0]?.count || minCriterionConfidenceCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN min_criterion_confidence INT DEFAULT NULL`);
+        }
+
+        const hasLowCriterionConfidenceCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'has_low_criterion_confidence'
+        `);
+        if ((hasLowCriterionConfidenceCheck.rows?.[0]?.count || hasLowCriterionConfidenceCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence TINYINT(1) DEFAULT 0`);
+        }
+
+        const mediaTypeCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_type'
+        `);
+        if ((mediaTypeCheck.rows?.[0]?.count || mediaTypeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_type VARCHAR(20) NULL`);
+        }
+
+        const mediaDurationCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_duration_seconds'
+        `);
+        if ((mediaDurationCheck.rows?.[0]?.count || mediaDurationCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_duration_seconds INT NULL`);
+        }
+
+        const mediaFramePathsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_frame_paths'
+        `);
+        if ((mediaFramePathsCheck.rows?.[0]?.count || mediaFramePathsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_frame_paths LONGTEXT NULL`);
+        }
+
+        const mediaTranscriptSegmentsCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_transcript_segments'
+        `);
+        if ((mediaTranscriptSegmentsCheck.rows?.[0]?.count || mediaTranscriptSegmentsCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_transcript_segments LONGTEXT NULL`);
+        }
+
+        const mediaProcessingJobsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'media_processing_jobs'
+        `);
+        if ((mediaProcessingJobsTableCheck.rows?.[0]?.count || mediaProcessingJobsTableCheck?.[0]?.count || 0) === 0) {
+          console.log('Creating media_processing_jobs table...');
+          await query(`
+            CREATE TABLE media_processing_jobs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              assignment_id INT NOT NULL UNIQUE,
+              user_id INT NOT NULL,
+              media_type VARCHAR(20) NOT NULL,
+              status VARCHAR(50) DEFAULT 'queued',
+              stage VARCHAR(50) NULL,
+              error_message TEXT NULL,
+              retry_count INT DEFAULT 0,
+              max_retries INT DEFAULT 3,
+              next_retry_at TIMESTAMP NULL,
+              started_at TIMESTAMP NULL,
+              completed_at TIMESTAMP NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+          `);
+        }
+
+        const revisionSeriesTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'revision_series'
+        `);
+        if ((revisionSeriesTableCheck.rows?.[0]?.count || revisionSeriesTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_series (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              rubric_id INT NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              student_name VARCHAR(255) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+            )
+          `);
+        }
+        const revisionSubmissionsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'revision_submissions'
+        `);
+        if ((revisionSubmissionsTableCheck.rows?.[0]?.count || revisionSubmissionsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_submissions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              series_id INT NOT NULL,
+              revision_number INT NOT NULL,
+              assignment_id INT NOT NULL,
+              marking_result_id INT NULL,
+              progress_score DECIMAL(5,2) DEFAULT 0,
+              comparison_json LONGTEXT NULL,
+              uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (series_id) REFERENCES revision_series(id) ON DELETE CASCADE,
+              FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+              FOREIGN KEY (marking_result_id) REFERENCES marking_results(id) ON DELETE SET NULL
+            )
+          `);
+        }
+        const userSessionsTableCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.TABLES
+          WHERE table_schema = DATABASE() AND table_name = 'user_sessions'
+        `);
+        if ((userSessionsTableCheck.rows?.[0]?.count || userSessionsTableCheck?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE user_sessions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              jti VARCHAR(36) NOT NULL,
+              ip_address VARCHAR(45) NULL,
+              user_agent TEXT NULL,
+              is_active TINYINT(1) DEFAULT 1,
+              logged_in_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+              UNIQUE KEY uq_user_sessions_jti (jti),
+              INDEX idx_user_sessions_user (user_id)
+            )
+          `);
         }
       } catch (err) {
         console.error('Error migrating tables:', err.message);
@@ -1852,7 +2087,43 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_series (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          student_name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS revision_submissions (
+          id SERIAL PRIMARY KEY,
+          series_id INTEGER NOT NULL REFERENCES revision_series(id) ON DELETE CASCADE,
+          revision_number INTEGER NOT NULL,
+          assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+          marking_result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+          progress_score DECIMAL(5,2) DEFAULT 0,
+          comparison_json TEXT NULL,
+          uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS user_sessions (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          jti VARCHAR(36) NOT NULL UNIQUE,
+          ip_address VARCHAR(45) NULL,
+          user_agent TEXT NULL,
+          is_active BOOLEAN DEFAULT TRUE,
+          logged_in_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_jti ON user_sessions(jti)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)`);
+
       // Migrate existing tables: Add new columns if they don't exist (PostgreSQL)
       try {
         const orgIdCheck = await query(`
@@ -2098,6 +2369,30 @@ const initDatabase = async () => {
         `);
         if ((markingJobLastStatusCheckPg.rows?.[0]?.count || markingJobLastStatusCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_jobs ADD COLUMN last_status_at TIMESTAMP NULL`);
+        }
+
+        const markingJobStrictnessCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'strictness_level'
+        `);
+        if ((markingJobStrictnessCheckPg.rows?.[0]?.count || markingJobStrictnessCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN strictness_level VARCHAR(50) DEFAULT 'strict'`);
+        }
+
+        const markingJobFeedbackTypeCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'feedback_type'
+        `);
+        if ((markingJobFeedbackTypeCheckPg.rows?.[0]?.count || markingJobFeedbackTypeCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_type VARCHAR(50) DEFAULT 'standard'`);
+        }
+
+        const markingJobFeedbackVerbosityCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_jobs' AND column_name = 'feedback_verbosity'
+        `);
+        if ((markingJobFeedbackVerbosityCheckPg.rows?.[0]?.count || markingJobFeedbackVerbosityCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_jobs ADD COLUMN feedback_verbosity VARCHAR(50) DEFAULT 'standard'`);
         }
 
         const publishedAssessmentBatchCheckPg = await query(`
@@ -2503,6 +2798,158 @@ const initDatabase = async () => {
         `);
         if ((criterionFeedbackTypesCheckPg.rows?.[0]?.count || criterionFeedbackTypesCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN criterion_feedback_types JSONB`);
+        }
+
+        const overallConfidenceCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'overall_confidence'
+        `);
+        if ((overallConfidenceCheckPg.rows?.[0]?.count || overallConfidenceCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN overall_confidence INTEGER DEFAULT NULL`);
+        }
+
+        const confidenceLevelCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'confidence_level'
+        `);
+        if ((confidenceLevelCheckPg.rows?.[0]?.count || confidenceLevelCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN confidence_level VARCHAR(20) DEFAULT NULL`);
+        }
+
+        const needsReviewCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'needs_review'
+        `);
+        if ((needsReviewCheckPg.rows?.[0]?.count || needsReviewCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN needs_review BOOLEAN DEFAULT FALSE`);
+        }
+
+        const minCriterionConfidenceCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'min_criterion_confidence'
+        `);
+        if ((minCriterionConfidenceCheckPg.rows?.[0]?.count || minCriterionConfidenceCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN min_criterion_confidence INTEGER DEFAULT NULL`);
+        }
+
+        const hasLowCriterionConfidenceCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'has_low_criterion_confidence'
+        `);
+        if ((hasLowCriterionConfidenceCheckPg.rows?.[0]?.count || hasLowCriterionConfidenceCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence BOOLEAN DEFAULT FALSE`);
+        }
+
+        const mediaTypeCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'assignments' AND column_name = 'media_type'
+        `);
+        if ((mediaTypeCheckPg.rows?.[0]?.count || mediaTypeCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_type VARCHAR(20) NULL`);
+        }
+
+        const mediaDurationCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'assignments' AND column_name = 'media_duration_seconds'
+        `);
+        if ((mediaDurationCheckPg.rows?.[0]?.count || mediaDurationCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_duration_seconds INTEGER NULL`);
+        }
+
+        const mediaFramePathsCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'assignments' AND column_name = 'media_frame_paths'
+        `);
+        if ((mediaFramePathsCheckPg.rows?.[0]?.count || mediaFramePathsCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_frame_paths TEXT NULL`);
+        }
+
+        const mediaTranscriptSegmentsCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'assignments' AND column_name = 'media_transcript_segments'
+        `);
+        if ((mediaTranscriptSegmentsCheckPg.rows?.[0]?.count || mediaTranscriptSegmentsCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE assignments ADD COLUMN media_transcript_segments TEXT NULL`);
+        }
+
+        const mediaProcessingJobsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'media_processing_jobs'
+        `);
+        if ((mediaProcessingJobsTableCheckPg.rows?.[0]?.count || mediaProcessingJobsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE media_processing_jobs (
+              id SERIAL PRIMARY KEY,
+              assignment_id INTEGER NOT NULL UNIQUE REFERENCES assignments(id) ON DELETE CASCADE,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              media_type VARCHAR(20) NOT NULL,
+              status VARCHAR(50) DEFAULT 'queued',
+              stage VARCHAR(50) NULL,
+              error_message TEXT NULL,
+              retry_count INTEGER DEFAULT 0,
+              max_retries INTEGER DEFAULT 3,
+              next_retry_at TIMESTAMP NULL,
+              started_at TIMESTAMP NULL,
+              completed_at TIMESTAMP NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+        }
+
+        const revisionSeriesTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'revision_series'
+        `);
+        if ((revisionSeriesTableCheckPg.rows?.[0]?.count || revisionSeriesTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_series (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
+              name VARCHAR(255) NOT NULL,
+              student_name VARCHAR(255) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+        }
+        const revisionSubmissionsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'revision_submissions'
+        `);
+        if ((revisionSubmissionsTableCheckPg.rows?.[0]?.count || revisionSubmissionsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE revision_submissions (
+              id SERIAL PRIMARY KEY,
+              series_id INTEGER NOT NULL REFERENCES revision_series(id) ON DELETE CASCADE,
+              revision_number INTEGER NOT NULL,
+              assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+              marking_result_id INTEGER NULL REFERENCES marking_results(id) ON DELETE SET NULL,
+              progress_score DECIMAL(5,2) DEFAULT 0,
+              comparison_json TEXT NULL,
+              uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+        }
+        const userSessionsTableCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.tables
+          WHERE table_name = 'user_sessions'
+        `);
+        if ((userSessionsTableCheckPg.rows?.[0]?.count || userSessionsTableCheckPg?.[0]?.count || 0) === 0) {
+          await query(`
+            CREATE TABLE user_sessions (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              jti VARCHAR(36) NOT NULL UNIQUE,
+              ip_address VARCHAR(45) NULL,
+              user_agent TEXT NULL,
+              is_active BOOLEAN DEFAULT TRUE,
+              logged_in_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await query(`CREATE INDEX idx_user_sessions_jti ON user_sessions(jti)`);
+          await query(`CREATE INDEX idx_user_sessions_user ON user_sessions(user_id)`);
         }
       } catch (err) {
         console.log('Note: Migration may have failed (columns may already exist):', err.message);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle, RotateCcw, Upload, CheckCircle, AlertCircle } from 'lucide-react';
-import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob } from '../services/api';
+import { FolderPlus, Folder, Edit2, Trash2, X, Plus, Users, CalendarClock, PlayCircle, RotateCcw, Upload, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { batchesAPI, uploadAPI, rubricsAPI, Batch, Assignment, Rubric, MarkingJob, BatchSummary } from '../services/api';
 
 const BatchManager: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -21,6 +21,13 @@ const BatchManager: React.FC = () => {
   const [jobs, setJobs] = useState<MarkingJob[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | ''>('');
   const [scheduledFor, setScheduledFor] = useState('');
+  const [scheduleStrictness, setScheduleStrictness] = useState<'very_strict' | 'strict' | 'moderate' | 'lenient'>('strict');
+  const [scheduleFeedbackType, setScheduleFeedbackType] = useState<'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie'>('standard');
+  const [scheduleFeedbackVerbosity, setScheduleFeedbackVerbosity] = useState<'brief' | 'standard' | 'comprehensive'>('standard');
+  const [summaryBatch, setSummaryBatch] = useState<Batch | null>(null);
+  const [summary, setSummary] = useState<BatchSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState<Batch | null>(null);
   const [uploadResults, setUploadResults] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -40,6 +47,23 @@ const BatchManager: React.FC = () => {
     }, 5000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const openSummary = async (batch: Batch) => {
+    setSummaryBatch(batch);
+    setSummary(null);
+    setSummaryError(null);
+    setSummaryLoading(true);
+    try {
+      const res = await batchesAPI.getBatchSummary(batch.id);
+      setSummary(res.data);
+    } catch (err: any) {
+      setSummaryError(err.response?.data?.error || 'Failed to load marking summary');
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const fmt = (n: number | null | undefined, digits = 1) => (n == null ? '-' : Number(n).toFixed(digits).replace(/\.0+$/, ''));
 
   const fetchData = async () => {
     try {
@@ -173,12 +197,18 @@ const BatchManager: React.FC = () => {
       setError(null);
       await batchesAPI.scheduleMarking(showScheduleModal.id, {
         rubric_id: Number(selectedRubricId),
-        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : undefined
+        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
+        strictness_level: scheduleStrictness,
+        feedback_type: scheduleFeedbackType,
+        feedback_verbosity: scheduleFeedbackVerbosity
       });
       setSuccess('Batch marking job scheduled');
       setShowScheduleModal(null);
       setSelectedRubricId('');
       setScheduledFor('');
+      setScheduleStrictness('strict');
+      setScheduleFeedbackType('standard');
+      setScheduleFeedbackVerbosity('standard');
       fetchData();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to schedule marking');
@@ -266,6 +296,9 @@ const BatchManager: React.FC = () => {
     setShowScheduleModal(batch);
     setSelectedRubricId('');
     setScheduledFor('');
+    setScheduleStrictness('strict');
+    setScheduleFeedbackType('standard');
+    setScheduleFeedbackVerbosity('standard');
   };
 
   const getUnassignedAssignments = () => {
@@ -426,6 +459,14 @@ const BatchManager: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                   <button
+                    onClick={() => openSummary(batch)}
+                    className="text-gray-400 hover:text-primary-600"
+                    title="Marking summary"
+                    aria-label="Marking summary"
+                  >
+                    <Info className="h-5 w-5" />
+                  </button>
+                  <button
                     onClick={() => openEditModal(batch)}
                     className="text-gray-400 hover:text-gray-600"
                     title="Edit batch"
@@ -491,6 +532,101 @@ const BatchManager: React.FC = () => {
               </button>
             </div>
           ))}
+          </div>
+        </div>
+      )}
+
+      {/* Marking Summary Modal */}
+      {summaryBatch && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-10 mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white mb-10">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Marking summary: {summaryBatch.name}</h3>
+              <button onClick={() => setSummaryBatch(null)} className="text-gray-400 hover:text-gray-600" aria-label="Close">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {summaryLoading && <p className="text-sm text-gray-500 py-8 text-center">Loading summary...</p>}
+            {summaryError && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">{summaryError}</div>}
+
+            {summary && !summaryLoading && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="p-3 rounded border border-green-200 bg-green-50">
+                    <div className="text-2xl font-semibold text-green-700">{summary.counts.marked}</div>
+                    <div className="text-xs text-green-700">Successfully marked</div>
+                  </div>
+                  <div className="p-3 rounded border border-red-200 bg-red-50">
+                    <div className="text-2xl font-semibold text-red-700">{summary.counts.failed}</div>
+                    <div className="text-xs text-red-700">Failed</div>
+                  </div>
+                  <div className="p-3 rounded border border-gray-200 bg-gray-50">
+                    <div className="text-2xl font-semibold text-gray-700">{summary.counts.unmarked + summary.counts.processing}</div>
+                    <div className="text-xs text-gray-600">Not yet marked{summary.counts.processing > 0 ? ` (${summary.counts.processing} in progress)` : ''}</div>
+                  </div>
+                  <div className="p-3 rounded border border-gray-200 bg-white">
+                    <div className="text-2xl font-semibold text-gray-900">{summary.counts.total}</div>
+                    <div className="text-xs text-gray-600">Total scripts</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  {[
+                    ['Average score', fmt(summary.stats.average_score, 2)],
+                    ['Average %', summary.stats.average_percent == null ? '-' : `${fmt(summary.stats.average_percent)}%`],
+                    ['Median', fmt(summary.stats.median_score, 2)],
+                    ['Highest', fmt(summary.stats.highest_score, 2)],
+                    ['Lowest', fmt(summary.stats.lowest_score, 2)]
+                  ].map(([label, value]) => (
+                    <div key={label} className="p-3 rounded border border-gray-200">
+                      <div className="text-lg font-semibold text-gray-900">{value}</div>
+                      <div className="text-xs text-gray-500">{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {summary.scripts.length === 0 ? (
+                  <p className="text-sm text-gray-500">This batch has no scripts yet.</p>
+                ) : (
+                  <div className="overflow-x-auto border border-gray-200 rounded">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2">Student / file</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2 text-right">Score</th>
+                          <th className="px-3 py-2 text-right">%</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {summary.scripts.map((s) => (
+                          <tr key={s.assignment_id} className={s.status === 'failed' ? 'bg-red-50' : ''}>
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-gray-900">{s.student_name}</div>
+                              <div className="text-xs text-gray-500">{s.filename}</div>
+                              {s.failure_reason && <div className="text-xs text-red-600 mt-0.5">{s.failure_reason}</div>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                                s.status === 'marked' ? 'bg-green-100 text-green-700' :
+                                s.status === 'failed' ? 'bg-red-100 text-red-700' :
+                                s.status === 'processing' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>{s.status === 'unmarked' ? 'not marked' : s.status}</span>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {s.score == null ? '-' : `${fmt(s.score, 2)}${s.total_points ? ` / ${fmt(s.total_points, 2)}` : ''}`}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">{s.percent == null ? '-' : `${fmt(s.percent)}%`}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -808,7 +944,7 @@ const BatchManager: React.FC = () => {
       {/* Schedule Marking Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-10 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-900 flex items-center">
                 <CalendarClock className="h-5 w-5 mr-2 text-indigo-600" />
@@ -819,6 +955,9 @@ const BatchManager: React.FC = () => {
                   setShowScheduleModal(null);
                   setSelectedRubricId('');
                   setScheduledFor('');
+                  setScheduleStrictness('strict');
+                  setScheduleFeedbackType('standard');
+                  setScheduleFeedbackVerbosity('standard');
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -854,9 +993,61 @@ const BatchManager: React.FC = () => {
                 />
                 <p className="text-xs text-gray-500 mt-1">Leave empty to start immediately.</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Marking Strictness</label>
+                <select
+                  value={scheduleStrictness}
+                  onChange={(e) => setScheduleStrictness(e.target.value as typeof scheduleStrictness)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="very_strict">Very Strict</option>
+                  <option value="strict">Strict</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="lenient">Lenient</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {scheduleStrictness === 'very_strict' && 'Extremely rigorous — expect near-perfect work'}
+                  {scheduleStrictness === 'strict' && 'High standards — award marks only when criteria are fully met'}
+                  {scheduleStrictness === 'moderate' && 'Fair but firm — allow minor gaps'}
+                  {scheduleStrictness === 'lenient' && 'Supportive — focus on learning and improvement'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Type</label>
+                <select
+                  value={scheduleFeedbackType}
+                  onChange={(e) => setScheduleFeedbackType(e.target.value as typeof scheduleFeedbackType)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="prescriptive">Prescriptive (table)</option>
+                  <option value="reflective">Reflective (questions)</option>
+                  <option value="critical">Critical Analysis (table)</option>
+                  <option value="genie">Genie (AI rewrite)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {scheduleFeedbackType === 'standard' && 'Comprehensive narrative feedback per criterion'}
+                  {scheduleFeedbackType === 'prescriptive' && 'Table of exact issues to fix, with location and priority'}
+                  {scheduleFeedbackType === 'reflective' && 'Thought-provoking questions to prompt self-reflection'}
+                  {scheduleFeedbackType === 'critical' && 'Table of weaknesses with evidence and severity rating'}
+                  {scheduleFeedbackType === 'genie' && 'AI-rewritten corrected version of weak sections'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Verbosity</label>
+                <select
+                  value={scheduleFeedbackVerbosity}
+                  onChange={(e) => setScheduleFeedbackVerbosity(e.target.value as typeof scheduleFeedbackVerbosity)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="brief">Brief</option>
+                  <option value="standard">Standard</option>
+                  <option value="comprehensive">Comprehensive</option>
+                </select>
+              </div>
               <div className="flex justify-end space-x-3 pt-2">
                 <button
-                  onClick={() => setShowScheduleModal(null)}
+                  onClick={() => { setShowScheduleModal(null); setScheduleStrictness('strict'); setScheduleFeedbackType('standard'); setScheduleFeedbackVerbosity('standard'); }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancel

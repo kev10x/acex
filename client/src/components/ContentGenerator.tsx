@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images, SlidersHorizontal } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, pptxJobsAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, GenerationJobItem, PptxJobProgress, getApiErrorMessage } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, pptxJobsAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, PptxJobProgress, getApiErrorMessage } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -10,6 +10,8 @@ import {
   plainTextToRichHtml,
   richHtmlToPlainText,
 } from '../utils/richText';
+import { inferVisualKind, buildVisualPromptFromContext } from '../../../shared/visualPrompts';
+import { useContentGenerationProgress } from '../hooks/useContentGenerationProgress';
 
 const LEGACY_CONTENT_HISTORY_KEY = 'content_generator_history_v1';
 const PPTX_TEMPLATE_MAX_BYTES = 30 * 1024 * 1024;
@@ -23,24 +25,9 @@ const CONTEXTUAL_LAYOUT_OPTIONS: Array<{ value: ContextualBlockLayout; label: st
   { value: 'business', label: 'Business' },
   { value: 'plain', label: 'Plain' },
 ];
-const isDiagramVisual = (visual: any) =>
-  ['illustration', 'diagram', 'flowchart', 'graph', 'graphs', 'chart'].includes(String(visual?.kind || '').trim().toLowerCase());
+const isDiagramVisual = (visual: any) => inferVisualKind(visual) === 'illustration';
 const hasVisualSource = (visual: any) =>
   !!String(visual?.image_url || '').trim() || isDiagramVisual(visual);
-const buildVisualPromptFromContext = (visual: any, section: any) => {
-  const kind = isDiagramVisual(visual) ? 'illustration' : 'image';
-  const parts = [
-    section?.heading || section?.title ? `Section: ${String(section.heading || section.title).trim()}.` : '',
-    visual?.title ? `Visual title: ${String(visual.title).trim()}.` : '',
-    visual?.alt_text ? `Description: ${String(visual.alt_text).trim()}.` : '',
-    section?.support ? `Key idea: ${String(section.support).trim()}.` : '',
-    section?.body ? `Lesson context: ${String(section.body).replace(/\s+/g, ' ').slice(0, 280)}.` : '',
-    kind === 'illustration'
-      ? 'Create a clean educational diagram or infographic for this concept.'
-      : 'Create a clean educational supporting image for this concept.',
-  ].filter(Boolean);
-  return parts.join(' ').trim().slice(0, 360);
-};
 const shouldAutoSyncVisualPrompt = (visual: any, section: any) => {
   const currentPrompt = String(visual?.prompt || '').trim();
   if (!currentPrompt) return true;
@@ -168,7 +155,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [generationTrace, setGenerationTrace] = useState<GenerationTrace | null>(null);
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [backgroundGenerationNotice, setBackgroundGenerationNotice] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [myContent, setMyContent] = useState<PublishedContentItem[]>([]);
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
@@ -198,19 +184,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [loadingPublishedContentId, setLoadingPublishedContentId] = useState<number | null>(null);
   const [regeneratingVisualKey, setRegeneratingVisualKey] = useState<string | null>(null);
-  const [generationProgress, setGenerationProgress] = useState<{
-    active: boolean;
-    task: 'content' | 'visual' | 'mascot';
-    percent: number;
-    label: string;
-    detail: string;
-  }>({
-    active: false,
-    task: 'content',
-    percent: 0,
-    label: '',
-    detail: '',
-  });
   const [selectedVisualKey, setSelectedVisualKey] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'content' | 'slideshow'>('content');
   const [slideshowSection, setSlideshowSection] = useState(0);
@@ -221,13 +194,6 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [isUploadingTopicsFile, setIsUploadingTopicsFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const topicsFileInputRef = useRef<HTMLInputElement>(null);
-  const recoveredContentJobIdRef = useRef<number | null>(null);
-  const generationProgressTimerRef = useRef<number | null>(null);
-  const generationProgressHideTimerRef = useRef<number | null>(null);
-  const generationJobPollTimerRef = useRef<number | null>(null);
-  const activeGenerationJobIdRef = useRef<number | null>(null);
-  const generationJobPollBusyRef = useRef(false);
-  const jobStreamCleanupRef = useRef<(() => void) | null>(null);
 
   const sectionFigures = useMemo<{ visual: any; figNum: number; visualIndex: number; figureKey: string }[][]>(() => {
     const sections = generatedContent?.sections || [];
@@ -328,291 +294,44 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     loadModules();
   }, []);
 
-  const clearGenerationProgressTimer = () => {
-    if (generationProgressTimerRef.current) {
-      window.clearInterval(generationProgressTimerRef.current);
-      generationProgressTimerRef.current = null;
-    }
-    if (generationProgressHideTimerRef.current) {
-      window.clearTimeout(generationProgressHideTimerRef.current);
-      generationProgressHideTimerRef.current = null;
-    }
+  // Adopts a content-generation job's result once useContentGenerationProgress finds
+  // it completed in the background (e.g. the user navigated away and came back).
+  // Kept synchronous (addToHistory below is fire-and-forget) so the recovered content
+  // appears immediately and the progress bar can complete right after, same as before
+  // this was split out of this component into the hook.
+  const handleJobRecovered = (rawContent: GeneratedContent, trace: GenerationTrace | null) => {
+    const recoveredContent = withGenerationSettings(rawContent);
+    setGeneratedContentTracked(recoveredContent);
+    setGenerationTrace(trace);
+    setActiveSectionIndex(0);
+    setStudioStep('polish');
+    setIsGeneratingTracked(false);
+    setError(null);
+    addToHistory(recoveredContent, trace);
   };
 
-  const clearGenerationJobPoller = () => {
-    if (generationJobPollTimerRef.current) {
-      window.clearInterval(generationJobPollTimerRef.current);
-      generationJobPollTimerRef.current = null;
-    }
-    generationJobPollBusyRef.current = false;
-    if (jobStreamCleanupRef.current) {
-      jobStreamCleanupRef.current();
-      jobStreamCleanupRef.current = null;
-    }
-  };
-
-  const startGenerationProgress = (task: 'content' | 'visual' | 'mascot', opts?: { includeImages?: boolean; includeMascot?: boolean }) => {
-    clearGenerationProgressTimer();
-    const includeHeavyVisuals = !!opts?.includeImages || !!opts?.includeMascot;
-    const cap = task === 'content' ? 94 : 90;
-    const startLabel = task === 'content'
-      ? 'Preparing generation request'
-      : task === 'visual'
-        ? 'Preparing visual regeneration'
-        : 'Preparing mascot regeneration';
-    const startDetail = task === 'content'
-      ? 'Building prompt and context'
-      : 'Gathering section context';
-
-    setGenerationProgress({
-      active: true,
-      task,
-      percent: 6,
-      label: startLabel,
-      detail: startDetail,
-    });
-
-    generationProgressTimerRef.current = window.setInterval(() => {
-      setGenerationProgress((prev) => {
-        if (!prev.active || prev.task !== task) return prev;
-        if (prev.percent >= cap) return prev;
-
-        const deltaBase = task === 'content' ? (includeHeavyVisuals ? 1.8 : 2.6) : 3.2;
-        const slowdown = prev.percent > 75 ? 0.45 : prev.percent > 55 ? 0.7 : 1;
-        const jitter = Math.random() * 0.9;
-        const nextPercent = Math.min(cap, prev.percent + (deltaBase + jitter) * slowdown);
-
-        let label = prev.label;
-        let detail = prev.detail;
-        if (task === 'content') {
-          if (nextPercent < 22) {
-            label = 'Preparing generation request';
-            detail = 'Building prompt and context';
-          } else if (nextPercent < 52) {
-            label = 'Generating sections';
-            detail = 'Writing content and quiz';
-          } else if (nextPercent < 80) {
-            label = includeHeavyVisuals ? 'Generating visuals' : 'Finalizing response';
-            detail = includeHeavyVisuals ? 'Creating figures and images' : 'Formatting the lesson output';
-          } else {
-            label = 'Finalizing response';
-            detail = 'Saving and rendering generated content';
-          }
-        } else if (task === 'visual') {
-          if (nextPercent < 45) {
-            label = 'Regenerating visual';
-            detail = 'Sending visual prompt to image model';
-          } else {
-            label = 'Finalizing visual';
-            detail = 'Updating section preview';
-          }
-        } else {
-          if (nextPercent < 45) {
-            label = 'Regenerating mascot';
-            detail = 'Sending mascot prompt to image model';
-          } else {
-            label = 'Finalizing mascot';
-            detail = 'Updating key point companion';
-          }
-        }
-
-        return { ...prev, percent: nextPercent, label, detail };
-      });
-    }, 900);
-  };
-
-  const updateGenerationProgress = (percent: number, label: string, detail = '') => {
-    setGenerationProgress((prev) => ({
-      ...prev,
-      active: true,
-      percent: Math.max(prev.percent, Math.min(96, percent)),
-      label,
-      detail,
-    }));
-  };
-
-  const mapBackendProgressToUi = (progress: any) => {
-    if (!progress || typeof progress !== 'object') return;
-    const percent = Number(progress.percent || 0);
-    const label = String(progress.label || '').trim();
-    const detail = String(progress.detail || '').trim();
-    const taskRaw = String(progress.task || '').toLowerCase();
-    const task: 'content' | 'visual' | 'mascot' =
-      taskRaw === 'mascot' ? 'mascot' : taskRaw === 'visual' ? 'visual' : 'content';
-    setGenerationProgress((prev) => ({
-      ...prev,
-      active: true,
-      task,
-      percent: Math.max(prev.percent, Math.min(99, Number.isFinite(percent) ? percent : prev.percent)),
-      label: label || prev.label || 'Generating content',
-      detail: detail || prev.detail,
-    }));
-  };
-
-  const chooseLikelyActiveContentJob = (items: GenerationJobItem[]) => {
-    const now = Date.now();
-    const candidates = (Array.isArray(items) ? items : [])
-      .filter((job) => job?.job_type === 'content_generation')
-      .filter((job) => ['scheduled', 'processing', 'retrying', 'completed'].includes(String(job?.status || '')))
-      .sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
-    if (!candidates.length) return null;
-    if (activeGenerationJobIdRef.current) {
-      const exact = candidates.find((job) => Number(job.id) === Number(activeGenerationJobIdRef.current));
-      if (exact) return exact;
-    }
-    const fresh = candidates.find((job) => {
-      const createdAt = new Date(job?.created_at || 0).getTime();
-      return Number.isFinite(createdAt) && createdAt > now - 15 * 60 * 1000;
-    });
-    return fresh || candidates[0];
-  };
-
-  const pollGenerationJobProgress = async () => {
-    if (generationJobPollBusyRef.current) return;
-    generationJobPollBusyRef.current = true;
-    try {
-      const res = await modulesAPI.getGenerationJobs({ limit: 20, scope: 'mine' });
-      const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const job = chooseLikelyActiveContentJob(items);
-      if (!job) return;
-      activeGenerationJobIdRef.current = Number(job.id) || activeGenerationJobIdRef.current;
-      mapBackendProgressToUi(job?.result?.progress || null);
-    } catch (_) {
-      // best effort fallback only
-    } finally {
-      generationJobPollBusyRef.current = false;
-    }
-  };
-
-  const startJobProgressStream = (jobId: number) => {
-    clearGenerationJobPoller();
-    jobStreamCleanupRef.current = contentAPI.streamJobProgress(jobId, {
-      onProgress: (data) => {
-        mapBackendProgressToUi(data.progress);
-      },
-      onDone: () => {
-        // Generation complete — the main API call handler will finalize the UI
-      },
-      onError: () => {
-        // SSE failed — fall back to polling
-        if (jobStreamCleanupRef.current) {
-          jobStreamCleanupRef.current = null;
-        }
-        pollGenerationJobProgress();
-        generationJobPollTimerRef.current = window.setInterval(() => {
-          pollGenerationJobProgress();
-        }, 1500);
-      },
-    });
-  };
-
-  const startGenerationJobPoller = () => {
-    const jobId = activeGenerationJobIdRef.current;
-    if (jobId) {
-      startJobProgressStream(jobId);
-    } else {
-      clearGenerationJobPoller();
-      pollGenerationJobProgress();
-      generationJobPollTimerRef.current = window.setInterval(() => {
-        pollGenerationJobProgress();
-      }, 1500);
-    }
-  };
-
-  const completeGenerationProgress = (success: boolean, message?: string) => {
-    clearGenerationProgressTimer();
-    clearGenerationJobPoller();
-    setGenerationProgress((prev) => ({
-      ...prev,
-      active: true,
-      percent: success ? 100 : Math.max(prev.percent, 12),
-      label: success ? 'Done' : 'Generation interrupted',
-      detail: message || (success ? 'Your content is ready' : 'Please try again'),
-    }));
-    generationProgressHideTimerRef.current = window.setTimeout(() => {
-      setGenerationProgress({
-        active: false,
-        task: 'content',
-        percent: 0,
-        label: '',
-        detail: '',
-      });
-      generationProgressHideTimerRef.current = null;
-    }, success ? 900 : 2200);
-  };
+  const {
+    generationProgress,
+    backgroundGenerationNotice,
+    setBackgroundGenerationNotice,
+    startGenerationProgress,
+    updateGenerationProgress,
+    completeGenerationProgress,
+    startGenerationJobPoller,
+    clearGenerationJobPoller,
+    notifyJobStarted,
+    resetActiveJob,
+  } = useContentGenerationProgress({
+    isGeneratingRef,
+    generatedContentRef,
+    onJobRecovered: handleJobRecovered,
+  });
 
   useEffect(() => {
     return () => {
-      clearGenerationProgressTimer();
-      clearGenerationJobPoller();
       if (exportProgressTimerRef.current) window.clearInterval(exportProgressTimerRef.current);
       if (pptxJobPollRef.current) window.clearInterval(pptxJobPollRef.current);
     };
-  }, []);
-
-  const recoverBackgroundContentGeneration = async () => {
-    try {
-      const res = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine' });
-      const items = Array.isArray(res.data?.items) ? res.data.items : [];
-      const jobs = items
-        .filter((job: any) => job?.job_type === 'content_generation')
-        .sort((a: any, b: any) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
-      let latest = jobs[0];
-      if (!latest) return;
-
-      if (['scheduled', 'processing', 'retrying'].includes(String(latest.status || ''))) {
-        setBackgroundGenerationNotice('A content generation is still running in the background. This page will auto-recover it when it finishes.');
-        const jobId = Number(latest.id);
-        if (jobId && jobStreamCleanupRef.current === null) {
-          jobStreamCleanupRef.current = contentAPI.streamJobProgress(jobId, {
-            onProgress: (data) => mapBackendProgressToUi(data.progress),
-            onDone: () => {
-              jobStreamCleanupRef.current = null;
-              recoverBackgroundContentGeneration();
-            },
-            onError: () => { jobStreamCleanupRef.current = null; },
-          });
-        }
-        return;
-      }
-
-      if (latest.status === 'completed' && latest.result?.has_content) {
-        const fullRes = await modulesAPI.getGenerationJobs({ limit: 40, scope: 'mine', include_full_result: true });
-        const fullItems = Array.isArray(fullRes.data?.items) ? fullRes.data.items : [];
-        latest = fullItems.find((job: any) => Number(job.id) === Number(latest.id)) || latest;
-      }
-
-      if (
-        latest.status === 'completed' &&
-        latest.result?.content &&
-        recoveredContentJobIdRef.current !== Number(latest.id || 0) &&
-        (isGeneratingRef.current || !generatedContentRef.current)
-      ) {
-        const recoveredContent = withGenerationSettings(latest.result.content);
-        const recoveredTrace = latest.result?.generation_trace || null;
-        recoveredContentJobIdRef.current = Number(latest.id || 0);
-        setGeneratedContentTracked(recoveredContent);
-        setGenerationTrace(recoveredTrace);
-        setActiveSectionIndex(0);
-        setStudioStep('polish');
-        setIsGeneratingTracked(false);
-        setError(null);
-        setBackgroundGenerationNotice('Recovered your generated content from a background job.');
-        completeGenerationProgress(true, 'Recovered generated content from background job');
-        await addToHistory(recoveredContent, recoveredTrace);
-      }
-    } catch (_) {
-      // Best-effort recovery only; ignore poll failures.
-    }
-  };
-
-  useEffect(() => {
-    recoverBackgroundContentGeneration();
-    // 15s fallback poll in case the SSE stream fails to connect
-    const timer = setInterval(() => {
-      if (!jobStreamCleanupRef.current) recoverBackgroundContentGeneration();
-    }, 15000);
-    return () => clearInterval(timer);
   }, []);
 
   const loadHistory = async () => {
@@ -940,8 +659,8 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     setActivePublishedContentCode(null);
     setGeneratedContentTracked(null);
     setGenerationTrace(null);
-    activeGenerationJobIdRef.current = null;
-    startGenerationProgress('content', { includeImages, includeMascot });
+    resetActiveJob();
+    startGenerationProgress('content');
     startGenerationJobPoller();
     try {
       let effectiveTemplateId = templateId;
@@ -971,10 +690,8 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         include_beautify_text: includeBeautifyText,
       });
       if (Number.isFinite(Number(res.data?.generation_job_id))) {
-        const jobId = Number(res.data.generation_job_id);
-        activeGenerationJobIdRef.current = jobId;
         // generation is done at this point, but kick off SSE so recovery flow can use it
-        startJobProgressStream(jobId);
+        notifyJobStarted(Number(res.data.generation_job_id));
       }
       if (res.data.success && res.data.content) {
         updateGenerationProgress(92, 'Finalizing response', 'Preparing editor preview');

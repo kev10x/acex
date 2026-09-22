@@ -1,11 +1,3 @@
-const rateLimit = require('express-rate-limit');
-const publicLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please slow down.' }
-});
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
@@ -609,16 +601,15 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
           : row.rubric_criteria
       }));
 
-      // Get sample rubrics (scoped to current user)
+      // Get sample rubrics
       const rubricsQuery = `
         SELECT name, criteria, total_points, rubric_type
         FROM rubrics
-        WHERE user_id = ?
         ORDER BY created_at DESC
         LIMIT 5
       `;
       
-      const rubricsResult = await query(rubricsQuery, [req.user.id]);
+      const rubricsResult = await query(rubricsQuery);
       const rubricRows = Array.isArray(rubricsResult) ? rubricsResult : (rubricsResult.rows || []);
       
       contextData.rubrics = rubricRows.map(row => ({
@@ -661,9 +652,9 @@ router.post('/generate', requireAuth, requireFeature('assessment_creation'), asy
       const rubricQuery = `
         SELECT name, criteria, total_points, rubric_type
         FROM rubrics
-        WHERE id = ? AND user_id = ?
+        WHERE id = ?
       `;
-      const rubricResult = await query(rubricQuery, [rubric_id, req.user.id]);
+      const rubricResult = await query(rubricQuery, [rubric_id]);
       const selectedRubricRows = Array.isArray(rubricResult) ? rubricResult : (rubricResult.rows || []);
 
       if (selectedRubricRows.length === 0) {
@@ -1687,7 +1678,7 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
 /**
  * Get assessment by code (public) for students to take. Returns assessment without answer key.
  */
-router.get('/take/:code', publicLimiter, async (req, res) => {
+router.get('/take/:code', async (req, res) => {
   try {
     const { code } = req.params;
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -2409,7 +2400,7 @@ router.post('/submission-identity-conflicts/:submissionId/resolve', requireAuth,
 /**
  * Submit student answers and queue marking. Public. Returns submission receipt.
  */
-router.post('/submit', publicLimiter, optionalAuth, async (req, res) => {
+router.post('/submit', optionalAuth, async (req, res) => {
   try {
     const { code, student_name, answers } = req.body;
     if (!code || !student_name || !Array.isArray(answers)) {

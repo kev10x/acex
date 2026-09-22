@@ -7,7 +7,7 @@ const path = require('node:path');
 const { loadWithMocks } = require('../test-utils/loadWithMocks');
 
 test('buildPptx uses Anthropic pptx Skill with uploaded templates and handles pause_turn file output', async (t) => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acexen-pptx-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markmate-pptx-'));
   const templatePath = path.join(tmpDir, 'template.pptx');
   fs.writeFileSync(templatePath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]));
   const previousModel = process.env.ANTHROPIC_PPTX_MODEL;
@@ -134,7 +134,7 @@ test('buildPptx uses Anthropic pptx Skill with uploaded templates and handles pa
 });
 
 test('buildPptx uses OpenAI Responses code interpreter when selected', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acexen-openai-pptx-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markmate-openai-pptx-'));
   const templatePath = path.join(tmpDir, 'template.pptx');
   fs.writeFileSync(templatePath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]));
   const generatedPptx = Buffer.from([

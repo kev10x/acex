@@ -93,9 +93,9 @@ const FileUpload: React.FC = () => {
       if (err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
         setError('Network error: Cannot connect to server. Please ensure the server is running on port 3001.');
       } else if (err.response?.status === 413) {
-        setError('File too large. Maximum file size is 10MB for PDF/DOCX/code files, 100MB for ZIP files.');
+        setError('File too large. Maximum file size is 10MB for PDF/DOCX/code files, 500MB for video/audio, 100MB for ZIP files.');
       } else if (err.response?.status === 400) {
-        setError(err.response?.data?.error || 'Invalid file. Only PDF, DOCX Word documents, or source-code files are allowed.');
+        setError(err.response?.data?.error || 'Invalid file. Only PDF, DOCX Word documents, source-code files, or video/audio recordings are allowed.');
       } else {
         setError(err.response?.data?.error || err.message || 'Failed to upload files. Please check your connection and try again.');
       }
@@ -120,7 +120,16 @@ const FileUpload: React.FC = () => {
         '.sql', '.sh', '.bash', '.zsh', '.ps1', '.pl', '.lua', '.dart', '.yaml', '.yml',
         '.toml', '.ini', '.cfg', '.md', '.txt'
       ],
-      'application/zip': ['.zip']
+      'application/zip': ['.zip'],
+      'video/mp4': ['.mp4'],
+      'video/quicktime': ['.mov'],
+      'video/webm': ['.webm'],
+      'audio/mpeg': ['.mp3'],
+      'audio/wav': ['.wav'],
+      'audio/x-wav': ['.wav'],
+      'audio/x-m4a': ['.m4a'],
+      'audio/mp4': ['.m4a'],
+      'audio/m4a': ['.m4a']
     },
     multiple: true,
     disabled: loading
@@ -224,7 +233,7 @@ const FileUpload: React.FC = () => {
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Upload Assignments</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Upload PDF, DOCX Word documents, or source-code files to get started with marking.
+          Upload PDF, DOCX Word documents, source-code files, or video/audio presentations to get started with marking.
         </p>
       </div>
 
@@ -316,10 +325,10 @@ const FileUpload: React.FC = () => {
           <p className="text-lg font-medium text-gray-900">
             {isDragActive
               ? 'Drop the assignment files here'
-              : 'Drag & drop PDF, DOCX, code, or ZIP files here, or click to select'}
+              : 'Drag & drop PDF, DOCX, code, video/audio, or ZIP files here, or click to select'}
           </p>
           <p className="mt-1 text-sm text-gray-500">
-            Supports multiple PDF/DOCX/code files up to 10MB each, or a ZIP up to 100MB
+            Supports multiple PDF/DOCX/code files up to 10MB each, a single video/audio presentation up to 500MB, or a ZIP up to 100MB
           </p>
         </div>
       </div>

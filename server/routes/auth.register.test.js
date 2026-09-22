@@ -75,7 +75,7 @@ test('POST /auth/register hides verificationUrl in production when email sends s
   await withEnv(
     {
       NODE_ENV: 'production',
-      CLIENT_URL: 'https://acexen.example'
+      CLIENT_URL: 'https://markmate.example'
     },
     async () => {
       const response = await request(createApp(router))
@@ -122,7 +122,7 @@ test('POST /auth/register exposes verificationUrl in production when email deliv
   await withEnv(
     {
       NODE_ENV: 'production',
-      CLIENT_URL: 'https://acexen.example'
+      CLIENT_URL: 'https://markmate.example'
     },
     async () => {
       const response = await request(createApp(router))
@@ -137,7 +137,7 @@ test('POST /auth/register exposes verificationUrl in production when email deliv
       assert.equal(response.body.requiresVerification, true);
       assert.match(
         response.body.verificationUrl,
-        /^https:\/\/acexen\.example\/verify-email\?token=/
+        /^https:\/\/markmate\.example\/verify-email\?token=/
       );
     }
   );

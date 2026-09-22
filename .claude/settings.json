@@ -8,20 +8,24 @@
       "Bash(node --check server/routes/content.js)",
       "Bash(node --check server/routes/slideGen.js)",
       "Bash(node --check server/config/ai-config.js)",
-      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\acexenio\\\\server\\\\services\\\\pptxJobService.js\")",
-      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\acexenio\\\\server\\\\routes\\\\pptxJobs.js\")",
-      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\acexenio\\\\server\\\\services\\\\contentService.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\pptxJobService.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\routes\\\\pptxJobs.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\kkativu\\\\Documents\\\\Github\\\\markmateio\\\\server\\\\services\\\\contentService.js\")",
       "Bash(node --test --test-concurrency=1 --test-isolation=none server/routes/mark.parse-json.test.js)",
-      "Bash(find \"c:\\\\Users\\\\kkativu\\\\.claude\\\\projects\\\\c--Users-kkativu-Documents-Github-acexenio\\\\memory\" -type f -name \"*.md\" 2>/dev/null)",
-      "Read(//c/Users/kkativu/.claude/projects/c--Users-kkativu-Documents-Github-acexenio/memory/**)",
+      "Bash(find \"c:\\\\Users\\\\kkativu\\\\.claude\\\\projects\\\\c--Users-kkativu-Documents-Github-markmateio\\\\memory\" -type f -name \"*.md\" 2>/dev/null)",
+      "Read(//c/Users/kkativu/.claude/projects/c--Users-kkativu-Documents-Github-markmateio/memory/**)",
       "Bash(node scripts/seed-ntp3011-rubric.js --email=kkativu@gmail.com)",
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const {query,initDatabase}=require\\('./server/database/connection'\\); initDatabase\\(\\).then\\(\\(\\)=>query\\('SELECT id,email,name,role FROM users LIMIT 10'\\)\\).then\\(r=>console.log\\(JSON.stringify\\(\\(r.rows||r\\),null,2\\)\\)\\).then\\(\\(\\)=>process.exit\\(0\\)\\).catch\\(e=>{console.error\\(e.message\\);process.exit\\(1\\)}\\)\")",
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const {query,initDatabase}=require\\('./server/database/connection'\\); initDatabase\\(\\).then\\(\\(\\)=>query\\('SELECT id,email,name,role FROM users LIMIT 10'\\)\\).then\\(r=>{const rows=r.rows||r; console.log\\('USERS:', JSON.stringify\\(rows\\)\\)}\\).then\\(\\(\\)=>process.exit\\(0\\)\\).catch\\(e=>{console.error\\(e.message\\);process.exit\\(1\\)}\\)\")",
       "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).scripts,null,2\\)\\)\")",
       "Bash(node -e \"require\\('./server/services/pdfReportGenerator'\\); console.log\\('OK'\\)\")",
-      "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/Acexen add client/src/components/MarkingInterface.tsx client/src/components/ResultsDashboard.tsx client/src/components/FeedbackChatWidget.tsx client/src/services/api.ts server/database/connection.js server/routes/mark.js server/routes/results.js server/services/markingService.js)",
-      "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/Acexen commit -m \"Add advanced feedback modes, floating chat widget, and chat guardrails\")",
-      "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/Acexen push origin main)"
+<<<<<<< HEAD
+      "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/MarkMate add client/src/components/MarkingInterface.tsx client/src/components/ResultsDashboard.tsx client/src/components/FeedbackChatWidget.tsx client/src/services/api.ts server/database/connection.js server/routes/mark.js server/routes/results.js server/services/markingService.js)",
+      "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/MarkMate commit -m \"Add advanced feedback modes, floating chat widget, and chat guardrails\")",
+      "Bash(git -C /Users/centreforcommunitytechnologies/Documents/GitHub/MarkMate push origin main)"
+=======
+      "Bash(xargs grep -l \"scheduleMarking\")"
+>>>>>>> 05c0c8527d3a0a01ec556a11a2b980f7a50a2df0
     ]
   }
 }

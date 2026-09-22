@@ -29,7 +29,7 @@ const format = getArg('--format') || 'openai';
 const file = getArg('--file');
 const apiKey = getArg('--api-key') || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
 const model = getArg('--model') || (format === 'openai' ? 'gpt-3.5-turbo' : 'claude-3-haiku-20240307');
-const suffix = getArg('--suffix') || 'acexen-trained';
+const suffix = getArg('--suffix') || 'markmate-trained';
 
 async function main() {
   console.log('🚀 Model Training Script\n');

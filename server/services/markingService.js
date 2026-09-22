@@ -202,11 +202,16 @@ const extractFirstJsonObject = (text) => {
   return source.slice(start);
 };
 
-const normalizeJsonCandidate = (value) => String(value || '')
+// Strips code fences/BOM only. Curly quotes are left alone: inside string
+// values they are legitimate content, and converting them to ASCII quotes
+// turns otherwise-valid JSON into invalid JSON.
+const stripJsonWrappers = (value) => String(value || '')
   .trim()
   .replace(/^\`\`\`(?:json)?\s*/i, '')
   .replace(/\s*\`\`\`$/i, '')
-  .replace(/^﻿/, '')
+  .replace(/^﻿/, '');
+
+const normalizeJsonCandidate = (value) => stripJsonWrappers(value)
   .replace(/[“”]/g, '"')
   .replace(/[‘’]/g, "'");
 
@@ -265,12 +270,29 @@ const looksLikeObjectPropertyAfterComma = (text, commaIndex) => {
   if (text[propertyStart] !== '"') return false;
 
   const propertyEnd = findUnescapedQuote(text, propertyStart + 1);
-  if (propertyEnd < 0) return false;
+  if (propertyEnd < 0) {
+    // Ran off the end of the text while reading the property name — the
+    // response was cut off mid-key (truncation), not prose continuing the
+    // previous string. Trust that the previous quote really did close the
+    // prior value; closeTruncatedJson handles finishing the dangling key.
+    return true;
+  }
   const propertyName = text.slice(propertyStart + 1, propertyEnd);
   if (!MARKING_RESPONSE_PROPERTY_NAMES.has(propertyName)) return false;
 
   const afterProperty = skipJsonWhitespace(text, propertyEnd + 1);
-  return text[afterProperty] === ':' && startsJsonValueAt(text, afterProperty + 1);
+  if (text[afterProperty] === ':') {
+    return startsJsonValueAt(text, afterProperty + 1);
+  }
+
+  // Tolerate a missing colon (a common AI mistake, e.g. `"feedback" "text"`):
+  // if a recognized property name is directly followed by what looks like a
+  // value, this is still a genuine new property, not prose continuing the
+  // previous string. Misclassifying it here would make the sanitizer escape
+  // the previous string's real closing quote as if it were embedded text,
+  // swallowing this property into the previous one. `repairJsonByParsePosition`
+  // inserts the missing colon afterwards.
+  return startsJsonValueAt(text, afterProperty);
 };
 
 const isLikelyJsonStringTerminator = (text, quoteIndex, { stringRole = 'unknown', container = null } = {}) => {
@@ -595,19 +617,61 @@ const isEscapedQuoteAt = (text, index) => {
   return slashCount % 2 === 1;
 };
 
+// Walks the text from the very start (not just backward from the error
+// position) so that container nesting and string-role are tracked accurately,
+// mirroring how `sanitizeJsonControlChars` classifies quotes. A context-blind
+// backward scan can misjudge a quote deep inside nested arrays/objects (e.g. a
+// quoted term like `"cum bag"` embedded in feedback prose), since
+// `isLikelyJsonStringTerminator` needs real stringRole/container info to tell
+// an embedded quote apart from a legitimate terminator.
 const findLikelyUnescapedQuoteIndex = (text, parseErrorPosition, maxLookback = 5000) => {
-  const start = Math.max(0, parseErrorPosition - maxLookback);
+  const earliestCandidateIndex = Math.max(0, parseErrorPosition - maxLookback);
+  const containerStack = [];
+  let inStr = false;
+  let stringRole = 'unknown';
+  let esc = false;
+  let candidate = -1;
 
-  for (let i = parseErrorPosition - 1; i >= start; i--) {
-    if (text[i] !== '"' || isEscapedQuoteAt(text, i)) continue;
-    if (isLikelyJsonStringTerminator(text, i)) continue;
-    return i;
+  const getPreviousSignificantChar = (index) => {
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (!/\s/.test(text[cursor])) return text[cursor];
+    }
+    return '';
+  };
+
+  const end = Math.min(parseErrorPosition, text.length);
+  for (let i = 0; i < end; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === '"') {
+        const container = containerStack[containerStack.length - 1] || null;
+        if (isLikelyJsonStringTerminator(text, i, { stringRole, container })) {
+          inStr = false;
+          stringRole = 'unknown';
+        } else if (i >= earliestCandidateIndex) {
+          candidate = i;
+        }
+      }
+      continue;
+    }
+
+    if (ch === '{') containerStack.push('object');
+    else if (ch === '[') containerStack.push('array');
+    else if (ch === '}' || ch === ']') containerStack.pop();
+    else if (ch === '"') {
+      const previous = getPreviousSignificantChar(i - 1);
+      const container = containerStack[containerStack.length - 1] || null;
+      stringRole = previous === ':' || container === 'array' ? 'value' : 'key';
+      inStr = true;
+    }
   }
 
-  return -1;
+  return candidate;
 };
 
-const repairJsonByParsePosition = (value, maxAttempts = 30) => {
+const repairJsonByParsePosition = (value, maxAttempts = 100) => {
   let candidate = value;
   let lastError = null;
 
@@ -619,6 +683,19 @@ const repairJsonByParsePosition = (value, maxAttempts = 30) => {
       lastError = error;
       const errorPos = getJsonErrorPosition(error);
       if (errorPos == null) break;
+
+      // The AI sometimes drops the colon between a key and its value (e.g.
+      // `"feedback" "some text"`). V8 reports this distinctly as "Expected
+      // ':' after property name" with the position pointing at the offending
+      // character right after the key — insert the missing colon there.
+      // This must be checked before the generic `"` heuristic below, since
+      // that offending character is very often itself a `"` (the start of
+      // the value string) and would otherwise be mistaken for a missing
+      // comma between two adjacent values.
+      if (/Expected ':' after property name/i.test(error.message) && errorPos < candidate.length) {
+        candidate = `${candidate.slice(0, errorPos)}:${candidate.slice(errorPos)}`;
+        continue;
+      }
 
       // When the unexpected token is a `"`, a missing comma before the next
       // property/value is more likely than an unescaped quote — an unescaped
@@ -639,6 +716,75 @@ const repairJsonByParsePosition = (value, maxAttempts = 30) => {
   throw lastError || new Error('Failed to repair JSON from parse position');
 };
 
+// Closes JSON that was cut off mid-generation (e.g. hit a token/output limit
+// or a stop sequence) instead of a syntax mistake within otherwise-complete
+// JSON. Terminates any string left open and appends the closing `}`/`]` for
+// every container that was never closed, trimming a dangling trailing comma
+// or an incomplete trailing `"key":` with no value (which can't be closed
+// into valid JSON and is dropped instead). Returns null when the brackets
+// were already balanced, since there's nothing for this repair to do.
+const closeTruncatedJson = (value) => {
+  let result = String(value || '');
+  const containerStack = [];
+  let inStr = false;
+  let esc = false;
+  let stringRole = 'unknown';
+  let stringStart = -1;
+
+  const getPreviousSignificantChar = (index) => {
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (!/\s/.test(result[cursor])) return result[cursor];
+    }
+    return '';
+  };
+
+  for (let i = 0; i < result.length; i++) {
+    const ch = result[i];
+    if (inStr) {
+      if (esc) { esc = false; }
+      else if (ch === '\\') { esc = true; }
+      else if (ch === '"') { inStr = false; stringRole = 'unknown'; }
+      continue;
+    }
+    if (ch === '"') {
+      const previous = getPreviousSignificantChar(i - 1);
+      const container = containerStack[containerStack.length - 1] || null;
+      stringRole = previous === ':' || container === 'array' ? 'value' : 'key';
+      inStr = true;
+      stringStart = i;
+      continue;
+    }
+    if (ch === '{' || ch === '[') { containerStack.push(ch); }
+    else if (ch === '}' || ch === ']') { containerStack.pop(); }
+  }
+
+  if (containerStack.length === 0) return null;
+
+  if (inStr && stringRole === 'key') {
+    // Cut off mid-key with no colon/value yet (e.g. `..."ok","total_sco`) —
+    // there's nothing to close this into, so drop the whole dangling
+    // property, including a preceding comma.
+    let cut = stringStart;
+    let before = cut - 1;
+    while (before >= 0 && /\s/.test(result[before])) before -= 1;
+    if (before >= 0 && result[before] === ',') cut = before;
+    result = result.slice(0, cut);
+  } else if (inStr) {
+    if (esc) result = result.slice(0, -1);
+    result += '"';
+  }
+
+  result = result.replace(/,\s*$/, '');
+  result = result.replace(/,?\s*"(?:[^"\\]|\\.)*"\s*:\s*$/, '');
+  result = result.replace(/,\s*$/, '');
+
+  for (let i = containerStack.length - 1; i >= 0; i--) {
+    result += containerStack[i] === '{' ? '}' : ']';
+  }
+
+  return result;
+};
+
 const repairJsonCandidate = (value) => {
   const normalized = normalizeJsonCandidate(value);
   const sanitized = sanitizeJsonControlChars(normalized);
@@ -651,9 +797,30 @@ const repairJsonCandidate = (value) => {
 
 const parseAiJsonResponse = (rawResponse) => {
   const extracted = extractFirstJsonObject(rawResponse);
-  const baseCandidates = [normalizeJsonCandidate(rawResponse)];
-  if (extracted) {
-    baseCandidates.push(normalizeJsonCandidate(extracted));
+
+  // Fast path: try the response exactly as received (fences stripped only)
+  // before any smart-quote normalisation or repair, so valid JSON containing
+  // curly quotes in its text is never mangled and costs nothing to parse.
+  for (const untouched of [stripJsonWrappers(rawResponse), extracted ? stripJsonWrappers(extracted) : '']) {
+    if (!untouched) continue;
+    try {
+      return { parsed: JSON.parse(untouched), cleanedText: untouched };
+    } catch (_) {
+      // fall through to the repair strategies below
+    }
+  }
+
+  // Curly-quote-preserving candidates come first: real curly quotes in the
+  // text are content, so repairing without converting them leaves far fewer
+  // problems to fix than the ASCII-converted variants further down.
+  const baseCandidates = [];
+  for (const c of [
+    stripJsonWrappers(rawResponse),
+    extracted ? stripJsonWrappers(extracted) : '',
+    normalizeJsonCandidate(rawResponse),
+    extracted ? normalizeJsonCandidate(extracted) : ''
+  ]) {
+    if (c && !baseCandidates.includes(c)) baseCandidates.push(c);
   }
 
   const seen = new Set();
@@ -688,6 +855,41 @@ const parseAiJsonResponse = (rawResponse) => {
 
       try {
         const repaired = repairJsonByParsePosition(seed);
+        if (!repaired || seen.has(repaired)) continue;
+        seen.add(repaired);
+        return {
+          parsed: JSON.parse(repaired),
+          cleanedText: repaired
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  // Truncation fallback: the response was cut off mid-object (token limit,
+  // stop sequence) rather than malformed within otherwise-complete JSON.
+  // Close the dangling string/containers, then re-run the other repairs in
+  // case the truncation also left a stray quote/colon/comma behind.
+  for (const candidate of baseCandidates) {
+    if (!candidate) continue;
+
+    for (const base of [repairJsonCandidate(candidate), candidate]) {
+      const closed = closeTruncatedJson(base);
+      if (!closed || seen.has(closed)) continue;
+      seen.add(closed);
+
+      try {
+        return {
+          parsed: JSON.parse(closed),
+          cleanedText: closed
+        };
+      } catch (error) {
+        lastError = error;
+      }
+
+      try {
+        const repaired = repairJsonByParsePosition(closed);
         if (!repaired || seen.has(repaired)) continue;
         seen.add(repaired);
         return {
@@ -767,7 +969,7 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('default');
     const aiResult = await aiService.createCompletionWithRetry({
       provider: config.provider,
-      model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+      model: config.model,
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
       maxTokens: 1500
@@ -814,7 +1016,7 @@ Respond with ONLY a JSON object:
     const config = aiConfig.getConfig('default');
     const aiResult = await aiService.createCompletionWithRetry({
       provider: config.provider,
-      model: config.provider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+      model: config.model,
       messages: [{ role: "user", content: detectionPrompt }],
       temperature: 0.1,
       maxTokens: 150
@@ -1065,8 +1267,12 @@ Set "prescriptive_table", "reflective_questions", and "critical_table" to null.`
 
 // Generate AI marking using OpenAI or Anthropic.
 // When assignmentImages (array of base64 strings) is provided, the PDF is marked from images instead of extracted text (vision-based).
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null) => {
+const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null, mediaMode = null) => {
   const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
+  // Video/audio presentations: transcript text AND frame images are both real evidence and must
+  // both reach the model at full strength (not the PDF mark_as_image path, which discards text
+  // and downgrades the model for cheap bulk OCR-style marking).
+  const combinedMediaMode = mediaMode === 'video' && imageBased;
   try {
     const resolvedLevel = resolveEducationLevel(level || 'level_4');
     const levelCategory = resolvedLevel.marking_category;
@@ -1074,11 +1280,11 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const levelPromptBlock = buildEducationLevelPromptBlock(resolvedLevel.id);
     // Auto-detect document type if not provided (only when we have text; for image-based use provided or default)
     if (!documentType) {
-      if (imageBased) {
+      if (imageBased && !combinedMediaMode) {
         documentType = documentType || 'assignment';
         console.log('📝 Using document type (image-based):', documentType);
       } else {
-        logger.info('🔍 Auto-detecting document type...');
+        console.log('🔍 Auto-detecting document type...');
         documentType = await detectDocumentType(assignmentText);
         console.log('📝 Detected document type:', documentType);
       }
@@ -1103,7 +1309,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     }
 
     if (isMemo) {
-      logger.info('📋 Rubric detected as MEMO (answer key/marking memorandum)');
+      console.log('📋 Rubric detected as MEMO (answer key/marking memorandum)');
       documentType = 'memo';
     }
 
@@ -1139,7 +1345,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
             };
             console.log('📚 Found previous marking for this assignment:', previousMarkingExamples);
           } else {
-            logger.warn('Previous marking result has invalid or null scores, skipping');
+            console.warn('Previous marking result has invalid or null scores, skipping');
           }
         }
       } catch (error) {
@@ -1147,18 +1353,20 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       }
     }
 
-    logger.info('🤖 Starting AI marking process...');
+    console.log('🤖 Starting AI marking process...');
     console.log('Provider:', selectedProvider);
     console.log('Document type:', documentType);
     console.log('Is memo:', isMemo);
     console.log('Image-based (mark from PDF images):', imageBased);
-    if (!imageBased) {
+    console.log('Combined video mode (transcript + frames):', combinedMediaMode);
+    if (!imageBased || combinedMediaMode) {
       console.log('Assignment text length:', assignmentText?.length || 0);
       console.log('Text will be truncated to:', Math.min(assignmentText?.length || 0, config.maxTextLength), 'characters');
-    } else {
-      console.log('Assignment page images:', assignmentImages.length);
     }
-    const modelToUse = imageBased
+    if (imageBased) {
+      console.log('Assignment page/frame images:', assignmentImages.length);
+    }
+    const modelToUse = (imageBased && !combinedMediaMode)
       ? (selectedProvider === 'openai' ? 'gpt-5.2' : 'claude-3-haiku-20240307')
       : config.model;
     console.log('Using model:', modelToUse);
@@ -1170,11 +1378,11 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       try {
         criteria = JSON.parse(criteria);
       } catch (e) {
-        logger.error({ err: e });
+        console.error('Failed to parse rubric.criteria JSON string:', e);
       }
     }
     if (!Array.isArray(criteria)) {
-      logger.error({ err: criteria });
+      console.error('Rubric criteria is not an array:', criteria);
       throw new Error('Rubric has an invalid criteria format. Please recreate or edit this rubric.');
     }
 
@@ -1207,15 +1415,22 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
     const estimateTokens = (text) => Math.ceil((text?.length || 0) / 4);
     const contextWindowTokens = selectedProvider === 'anthropic' ? 200000 : 128000;
     const requestMaxTokens = Math.min(config.maxTokens, 16000);
-    const promptBudgetTokens = Math.max(1000, contextWindowTokens - requestMaxTokens - 1000);
+    // Combined video mode spends the budget on BOTH transcript text and frame images, unlike
+    // the PDF mark_as_image path where images replace text entirely — reserve a rough per-image
+    // token allowance so the transcript truncation below doesn't starve the images of headroom.
+    const imageTokenReserve = combinedMediaMode ? assignmentImages.length * 1100 : 0;
+    const promptBudgetTokens = Math.max(1000, contextWindowTokens - requestMaxTokens - 1000 - imageTokenReserve);
     const maxPromptCharsByContextWindow = promptBudgetTokens * 4;
 
     const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByContextWindow);
-    const truncatedText = imageBased
+    const frameNote = combinedMediaMode
+      ? `[This submission is a video/audio presentation. The transcript below captures the spoken delivery. ${assignmentImages.length} frame image(s) captured from the video are attached after this text for visual assessment of slides/on-screen content. Evaluate BOTH the spoken content in the transcript AND the visual content in the frames against the rubric — this is not a transcript-only assessment.]\n\n`
+      : '';
+    const truncatedText = (imageBased && !combinedMediaMode)
       ? `The submission is provided as ${assignmentImages.length} page image(s) below (in order). Assess the work from these images—including any handwritten or typed content—and apply the rubric. Handwriting may be messy or partially legible; assess the content and ideas, and be fair about legibility. Return only the JSON.`
       : (assignmentText.length > maxAllowedChars
-          ? assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]'
-          : assignmentText);
+          ? frameNote + assignmentText.substring(0, maxAllowedChars) + '...[truncated for processing]'
+          : frameNote + assignmentText);
 
     const detailedRubric = criteria.map((criterion, i) => {
       const pts = criterion.maxPoints ?? criterion.max_points ?? 0;
@@ -1852,7 +2067,7 @@ IMPORTANT: For each criterion, provide a confidence level (0-100) indicating how
 - Unclear or incomplete submissions
 
 Lower confidence (< 70) indicates the assessment may need human review.
-${imageBased ? '\n\nFor submissions provided as images (handwritten): You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON: how confident you are that you correctly read the handwritten content across all pages. 100 = fully legible, easy to read; 50 = partially legible, some guesswork; 0 = largely unreadable. This helps flag work that may need human review for reading accuracy.' : ''}
+${imageBased && !combinedMediaMode ? '\n\nFor submissions provided as images (handwritten): You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON: how confident you are that you correctly read the handwritten content across all pages. 100 = fully legible, easy to read; 50 = partially legible, some guesswork; 0 = largely unreadable. This helps flag work that may need human review for reading accuracy.' : ''}${combinedMediaMode ? '\n\nFor this video/audio submission: You MUST also include "handwriting_recognition_confidence" (0-100) in your JSON, repurposed here to indicate how confidently you could read/interpret the visual content (slides, on-screen text, diagrams) in the attached frames: 100 = fully clear and legible; 50 = partially legible; 0 = largely unreadable or the frames were uninformative. This is independent of your assessment of the spoken/transcript content.' : ''}
 
 ${correctionsInstructions}
 
@@ -1979,7 +2194,7 @@ JSON format (return ONLY this, no other text):
       try {
         const parsedSkeleton = parseAiJsonResponse(skeletonResponse).parsed;
         if (!parsedSkeleton || !Array.isArray(parsedSkeleton.scores) || parsedSkeleton.scores.length === 0) {
-          logger.warn('Structure check: parsed skeleton missing scores array, aborting full generation to avoid cost');
+          console.warn('Structure check: parsed skeleton missing scores array, aborting full generation to avoid cost');
           throw new Error('Structure check failed');
         }
         const skeletonNames = parsedSkeleton.scores.map(s => String(s.criterion_name || '').trim().toLowerCase()).filter(Boolean);
@@ -2005,13 +2220,13 @@ JSON format (return ONLY this, no other text):
           console.warn('Structure check: criterion name match low, aborting full generation to avoid cost', { matches, required, skeletonPreview: JSON.stringify(skeletonNames).substring(0,200) });
           throw new Error('Structure check failed: poor name match');
         }
-        logger.info('Structure check passed — proceeding to full generation');
+        console.log('Structure check passed — proceeding to full generation');
       } catch (sErr) {
         console.warn('Structure check could not be parsed reliably:', sErr.message);
         throw new Error('AI structural JSON check failed — aborting to avoid wasted cost');
       }
     } catch (structureError) {
-      logger.error({ err: structureError.message });
+      console.error('Aborting marking due to failed structure check:', structureError.message);
       throw structureError;
     }
 
@@ -2027,10 +2242,13 @@ JSON format (return ONLY this, no other text):
 
     // Use OpenAI Structured Outputs (json_schema + strict: true) to guarantee the model
     // produces valid JSON matching MARKING_SCHEMA exactly — eliminates malformed JSON for OpenAI.
-    // Anthropic does not support json_schema; fall back to no response_format constraint.
-    const responseFormat = selectedProvider === 'openai'
-      ? { type: 'json_schema', json_schema: { name: 'marking_result', strict: true, schema: MARKING_SCHEMA } }
-      : null;
+    // Ollama supports json_object mode (not the full schema). Anthropic has no response_format.
+    let responseFormat = null;
+    if (selectedProvider === 'openai') {
+      responseFormat = { type: 'json_schema', json_schema: { name: 'marking_result', strict: true, schema: MARKING_SCHEMA } };
+    } else if (selectedProvider === 'ollama') {
+      responseFormat = { type: 'json_object' };
+    }
 
     const result = await aiService.createCompletionWithRetry({
       provider: selectedProvider,
@@ -2041,7 +2259,8 @@ JSON format (return ONLY this, no other text):
       response_format: responseFormat
     }, 5);
 
-    console.log(`📥 Received response from ${selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'}`);
+    const providerLabel = selectedProvider === 'anthropic' ? 'Anthropic (Claude)' : selectedProvider === 'ollama' ? 'Ollama (local)' : 'OpenAI';
+    console.log(`📥 Received response from ${providerLabel}`);
     const response = (result.content != null ? String(result.content) : '');
     console.log('Response length:', response.length);
     console.log('Response preview:', response.substring(0, 200) + (response.length > 200 ? '...' : ''));
@@ -2052,7 +2271,7 @@ JSON format (return ONLY this, no other text):
     }
 
     if (result.usage) {
-      logger.info('🔢 Token Usage:');
+      console.log('🔢 Token Usage:');
       console.log(`   Prompt tokens: ${result.usage.prompt_tokens}`);
       console.log(`   Completion tokens: ${result.usage.completion_tokens}`);
       console.log(`   Total tokens: ${result.usage.total_tokens}`);
@@ -2069,10 +2288,10 @@ JSON format (return ONLY this, no other text):
         imageBased
       });
     } catch (parseError) {
-      logger.error({ err: parseError.message });
-      logger.error({ err: parseError.stack });
-      logger.error({ err: response.substring(0, 1000) });
-      logger.error({ err: response.length });
+      console.error('JSON parsing error:', parseError.message);
+      console.error('Parse error stack:', parseError.stack);
+      console.error('Raw AI Response (first 1000 chars):', response.substring(0, 1000));
+      console.error('Raw AI Response length:', response.length);
 
       const extractedJson = extractFirstJsonObject(response);
       if (extractedJson && extractedJson !== response) {
@@ -2083,22 +2302,22 @@ JSON format (return ONLY this, no other text):
             imageBased
           });
         } catch (extractError) {
-          logger.error({ err: extractError.message });
+          console.error('Failed to parse extracted JSON candidate:', extractError.message);
         }
       }
 
       // AI-assisted JSON extraction fallback
       try {
-        logger.info('Attempting AI-assisted JSON extraction fallback...');
+        console.log('Attempting AI-assisted JSON extraction fallback...');
         const extractionPrompt = `The JSON below may have syntax errors such as unescaped double-quote characters inside string values.\nFix all JSON syntax errors and return ONLY the corrected JSON object. Do NOT add any commentary, explanation, or extra characters — return raw JSON only.\n\nRESPONSE:\n${response.substring(0, 20000)}`;
 
         const repairResult = await aiService.createCompletionWithRetry({
           provider: selectedProvider,
-          model: selectedProvider === 'openai' ? 'gpt-5-mini' : 'claude-3-haiku-20240307',
+          model: config.model,
           messages: [{ role: 'user', content: extractionPrompt }],
           temperature: 0.0,
           maxTokens: 16000,
-          response_format: selectedProvider === 'openai' ? { type: 'json_object' } : null
+          response_format: (selectedProvider === 'openai' || selectedProvider === 'ollama') ? { type: 'json_object' } : null
         }, 2);
 
         const repairedText = String(repairResult.content || '').trim();
@@ -2111,13 +2330,13 @@ JSON format (return ONLY this, no other text):
               imageBased
             });
           } catch (err2) {
-            logger.error({ err: err2.message });
+            console.error('AI-assisted extraction produced invalid JSON:', err2.message);
           }
         } else {
-          logger.warn('AI-assisted extraction returned NONE or empty');
+          console.warn('AI-assisted extraction returned NONE or empty');
         }
       } catch (aiExtractError) {
-        logger.error({ err: aiExtractError.message });
+        console.error('AI-assisted JSON extraction failed:', aiExtractError.message);
       }
 
       // Persist raw response for offline analysis
@@ -2127,12 +2346,12 @@ JSON format (return ONLY this, no other text):
     }
   } catch (error) {
     console.error(`❌ ${error.provider || 'AI'} API error:`, error);
-    logger.error({ err: {
+    console.error('Error details:', {
       message: error.message,
       status: error.status || error.statusCode,
       type: error.type,
       code: error.code
-    } });
+    });
     throw new Error('Failed to generate marking with AI');
   }
 };

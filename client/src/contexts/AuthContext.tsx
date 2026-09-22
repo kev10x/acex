@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authAPI } from '../services/api';
 
 export interface UserFeatures {
@@ -55,31 +55,12 @@ interface AuthContextType {
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   impersonateUser: (userId: number) => Promise<void>;
   stopImpersonation: () => Promise<void>;
-  /** Called by the Axios interceptor when a silent refresh succeeds */
-  _updateToken: (token: string, refreshToken: string) => void;
-  /** Called by the Axios interceptor when refresh fails — forces logout */
-  _forceLogout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
 const IMPERSONATION_BACKUP_KEY = 'impersonation_backup_v1';
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
-function storeSession(token: string, refreshToken: string, user: User) {
-  localStorage.setItem('token', token);
-  localStorage.setItem('refreshToken', refreshToken);
-  localStorage.setItem('user', JSON.stringify(user));
-}
-
-function clearSession() {
-  localStorage.removeItem('token');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
-  localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
-}
-
-function readImpersonationBackup(): { token: string; refreshToken: string; user: User } | null {
+function readImpersonationBackup(): { token: string; user: User } | null {
   const raw = localStorage.getItem(IMPERSONATION_BACKUP_KEY);
   if (!raw) return null;
   try {
@@ -91,104 +72,86 @@ function readImpersonationBackup(): { token: string; refreshToken: string; user:
   }
 }
 
-// ── Provider ──────────────────────────────────────────────────────────────────
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [impersonation, setImpersonation] = useState<ImpersonationState | null>(null);
-  // Keep a ref so the Axios interceptor can always read the current token
-  const tokenRef = useRef<string | null>(null);
-  tokenRef.current = token;
 
-  // ── Bootstrap ─────────────────────────────────────────────────────────────
+  // Load token and user from localStorage on mount
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
-
+    
     if (storedToken && storedUser) {
       setToken(storedToken);
       try {
-        setUser(JSON.parse(storedUser));
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
         const backup = readImpersonationBackup();
         setImpersonation(backup ? {
           active: true,
           admin_id: backup.user.id,
           admin_email: backup.user.email,
-          admin_name: backup.user.name,
+          admin_name: backup.user.name
         } : null);
-
+        // Verify token is still valid
         authAPI.getCurrentUser(storedToken)
           .then((userData) => {
             setUser(userData);
-            localStorage.setItem('user', JSON.stringify(userData));
+            const refreshedBackup = readImpersonationBackup();
+            setImpersonation(refreshedBackup ? {
+              active: true,
+              admin_id: refreshedBackup.user.id,
+              admin_email: refreshedBackup.user.email,
+              admin_name: refreshedBackup.user.name
+            } : null);
           })
           .catch(() => {
-            // Access token may already be expired — interceptor will handle refresh on next real request.
-            // For the initial load, just clear if we can't recover.
-            const storedRefresh = localStorage.getItem('refreshToken');
-            if (!storedRefresh) {
-              clearSession();
-              setToken(null);
-              setUser(null);
-              setImpersonation(null);
-            }
+            // Token invalid, clear storage
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
+            setToken(null);
+            setUser(null);
+            setImpersonation(null);
           })
           .finally(() => setLoading(false));
-      } catch {
-        clearSession();
+      } catch (error) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
         setToken(null);
         setUser(null);
         setImpersonation(null);
         setLoading(false);
       }
     } else {
+      localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
+      setImpersonation(null);
       setLoading(false);
     }
-    // ── Listen for events emitted by the Axios interceptor ──────────────────
-    const onTokenRefreshed = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { token: string; refreshToken: string };
-      if (detail?.token) {
-        setToken(detail.token);
-        if (detail.refreshToken) localStorage.setItem('refreshToken', detail.refreshToken);
-      }
-    };
-    const onSessionExpired = () => {
-      setToken(null);
-      setUser(null);
-      setImpersonation(null);
-      clearSession();
-    };
-    window.addEventListener('ax:token-refreshed', onTokenRefreshed);
-    window.addEventListener('ax:session-expired', onSessionExpired);
-    return () => {
-      window.removeEventListener('ax:token-refreshed', onTokenRefreshed);
-      window.removeEventListener('ax:session-expired', onSessionExpired);
-    };
   }, []);
 
-  // ── Actions ───────────────────────────────────────────────────────────────
   const login = async (email: string, password: string) => {
     const response = await authAPI.login(email, password);
-    const refreshToken = (response as any).refreshToken || '';
     localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
     setToken(response.token);
     setUser(response.user);
     setImpersonation(null);
-    storeSession(response.token, refreshToken, response.user);
+    localStorage.setItem('token', response.token);
+    localStorage.setItem('user', JSON.stringify(response.user));
   };
 
-  const register = async (
-    email: string, password: string, name?: string,
-    accountType?: 'individual' | 'organisation', organisationName?: string
-  ) => {
+  const register = async (email: string, password: string, name?: string, accountType?: 'individual' | 'organisation', organisationName?: string) => {
     const response = await authAPI.register(email, password, name, accountType, organisationName);
     if (response.token) {
       localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
       setToken(response.token);
       setUser(response.user);
       setImpersonation(null);
-      storeSession(response.token, '', response.user);
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
     }
     return response;
   };
@@ -197,8 +160,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setToken(null);
     setUser(null);
     setImpersonation(null);
-    clearSession();
-    authAPI.logout().catch(() => {});
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
+    authAPI.logout().catch(() => {
+      // Ignore errors on logout
+    });
   };
 
   const updateProfile = async (name?: string, email?: string) => {
@@ -218,14 +185,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if ((user.role || '').toLowerCase() !== 'management' || impersonation?.active) {
       throw new Error('Impersonation is only available to signed-in admins');
     }
-    const storedRefresh = localStorage.getItem('refreshToken') || '';
-    localStorage.setItem(IMPERSONATION_BACKUP_KEY, JSON.stringify({ token, refreshToken: storedRefresh, user }));
+    localStorage.setItem(IMPERSONATION_BACKUP_KEY, JSON.stringify({ token, user }));
     try {
       const response = await authAPI.impersonateUser(token, userId);
       setToken(response.token);
       setUser(response.user);
-      setImpersonation({ active: true, admin_id: user.id, admin_email: user.email, admin_name: user.name });
-      storeSession(response.token, '', response.user);
+      setImpersonation({
+        active: true,
+        admin_id: user.id,
+        admin_email: user.email,
+        admin_name: user.name
+      });
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
     } catch (error) {
       localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
       throw error;
@@ -238,37 +210,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setToken(backup.token);
     setUser(backup.user);
     setImpersonation(null);
-    storeSession(backup.token, backup.refreshToken || '', backup.user);
+    localStorage.setItem('token', backup.token);
+    localStorage.setItem('user', JSON.stringify(backup.user));
     localStorage.removeItem(IMPERSONATION_BACKUP_KEY);
     try {
       const refreshedUser = await authAPI.getCurrentUser(backup.token);
       setUser(refreshedUser);
       localStorage.setItem('user', JSON.stringify(refreshedUser));
-    } catch (_) {}
-  };
-
-  // ── Called by Axios interceptor on silent refresh success ─────────────────
-  const _updateToken = (newToken: string, newRefreshToken: string) => {
-    setToken(newToken);
-    localStorage.setItem('token', newToken);
-    if (newRefreshToken) localStorage.setItem('refreshToken', newRefreshToken);
-  };
-
-  // ── Called by Axios interceptor when refresh itself fails ─────────────────
-  const _forceLogout = () => {
-    setToken(null);
-    setUser(null);
-    setImpersonation(null);
-    clearSession();
+    } catch (_) {
+      // Keep the restored session if refresh fails transiently.
+    }
   };
 
   return (
     <AuthContext.Provider value={{
-      user, token, loading, impersonation,
-      login, register, logout,
-      updateProfile, changePassword,
-      impersonateUser, stopImpersonation,
-      _updateToken, _forceLogout,
+      user,
+      token,
+      loading,
+      impersonation,
+      login,
+      register,
+      logout,
+      updateProfile,
+      changePassword,
+      impersonateUser,
+      stopImpersonation
     }}>
       {children}
     </AuthContext.Provider>
@@ -277,6 +243,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
   return context;
 };

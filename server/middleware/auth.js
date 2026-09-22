@@ -1,13 +1,14 @@
 const jwt = require('jsonwebtoken');
-const { logger } = require('../services/logger');
 const { query } = require('../database/connection');
+
+// In-memory throttle: jti → timestamp of last DB last_seen_at update
+const lastSeenCache = new Map();
+const LAST_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 
 const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30m';
-const REFRESH_SECRET = process.env.REFRESH_JWT_SECRET || (JWT_SECRET + '_refresh');
-const REFRESH_EXPIRES_IN = process.env.REFRESH_JWT_EXPIRES_IN || '7d';
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
 const ROLE_ALIASES = {
   admin: 'management',
   user: 'lecturer'
@@ -20,7 +21,7 @@ if (JWT_SECRET === DEFAULT_JWT_SECRET) {
     console.error('FATAL: JWT_SECRET is not set. Set the JWT_SECRET environment variable before running in production.');
     process.exit(1);
   } else {
-    logger.warn('WARNING: JWT_SECRET is using the insecure default. Set JWT_SECRET in your .env file.');
+    console.warn('WARNING: JWT_SECRET is using the insecure default. Set JWT_SECRET in your .env file.');
   }
 }
 
@@ -58,6 +59,29 @@ const authenticateToken = async (req, res, next) => {
       return res.status(403).json({ error: 'Account is inactive' });
     }
 
+    // Check session validity (jti-based revocation) — only for tokens that carry a jti
+    if (decoded.jti) {
+      const sessionResult = await query(
+        'SELECT id, is_active FROM user_sessions WHERE jti = $1',
+        [decoded.jti]
+      );
+      const session = sessionResult.rows?.[0] || sessionResult?.[0];
+      if (!session || !session.is_active) {
+        return res.status(401).json({ error: 'Session has been revoked' });
+      }
+      // Throttle last_seen_at updates to avoid a DB write on every request
+      const now = Date.now();
+      const lastUpdate = lastSeenCache.get(decoded.jti) || 0;
+      if (now - lastUpdate > LAST_SEEN_INTERVAL_MS) {
+        lastSeenCache.set(decoded.jti, now);
+        query(
+          'UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE jti = $1',
+          [decoded.jti]
+        ).catch(() => {});
+      }
+      req.sessionJti = decoded.jti;
+    }
+
     const features = mergeFeatures(user.user_features, user.organisation_features);
 
     req.user = {
@@ -89,7 +113,7 @@ const authenticateToken = async (req, res, next) => {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
     }
-    logger.error({ err: error });
+    console.error('Auth middleware error:', error);
     return res.status(500).json({ error: 'Authentication error' });
   }
 };
@@ -151,16 +175,6 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // Generate JWT token
-const generateRefreshToken = (userId) => {
-  return jwt.sign({ userId, type: 'refresh' }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRES_IN });
-};
-
-const verifyRefreshToken = (token) => {
-  const decoded = jwt.verify(token, REFRESH_SECRET);
-  if (decoded.type !== 'refresh') throw new Error('Invalid token type');
-  return decoded;
-};
-
 const generateToken = (userId, extras = {}) => {
   return jwt.sign({ userId, ...extras }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
@@ -178,7 +192,7 @@ const requireAdmin = async (req, res, next) => {
 
     next();
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Admin middleware error:', error);
     return res.status(500).json({ error: 'Authorization error' });
   }
 };
@@ -266,7 +280,7 @@ const requireFeature = (featureName) => {
       }
       next();
     } catch (error) {
-      logger.error({ err: error });
+      console.error('Feature check error:', error);
       return res.status(500).json({ error: 'Authorization error' });
     }
   };
@@ -281,9 +295,6 @@ module.exports = {
   requireFeature,
   optionalAuth,
   generateToken,
-  generateRefreshToken,
-  verifyRefreshToken,
-  REFRESH_SECRET,
   JWT_SECRET,
   JWT_EXPIRES_IN,
   parseUserFeatures,

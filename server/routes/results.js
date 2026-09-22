@@ -1087,6 +1087,29 @@ router.get('/stats/overview', requireAuth, async (req, res) => {
   }
 });
 
+// Rename a marking result
+router.put('/:id/rename', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (typeof name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const trimmed = name.trim().slice(0, 500);
+    const result = await query(
+      'UPDATE marking_results SET custom_name = ? WHERE id = ? AND user_id = ?',
+      [trimmed || null, id, req.user.id]
+    );
+    if ((result.affectedRows ?? result.changes ?? 0) === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+    res.json({ success: true, custom_name: trimmed || null });
+  } catch (error) {
+    console.error('Rename result error:', error);
+    res.status(500).json({ error: 'Failed to rename result' });
+  }
+});
+
 // Delete a marking result
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
@@ -1238,6 +1261,50 @@ router.get('/annotated-pdf/:resultId', requireAuth, async (req, res) => {
       error: 'Failed to get annotated PDF',
       details: error.message
     });
+  }
+});
+
+// Serve the original uploaded document for a marking result
+router.get('/original/:resultId', requireAuth, async (req, res) => {
+  try {
+    const { resultId } = req.params;
+
+    const result = await query(`
+      SELECT mr.id, a.filename, a.file_path
+      FROM marking_results mr
+      JOIN assignments a ON mr.assignment_id = a.id
+      WHERE mr.id = ? AND mr.user_id = ?
+    `, [resultId, req.user.id]);
+
+    if (!result.rows || result.rows.length === 0) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
+    const { filename, file_path } = result.rows[0];
+
+    if (!file_path || !fs.existsSync(file_path)) {
+      return res.status(404).json({ error: 'Original document file not found on disk' });
+    }
+
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === '.pdf'
+      ? 'application/pdf'
+      : ext === '.docx'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+    const stream = fs.createReadStream(file_path);
+    stream.pipe(res);
+    stream.on('error', (err) => {
+      console.error('Error streaming original document:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to stream document' });
+    });
+  } catch (error) {
+    console.error('Get original document error:', error);
+    res.status(500).json({ error: 'Failed to get original document' });
   }
 });
 

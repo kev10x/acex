@@ -52,68 +52,19 @@ export const getApiErrorMessage = (error: any, fallback = 'Request failed'): str
   ).trim();
 };
 
-// ── Request interceptor: attach access token ──────────────────────────────────
+// Request interceptor for logging and adding auth token
 api.interceptors.request.use(
   (config) => {
+    console.log(`Making ${config.method?.toUpperCase()} request to ${config.url}`);
+    // Add auth token if available
     const token = localStorage.getItem('token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
-  (error) => Promise.reject(error)
-);
-
-// ── Response interceptor: silent token refresh on 401 ─────────────────────────
-// When a request returns 401 (token expired) we attempt one silent refresh using
-// the stored refresh token.  If that succeeds the original request is retried
-// transparently.  If the refresh itself fails we clear state so the AuthContext
-// can redirect the user to the login screen.
-
-let _refreshPromise: Promise<string> | null = null;
-
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config as any;
-
-    // Only attempt refresh for 401 errors on non-auth endpoints, once per request
-    const is401 = error.response?.status === 401;
-    const isAuthEndpoint = originalRequest?.url?.includes('/auth/');
-    const alreadyRetried = originalRequest?._retried;
-
-    if (!is401 || isAuthEndpoint || alreadyRetried) {
-      return Promise.reject(error);
-    }
-
-    originalRequest._retried = true;
-
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) {
-      // No refresh token — dispatch a logout event for AuthContext to pick up
-      window.dispatchEvent(new CustomEvent('ax:session-expired'));
-      return Promise.reject(error);
-    }
-
-    try {
-      // Deduplicate concurrent refresh attempts
-      if (!_refreshPromise) {
-        _refreshPromise = authAPI.refreshToken(refreshToken).then((data) => {
-          localStorage.setItem('token', data.token);
-          if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
-          // Notify AuthContext without a hard dependency
-          window.dispatchEvent(new CustomEvent('ax:token-refreshed', {
-            detail: { token: data.token, refreshToken: data.refreshToken }
-          }));
-          return data.token;
-        }).finally(() => { _refreshPromise = null; });
-      }
-
-      const newToken = await _refreshPromise;
-      originalRequest.headers.Authorization = `Bearer ${newToken}`;
-      return api(originalRequest);
-    } catch (refreshError) {
-      window.dispatchEvent(new CustomEvent('ax:session-expired'));
-      return Promise.reject(refreshError);
-    }
+  (error) => {
+    return Promise.reject(error);
   }
 );
 
@@ -170,6 +121,33 @@ export interface Batch {
   description?: string | null;
   created_at: string;
   assignment_count?: number;
+}
+
+export interface BatchSummaryScript {
+  assignment_id: number;
+  filename: string;
+  student_name: string;
+  status: 'marked' | 'failed' | 'processing' | 'unmarked';
+  score: number | null;
+  total_points: number | null;
+  percent: number | null;
+  rubric_name: string | null;
+  marked_at: string | null;
+  failure_reason: string | null;
+}
+
+export interface BatchSummary {
+  success: boolean;
+  batch: { id: number; name: string };
+  counts: { total: number; marked: number; failed: number; processing: number; unmarked: number };
+  stats: {
+    average_score: number | null;
+    average_percent: number | null;
+    median_score: number | null;
+    highest_score: number | null;
+    lowest_score: number | null;
+  };
+  scripts: BatchSummaryScript[];
 }
 
 export interface MarkingJob {
@@ -326,6 +304,7 @@ export interface MarkingResult {
   folder_name?: string | null;
   review_status?: 'none' | 'queued' | 'reviewed';
   review_reasons?: string[];
+  custom_name?: string | null;
 }
 
 export interface FeatureFlags {
@@ -507,6 +486,7 @@ export const resultsAPI = {
   downloadCSV: () => api.get('/results/download/csv', { responseType: 'blob' }),
   getAnnotatedPDF: (resultId: number) => api.get(`/results/annotated-pdf/${resultId}`, { responseType: 'blob' }),
   getCommentedDocx: (resultId: number) => api.get(`/results/commented-docx/${resultId}`, { responseType: 'blob' }),
+  getOriginalDocument: (resultId: number) => api.get(`/results/original/${resultId}`, { responseType: 'blob' }),
   getAnalyticsOverview: () => api.get('/results/analytics/overview'),
   getManagementPerformance: () => api.get<ManagementPerformanceResponse>('/results/analytics/management-performance'),
   getCriteriaAnalytics: (rubricId: number) => api.get(`/results/analytics/criteria/${rubricId}`),
@@ -523,6 +503,8 @@ export const resultsAPI = {
     api.put(`/results/${id}/lecturer-override`, data),
   chat: (id: number, data: { question: string; history?: Array<{ role: string; content: string }> }) =>
     api.post<{ answer: string }>(`/results/${id}/chat`, data),
+  renameResult: (id: number, name: string) =>
+    api.put<{ success: boolean; custom_name: string | null }>(`/results/${id}/rename`, { name }),
 };
 
 export interface SystemHealthCheck {
@@ -539,10 +521,6 @@ export interface SystemHealthResponse {
 
 export const systemAPI = {
   getHealth: () => api.get<SystemHealthResponse>('/system/health'),
-  getUsage: async (days = 30) => {
-    const response = await api.get(`/system/usage?days=${days}`);
-    return response.data;
-  },
 };
 
 // Reports API
@@ -623,12 +601,13 @@ export const rubricGeneratorAPI = {
 export const batchesAPI = {
   getBatches: () => api.get('/batches'),
   getBatch: (id: number) => api.get(`/batches/${id}`),
+  getBatchSummary: (id: number) => api.get<BatchSummary>(`/batches/${id}/summary`),
   createBatch: (data: { name: string; description?: string }) => api.post('/batches', data),
   updateBatch: (id: number, data: { name: string; description?: string }) => api.put(`/batches/${id}`, data),
   deleteBatch: (id: number) => api.delete(`/batches/${id}`),
   assignToBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/assign`, { assignment_ids }),
   unassignFromBatch: (id: number, assignment_ids: number[]) => api.post(`/batches/${id}/unassign`, { assignment_ids }),
-  scheduleMarking: (id: number, data: { rubric_id: number; scheduled_for?: string }) =>
+  scheduleMarking: (id: number, data: { rubric_id: number; scheduled_for?: string; strictness_level?: string; feedback_type?: string; feedback_verbosity?: string }) =>
     api.post(`/batches/${id}/schedule-marking`, data),
   getAllJobs: () => api.get('/batches/jobs/all'),
   getJobsHealth: () => api.get<BatchJobsHealthResponse>('/batches/jobs/health'),
@@ -1769,6 +1748,42 @@ export interface TemplateImageAsset {
   } | null;
 }
 
+export type DetailLevel = 'minimal' | 'standard' | 'detailed' | 'comprehensive';
+
+export interface SlideBatchUnit {
+  title: string;
+  slideCount: number;
+  includeQuiz: boolean;
+}
+
+export type SlideBatchJobStatus = 'scheduled' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface SlideBatchListItem {
+  id: number;
+  status: SlideBatchJobStatus;
+  createdAt: string;
+  scheduledFor: string | null;
+  errorMessage: string | null;
+  unitCount: number;
+  units: { title: string; slideCount: number; includeQuiz: boolean }[];
+  subject: string;
+  level: string;
+  detailLevel: string;
+}
+
+export interface SlideBatchStatus {
+  id: number;
+  status: SlideBatchJobStatus;
+  scheduledFor: string | null;
+  unitCount: number;
+  errorMessage: string | null;
+  progress: {
+    completedUnits?: number;
+    totalUnits?: number;
+    contentReady?: boolean;
+  };
+}
+
 export const slideGenAPI = {
   analyse: (file: File): Promise<{ sessionId: string; backgrounds: TemplateBackground[]; images?: TemplateImageAsset[] }> => {
     const form = new FormData();
@@ -1778,9 +1793,11 @@ export const slideGenAPI = {
   },
   generateContent: (params: {
     topic: string;
+    teachingGoal?: string;
     subject?: string;
     level?: string;
     slideCount?: number;
+    detailLevel?: DetailLevel;
     backgrounds?: TemplateBackground[];
   }): Promise<{ content: GeneratedSlide[] }> => {
     return api.post('/slide-gen/generate-content', params).then((r) => r.data);
@@ -1788,14 +1805,41 @@ export const slideGenAPI = {
   populate: (params: {
     sessionId: string;
     topic: string;
+    subject?: string;
+    level?: string;
     content: GeneratedSlide[];
     backgrounds: Record<number, string>;
     templateBgs: TemplateBackground[];
     templateImages?: TemplateImageAsset[];
+    generateImages?: boolean;
   }): Promise<Blob> => {
     return api.post('/slide-gen/populate', params, { responseType: 'blob' })
       .then((r) => r.data as Blob);
-  }
+  },
+  createBatch: (params: {
+    units: SlideBatchUnit[];
+    subject?: string;
+    level?: string;
+    detailLevel?: DetailLevel;
+    scheduledFor?: string | null;
+    sessionId?: string;
+    backgrounds?: TemplateBackground[];
+    templateBgs?: TemplateBackground[];
+    templateImages?: TemplateImageAsset[];
+    generateImages?: boolean;
+  }): Promise<{ success: boolean; jobId: number }> => {
+    return api.post('/slide-gen/batch', params).then((r) => r.data);
+  },
+  listBatches: (limit?: number): Promise<{ success: boolean; jobs: SlideBatchListItem[] }> => {
+    return api.get('/slide-gen/batch', { params: limit ? { limit } : {} }).then((r) => r.data);
+  },
+  getBatchStatus: (jobId: number): Promise<{ success: boolean } & SlideBatchStatus> => {
+    return api.get(`/slide-gen/batch/${jobId}`).then((r) => r.data);
+  },
+  downloadBatch: (jobId: number): Promise<Blob> => {
+    return api.get(`/slide-gen/batch/${jobId}/download`, { responseType: 'blob' })
+      .then((r) => r.data as Blob);
+  },
 };
 
 // ── Moodle integration API ─────────────────────────────────────
@@ -2046,21 +2090,133 @@ export const authAPI = {
       headers: { Authorization: `Bearer ${token}` }
     });
     return response.data;
-  },
-  forgotPassword: async (email: string) => {
-    const response = await api.post('/auth/forgot-password', { email });
-    return response.data as { message: string };
+  }
+};
+
+// ─── Revision Tracking ──────────────────────────────────────────────────────
+
+export interface RevisionCriterionChange {
+  criterion: string;
+  detail: string;
+}
+
+export interface RevisionComparison {
+  improved_criteria: RevisionCriterionChange[];
+  regressed_criteria: RevisionCriterionChange[];
+  unchanged_criteria: RevisionCriterionChange[];
+  narrative_summary: string;
+  key_improvement: string;
+  key_remaining_issue: string;
+}
+
+export interface RevisionScore {
+  criterion_name: string;
+  points_awarded: number;
+  max_points: number;
+  feedback: string;
+  confidence?: number;
+}
+
+export interface RevisionSubmission {
+  id: number;
+  revision_number: number;
+  progress_score: number;
+  overall_feedback: string;
+  total_score: number;
+  scores: RevisionScore[];
+  corrections: unknown[];
+  comparison: RevisionComparison | null;
+  filename: string;
+  uploaded_at: string;
+}
+
+export interface RevisionSeries {
+  id: number;
+  name: string;
+  student_name: string;
+  rubric_id: number;
+  rubric_name: string;
+  total_points: number;
+  criteria?: unknown[];
+  created_at: string;
+}
+
+export interface RevisionSeriesListItem extends RevisionSeries {
+  revision_count: number;
+  latest_progress: number;
+  last_uploaded: string | null;
+}
+
+export const revisionsApi = {
+  createSeries: async (name: string, student_name: string, rubric_id: number) => {
+    const response = await api.post('/revisions', { name, student_name, rubric_id });
+    return response.data as { success: boolean; series: RevisionSeries };
   },
 
-  resetPassword: async (token: string, password: string) => {
-    const response = await api.post('/auth/reset-password', { token, password });
-    return response.data as { message: string };
+  listSeries: async () => {
+    const response = await api.get('/revisions');
+    return response.data as {
+      series: RevisionSeriesListItem[];
+      by_student: Record<string, RevisionSeriesListItem[]>;
+    };
   },
 
-  refreshToken: async (refreshToken: string) => {
-    const response = await api.post('/auth/refresh', { refreshToken });
-    return response.data as { token: string; refreshToken: string };
+  getSeriesDetail: async (id: number) => {
+    const response = await api.get(`/revisions/${id}`);
+    return response.data as { series: RevisionSeries; revisions: RevisionSubmission[] };
   },
+
+  uploadRevision: async (seriesId: number, file: File, onProgress?: (pct: number) => void) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await api.post(`/revisions/${seriesId}/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress
+        ? (e) => { if (e.total) onProgress(Math.round((e.loaded / e.total) * 100)); }
+        : undefined
+    });
+    return response.data as {
+      success: boolean;
+      revision_number: number;
+      progress_score: number;
+      total_score: number;
+      total_points: number;
+      scores: RevisionScore[];
+      overall_feedback: string;
+      corrections: unknown[];
+      comparison: RevisionComparison | null;
+    };
+  },
+
+  deleteSeries: async (id: number) => {
+    const response = await api.delete(`/revisions/${id}`);
+    return response.data as { success: boolean };
+  }
+};
+
+export interface UserSession {
+  id: number;
+  user_id: number;
+  email: string;
+  name: string | null;
+  role: string;
+  organisation_name: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  logged_in_at: string;
+  last_seen_at: string;
+}
+
+export const sessionsApi = {
+  getSessions: async () => {
+    const response = await api.get('/auth/admin/sessions');
+    return response.data as { sessions: UserSession[] };
+  },
+
+  revokeSession: async (id: number) => {
+    const response = await api.delete(`/auth/admin/sessions/${id}`);
+    return response.data as { success: boolean };
+  }
 };
 
 export default api;

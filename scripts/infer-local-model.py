@@ -5,7 +5,7 @@ Local Model Inference Script
 Runs inference using a trained local model.
 
 Usage:
-    python scripts/infer-local-model.py --model ./models/acexen-model --text "Your input text here"
+    python scripts/infer-local-model.py --model ./models/markmate-model --text "Your input text here"
 """
 
 import json

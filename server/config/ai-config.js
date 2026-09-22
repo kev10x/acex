@@ -1,7 +1,7 @@
-// AI Configuration for Acexen
+// AI Configuration for MarkMate
 // This file contains settings for OpenAI and Anthropic API calls and document processing
 //
-// NOTE: Acexen includes explicit instructions to counteract AI positive bias
+// NOTE: MarkMate includes explicit instructions to counteract AI positive bias
 // (the tendency of GenAI models to be overly positive/encouraging in assessments).
 // See AI_POSITIVE_BIAS_MITIGATION.md for details on how realistic assessment is enforced.
 
@@ -11,7 +11,7 @@ const envInt = (name, fallback) => {
 };
 
 module.exports = {
-  // Default AI provider: 'openai' or 'anthropic'
+  // Default AI provider: 'openai', 'anthropic', or 'ollama'
   // Can be overridden via AI_PROVIDER environment variable
   defaultProvider: process.env.AI_PROVIDER || 'openai',
 
@@ -77,81 +77,96 @@ module.exports = {
     }
   },
 
-  // Anthropic (Claude) API settings
-  // Note: If you get 404 errors, your API key may only have access to claude-3-haiku-20240307
-  // To use Claude 3.5 Sonnet, you may need to upgrade your Anthropic account
+  // Anthropic (Claude 4) API settings
   anthropic: {
     models: {
-      treatise: "claude-3-haiku-20240307",  // Using Haiku (Sonnet requires account upgrade)
-      assignment: "claude-3-haiku-20240307", // Using Haiku (Sonnet requires account upgrade)
-      code: "claude-3-haiku-20240307",
-      project_proposal: "claude-3-haiku-20240307",
-      proposal: "claude-3-haiku-20240307",
-      exam: "claude-3-haiku-20240307",
-      question_paper: "claude-3-haiku-20240307",
-      memo: "claude-3-haiku-20240307",
-      report: "claude-3-haiku-20240307",
-      default: "claude-3-haiku-20240307"
+      treatise: "claude-opus-4-8",       // Opus 4.8 for large complex documents
+      assignment: "claude-sonnet-4-6",
+      code: "claude-sonnet-4-6",
+      project_proposal: "claude-sonnet-4-6",
+      proposal: "claude-sonnet-4-6",
+      exam: "claude-opus-4-8",
+      question_paper: "claude-opus-4-8",
+      memo: "claude-opus-4-8",
+      report: "claude-sonnet-4-6",
+      default: "claude-sonnet-4-6"
     },
-    
-    // Max tokens for completion (Claude uses max_tokens instead of maxTokens)
-    // Increased significantly to allow for extensive, detailed feedback
+
     maxTokens: {
-      treatise: 16000,
-      assignment: 16000,
-      code: 16000,
-      project_proposal: 16000,
-      proposal: 16000,
-      exam: 16000,
-      report: 16000,
-      question_paper: 16000,
-      memo: 16000,
-      default: 16000
+      treatise: 32000,
+      assignment: 32000,
+      code: 32000,
+      project_proposal: 32000,
+      proposal: 32000,
+      exam: 32000,
+      report: 32000,
+      question_paper: 32000,
+      memo: 32000,
+      default: 32000
     },
-    
-    // Temperature settings (same as OpenAI for consistency)
-    // Moderate temperatures allow variation while maintaining accuracy
-    // Increased from very low (0.05-0.1) to moderate (0.3-0.4) to allow unique evaluation per submission
+
     temperature: {
-      treatise: 0.4,       // Moderate for varied but accurate academic evaluation
-      assignment: 0.3,      // Moderate for natural variation in marking
+      treatise: 0.4,
+      assignment: 0.3,
       code: 0.2,
       project_proposal: 0.3,
       proposal: 0.3,
       exam: 0.25,
-      report: 0.3,         // Moderate for varied report marking
-      question_paper: 0.25, // Slightly lower for objective marking but still allows variation
-      memo: 0.25,          // Slightly lower for memo-based marking but still allows variation
-      default: 0.3         // Moderate default for natural variation
+      report: 0.3,
+      question_paper: 0.25,
+      memo: 0.25,
+      default: 0.3
     }
   },
+
+  // Ollama (local LLM) settings
+  // Set OLLAMA_MODEL env var to choose a model (default: llama3.2)
+  // Set OLLAMA_BASE_URL to point at a non-default Ollama instance
+  ollama: (() => {
+    const model = process.env.OLLAMA_MODEL || 'llama3.2';
+    const allTypes = ['treatise','assignment','code','project_proposal','proposal','exam','question_paper','memo','report','default'];
+    const models = Object.fromEntries(allTypes.map(t => [t, model]));
+    const maxTokens = Object.fromEntries(allTypes.map(t => [t, 8192]));
+    const temperature = {
+      treatise: 0.4, assignment: 0.3, code: 0.2,
+      project_proposal: 0.3, proposal: 0.3, exam: 0.25,
+      report: 0.3, question_paper: 0.25, memo: 0.25, default: 0.3
+    };
+    return { models, maxTokens, temperature };
+  })(),
 
   // Task-specific overrides so lightweight extraction/classification work
   // does not accidentally inherit large marking budgets.
   taskProfiles: {
     classification: {
       openai: { model: 'gpt-5-mini', maxTokens: 220, temperature: 0.1 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 220, temperature: 0.1 }
+      anthropic: { model: 'claude-haiku-4-5-20251001', maxTokens: 220, temperature: 0.1 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 220, temperature: 0.1 }
     },
     structuredExtraction: {
       openai: { model: 'gpt-5-mini', maxTokens: 8000, temperature: 0.2 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.2 }
+      anthropic: { model: 'claude-sonnet-4-6', maxTokens: 8000, temperature: 0.2 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 4096, temperature: 0.2 }
     },
     assessmentGeneration: {
-      openai: { model: 'gpt-5-mini', maxTokens: 32000, temperature: 0.6},
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.6}
+      openai: { model: 'gpt-5-mini', maxTokens: 32000, temperature: 0.6 },
+      anthropic: { model: 'claude-sonnet-4-6', maxTokens: 16000, temperature: 0.6 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 4096, temperature: 0.6 }
     },
     contentGeneration: {
       openai: { model: 'gpt-5-mini', maxTokens: 32000, temperature: 0.55 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.55 }
+      anthropic: { model: 'claude-sonnet-4-6', maxTokens: 16000, temperature: 0.55 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 4096, temperature: 0.55 }
     },
     practicalGeneration: {
-      openai: { model: 'gpt-5-mini', maxTokens: 24000, temperature: 0.45},
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 4096, temperature: 0.45}
+      openai: { model: 'gpt-5-mini', maxTokens: 24000, temperature: 0.45 },
+      anthropic: { model: 'claude-sonnet-4-6', maxTokens: 16000, temperature: 0.45 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 4096, temperature: 0.45 }
     },
     anchorExtraction: {
       openai: { model: 'gpt-4o-mini', maxTokens: 250, temperature: 0.1 },
-      anthropic: { model: 'claude-3-haiku-20240307', maxTokens: 250, temperature: 0.1 }
+      anthropic: { model: 'claude-haiku-4-5-20251001', maxTokens: 250, temperature: 0.1 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 250, temperature: 0.1 }
     },
     visionOCR: {
       openai: { model: 'gpt-4o-mini', maxTokens: 4000, temperature: 0.2 }
@@ -170,6 +185,10 @@ module.exports = {
     anthropic: {
       promptTokens: 0.003,      // $0.003 per 1K prompt tokens (Claude 3.5 Sonnet)
       completionTokens: 0.015    // $0.015 per 1K completion tokens (Claude 3.5 Sonnet)
+    },
+    ollama: {
+      promptTokens: 0,  // Local inference — no API cost
+      completionTokens: 0
     }
   },
 
@@ -179,7 +198,7 @@ module.exports = {
     const providerConfig = this[selectedProvider];
     
     if (!providerConfig) {
-      throw new Error(`Invalid provider: ${selectedProvider}. Must be 'openai' or 'anthropic'`);
+      throw new Error(`Invalid provider: ${selectedProvider}. Must be 'openai', 'anthropic', or 'ollama'`);
     }
 
     return {

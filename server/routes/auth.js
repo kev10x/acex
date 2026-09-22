@@ -1,16 +1,15 @@
 const express = require('express');
-const { logger } = require('../services/logger');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { query } = require('../database/connection');
-const { requireAuth, requireAdmin, generateToken, generateRefreshToken, verifyRefreshToken, normalizeRole, parseUserFeatures, mergeFeatures, normalizeFeatureSet } = require('../middleware/auth');
+const { requireAuth, requireAdmin, generateToken, normalizeRole, parseUserFeatures, mergeFeatures, normalizeFeatureSet } = require('../middleware/auth');
 const emailService = require('../services/emailService');
 const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 
 const router = express.Router();
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com';
+const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -166,7 +165,7 @@ router.post('/register', authLimiter, [
         console.log('⚠️  Email service not configured. Verification URL:', verificationUrl);
       }
     } catch (emailError) {
-      logger.error({ err: emailError });
+      console.error('Failed to send verification email:', emailError);
       // Continue even if email fails - user can request resend later
       console.log('⚠️  Verification URL (email not sent):', verificationUrl);
     }
@@ -189,15 +188,15 @@ router.post('/register', authLimiter, [
       verificationUrl: exposeVerificationUrl ? verificationUrl : undefined
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Registration error:', error);
     // Provide more detailed error message for debugging
     const errorMessage = error.message || 'Failed to register user';
-    logger.error({ err: {
+    console.error('Registration error details:', {
       message: errorMessage,
       code: error.code,
       sql: error.sql,
       sqlMessage: error.sqlMessage
-    } });
+    });
     res.status(500).json({ 
       error: 'Failed to register user',
       details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
@@ -269,18 +268,25 @@ router.post('/login', authLimiter, [
       [user.id]
     );
 
-    // Generate token pair
-    const token = generateToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
+    // Generate token with a unique jti for session tracking
+    const jti = crypto.randomUUID();
+    const token = generateToken(user.id, { jti });
+
+    // Record session (fire-and-forget — don't block login if this fails)
+    const ipAddress = req.ip || (String(req.headers['x-forwarded-for'] || '')).split(',')[0].trim() || null;
+    const userAgent = req.headers['user-agent'] || null;
+    query(
+      'INSERT INTO user_sessions (user_id, jti, ip_address, user_agent) VALUES ($1, $2, $3, $4)',
+      [user.id, jti, ipAddress || null, userAgent || null]
+    ).catch((err) => console.error('Session record error:', err));
 
     res.json({
       message: 'Login successful',
       user: buildAuthUserPayload(user),
-      token,
-      refreshToken
+      token
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Login error:', error);
     res.status(500).json({ error: 'Failed to login' });
   }
 });
@@ -316,7 +322,7 @@ router.get('/me', requireAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to get user info' });
   }
 });
@@ -389,7 +395,7 @@ router.put('/profile', requireAuth, [
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Update profile error:', error);
     res.status(500).json({ error: 'Failed to update profile' });
   }
 });
@@ -437,7 +443,7 @@ router.put('/change-password', requireAuth, [
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Change password error:', error);
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -481,7 +487,7 @@ router.get('/verify-email', async (req, res) => {
       verified: true
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Email verification error:', error);
     res.status(500).json({ error: 'Failed to verify email' });
   }
 });
@@ -535,11 +541,11 @@ router.post('/resend-verification', authLimiter, [
         message: 'Verification email sent! Please check your inbox.'
       });
     } catch (emailError) {
-      logger.error({ err: emailError });
+      console.error('Failed to send verification email:', emailError);
       res.status(500).json({ error: 'Failed to send verification email' });
     }
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Resend verification error:', error);
     res.status(500).json({ error: 'Failed to resend verification email' });
   }
 });
@@ -631,7 +637,7 @@ router.get('/admin/pending-users', requireAuth, requireAdmin, async (req, res) =
 
     res.json({ users });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Get pending users error:', error);
     res.status(500).json({ error: 'Failed to get pending users' });
   }
 });
@@ -672,7 +678,7 @@ router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
 
     res.json({ users });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Get all users error:', error);
     res.status(500).json({ error: 'Failed to get users' });
   }
 });
@@ -739,7 +745,7 @@ router.post('/admin/users/:id/impersonate', requireAuth, requireAdmin, async (re
       user: buildAuthUserPayload(targetUser, impersonation)
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Impersonate user error:', error);
     res.status(500).json({ error: 'Failed to impersonate user' });
   }
 });
@@ -778,7 +784,7 @@ router.post('/admin/users/:id/approve', requireAuth, requireAdmin, async (req, r
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Approve user error:', error);
     res.status(500).json({ error: 'Failed to approve user' });
   }
 });
@@ -838,7 +844,7 @@ router.post('/admin/users/:id/reject', requireAuth, requireAdmin, [
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Reject user error:', error);
     res.status(500).json({ error: 'Failed to reject user' });
   }
 });
@@ -895,7 +901,7 @@ router.put('/admin/users/:id/lock', requireAuth, requireAdmin, [
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Lock user error:', error);
     res.status(500).json({ error: 'Failed to update user lock status' });
   }
 });
@@ -934,7 +940,7 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
 
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Delete user error:', error);
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
@@ -993,7 +999,7 @@ const updateUserFeaturesHandler = [
         }
       });
     } catch (error) {
-      logger.error({ err: error });
+      console.error('Update user features error:', error);
       res.status(500).json({ error: 'Failed to update user features' });
     }
   }
@@ -1056,7 +1062,7 @@ router.put('/admin/users/:id/role', requireAuth, requireAdmin, [
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Update user role error:', error);
     res.status(500).json({ error: 'Failed to update user role' });
   }
 });
@@ -1076,7 +1082,7 @@ router.get('/admin/organisations', requireAuth, requireAdmin, async (_req, res) 
     }));
     res.json({ organisations: rows });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Get organisations error:', error);
     res.status(500).json({ error: 'Failed to fetch organisations' });
   }
 });
@@ -1113,7 +1119,7 @@ router.post('/admin/organisations', requireAuth, requireAdmin, [
 
     res.json({ success: true, organisation: { id, name } });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Create organisation error:', error);
     res.status(500).json({ error: 'Failed to create organisation' });
   }
 });
@@ -1163,7 +1169,7 @@ router.put('/admin/organisations/:id/features', requireAuth, requireAdmin, [
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Update organisation features error:', error);
     res.status(500).json({ error: 'Failed to update organisation features' });
   }
 });
@@ -1208,7 +1214,7 @@ router.get('/admin/departments', requireAuth, requireAdmin, async (req, res) => 
 
     res.json({ departments: getRows(result) });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Get departments error:', error);
     res.status(500).json({ error: 'Failed to fetch departments' });
   }
 });
@@ -1280,7 +1286,7 @@ router.post('/admin/departments', requireAuth, requireAdmin, [
       }
     });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Create department error:', error);
     res.status(500).json({ error: 'Failed to create department' });
   }
 });
@@ -1340,7 +1346,7 @@ router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
 
     res.json({ success: true, user });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Assign organisation error:', error);
     res.status(500).json({ error: 'Failed to assign organisation' });
   }
 });
@@ -1409,130 +1415,119 @@ router.put('/admin/users/:id/department', requireAuth, requireAdmin, [
 
     res.json({ success: true, user });
   } catch (error) {
-    logger.error({ err: error });
+    console.error('Assign department error:', error);
     res.status(500).json({ error: 'Failed to assign department' });
   }
 });
 
-// Logout (client-side token removal, but we can track it server-side if needed)
+// Logout
 router.post('/logout', requireAuth, async (req, res) => {
-  // In a JWT system, logout is handled client-side by removing the token
-  // We could implement token blacklisting here if needed
+  if (req.sessionJti) {
+    query('UPDATE user_sessions SET is_active = FALSE WHERE jti = $1', [req.sessionJti])
+      .catch(() => {});
+  }
   res.json({ message: 'Logged out successfully' });
 });
 
+// Admin routes - list active sessions
+router.get('/admin/sessions', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
+
+    // Cutoff in MySQL/PG-compatible format (no T separator, no Z suffix)
+    const jwtExpiryHours = 24;
+    const cutoff = new Date(Date.now() - jwtExpiryHours * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19);
+
+    let result;
+    if (requesterIsSuperAdmin) {
+      result = await query(`
+        SELECT s.id, s.user_id, s.ip_address, s.user_agent,
+               s.logged_in_at, s.last_seen_at,
+               u.email, u.name, u.role, u.organisation_id,
+               COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM user_sessions s
+        INNER JOIN users u ON u.id = s.user_id
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE s.is_active = TRUE
+          AND s.logged_in_at > $1
+        ORDER BY s.last_seen_at DESC
+      `, [cutoff]);
+    } else if (requesterOrg != null) {
+      result = await query(`
+        SELECT s.id, s.user_id, s.ip_address, s.user_agent,
+               s.logged_in_at, s.last_seen_at,
+               u.email, u.name, u.role, u.organisation_id,
+               COALESCE(o.name, u.organisation_name) as organisation_name
+        FROM user_sessions s
+        INNER JOIN users u ON u.id = s.user_id
+        LEFT JOIN organisations o ON o.id = u.organisation_id
+        WHERE s.is_active = TRUE
+          AND s.logged_in_at > $1
+          AND u.organisation_id = $2
+        ORDER BY s.last_seen_at DESC
+      `, [cutoff, requesterOrg]);
+    } else {
+      result = { rows: [] };
+    }
+
+    const sessions = (result.rows || result || []).map((s) => ({
+      id: s.id,
+      user_id: s.user_id,
+      email: s.email,
+      name: s.name,
+      role: normalizeRole(s.role),
+      organisation_name: s.organisation_name || null,
+      ip_address: s.ip_address || null,
+      user_agent: s.user_agent || null,
+      logged_in_at: s.logged_in_at,
+      last_seen_at: s.last_seen_at,
+    }));
+
+    res.json({ sessions });
+  } catch (error) {
+    console.error('List sessions error:', error);
+    res.status(500).json({ error: 'Failed to list sessions' });
+  }
+});
+
+// Admin routes - revoke a session
+router.delete('/admin/sessions/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sessionId = Number(req.params.id);
+    if (!Number.isFinite(sessionId) || sessionId <= 0) {
+      return res.status(400).json({ error: 'Invalid session id' });
+    }
+
+    const requesterOrg = req.user.organisation_id == null ? null : Number(req.user.organisation_id);
+    const requesterIsSuperAdmin = isSuperAdmin(req.user);
+
+    // Fetch the session to validate scope
+    const sessionResult = await query(
+      `SELECT s.id, s.user_id, u.organisation_id
+       FROM user_sessions s
+       INNER JOIN users u ON u.id = s.user_id
+       WHERE s.id = $1`,
+      [sessionId]
+    );
+    const session = sessionResult.rows?.[0] || sessionResult?.[0];
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    if (!requesterIsSuperAdmin && requesterOrg != null && Number(session.organisation_id) !== requesterOrg) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await query('UPDATE user_sessions SET is_active = FALSE WHERE id = $1', [sessionId]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Revoke session error:', error);
+    res.status(500).json({ error: 'Failed to revoke session' });
+  }
+});
+
 module.exports = router;
-
-// ── Token refresh ─────────────────────────────────────────────────────────────
-// POST /api/auth/refresh  — exchange a valid refresh token for a new access + refresh pair
-router.post('/refresh', authLimiter, async (req, res) => {
-  try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
-
-    let decoded;
-    try {
-      decoded = verifyRefreshToken(refreshToken);
-    } catch (err) {
-      return res.status(401).json({ error: 'Invalid or expired refresh token' });
-    }
-
-    const result = await query(
-      `SELECT u.id, u.email, u.name, u.role, u.is_active, u.is_approved, u.organisation_id,
-              u.department_id, u.features, o.features as organisation_features
-       FROM users u
-       LEFT JOIN organisations o ON o.id = u.organisation_id
-       WHERE u.id = $1`,
-      [decoded.userId]
-    );
-    const user = result.rows?.[0] || result?.[0];
-    if (!user || !user.is_active) return res.status(401).json({ error: 'User account not found or inactive' });
-    if (!user.is_approved) return res.status(403).json({ error: 'Account pending approval' });
-
-    const token = generateToken(user.id);
-    const newRefreshToken = generateRefreshToken(user.id);
-    res.json({ token, refreshToken: newRefreshToken });
-  } catch (error) {
-    logger.error({ err: error });
-    res.status(500).json({ error: 'Token refresh failed' });
-  }
-});
-
-// ── Forgot password ───────────────────────────────────────────────────────────
-// POST /api/auth/forgot-password  — send a password reset email
-router.post('/forgot-password', authLimiter, [
-  body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
-
-  try {
-    const { email } = req.body;
-
-    // Always return success to prevent email enumeration
-    const result = await query(
-      'SELECT id, name, is_active FROM users WHERE email = $1',
-      [email]
-    );
-    const user = result.rows?.[0] || result?.[0];
-
-    if (user && user.is_active) {
-      const token = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-      await query(
-        `UPDATE users SET verification_token = $1, token_expires_at = $2 WHERE id = $3`,
-        [token, expiresAt.toISOString(), user.id]
-      );
-
-      try {
-        await emailService.sendPasswordResetEmail(email, token, user.name);
-      } catch (emailErr) {
-        logger.error({ err: emailErr });
-        // Don't expose email failure to client
-      }
-    }
-
-    res.json({ message: 'If that email is registered, a reset link has been sent.' });
-  } catch (error) {
-    logger.error({ err: error });
-    res.status(500).json({ error: 'Password reset request failed' });
-  }
-});
-
-// POST /api/auth/reset-password  — apply new password using a reset token
-router.post('/reset-password', authLimiter, [
-  body('token').notEmpty().withMessage('Reset token required'),
-  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
-
-  try {
-    const { token, password } = req.body;
-
-    const result = await query(
-      `SELECT id, email FROM users
-       WHERE verification_token = $1
-         AND token_expires_at > NOW()
-         AND is_active = true`,
-      [token]
-    );
-    const user = result.rows?.[0] || result?.[0];
-    if (!user) return res.status(400).json({ error: 'Reset token is invalid or has expired' });
-
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    await query(
-      `UPDATE users
-       SET password_hash = $1, verification_token = NULL, token_expires_at = NULL
-       WHERE id = $2`,
-      [hashedPassword, user.id]
-    );
-
-    res.json({ message: 'Password reset successfully. You can now sign in.' });
-  } catch (error) {
-    logger.error({ err: error });
-    res.status(500).json({ error: 'Password reset failed' });
-  }
-});

@@ -5,7 +5,7 @@ const axios = require('axios');
 // Usage: node scripts/reparse-failed.js --file=filename.txt OR --all
 (async () => {
   const arg = process.argv.slice(2)[0] || '';
-  const serverUrl = process.env.ACEXEN_SERVER || 'http://localhost:3001';
+  const serverUrl = process.env.MARKMATE_SERVER || 'http://localhost:3001';
   const token = process.env.ADMIN_TOKEN || ''; // If your app uses auth, set ADMIN_TOKEN
 
   const params = {};

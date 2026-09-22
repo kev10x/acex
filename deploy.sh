@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ###############################################################################
-# Acexen Deployment Script for Virtualmin
+# MarkMate Deployment Script for Virtualmin
 # 
-# This script deploys Acexen from GitHub to a Virtualmin-managed server
+# This script deploys MarkMate from GitHub to a Virtualmin-managed server
 # 
 # Usage:
 #   ./deploy.sh [options]
@@ -75,7 +75,7 @@ if [ -z "$DOMAIN" ]; then
 fi
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Acexen Deployment Script${NC}"
+echo -e "${GREEN}MarkMate Deployment Script${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo "Domain: $DOMAIN"
 echo "Branch: $BRANCH"
@@ -143,7 +143,7 @@ if [ -d ".git" ]; then
 else
   echo -e "${RED}Error: Not a git repository${NC}"
   echo "Please clone the repository first:"
-  echo "  git clone https://github.com/kev10x/acexen.git"
+  echo "  git clone https://github.com/kev10x/markmateio.git"
   exit 1
 fi
 
@@ -176,7 +176,7 @@ elif [ ! -f ".env" ]; then
     echo -e "${YELLOW}⚠ Creating basic .env file...${NC}"
     cat > .env << EOF
 # Database
-DATABASE_URL=mysql://user:password@localhost:3306/acexen
+DATABASE_URL=mysql://user:password@localhost:3306/markmate
 
 # Server
 PORT=3001
@@ -234,7 +234,7 @@ if [ "$USE_PM2" = true ]; then
   cat > ecosystem.config.js << EOF
 module.exports = {
   apps: [{
-    name: 'acexen',
+    name: 'markmate',
     script: './server/index.js',
     instances: 1,
     exec_mode: 'fork',
@@ -257,15 +257,15 @@ EOF
   mkdir -p logs
 
   # Stop existing PM2 process if running
-  pm2 stop acexen 2>/dev/null || true
-  pm2 delete acexen 2>/dev/null || true
+  pm2 stop markmate 2>/dev/null || true
+  pm2 delete markmate 2>/dev/null || true
 
   # Start with PM2
   pm2 start ecosystem.config.js
   pm2 save
 
   echo -e "${GREEN}✓ PM2 process started${NC}"
-  echo "  View logs: pm2 logs acexen"
+  echo "  View logs: pm2 logs markmate"
   echo "  View status: pm2 status"
 else
   echo -e "${YELLOW}⚠ PM2 not available. You'll need to run the server manually:${NC}"
@@ -278,7 +278,7 @@ echo -e "${YELLOW}⚠ Manual configuration required for Virtualmin${NC}"
 echo ""
 echo "Please configure your Virtualmin domain with the following:"
 echo ""
-echo "1. Acexen will be served at: https://your-domain.com/tools"
+echo "1. MarkMate will be served at: https://your-domain.com/tools"
 echo "2. Add to Apache VirtualHost configuration:"
 echo "   (In Virtualmin: Server Configuration > Apache Configuration)"
 echo ""
@@ -288,7 +288,7 @@ cat << APACHE_CONFIG
      Require all granted
    </Location>
    
-   # Serve Acexen React app at /tools
+   # Serve MarkMate React app at /tools
    Alias /tools $DEPLOY_DIR/client/build
    
    <Directory "$DEPLOY_DIR/client/build">
@@ -326,9 +326,9 @@ echo ""
 if [ "$USE_PM2" = true ]; then
   echo "PM2 Commands:"
   echo "  pm2 status          - Check app status"
-  echo "  pm2 logs acexen  - View logs"
-  echo "  pm2 restart acexen - Restart app"
-  echo "  pm2 stop acexen   - Stop app"
+  echo "  pm2 logs markmate  - View logs"
+  echo "  pm2 restart markmate - Restart app"
+  echo "  pm2 stop markmate   - Stop app"
 fi
 echo ""
 echo "If you get 403 / 'client denied by server configuration':"

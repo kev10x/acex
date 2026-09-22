@@ -80,7 +80,7 @@ const runMarkingJob = async (jobId) => {
       if (!text) throw new Error(`No extracted text for ${assignment.filename}`);
 
       const documentType = isCodeDocument(assignment.filename) ? 'code' : null;
-      const result = await generateMarking(text, rubric, documentType);
+      const result = await generateMarking(text, rubric, documentType, null, job.provider, job.strictness_level || 'strict', assignment.id, null, job.feedback_type || 'standard', job.feedback_verbosity || 'standard', null);
       const insertResult = await query(
         `INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -239,6 +239,89 @@ router.get('/:id', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Get batch error:', error);
     res.status(500).json({ error: 'Failed to fetch batch' });
+  }
+});
+
+// Marking summary for a batch: per-script scores, averages, and success/failure counts
+router.get('/:id/summary', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const batch = firstRow(await query(
+      'SELECT id, name FROM batches WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
+    ));
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+
+    const rows = rowsOf(await query(
+      `SELECT a.id AS assignment_id, a.filename, a.status,
+              mr.id AS result_id, mr.student_name, mr.total_score, mr.marked_at,
+              m.override_total_score, r.name AS rubric_name, r.total_points,
+              s.failure_reason
+       FROM assignments a
+       LEFT JOIN marking_results mr ON mr.assignment_id = a.id AND mr.is_current = 1
+       LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
+       LEFT JOIN rubrics r ON r.id = mr.rubric_id
+       LEFT JOIN assessment_submissions s ON s.assignment_id = a.id
+       WHERE a.batch_id = ? AND a.user_id = ?
+       ORDER BY a.filename ASC, mr.marked_at DESC`,
+      [id, req.user.id]
+    ));
+
+    // One entry per assignment (newest current result wins if there are duplicates).
+    const byAssignment = new Map();
+    for (const row of rows) {
+      if (!byAssignment.has(row.assignment_id)) byAssignment.set(row.assignment_id, row);
+    }
+
+    const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+    const scripts = Array.from(byAssignment.values()).map((row) => {
+      const marked = row.status === 'completed' && row.result_id != null;
+      const totalPoints = num(row.total_points);
+      const score = marked ? (num(row.override_total_score) ?? num(row.total_score)) : null;
+      return {
+        assignment_id: row.assignment_id,
+        filename: row.filename,
+        student_name: row.student_name || stripAssignmentExtension(row.filename),
+        status: marked ? 'marked' : row.status === 'error' ? 'failed' : row.status === 'processing' ? 'processing' : 'unmarked',
+        score,
+        total_points: totalPoints,
+        percent: score != null && totalPoints ? Math.round((score / totalPoints) * 1000) / 10 : null,
+        rubric_name: row.rubric_name || null,
+        marked_at: row.marked_at || null,
+        failure_reason: row.status === 'error' ? (row.failure_reason || null) : null
+      };
+    });
+
+    const scored = scripts.filter((s) => s.score != null);
+    const scores = scored.map((s) => s.score).sort((a, b) => a - b);
+    const percents = scored.map((s) => s.percent).filter((p) => p != null);
+    const avg = (arr) => (arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100 : null);
+    const median = scores.length
+      ? (scores.length % 2 ? scores[(scores.length - 1) / 2] : (scores[scores.length / 2 - 1] + scores[scores.length / 2]) / 2)
+      : null;
+
+    res.json({
+      success: true,
+      batch: { id: batch.id, name: batch.name },
+      counts: {
+        total: scripts.length,
+        marked: scripts.filter((s) => s.status === 'marked').length,
+        failed: scripts.filter((s) => s.status === 'failed').length,
+        processing: scripts.filter((s) => s.status === 'processing').length,
+        unmarked: scripts.filter((s) => s.status === 'unmarked').length
+      },
+      stats: {
+        average_score: avg(scores),
+        average_percent: avg(percents),
+        median_score: median,
+        highest_score: scores.length ? scores[scores.length - 1] : null,
+        lowest_score: scores.length ? scores[0] : null
+      },
+      scripts
+    });
+  } catch (error) {
+    console.error('Get batch summary error:', error);
+    res.status(500).json({ error: 'Failed to fetch batch summary' });
   }
 });
 
@@ -402,7 +485,7 @@ router.post('/:id/unassign', requireAuth, async (req, res) => {
 router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { rubric_id, scheduled_for, provider = 'openai', processing_mode } = req.body;
+    const { rubric_id, scheduled_for, provider = 'openai', processing_mode, strictness_level = 'strict', feedback_type = 'standard', feedback_verbosity = 'standard' } = req.body;
 
     if (!rubric_id) return res.status(400).json({ error: 'rubric_id is required' });
 
@@ -440,9 +523,9 @@ router.post('/:id/schedule-marking', requireAuth, async (req, res) => {
     }
 
     const insert = await query(
-      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, provider, processing_mode, status, scheduled_for, total_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, rubric_id, req.user.id, requestedProvider, finalProcessingMode, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount]
+      `INSERT INTO marking_jobs (batch_id, rubric_id, user_id, provider, processing_mode, status, scheduled_for, total_count, strictness_level, feedback_type, feedback_verbosity)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, rubric_id, req.user.id, requestedProvider, finalProcessingMode, 'scheduled', scheduleTime.toISOString().slice(0, 19).replace('T', ' '), assignmentCount, strictness_level, feedback_type, feedback_verbosity]
     );
     const jobId = insert.lastID || insert.insertId || insert.rows?.[0]?.id;
 

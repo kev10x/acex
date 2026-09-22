@@ -22,7 +22,7 @@ function buildContentScormPackage(content) {
     const quizQuestions = Array.isArray(content?.quiz?.questions) ? content.quiz.questions : [];
     const theme = content?.theme || {};
 
-    const manifestId = `acexen_content_scorm_${Date.now()}`;
+    const manifestId = `markmate_content_scorm_${Date.now()}`;
     const imsmanifest = `<?xml version="1.0" encoding="UTF-8"?>
 <manifest identifier="${escapeHtml(manifestId)}" version="1.2"
   xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"

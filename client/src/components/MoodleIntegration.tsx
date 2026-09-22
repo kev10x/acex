@@ -578,7 +578,7 @@ const MoodleIntegration: React.FC = () => {
                       <table className="w-full text-xs">
                         <thead className="bg-gray-50 border-b border-gray-200">
                           <tr>
-                            <th className="text-left px-3 py-2 font-semibold text-gray-600">Acexen Student</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-600">MarkMate Student</th>
                             <th className="text-left px-3 py-2 font-semibold text-gray-600">Moodle User</th>
                             <th className="text-right px-3 py-2 font-semibold text-gray-600">Grade</th>
                             <th className="text-left px-3 py-2 font-semibold text-gray-600">Feedback</th>

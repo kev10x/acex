@@ -1,4 +1,4 @@
-# Virtualmin Apache Configuration for Acexen
+# Virtualmin Apache Configuration for MarkMate
 # 
 # Add this configuration to your Virtualmin domain's Apache settings
 # 
@@ -6,27 +6,27 @@
 #   Go to: Server Configuration > Apache Configuration > Directives
 #   Or edit: /etc/apache2/sites-available/your-domain.conf
 #
-# Replace /path/to/Acexen with your actual deployment path
-# Replace acexen.com with your actual domain
+# Replace /path/to/MarkMate with your actual deployment path
+# Replace markmate.io with your actual domain
 #
-# This configuration serves Acexen at acexen.com/tools
+# This configuration serves MarkMate at markmate.io/tools
 
 <VirtualHost *:80>
-    ServerName acexen.com
-    ServerAlias www.acexen.com
+    ServerName markmate.io
+    ServerAlias www.markmate.io
     
     # Redirect HTTP to HTTPS
-    Redirect permanent / https://acexen.com/
+    Redirect permanent / https://markmate.io/
 </VirtualHost>
 
 <VirtualHost *:443>
-    ServerName acexen.com
-    ServerAlias www.acexen.com
+    ServerName markmate.io
+    ServerAlias www.markmate.io
     
     # SSL Configuration (Virtualmin usually handles this)
     SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/acexen.com.crt
-    SSLCertificateKeyFile /etc/ssl/private/acexen.com.key
+    SSLCertificateFile /etc/ssl/certs/markmate.io.crt
+    SSLCertificateKeyFile /etc/ssl/private/markmate.io.key
     
     # Document Root - Your main site root
     DocumentRoot /path/to/your/main/site
@@ -36,10 +36,10 @@
         Require all granted
     </Location>
     
-    # Serve Acexen React app at /tools
-    Alias /tools /path/to/Acexen/client/build
+    # Serve MarkMate React app at /tools
+    Alias /tools /path/to/MarkMate/client/build
     
-    <Directory "/path/to/Acexen/client/build">
+    <Directory "/path/to/MarkMate/client/build">
         Options -Indexes +FollowSymLinks
         AllowOverride All
         Require all granted
@@ -63,8 +63,8 @@
     # ProxyPassReverse /tools/socket.io http://localhost:3001/socket.io
     
     # Error and access logs
-    ErrorLog ${APACHE_LOG_DIR}/acexen-error.log
-    CustomLog ${APACHE_LOG_DIR}/acexen-access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/markmate-error.log
+    CustomLog ${APACHE_LOG_DIR}/markmate-access.log combined
 </VirtualHost>
 
 # Enable required Apache modules (run as root):

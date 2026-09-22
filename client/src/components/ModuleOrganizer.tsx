@@ -46,7 +46,7 @@ interface LibDrag {
   label: string;
 }
 
-const LIB_DRAG_TYPE = 'application/acexen-drag';
+const LIB_DRAG_TYPE = 'application/markmate-drag';
 const ASSESSMENT_LIBRARY_PAGE_SIZE = 10;
 
 function getAppBasePath() {

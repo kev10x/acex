@@ -67,7 +67,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
           <div className="px-8 pt-10 pb-2">
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Create your account</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Join Acexen to streamline your marking workflow.
+              Join MarkMate to streamline your marking workflow.
             </p>
           </div>
 

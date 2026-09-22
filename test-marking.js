@@ -4,7 +4,7 @@ const axios = require('axios');
 async function testMarking() {
   const API_BASE_URL = 'http://localhost:3001/api';
   
-  console.log('🧪 Testing Acexen Marking System');
+  console.log('🧪 Testing MarkMate Marking System');
   console.log('==================================');
   
   try {

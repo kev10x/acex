@@ -2,11 +2,11 @@
 """
 Train Local Model Directly from Database
 
-This script connects to the Acexen database, exports training data,
+This script connects to the MarkMate database, exports training data,
 and trains a local model in one go.
 
 Usage:
-    python scripts/train-from-database.py --output ./models/acexen-model --epochs 3
+    python scripts/train-from-database.py --output ./models/markmate-model --epochs 3
 """
 
 import json
@@ -120,7 +120,7 @@ def get_db_connection():
             port=int(os.getenv('DB_PORT', 3306)),
             user=os.getenv('DB_USER', 'root'),
             password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'acexen'),
+            database=os.getenv('DB_NAME', 'markmate'),
             cursorclass=pymysql.cursors.DictCursor
         )
         return conn
@@ -131,7 +131,7 @@ def get_db_connection():
             port=int(os.getenv('DB_PORT', 5432)),
             user=os.getenv('DB_USER', 'postgres'),
             password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'acexen')
+            database=os.getenv('DB_NAME', 'markmate')
         )
         return conn
     
@@ -379,7 +379,7 @@ def extract_text_from_pdf(file_path):
 
 def main():
     parser = argparse.ArgumentParser(description='Train local model directly from database')
-    parser.add_argument('--output', default='./models/acexen-model', help='Output directory for model')
+    parser.add_argument('--output', default='./models/markmate-model', help='Output directory for model')
     parser.add_argument('--base-model', default='distilbert-base-uncased', 
                        help='Base model to fine-tune')
     parser.add_argument('--epochs', type=int, default=3, help='Number of training epochs')
@@ -425,7 +425,7 @@ def main():
                 print("\n❌ No marking results found in database!")
                 print("   You need to mark some assignments first.")
                 print("   Steps:")
-                print("   1. Upload PDFs in Acexen")
+                print("   1. Upload PDFs in MarkMate")
                 print("   2. Create/select a rubric")
                 print("   3. Mark the assignments using AI Marking")
                 print("   4. Then run this training script again")

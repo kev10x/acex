@@ -12,7 +12,7 @@ INSTRUCTIONS
 ================================================================================
 
 This template is designed to help you create answer keys that can be uploaded
-as rubrics in Acexen. When uploaded, the system will automatically detect it
+as rubrics in MarkMate. When uploaded, the system will automatically detect it
 as a memo and use it for marking question papers.
 
 For each question:

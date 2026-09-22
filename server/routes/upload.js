@@ -8,9 +8,12 @@ const { query } = require('../database/connection');
 const {
   extractTextFromDocument,
   getSupportedDocumentLabel,
-  isSupportedDocument
+  isSupportedDocument,
+  isMediaDocument,
+  isVideoDocument
 } = require('../services/documentExtractService');
 const { requireAuth } = require('../middleware/auth');
+const { runVideoProcessingCycle } = require('../services/videoProcessingService');
 
 const router = express.Router();
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
@@ -88,6 +91,17 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// /single accepts documents AND video/audio presentations (routed to media processing instead of
+// text extraction); /multiple and /zip stay document-only since their handlers don't know how to
+// queue a media_processing_jobs row per file.
+const singleUploadFileFilter = (req, file, cb) => {
+  if (isSupportedDocument(file.originalname, file.mimetype) || isMediaDocument(file.originalname, file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only PDF, DOCX Word documents, source-code files, or video/audio recordings (mp4, mov, webm, mp3, wav, m4a) are allowed'), false);
+  }
+};
+
 // Separate filter for ZIP uploads
 const zipFileFilter = (req, file, cb) => {
   const isZip =
@@ -109,6 +123,15 @@ const upload = multer({
   }
 });
 
+// Video/audio presentations are far larger than PDFs, so /single gets a much higher ceiling
+const uploadSingle = multer({
+  storage,
+  fileFilter: singleUploadFileFilter,
+  limits: {
+    fileSize: parseInt(process.env.MAX_MEDIA_FILE_SIZE) || 500 * 1024 * 1024 // 500MB default
+  }
+});
+
 // Uploader for ZIP files (allow larger by default: 100MB)
 const uploadZip = multer({
   storage,
@@ -118,8 +141,8 @@ const uploadZip = multer({
   }
 });
 
-// Upload single assignment document
-router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
+// Upload single assignment document (or video/audio presentation)
+router.post('/single', requireAuth, uploadSingle.single('pdf'), async (req, res) => {
   try {
     console.log('Upload request received:', {
       hasFile: !!req.file,
@@ -136,16 +159,56 @@ router.post('/single', requireAuth, upload.single('pdf'), async (req, res) => {
       return res.status(400).json({ error: 'No assignment file uploaded' });
     }
 
+    const isMedia = isMediaDocument(req.file.originalname, req.file.mimetype);
+
     // Validate file type
-    if (!isSupportedDocument(req.file.originalname, req.file.mimetype)) {
+    if (!isSupportedDocument(req.file.originalname, req.file.mimetype) && !isMedia) {
       // Delete the uploaded file if it's not supported
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
-      return res.status(400).json({ error: 'Only PDF, DOCX Word documents, or source-code files are allowed' });
+      return res.status(400).json({ error: 'Only PDF, DOCX Word documents, source-code files, or video/audio recordings are allowed' });
     }
 
     const batchId = await resolveBatchId(req.body?.batch_id, req.user.id);
+
+    if (isMedia) {
+      const mediaType = isVideoDocument(req.file.originalname, req.file.mimetype) ? 'video' : 'audio';
+      const mediaLabel = mediaType === 'video' ? 'Video' : 'Audio';
+
+      const result = await query(
+        'INSERT INTO assignments (filename, file_path, file_size, status, media_type, user_id, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [req.file.originalname, req.file.path, req.file.size, 'processing', mediaType, req.user.id, batchId]
+      );
+      const insertedId = result.lastID || result.rows?.[0]?.id;
+
+      await query(
+        'INSERT INTO media_processing_jobs (assignment_id, user_id, media_type) VALUES (?, ?, ?)',
+        [insertedId, req.user.id, mediaType]
+      );
+
+      // Kick off processing immediately rather than waiting for the next poll tick
+      runVideoProcessingCycle().catch((err) => console.error('Video processing kick-off failed:', err));
+
+      const assignmentWithId = {
+        id: insertedId,
+        filename: req.file.originalname,
+        file_path: req.file.path,
+        file_size: req.file.size,
+        status: 'processing',
+        batch_id: batchId,
+        uploaded_at: new Date().toISOString()
+      };
+
+      console.log('Media assignment saved successfully:', assignmentWithId);
+
+      return res.json({
+        success: true,
+        assignment: assignmentWithId,
+        message: `${mediaLabel} uploaded — transcribing${mediaType === 'video' ? ' and extracting frames' : ''} now`
+      });
+    }
+
     const assignment = {
       filename: req.file.originalname,
       file_path: req.file.path,

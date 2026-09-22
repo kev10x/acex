@@ -10,7 +10,7 @@ This file is shared working memory for Codex sessions in this repository. Read i
 
 ## Project Snapshot
 
-- Project: Acexen, an AI-powered PDF assignment marking and educational content generation platform.
+- Project: MarkMate, an AI-powered PDF assignment marking and educational content generation platform.
 - Stack: Node.js/Express backend, React/Vite/TypeScript frontend, SQLite/MySQL/PostgreSQL via `DATABASE_URL`.
 - Main project guide: `CLAUDE.md`.
 - Subpath deployment details: `README_SUBPATH.md`.

@@ -7,7 +7,7 @@ const dbConfig = {
   port: 3306,
   user: 'root',
   password: 'Pwd2wic3',
-  database: 'acexen'
+  database: 'markmate'
 };
 
 // Sample rubric data template

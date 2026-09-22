@@ -83,7 +83,7 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`
-Deploy annotation + feedback-video functionality into a partial Acexen app.
+Deploy annotation + feedback-video functionality into a partial MarkMate app.
 
 Usage:
   node scripts/deploy-annotation-video-feedback.js --target <path> [options]
@@ -98,9 +98,9 @@ Options:
   --help, -h          Show this help
 
 Examples:
-  node scripts/deploy-annotation-video-feedback.js --target ../client-acexen
-  node scripts/deploy-annotation-video-feedback.js --target C:\\apps\\acexen --dry-run
-  node scripts/deploy-annotation-video-feedback.js --target ../client-acexen --backend-only --no-build
+  node scripts/deploy-annotation-video-feedback.js --target ../client-markmate
+  node scripts/deploy-annotation-video-feedback.js --target C:\\apps\\markmate --dry-run
+  node scripts/deploy-annotation-video-feedback.js --target ../client-markmate --backend-only --no-build
 `);
 }
 

@@ -65,14 +65,14 @@ class EmailService {
   }
 
   async sendVerificationEmail(email, token, name) {
-    // Set CLIENT_URL in .env to your app URL (e.g. https://acexen.com/tools) so verification links are correct
+    // Set CLIENT_URL in .env to your app URL (e.g. https://markmate.io/tools) so verification links are correct
     const baseUrl = process.env.CLIENT_URL || process.env.BASE_URL || 'http://localhost:3000';
     const verificationUrl = `${baseUrl.replace(/\/$/, '')}/verify-email?token=${token}`;
 
     const mailOptions = {
-      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@acexen.com',
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
       to: email,
-      subject: 'Verify your Acexen account',
+      subject: 'Verify your MarkMate account',
       html: `
         <!DOCTYPE html>
         <html>
@@ -83,12 +83,12 @@ class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0;">Acexen</h1>
+            <h1 style="margin: 0;">MarkMate</h1>
           </div>
           <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
             <h2 style="color: #1f2937; margin-top: 0;">Verify your email address</h2>
             <p>Hello${name ? ` ${name}` : ''},</p>
-            <p>Thank you for registering with Acexen! Please verify your email address by clicking the button below:</p>
+            <p>Thank you for registering with MarkMate! Please verify your email address by clicking the button below:</p>
             <div style="text-align: center; margin: 30px 0;">
               <a href="${verificationUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Verify Email Address</a>
             </div>
@@ -98,17 +98,17 @@ class EmailService {
             <p style="font-size: 14px; color: #6b7280;">If you didn't create an account, you can safely ignore this email.</p>
           </div>
           <div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-            <p>© ${new Date().getFullYear()} Acexen. All rights reserved.</p>
+            <p>© ${new Date().getFullYear()} MarkMate. All rights reserved.</p>
           </div>
         </body>
         </html>
       `,
       text: `
-        Verify your Acexen account
+        Verify your MarkMate account
         
         Hello${name ? ` ${name}` : ''},
         
-        Thank you for registering with Acexen! Please verify your email address by visiting the following link:
+        Thank you for registering with MarkMate! Please verify your email address by visiting the following link:
         
         ${verificationUrl}
         
@@ -133,9 +133,9 @@ class EmailService {
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 
     const mailOptions = {
-      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@acexen.com',
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
       to: email,
-      subject: 'Reset your Acexen password',
+      subject: 'Reset your MarkMate password',
       html: `
         <!DOCTYPE html>
         <html>
@@ -146,7 +146,7 @@ class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0;">Acexen</h1>
+            <h1 style="margin: 0;">MarkMate</h1>
           </div>
           <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
             <h2 style="color: #1f2937; margin-top: 0;">Reset your password</h2>
@@ -161,13 +161,13 @@ class EmailService {
             <p style="font-size: 14px; color: #6b7280;">If you didn't request a password reset, you can safely ignore this email.</p>
           </div>
           <div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-            <p>© ${new Date().getFullYear()} Acexen. All rights reserved.</p>
+            <p>© ${new Date().getFullYear()} MarkMate. All rights reserved.</p>
           </div>
         </body>
         </html>
       `,
       text: `
-        Reset your Acexen password
+        Reset your MarkMate password
         
         Hello${name ? ` ${name}` : ''},
         

@@ -41,7 +41,7 @@ function withEnv(overrides, run) {
 }
 
 test('GET /system/health reports healthy when infrastructure checks pass', async (t) => {
-  const uploadRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'acexen-health-'));
+  const uploadRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'markmate-health-'));
   fs.mkdirSync(path.join(uploadRoot, 'feedback-videos'), { recursive: true });
   fs.mkdirSync(path.resolve('training_data'), { recursive: true });
   t.after(() => fs.rmSync(uploadRoot, { recursive: true, force: true }));
@@ -62,13 +62,13 @@ test('GET /system/health reports healthy when infrastructure checks pass', async
 
   await withEnv(
     {
-      DATABASE_URL: 'mysql://user:pass@localhost:3306/acexen',
+      DATABASE_URL: 'mysql://user:pass@localhost:3306/markmate',
       UPLOAD_DIR: uploadRoot,
       JWT_SECRET: 'super-secret',
       GMAIL_USER: 'lecturer@example.com',
       GMAIL_APP_PASSWORD: 'app-password',
       OPENAI_API_KEY: 'sk-test',
-      CLIENT_URL: 'https://acexen.example',
+      CLIENT_URL: 'https://markmate.example',
       NODE_ENV: 'production'
     },
     async () => {
@@ -85,7 +85,7 @@ test('GET /system/health reports healthy when infrastructure checks pass', async
 });
 
 test('GET /system/health reports unhealthy with warnings when critical checks fail', async (t) => {
-  const missingUploadDir = path.join(os.tmpdir(), `acexen-missing-${Date.now()}`);
+  const missingUploadDir = path.join(os.tmpdir(), `markmate-missing-${Date.now()}`);
 
   const { module: router, restore } = loadWithMocks(path.join(__dirname, 'system.js'), {
     '../database/connection': {
@@ -105,7 +105,7 @@ test('GET /system/health reports unhealthy with warnings when critical checks fa
 
   await withEnv(
     {
-      DATABASE_URL: 'mysql://user:pass@localhost:3306/acexen',
+      DATABASE_URL: 'mysql://user:pass@localhost:3306/markmate',
       UPLOAD_DIR: missingUploadDir,
       JWT_SECRET: 'your-secret-key-change-in-production',
       GMAIL_USER: undefined,

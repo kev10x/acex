@@ -161,7 +161,7 @@ function buildScormPackage(assessment) {
     const title = assessment.title || 'Assessment';
     const instructions = assessment.instructions || '';
 
-    const manifestId = 'acexen_scorm_' + Date.now();
+    const manifestId = 'markmate_scorm_' + Date.now();
     const orgId = 'org1';
     const resId = 'resource1';
     const resAnswersId = 'resource_answers';

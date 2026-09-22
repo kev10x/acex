@@ -15,7 +15,7 @@ if [ "$DB_TYPE" = "mysql" ]; then
     export DB_PORT=${DB_PORT:-3306}
     export DB_USER=${DB_USER:-root}
     export DB_PASSWORD=${DB_PASSWORD:-}
-    export DB_NAME=${DB_NAME:-acexen}
+    export DB_NAME=${DB_NAME:-markmate}
 fi
 
 # For PostgreSQL
@@ -24,12 +24,12 @@ if [ "$DB_TYPE" = "postgresql" ]; then
     export DB_PORT=${DB_PORT:-5432}
     export DB_USER=${DB_USER:-postgres}
     export DB_PASSWORD=${DB_PASSWORD:-}
-    export DB_NAME=${DB_NAME:-acexen}
+    export DB_NAME=${DB_NAME:-markmate}
 fi
 
 # Run training
 python3 scripts/train-from-database.py \
-    --output ./models/acexen-model \
+    --output ./models/markmate-model \
     --epochs 3 \
     --batch-size 8 \
     "$@"

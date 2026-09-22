@@ -86,11 +86,11 @@ function buildCommentXml(id, text) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const paragraphs = (lines.length ? lines : ['Acexen feedback']).map((line) => (
+  const paragraphs = (lines.length ? lines : ['MarkMate feedback']).map((line) => (
     `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`
   )).join('');
 
-  return `<w:comment w:id="${id}" w:author="Acexen" w:initials="MM" w:date="${new Date().toISOString()}">${paragraphs}</w:comment>`;
+  return `<w:comment w:id="${id}" w:author="MarkMate" w:initials="MM" w:date="${new Date().toISOString()}">${paragraphs}</w:comment>`;
 }
 
 function ensureCommentsXml(entries, comments) {

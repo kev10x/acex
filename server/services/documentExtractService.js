@@ -51,6 +51,27 @@ function isCodeDocument(fileNameOrPath = '', mimeType = '') {
   return CODE_EXTENSIONS.has(ext) || CODE_MIME_TYPES.has(mime) || CODE_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix));
 }
 
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm']);
+const VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a']);
+const AUDIO_MIME_TYPES = new Set(['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/x-m4a', 'audio/mp4', 'audio/m4a']);
+
+function isVideoDocument(fileNameOrPath = '', mimeType = '') {
+  const ext = getFileExtension(fileNameOrPath);
+  const mime = String(mimeType || '').toLowerCase();
+  return VIDEO_EXTENSIONS.has(ext) || VIDEO_MIME_TYPES.has(mime);
+}
+
+function isAudioDocument(fileNameOrPath = '', mimeType = '') {
+  const ext = getFileExtension(fileNameOrPath);
+  const mime = String(mimeType || '').toLowerCase();
+  return AUDIO_EXTENSIONS.has(ext) || AUDIO_MIME_TYPES.has(mime);
+}
+
+function isMediaDocument(fileNameOrPath = '', mimeType = '') {
+  return isVideoDocument(fileNameOrPath, mimeType) || isAudioDocument(fileNameOrPath, mimeType);
+}
+
 function isSupportedDocument(fileNameOrPath = '', mimeType = '') {
   return isPdfDocument(fileNameOrPath, mimeType) || isDocxDocument(fileNameOrPath, mimeType) || isCodeDocument(fileNameOrPath, mimeType);
 }
@@ -59,6 +80,8 @@ function getSupportedDocumentLabel(fileNameOrPath = '', mimeType = '') {
   if (isPdfDocument(fileNameOrPath, mimeType)) return 'PDF';
   if (isDocxDocument(fileNameOrPath, mimeType)) return 'Word document';
   if (isCodeDocument(fileNameOrPath, mimeType)) return 'code file';
+  if (isVideoDocument(fileNameOrPath, mimeType)) return 'video';
+  if (isAudioDocument(fileNameOrPath, mimeType)) return 'audio recording';
   return 'document';
 }
 
@@ -208,5 +231,8 @@ module.exports = {
   isCodeDocument,
   isDocxDocument,
   isPdfDocument,
-  isSupportedDocument
+  isSupportedDocument,
+  isVideoDocument,
+  isAudioDocument,
+  isMediaDocument
 };

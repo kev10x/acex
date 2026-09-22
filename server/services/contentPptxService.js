@@ -1,5 +1,5 @@
 /**
- * PPTX generation and template utilities for Acexen.
+ * PPTX generation and template utilities for MarkMate.
  * Extracted from contentService.js to keep that file focused on AI content generation.
  */
 
@@ -932,7 +932,7 @@ async function buildPptx(content, options = {}) {
     };
   }
   pptx.title = title;
-  pptx.author = 'Acexen';
+  pptx.author = 'MarkMate';
   pptx.subject = title;
   pptx.layout = 'LAYOUT_16x9';
 

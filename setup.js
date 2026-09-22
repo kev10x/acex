@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('Setting up Acexen...\n');
+console.log('Setting up MarkMate...\n');
 
 if (!fs.existsSync('.env')) {
   console.log('Creating .env file from template...');

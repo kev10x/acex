@@ -17,6 +17,7 @@ const {
 } = require('../services/documentExtractService');
 const { addCommentsToDocx } = require('../services/docxCommenter');
 const { generateMarking, parseMarkingResponsePayload, parseAiJsonResponse } = require('../services/markingService');
+const { loadPersistedFrameImagesAsBase64 } = require('../services/videoProcessingService');
 
 const router = express.Router();
 const pdfGenerator = new PDFReportGenerator();
@@ -333,6 +334,13 @@ router.post('/single', requireAuth, async (req, res) => {
     if (!assignment) {
       return res.status(404).json({ error: 'Assignment not found' });
     }
+    if (assignment.media_type && (!assignment.extracted_text || String(assignment.extracted_text).trim().length === 0)) {
+      return res.status(409).json({
+        error: assignment.status === 'error'
+          ? 'This video/audio submission failed to process and cannot be marked. Check the error and re-upload.'
+          : 'This video/audio submission is still being processed (transcribing/extracting frames). Please try again shortly.'
+      });
+    }
     const resolvedStudentName = resolveStudentName(student_name, assignment);
 
     const rubricResult = await query(
@@ -404,6 +412,9 @@ router.post('/single', requireAuth, async (req, res) => {
         if (!assignmentText || assignmentText.trim().length === 0) {
           throw new Error(`No text could be extracted from the ${getSupportedDocumentLabel(getAssignmentDisplayName(assignment))}`);
         }
+        if (assignment.media_type === 'video') {
+          assignmentImages = loadPersistedFrameImagesAsBase64(assignment.media_frame_paths);
+        }
       }
 
       if (checkAborted()) {
@@ -419,7 +430,8 @@ router.post('/single', requireAuth, async (req, res) => {
       }
 
       const docType = assessment_type || document_type || inferDocumentTypeFromAssignment(assignment);
-      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
+      const mediaMode = assignment.media_type === 'video' ? 'video' : null;
+      const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types, mediaMode);
 
       if (checkAborted()) {
         await query(
@@ -448,7 +460,7 @@ router.post('/single', requireAuth, async (req, res) => {
       const usage = markingResult.usage || {};
       const estimatedCostUsd = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
       const result = await query(
-        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types, overall_confidence, confidence_level, needs_review, min_criterion_confidence, has_low_criterion_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           assignment_id,
           rubric_id,
@@ -475,7 +487,12 @@ router.post('/single', requireAuth, async (req, res) => {
           markingResult.critical_table && markingResult.critical_table.length > 0 ? JSON.stringify(markingResult.critical_table) : null,
           markingResult.genie_output && markingResult.genie_output.length > 0 ? JSON.stringify(markingResult.genie_output) : null,
           markingResult.improvement_forecast || null,
-          criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null
+          criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null,
+          markingResult.overall_confidence != null ? markingResult.overall_confidence : null,
+          markingResult.confidence_level || null,
+          markingResult.needs_review ? 1 : 0,
+          markingResult.min_criterion_confidence != null ? markingResult.min_criterion_confidence : null,
+          markingResult.has_low_criterion_confidence ? 1 : 0
         ]
       );
 
@@ -857,6 +874,19 @@ router.post('/multiple', requireAuth, async (req, res) => {
           errors.push({ assignment_id, error: 'Assignment not found' });
           continue;
         }
+        if (assignment.status === 'completed') {
+          skipped.push({ assignment_id, filename: assignment.filename, reason: 'Already marked' });
+          continue;
+        }
+        if (assignment.media_type && (!assignment.extracted_text || String(assignment.extracted_text).trim().length === 0)) {
+          errors.push({
+            assignment_id,
+            error: assignment.status === 'error'
+              ? 'This video/audio submission failed to process and cannot be marked. Check the error and re-upload.'
+              : 'This video/audio submission is still being processed (transcribing/extracting frames). Please try again shortly.'
+          });
+          continue;
+        }
         const resolvedStudentName = resolveStudentName(student_name, assignment);
 
         if (checkAborted()) {
@@ -905,6 +935,9 @@ router.post('/multiple', requireAuth, async (req, res) => {
             if (!assignmentText || assignmentText.trim().length === 0) {
               throw new Error(`No text could be extracted from the ${getSupportedDocumentLabel(getAssignmentDisplayName(assignment))}`);
             }
+            if (assignment.media_type === 'video') {
+              assignmentImages = loadPersistedFrameImagesAsBase64(assignment.media_frame_paths);
+            }
           }
 
           if (checkAborted()) {
@@ -917,7 +950,8 @@ router.post('/multiple', requireAuth, async (req, res) => {
           }
 
           const docType = assessment_type || document_type || inferDocumentTypeFromAssignment(assignment);
-          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types);
+          const mediaMode = assignment.media_type === 'video' ? 'video' : null;
+          const markingResult = await generateMarking(assignmentText, rubric, docType, level, provider, strictness_level, assignment_id, assignmentImages, feedback_type, feedback_verbosity, criterion_feedback_types, mediaMode);
 
           if (checkAborted()) {
             await query(
@@ -943,7 +977,7 @@ router.post('/multiple', requireAuth, async (req, res) => {
           const usageBatch = markingResult.usage || {};
           const estimatedCostUsdBatch = markingResult.estimated_cost_usd != null ? markingResult.estimated_cost_usd : null;
           const result = await query(
-            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO marking_results (assignment_id, rubric_id, student_name, scores, feedback, total_score, version, is_current, strictness_level, provider, corrections, language_errors, handwriting_recognition_confidence, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, user_id, feedback_type, feedback_verbosity, prescriptive_table, reflective_questions, critical_table, genie_output, improvement_forecast, criterion_feedback_types, overall_confidence, confidence_level, needs_review, min_criterion_confidence, has_low_criterion_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               assignment_id,
               rubric_id,
@@ -970,7 +1004,12 @@ router.post('/multiple', requireAuth, async (req, res) => {
               markingResult.critical_table && markingResult.critical_table.length > 0 ? JSON.stringify(markingResult.critical_table) : null,
               markingResult.genie_output && markingResult.genie_output.length > 0 ? JSON.stringify(markingResult.genie_output) : null,
               markingResult.improvement_forecast || null,
-              criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null
+              criterion_feedback_types ? JSON.stringify(criterion_feedback_types) : null,
+              markingResult.overall_confidence != null ? markingResult.overall_confidence : null,
+              markingResult.confidence_level || null,
+              markingResult.needs_review ? 1 : 0,
+              markingResult.min_criterion_confidence != null ? markingResult.min_criterion_confidence : null,
+              markingResult.has_low_criterion_confidence ? 1 : 0
             ]
           );
 
@@ -1166,10 +1205,12 @@ router.post('/multiple', requireAuth, async (req, res) => {
       success: allSucceeded || hasPartialSuccess,
       results,
       errors,
+      skipped,
       summary: {
         total: assignment_ids.length,
         successful: results.length,
         failed: errors.length,
+        skipped: skipped.length,
         success_rate: ((results.length / assignment_ids.length) * 100).toFixed(1) + '%'
       },
       message: allSucceeded

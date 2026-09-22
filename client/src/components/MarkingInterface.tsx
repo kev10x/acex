@@ -27,6 +27,7 @@ const MarkingInterface: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isMarkedAssignmentsExpanded, setIsMarkedAssignmentsExpanded] = useState(true);
   const [retryingAssignment, setRetryingAssignment] = useState<number | null>(null);
+  const [failedAssignmentIds, setFailedAssignmentIds] = useState<number[]>([]);
   const [lastMarkingParams, setLastMarkingParams] = useState<{
     rubric_id: number;
     assessment_type: string;
@@ -166,11 +167,11 @@ const MarkingInterface: React.FC = () => {
       return;
     }
 
-    // Get all assignments in the batch (both marked and unmarked)
-    const batchAssignments = assignments.filter(a => a.batch_id === batchId);
-    
+    // Only the scripts still needing marking (unmarked or failed); already-marked ones are left alone
+    const batchAssignments = assignments.filter(a => a.batch_id === batchId && (a.status === 'uploaded' || a.status === 'error'));
+
     if (batchAssignments.length === 0) {
-      setError('No assignments found in this batch');
+      setError('Nothing left to retry in this batch - all scripts are already marked');
       return;
     }
 
@@ -213,17 +214,19 @@ const MarkingInterface: React.FC = () => {
         criterion_feedback_types: activeCriterionTypes
       });
 
-      setSuccess(`Successfully remarked ${response.data.results.length} assignment(s) in batch`);
-      
-      if (response.data.errors.length > 0) {
-        setError(`Some assignments failed: ${response.data.errors.map((e: any) => e.error).join(', ')}`);
+      setSuccess(`Marked ${response.data.results.length} assignment(s) in batch`);
+
+      const failedIds: number[] = response.data.failed_assignment_ids || [];
+      setFailedAssignmentIds(failedIds);
+      if (failedIds.length > 0) {
+        setError(`${failedIds.length} assignment(s) failed and are highlighted below for retry: ${response.data.errors.map((e: any) => e.error).join(', ')}`);
       }
-      
+
       // Refresh assignments to show updated status
       await fetchData();
-      
-      // Clear selections
-      setSelectedAssignments([]);
+
+      // Leave only the failed scripts selected so one click retries just those
+      setSelectedAssignments(failedIds);
       setSelectedBatch(null);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to remark batch');
@@ -283,18 +286,29 @@ const MarkingInterface: React.FC = () => {
       }
 
       setSuccess(`Successfully marked ${response.data.results.length} assignments`);
-      
-      if (response.data.errors.length > 0) {
-        setError(`Some assignments failed: ${response.data.errors.map((e: any) => e.error).join(', ')}`);
+
+      const failedIds: number[] = response.data.failed_assignment_ids || [];
+      setFailedAssignmentIds(failedIds);
+      if (failedIds.length > 0) {
+        setError(`${failedIds.length} assignment(s) failed and are highlighted below for retry: ${response.data.errors.map((e: any) => e.error).join(', ')}`);
       }
 
       // Refresh assignments to show updated status
       await fetchData();
-      
-      // Reset selections
-      setSelectedAssignments([]);
-      setStudentNames({});
-      setSelectedRubric(null);
+
+      if (failedIds.length > 0) {
+        // Keep the rubric/names and leave only the failed scripts selected for a one-click retry
+        setSelectedAssignments(failedIds);
+        setStudentNames((prev) => {
+          const kept: { [key: number]: string } = {};
+          failedIds.forEach((id) => { if (prev[id]) kept[id] = prev[id]; });
+          return kept;
+        });
+      } else {
+        setSelectedAssignments([]);
+        setStudentNames({});
+        setSelectedRubric(null);
+      }
     } catch (err: any) {
       // Handle cancellation (both frontend abort and backend cancellation)
       if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || err.response?.status === 499) {
@@ -683,7 +697,7 @@ const MarkingInterface: React.FC = () => {
                     Commented Word Document
                   </div>
                   <div className="text-sm text-gray-500">
-                    Insert Acexen feedback as native comments into the uploaded DOCX file.
+                    Insert MarkMate feedback as native comments into the uploaded DOCX file.
                   </div>
                   {!hasSelectedAssignments && (
                     <div className="text-xs text-primary-700 mt-1">
@@ -814,15 +828,15 @@ const MarkingInterface: React.FC = () => {
                         </span>
                       )}
                     </button>
-                    {hasAny && selectedRubric && (
+                    {hasAny && hasUnmarked && selectedRubric && (
                       <button
                         onClick={() => handleRemarkBatch(batch.id)}
                         disabled={loading}
                         className="inline-flex items-center px-3 py-2 border border-orange-300 rounded-md text-sm font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={`Remark all ${batchAllAssignments.length} assignment(s) in this batch (including already marked ones)`}
+                        title={`Mark the ${batchUnmarkedAssignments.length} remaining assignment(s) in this batch (already marked ones are left alone)`}
                       >
                         <RefreshCw className="h-4 w-4 mr-1" />
-                        Remark ({batchAllAssignments.length})
+                        Retry remaining ({batchUnmarkedAssignments.length})
                       </button>
                     )}
                   </div>
@@ -854,8 +868,9 @@ const MarkingInterface: React.FC = () => {
             <div className="space-y-4">
               {availableAssignments.map((assignment, index) => {
                 const batch = assignment.batch_id ? batches.find(b => b.id === assignment.batch_id) : null;
+                const needsRetry = assignment.status === 'error' || failedAssignmentIds.includes(assignment.id);
                 return (
-                  <div key={assignment.id || `available-assignment-${index}`} className="flex items-center space-x-4 p-3 border border-gray-200 rounded-lg">
+                  <div key={assignment.id || `available-assignment-${index}`} className={`flex items-center space-x-4 p-3 border rounded-lg ${needsRetry ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : 'border-gray-200'}`}>
                     <input
                       type="checkbox"
                       checked={selectedAssignments.includes(assignment.id)}
@@ -873,9 +888,9 @@ const MarkingInterface: React.FC = () => {
                             {batch.name}
                           </span>
                         )}
-                        {assignment.status === 'error' && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" title="Marking failed previously – select and mark again to retry">
-                            Previously failed
+                        {needsRetry && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800" title="Marking failed - already selected so you can retry it">
+                            Needs retry
                           </span>
                         )}
                       </div>

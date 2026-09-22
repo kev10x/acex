@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save, RefreshCw } from 'lucide-react';
+import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save, RefreshCw, Pencil } from 'lucide-react';
 import {
   assessmentsAPI,
   resultsAPI,
@@ -100,6 +100,9 @@ const ResultsDashboard: React.FC = () => {
   }>({ assessment_type: 'assignment', level: DEFAULT_MARKING_LEVEL, provider: 'openai', strictness_level: 'strict', mark_as_image: false });
   const [remarking, setRemarking] = useState(false);
   const [remarkError, setRemarkError] = useState<string | null>(null);
+  const [renamingResultId, setRenamingResultId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
 
   // Filtering and grouping state
   const [selectedRubric, setSelectedRubric] = useState<string>('all');
@@ -317,6 +320,26 @@ const ResultsDashboard: React.FC = () => {
     setHourInterval('');
   };
 
+  const handleRenameStart = (result: MarkingResult) => {
+    setRenamingResultId(result.id);
+    setRenameValue(result.custom_name ?? result.student_name ?? '');
+  };
+
+  const handleRenameSave = async (id: number) => {
+    setRenameSaving(true);
+    try {
+      const res = await resultsAPI.renameResult(id, renameValue);
+      const newName = res.data.custom_name;
+      setAllResults(prev => prev.map(r => r.id === id ? { ...r, custom_name: newName } : r));
+      if (selectedResult?.id === id) setSelectedResult(prev => prev ? { ...prev, custom_name: newName } : prev);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to rename result');
+    } finally {
+      setRenameSaving(false);
+      setRenamingResultId(null);
+    }
+  };
+
   const handleDeleteResult = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this result?')) return;
 
@@ -400,6 +423,22 @@ const ResultsDashboard: React.FC = () => {
       setError(err.response?.data?.error || 'Failed to save lecturer override');
     } finally {
       setSavingModeration(false);
+    }
+  };
+
+  const handleViewOriginalDocument = async (result: MarkingResult) => {
+    try {
+      const response = await resultsAPI.getOriginalDocument(result.id);
+      const ext = (result.filename || '').toLowerCase();
+      const mimeType = ext.endsWith('.pdf')
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const blob = new Blob([response.data], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to open original document');
     }
   };
 
@@ -1228,9 +1267,52 @@ const ResultsDashboard: React.FC = () => {
 	                        <td className="px-4 py-4 align-top">
 	                          <div>
                             <div className="flex min-w-0 flex-wrap items-start gap-2">
-                              <div className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-gray-900">
-                                {result.student_name || 'Unnamed Student'}
-                              </div>
+                              {renamingResultId === result.id ? (
+                                <div className="flex min-w-0 flex-1 items-center gap-1">
+                                  <input
+                                    autoFocus
+                                    className="min-w-0 flex-1 rounded border border-blue-400 px-1.5 py-0.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    value={renameValue}
+                                    onChange={e => setRenameValue(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') handleRenameSave(result.id);
+                                      if (e.key === 'Escape') setRenamingResultId(null);
+                                    }}
+                                    disabled={renameSaving}
+                                  />
+                                  <button
+                                    onClick={() => handleRenameSave(result.id)}
+                                    disabled={renameSaving}
+                                    className="flex-shrink-0 rounded p-0.5 text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                                    title="Save"
+                                  >
+                                    <Save className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setRenamingResultId(null)}
+                                    disabled={renameSaving}
+                                    className="flex-shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 disabled:opacity-50"
+                                    title="Cancel"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="group flex min-w-0 flex-1 items-center gap-1">
+                                  <span className="min-w-0 whitespace-normal break-words text-sm font-medium text-gray-900">
+                                    {result.custom_name || result.student_name || 'Unnamed Student'}
+                                  </span>
+                                  {!isStudent && (
+                                    <button
+                                      onClick={() => handleRenameStart(result)}
+                                      className="flex-shrink-0 rounded p-0.5 text-gray-300 opacity-0 hover:bg-gray-100 hover:text-gray-500 group-hover:opacity-100"
+                                      title="Rename"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                               {result.needs_review && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 flex-shrink-0" title="Needs Human Review">
                                   <AlertTriangle className="w-3 h-3 mr-1" />
@@ -1509,9 +1591,23 @@ const ResultsDashboard: React.FC = () => {
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                     <h4 className="text-sm font-medium text-gray-700">Assignment</h4>
-                    <p className="mt-1 text-sm text-gray-900 whitespace-normal break-words">{selectedResult.filename}</p>
-                    {selectedResult.student_name && (
-                      <p className="mt-2 text-sm text-gray-600 whitespace-normal break-words">Student: {selectedResult.student_name}</p>
+                    <div className="mt-1 flex items-start justify-between gap-2">
+                      <p className="text-sm text-gray-900 whitespace-normal break-words flex-1">{selectedResult.filename}</p>
+                      <button
+                        onClick={() => handleViewOriginalDocument(selectedResult)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-primary-700 bg-primary-50 border border-primary-200 rounded hover:bg-primary-100 flex-shrink-0"
+                        title="View original document"
+                      >
+                        <Eye className="w-3 h-3" />
+                        Original
+                      </button>
+                    </div>
+                    {(selectedResult.custom_name || selectedResult.student_name) && (
+                      <p className="mt-2 text-sm text-gray-600 whitespace-normal break-words">
+                        {selectedResult.custom_name
+                          ? <><span className="font-medium text-gray-800">{selectedResult.custom_name}</span>{selectedResult.student_name && selectedResult.student_name !== selectedResult.custom_name && <span className="ml-1 text-gray-400">({selectedResult.student_name})</span>}</>
+                          : `Student: ${selectedResult.student_name}`}
+                      </p>
                     )}
                     <p className="mt-1 text-sm text-gray-600 whitespace-normal break-words">Folder: {selectedResult.folder_name || 'Unassigned'}</p>
                   </div>

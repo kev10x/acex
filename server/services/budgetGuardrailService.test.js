@@ -40,7 +40,7 @@ test('budget guardrail allows generation when user spend is within budget', asyn
     {
       AI_BUDGET_GUARDRAIL_ENABLED: 'true',
       AI_DAILY_BUDGET_USD: '5',
-      DATABASE_URL: 'postgres://user:pass@localhost:5432/acexen',
+      DATABASE_URL: 'postgres://user:pass@localhost:5432/markmate',
     },
     async () => {
       const status = await budgetService.getUserBudgetStatus({ userId: 7, projectedCostUsd: 0.5 });
@@ -64,7 +64,7 @@ test('budget guardrail blocks generation when projected spend exceeds budget', a
     {
       AI_BUDGET_GUARDRAIL_ENABLED: 'true',
       AI_DAILY_BUDGET_USD: '5',
-      DATABASE_URL: 'postgres://user:pass@localhost:5432/acexen',
+      DATABASE_URL: 'postgres://user:pass@localhost:5432/markmate',
     },
     async () => {
       await assert.rejects(
@@ -98,7 +98,7 @@ test('budget guardrail can be disabled via environment flag', async (t) => {
     {
       AI_BUDGET_GUARDRAIL_ENABLED: 'false',
       AI_DAILY_BUDGET_USD: '5',
-      DATABASE_URL: 'postgres://user:pass@localhost:5432/acexen',
+      DATABASE_URL: 'postgres://user:pass@localhost:5432/markmate',
     },
     async () => {
       const status = await budgetService.getUserBudgetStatus({ userId: 11, projectedCostUsd: 1 });

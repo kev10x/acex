@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local Model Training Script for Acexen
+Local Model Training Script for MarkMate
 
 Trains a local transformer model on your marking data.
 Uses Hugging Face Transformers library.
@@ -9,7 +9,7 @@ Requirements:
     pip install transformers torch datasets scikit-learn
 
 Usage:
-    python scripts/train-local-model.py --data training_data.json --output ./models/acexen-model
+    python scripts/train-local-model.py --data training_data.json --output ./models/markmate-model
 """
 
 import json
@@ -126,7 +126,7 @@ class ScoreRegressionModel(torch.nn.Module):
 
 def train_model(
     data_path: str = None,
-    output_dir: str = './models/acexen-model',
+    output_dir: str = './models/markmate-model',
     base_model: str = 'distilbert-base-uncased',
     epochs: int = 3,
     batch_size: int = 8,
@@ -267,9 +267,9 @@ def train_model(
     return model, tokenizer, metadata
 
 def main():
-    parser = argparse.ArgumentParser(description='Train local model for Acexen')
+    parser = argparse.ArgumentParser(description='Train local model for MarkMate')
     parser.add_argument('--data', required=True, help='Path to training data JSON file')
-    parser.add_argument('--output', default='./models/acexen-model', help='Output directory for model')
+    parser.add_argument('--output', default='./models/markmate-model', help='Output directory for model')
     parser.add_argument('--base-model', default='distilbert-base-uncased', 
                        help='Base model to fine-tune (default: distilbert-base-uncased)')
     parser.add_argument('--epochs', type=int, default=3, help='Number of training epochs')

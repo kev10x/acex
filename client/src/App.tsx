@@ -14,16 +14,14 @@ import {
   Presentation,
   Shield,
   Sparkles,
+  TrendingUp,
   Upload,
   User,
   Wand2
 } from 'lucide-react';
 import LoginForm from './components/LoginForm';
-import ErrorBoundary from './components/ErrorBoundary';
-import OnboardingBanner from './components/OnboardingBanner';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
-import ResetPassword from './components/ResetPassword';
 import ToolsLanding from './components/ToolsLanding';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -49,6 +47,8 @@ const StudentModules = lazy(() => import('./components/StudentModules'));
 const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'));
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
+const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudio'));
+const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
 
@@ -75,6 +75,7 @@ type TabType =
   | 'marking'
   | 'manual-marking'
   | 'results'
+  | 'revision-tracking'
   | 'mcq'
   | 'batches'
   | 'training'
@@ -90,8 +91,8 @@ type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
   student: ['modules', 'mcq', 'results']
 };
 
@@ -128,6 +129,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     description: 'Review, moderate, and export marked work.',
     icon: BarChart3
   },
+  'revision-tracking': {
+    label: 'Revision Tracking',
+    description: 'Track longitudinal improvement across successive document revisions.',
+    icon: TrendingUp
+  },
   mcq: {
     label: 'MCQ Forms',
     description: 'Process multiple-choice answer sheets and answer keys.',
@@ -144,8 +150,8 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     icon: Brain
   },
   'slide-gen': {
-    label: 'Slide Populator',
-    description: 'Upload a PowerPoint template and let AI populate each slide with matching content.',
+    label: 'Presentation Studio',
+    description: 'Generate full PowerPoint presentations from topics or unit plans, with AI-designed slides and Grok images.',
     icon: Presentation
   },
   assessments: {
@@ -232,7 +238,6 @@ function WorkspaceShell({
   onCreateSlides: (content: GeneratedContent) => void;
 }) {
   return (
-    <ErrorBoundary>
     <Suspense fallback={<TabLoadingFallback />}>
       {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
       {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
@@ -245,49 +250,28 @@ function WorkspaceShell({
       {activeTab === 'mcq' && canAccessTab('mcq') && <MCQInterface />}
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
-      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGenerator initialContent={pendingSlideContent} />}
+      {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGeneratorStudio initialContent={pendingSlideContent} />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
+      {activeTab === 'revision-tracking' && canAccessTab('revision-tracking') && <RevisionTracker />}
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
       )}
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
-    </ErrorBoundary>
   );
 }
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<TabType>(
-    () => (localStorage.getItem('ax:activeTab') as TabType | null) || 'marking'
-  );
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>(
-    () => (localStorage.getItem('ax:activeWorkspace') as WorkspaceType | null) || 'marking'
-  );
+  const [activeTab, setActiveTab] = useState<TabType>('marking');
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('marking');
   const [pendingSlideContent, setPendingSlideContent] = useState<GeneratedContent | null>(null);
-  // Track which onboarding steps the user has completed
-  const [completedOnboardingSteps, setCompletedOnboardingSteps] = useState<string[]>(
-    () => JSON.parse(localStorage.getItem('ax:onboarding-steps') || '[]')
-  );
-  const markOnboardingStep = (step: string) => {
-    setCompletedOnboardingSteps(prev => {
-      if (prev.includes(step)) return prev;
-      const next = [...prev, step];
-      localStorage.setItem('ax:onboarding-steps', JSON.stringify(next));
-      return next;
-    });
-  };
-
-
-  // Persist active tab + workspace across page refreshes
-  useEffect(() => { localStorage.setItem('ax:activeTab', activeTab); }, [activeTab]);
-  useEffect(() => { localStorage.setItem('ax:activeWorkspace', activeWorkspace); }, [activeWorkspace]);
 
   const handleCreateSlides = (content: GeneratedContent) => {
     setPendingSlideContent(content);
-    setActiveTab('slide-gen'); localStorage.setItem('ax:activeTab', 'slide-gen'); markOnboardingStep('slides');
+    setActiveTab('slide-gen');
   };
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify' | 'reset'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const { user, loading, logout, impersonation, stopImpersonation } = useAuth();
 
@@ -318,9 +302,6 @@ function AppContent() {
     if (urlParams.get('token') && window.location.pathname.includes('verify-email')) {
       setAuthMode('verify');
     }
-    if (urlParams.get('token') && window.location.pathname.includes('reset-password')) {
-      setAuthMode('reset');
-    }
   }, []);
 
   const workspaceTabs = useMemo<Record<WorkspaceType, TabType[]>>(
@@ -328,7 +309,7 @@ function AppContent() {
       marking:
         normalizedRole === 'student'
           ? []
-          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'batches'] as TabType[]).filter((tab) =>
+          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'batches'] as TabType[]).filter((tab) =>
               ROLE_TAB_ACCESS[normalizedRole].includes(tab)
             ),
       student:
@@ -450,17 +431,6 @@ function AppContent() {
       );
     }
 
-    if (authMode === 'reset') {
-      return (
-        <ResetPassword
-          onBackToLogin={() => {
-            setAuthMode('login');
-            window.history.replaceState({}, '', window.location.pathname);
-          }}
-        />
-      );
-    }
-
     return authMode === 'login' ? (
       <LoginForm onSwitchToRegister={() => setAuthMode('register')} />
     ) : (
@@ -496,7 +466,7 @@ function AppContent() {
                 </button>
               )}
               <div className="flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Acexen</h1>
+                <h1 className="text-2xl font-bold text-gray-900">MarkMate</h1>
                 <span className="ml-2 text-sm text-gray-500">AI-Powered Assignment Marking</span>
               </div>
               {user.organisation_name && (
@@ -621,12 +591,6 @@ function AppContent() {
       </nav>
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
-        {normalizedRole !== 'student' && (
-          <OnboardingBanner
-            completedSteps={completedOnboardingSteps}
-            onNavigate={(tab) => { setActiveTab(tab as any); markOnboardingStep(tab === 'rubrics' ? 'rubric' : tab === 'upload' ? 'upload' : tab === 'marking' ? 'mark' : tab === 'results' ? 'results' : tab); }}
-          />
-        )}
         <WorkspaceShell
           activeTab={activeTab}
           canAccessTab={canAccessTab}

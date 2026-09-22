@@ -1,387 +1,314 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Acexen — AI-Powered Academic Marking & Excellence Engine</title>
-  <meta name="description" content="Acexen auto-marks student PDFs against your rubrics in seconds using OpenAI or Anthropic. Consistent, rubric-driven feedback at scale. Built for universities and colleges." />
-  <meta name="keywords" content="AI marking, automated grading, PDF marking, rubric-based feedback, academic marking software, university grading" />
-  <meta property="og:title" content="Acexen — Academic Excellence Engine" />
-  <meta property="og:description" content="Mark student assignments 10× faster with AI-powered rubric-based feedback. Self-hosted, privacy-first." />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://acexen.com" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234f46e5'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='system-ui,sans-serif' font-weight='bold' font-size='18' fill='white'>A</text></svg>" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-
-<!-- ── Nav ── -->
-<header class="ax-nav" id="top">
-  <div class="ax-container ax-nav-inner">
-    <a href="#top" class="ax-brand">
-      <div class="ax-brand-mark">A</div>
-      <span class="ax-brand-name">Acexen</span>
-    </a>
-    <nav class="ax-nav-links">
-      <a href="#features">Features</a>
-      <a href="#how-it-works">How it works</a>
-      <a href="#pricing">Pricing</a>
-      <a href="#faq">FAQ</a>
-    </nav>
-    <div class="ax-nav-actions">
-      <a href="/tools" class="ax-btn ax-btn-ghost">Sign in</a>
-      <a href="/tools" class="ax-btn ax-btn-primary">Get started free</a>
-    </div>
-  </div>
-</header>
-
-<!-- ── Hero ── -->
-<section class="ax-hero">
-  <div class="ax-container">
-    <div class="ax-badge">✦ Academic Excellence Engine</div>
-    <h1 class="ax-hero-title">
-      Mark 200 assignments<br class="ax-break" />
-      in the time it takes to mark&nbsp;one
-    </h1>
-    <p class="ax-hero-sub">
-      Acexen applies your rubric to every student submission — PDFs, DOCX, code files — and returns 
-      consistent, criterion-level feedback with scores. Powered by OpenAI or Anthropic. 
-      Runs on your server, not ours.
-    </p>
-    <div class="ax-hero-actions">
-      <a href="/tools" class="ax-btn ax-btn-primary ax-btn-lg">Launch Acexen →</a>
-      <a href="#how-it-works" class="ax-btn ax-btn-outline ax-btn-lg">See how it works</a>
-    </div>
-    <div class="ax-hero-proof">
-      <div class="ax-proof-item"><span class="ax-proof-num">10×</span><span class="ax-proof-label">faster marking</span></div>
-      <div class="ax-proof-divider"></div>
-      <div class="ax-proof-item"><span class="ax-proof-num">6</span><span class="ax-proof-label">doc types supported</span></div>
-      <div class="ax-proof-divider"></div>
-      <div class="ax-proof-item"><span class="ax-proof-num">100%</span><span class="ax-proof-label">rubric-driven</span></div>
-    </div>
-  </div>
-</section>
-
-<!-- ── Social proof strip ── -->
-<div class="ax-proof-strip">
-  <div class="ax-container ax-proof-strip-inner">
-    <span class="ax-proof-strip-label">Trusted by educators at</span>
-    <span class="ax-proof-strip-orgs">Universities · Colleges · Online Academies · Training Providers</span>
-  </div>
-</div>
-
-<!-- ── Features ── -->
-<section class="ax-section" id="features">
-  <div class="ax-container">
-    <div class="ax-section-header">
-      <div class="ax-badge">Features</div>
-      <h2 class="ax-section-title">Everything a marking workflow needs</h2>
-      <p class="ax-section-sub">From upload to exported report — Acexen handles the full cycle.</p>
-    </div>
-    <div class="ax-features-grid">
-
-      <div class="ax-feature-card ax-feature-card--primary">
-        <div class="ax-feature-icon">🎯</div>
-        <h3>Rubric-based AI marking</h3>
-        <p>Upload your rubric once. Acexen applies it to every submission — consistently, at any hour. GPT-4o or Claude 3.5 Sonnet under the hood.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">📄</div>
-        <h3>Multi-format support</h3>
-        <p>PDFs, DOCX, ZIP bundles, scanned handwriting (via vision OCR), code files, question papers, treatises, and reports.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">🎓</div>
-        <h3>Education-level aware</h3>
-        <p>Configures its language and rigor for primary, secondary, undergraduate, or postgraduate — so feedback always hits the right register.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">📝</div>
-        <h3>Rich feedback modes</h3>
-        <p>Standard, prescriptive, reflective, critical, or "Genie" (rewriting assistance). Choose per assignment or per criterion.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">📊</div>
-        <h3>Batch processing</h3>
-        <p>Submit hundreds of scripts in one go. OpenAI Batch API cuts costs by 50%. Progress tracked in real time.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">📤</div>
-        <h3>Export anywhere</h3>
-        <p>Download PDF reports, annotated PDFs, DOCX with inline comments, or push grades directly to Moodle via the LMS integration.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">🏫</div>
-        <h3>Content & course generation</h3>
-        <p>Generate lesson notes, assessments, slide decks, and SCORM packages from a topic brief. Export to PowerPoint in one click.</p>
-      </div>
-
-      <div class="ax-feature-card">
-        <div class="ax-feature-icon">🔒</div>
-        <h3>Self-hosted & private</h3>
-        <p>Student data never leaves your server. Deploy on your own VPS — no SaaS lock-in, no data-sharing agreements to worry about.</p>
-      </div>
-
-    </div>
-  </div>
-</section>
-
-<!-- ── How it works ── -->
-<section class="ax-section ax-section--alt" id="how-it-works">
-  <div class="ax-container">
-    <div class="ax-section-header">
-      <div class="ax-badge">How it works</div>
-      <h2 class="ax-section-title">From upload to feedback in minutes</h2>
-    </div>
-    <div class="ax-steps">
-      <div class="ax-step">
-        <div class="ax-step-num">1</div>
-        <div class="ax-step-body">
-          <h3>Upload your rubric</h3>
-          <p>Paste your marking criteria or use the AI rubric generator to build one from a sample answer or syllabus.</p>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarkMate – AI-Powered Assignment Marking</title>
+    <meta
+      name="description"
+      content="MarkMate is an AI-powered marking assistant that helps educators mark PDF assignments, exams, and treatises faster and more consistently."
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <header class="mm-header">
+      <div class="mm-container mm-header-inner">
+        <div class="mm-logo">
+          <span class="mm-logo-mark">M</span>
+          <span class="mm-logo-text">MarkMate</span>
+        </div>
+        <nav class="mm-nav">
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#who-its-for">Who it's for</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="mm-header-cta">
+          <a href="/tools" class="mm-btn mm-btn-outline">Open app</a>
+          <a href="/tools" class="mm-btn mm-btn-primary">Get started</a>
         </div>
       </div>
-      <div class="ax-step-arrow">→</div>
-      <div class="ax-step">
-        <div class="ax-step-num">2</div>
-        <div class="ax-step-body">
-          <h3>Submit student scripts</h3>
-          <p>Upload PDFs individually, drop a ZIP of the whole class, or connect Moodle to pull submissions automatically.</p>
+    </header>
+
+    <main>
+      <!-- Hero -->
+      <section class="mm-section mm-hero">
+        <div class="mm-container mm-hero-grid">
+          <div class="mm-hero-copy">
+            <h1>AI-powered marking for real-world assignments.</h1>
+            <p class="mm-hero-subtitle">
+              MarkMate reads your PDFs – assignments, tests, treatises and more – and generates
+              structured, rubric-aligned feedback in minutes instead of hours.
+            </p>
+            <div class="mm-hero-actions">
+              <a href="/tools" class="mm-btn mm-btn-primary mm-hero-main-btn">
+                Launch MarkMate
+              </a>
+              <button class="mm-text-link" onclick="document.getElementById('how-it-works').scrollIntoView({ behavior: 'smooth' })">
+                See how it works →
+              </button>
+            </div>
+            <div class="mm-hero-stats">
+              <div>
+                <div class="mm-stat-value">10x</div>
+                <div class="mm-stat-label">Faster marking</div>
+              </div>
+              <div>
+                <div class="mm-stat-value">Consistent</div>
+                <div class="mm-stat-label">Rubric-based feedback</div>
+              </div>
+              <div>
+                <div class="mm-stat-value">Multi‑doc</div>
+                <div class="mm-stat-label">Batch processing support</div>
+              </div>
+            </div>
+          </div>
+          <div class="mm-hero-panel" aria-hidden="true">
+            <div class="mm-hero-card">
+              <div class="mm-hero-card-header">
+                <span class="mm-pill">Live preview</span>
+                <span class="mm-hero-card-title">Marking a PDF assignment</span>
+              </div>
+              <div class="mm-hero-card-body">
+                <div class="mm-hero-file">
+                  <div class="mm-file-icon">PDF</div>
+                  <div>
+                    <div class="mm-file-name">Assignment_3_Essay.pdf</div>
+                    <div class="mm-file-meta">2 184 words · 7 pages</div>
+                  </div>
+                  <div class="mm-file-status mm-file-status-running">Marking…</div>
+                </div>
+                <div class="mm-hero-progress">
+                  <div class="mm-hero-progress-bar"></div>
+                </div>
+                <ul class="mm-hero-list">
+                  <li>✓ Criteria loaded from rubric “Essay – Critical Thinking (40 pts)”</li>
+                  <li>✓ Language and structure issues highlighted directly on the PDF</li>
+                  <li>✓ Detailed summary report with per‑criterion scores</li>
+                </ul>
+              </div>
+              <div class="mm-hero-card-footer">
+                <span>Output options:</span>
+                <span class="mm-badge">Annotated PDF</span>
+                <span class="mm-badge">Assessment report</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section id="features" class="mm-section mm-section-alt">
+        <div class="mm-container">
+          <div class="mm-section-header">
+            <h2>Built for educators who work with PDFs every day.</h2>
+            <p>
+              MarkMate is a focused tool for marking real assignments – not a generic chatbot. It
+              understands rubrics, scores consistently, and fits into your existing workflow.
+            </p>
+          </div>
+          <div class="mm-grid-3">
+            <article class="mm-feature-card">
+              <h3>Upload once, mark in batches</h3>
+              <p>
+                Upload individual PDFs or ZIP archives of a whole class. Organize submissions into
+                batches and keep track of their status from upload to final report.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Rubric‑driven scoring</h3>
+              <p>
+                Use existing rubrics or generate new ones with the AI rubric generator. MarkMate
+                aligns feedback and scores directly with each rubric criterion.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Rich feedback, not just a grade</h3>
+              <p>
+                Students get structured comments, strengths and weaknesses per criterion, and
+                optional language feedback on clarity, grammar, and referencing.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>PDF annotation & reports</h3>
+              <p>
+                Choose between annotated PDFs with comments in context, or standalone assessment
+                reports summarizing scores and feedback for each submission.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Support for exams & MCQs</h3>
+              <p>
+                Handle essays, long‑form assignments, treatises and even MCQ answer sheets. Re‑run
+                marking with different strictness levels when you need to adjust.
+              </p>
+            </article>
+            <article class="mm-feature-card">
+              <h3>Training & transparency</h3>
+              <p>
+                Export anonymised marking data to refine your own models or audit AI decisions.
+                MarkMate is designed to help, not replace, human markers.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section id="how-it-works" class="mm-section">
+        <div class="mm-container">
+          <div class="mm-section-header">
+            <h2>How MarkMate fits into your workflow.</h2>
+            <p>From PDF upload to final report, in four simple steps.</p>
+          </div>
+          <ol class="mm-steps">
+            <li>
+              <h3>1. Upload your PDFs</h3>
+              <p>
+                Drag‑and‑drop assignments, tests, treatises or ZIP archives. MarkMate extracts text
+                automatically, even from scanned PDFs via OCR.
+              </p>
+            </li>
+            <li>
+              <h3>2. Choose or generate a rubric</h3>
+              <p>
+                Select an existing rubric, or use the built‑in generator to create criteria and
+                point allocations from sample answers or syllabus documents.
+              </p>
+            </li>
+            <li>
+              <h3>3. Let the AI mark</h3>
+              <p>
+                Pick your AI provider (OpenAI or Anthropic), strictness level, and output type
+                (annotated PDF or separate report). MarkMate runs criteria‑by‑criteria marking.
+              </p>
+            </li>
+            <li>
+              <h3>4. Review, adjust, and export</h3>
+              <p>
+                Use the results dashboard to review marks, re‑run specific submissions, export CSV
+                summaries, or download annotated PDFs and reports for sharing.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Who it's for -->
+      <section id="who-its-for" class="mm-section mm-section-alt">
+        <div class="mm-container mm-two-col">
+          <div>
+            <h2>Designed for busy educators and programme coordinators.</h2>
+            <p>
+              Whether you are marking a stack of undergraduate essays, postgraduate treatises, or
+              continuous assessment tasks, MarkMate helps you save time while keeping your academic
+              standards.
+            </p>
+            <ul class="mm-list">
+              <li>Lecturers and tutors marking large cohorts</li>
+              <li>Programme coordinators needing consistency across markers</li>
+              <li>Assessment units managing exams and written scripts</li>
+              <li>Educators exploring AI to augment, not replace, human judgement</li>
+            </ul>
+          </div>
+          <div class="mm-highlight-box">
+            <h3>Why not just use a chatbot?</h3>
+            <p>
+              Generic chat tools are not built for high‑stakes assessment. MarkMate:
+            </p>
+            <ul class="mm-list mm-list-compact">
+              <li>Stores your data in your own database</li>
+              <li>Uses explicit rubrics and scoring rules</li>
+              <li>Tracks versions of marking results</li>
+              <li>Can be tuned per course and institution</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section id="faq" class="mm-section">
+        <div class="mm-container">
+          <div class="mm-section-header">
+            <h2>Frequently asked questions.</h2>
+          </div>
+          <div class="mm-faq-grid">
+            <article class="mm-faq-item">
+              <h3>Is MarkMate a hosted service or self‑hosted?</h3>
+              <p>
+                MarkMate is designed to be self‑hosted. You run it on your own server (for example,
+                using Virtualmin as documented), connect it to your own database, and control how
+                data is stored and accessed.
+              </p>
+            </article>
+            <article class="mm-faq-item">
+              <h3>Which AI models does MarkMate use?</h3>
+              <p>
+                Out of the box, MarkMate supports OpenAI and Anthropic (Claude) via their official
+                APIs. You configure API keys in the environment and can switch provider per marking
+                run.
+              </p>
+            </article>
+            <article class="mm-faq-item">
+              <h3>Can I still mark manually?</h3>
+              <p>
+                Yes. There is a dedicated manual marking interface where you can capture scores and
+                feedback by hand, or adjust AI‑generated marks before finalising them.
+              </p>
+            </article>
+            <article class="mm-faq-item">
+              <h3>How do I access the app?</h3>
+              <p>
+                Once deployed, the MarkMate app runs at <code>/tools</code> on your domain. For
+                example: <code>https://markmate.io/tools</code>. Use the “Launch MarkMate” button
+                above to go straight there.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Call to action -->
+      <section class="mm-section mm-cta">
+        <div class="mm-container mm-cta-inner">
+          <div>
+            <h2>Ready to see MarkMate in action?</h2>
+            <p>
+              Log in to your instance and upload a real assignment. You can be looking at AI‑assisted
+              feedback in under 10 minutes.
+            </p>
+          </div>
+          <div class="mm-cta-actions">
+            <a href="/tools" class="mm-btn mm-btn-primary">Launch MarkMate</a>
+            <a href="mailto:support@markmate.io" class="mm-btn mm-btn-outline">Talk to us</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="mm-footer">
+      <div class="mm-container mm-footer-inner">
+        <div class="mm-logo">
+          <span class="mm-logo-mark">M</span>
+          <span class="mm-logo-text">MarkMate</span>
+        </div>
+        <div class="mm-footer-links">
+          <span>Self‑hosted AI marking for PDFs.</span>
+          <span>© <span id="mm-year"></span> MarkMate. All rights reserved.</span>
         </div>
       </div>
-      <div class="ax-step-arrow">→</div>
-      <div class="ax-step">
-        <div class="ax-step-num">3</div>
-        <div class="ax-step-body">
-          <h3>Review AI marks</h3>
-          <p>Acexen returns scores per criterion and rich feedback. Review, moderate, or override any mark before releasing.</p>
-        </div>
-      </div>
-      <div class="ax-step-arrow">→</div>
-      <div class="ax-step">
-        <div class="ax-step-num">4</div>
-        <div class="ax-step-body">
-          <h3>Export & distribute</h3>
-          <p>Download annotated PDFs, DOCX reports, or push grades to your LMS. Students see structured, criterion-level feedback.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
+    </footer>
 
-<!-- ── Pricing ── -->
-<section class="ax-section" id="pricing">
-  <div class="ax-container">
-    <div class="ax-section-header">
-      <div class="ax-badge">Pricing</div>
-      <h2 class="ax-section-title">Simple, transparent pricing</h2>
-      <p class="ax-section-sub">Acexen is open-source and self-hosted. You pay only for the AI API calls you make — no per-seat or per-submission fees to us.</p>
-    </div>
-    <div class="ax-pricing-grid">
-
-      <div class="ax-pricing-card">
-        <div class="ax-pricing-tier">Self-hosted</div>
-        <div class="ax-pricing-price">Free<span class="ax-pricing-sub"> forever</span></div>
-        <p class="ax-pricing-desc">Deploy Acexen on your own server. You control the data, the models, and the costs.</p>
-        <ul class="ax-pricing-features">
-          <li>✓ Full feature set</li>
-          <li>✓ Unlimited users & submissions</li>
-          <li>✓ OpenAI or Anthropic models</li>
-          <li>✓ Moodle LMS integration</li>
-          <li>✓ Community support</li>
-        </ul>
-        <a href="https://github.com/kev10x/acexen" class="ax-btn ax-btn-outline ax-btn-block">View on GitHub</a>
-      </div>
-
-      <div class="ax-pricing-card ax-pricing-card--featured">
-        <div class="ax-pricing-badge">Most popular</div>
-        <div class="ax-pricing-tier">Managed hosting</div>
-        <div class="ax-pricing-price">Contact us<span class="ax-pricing-sub"> for a quote</span></div>
-        <p class="ax-pricing-desc">We host and maintain Acexen for your institution. SLA-backed, daily backups, custom domain.</p>
-        <ul class="ax-pricing-features">
-          <li>✓ Everything in Self-hosted</li>
-          <li>✓ Managed PostgreSQL</li>
-          <li>✓ SSL + backups included</li>
-          <li>✓ Priority email support</li>
-          <li>✓ Onboarding &amp; training</li>
-        </ul>
-        <a href="mailto:hello@acexen.com" class="ax-btn ax-btn-primary ax-btn-block">Get a quote →</a>
-      </div>
-
-      <div class="ax-pricing-card">
-        <div class="ax-pricing-tier">Enterprise</div>
-        <div class="ax-pricing-price">Custom<span class="ax-pricing-sub"> pricing</span></div>
-        <p class="ax-pricing-desc">For multi-campus institutions needing SSO, compliance attestation, and dedicated support.</p>
-        <ul class="ax-pricing-features">
-          <li>✓ Everything in Managed</li>
-          <li>✓ SSO / SAML integration</li>
-          <li>✓ GDPR / POPIA compliance</li>
-          <li>✓ Dedicated account manager</li>
-          <li>✓ Custom AI model fine-tuning</li>
-        </ul>
-        <a href="mailto:hello@acexen.com" class="ax-btn ax-btn-outline ax-btn-block">Talk to sales</a>
-      </div>
-
-    </div>
-    <p class="ax-pricing-note">
-      💡 AI costs are paid directly to OpenAI or Anthropic by you. A class of 100 assignments 
-      typically costs $2–$8 in API usage depending on doc length and model choice.
-    </p>
-  </div>
-</section>
-
-<!-- ── Trust / Compliance ── -->
-<section class="ax-section ax-section--alt" id="trust">
-  <div class="ax-container">
-    <div class="ax-section-header">
-      <div class="ax-badge">Privacy &amp; Security</div>
-      <h2 class="ax-section-title">Built for institutional trust</h2>
-    </div>
-    <div class="ax-trust-grid">
-      <div class="ax-trust-item">
-        <div class="ax-trust-icon">🏠</div>
-        <h3>Your data, your server</h3>
-        <p>Acexen runs on your infrastructure. Student submissions, marks, and personal data never pass through our systems.</p>
-      </div>
-      <div class="ax-trust-item">
-        <div class="ax-trust-icon">🔑</div>
-        <h3>Your AI keys</h3>
-        <p>You supply your own OpenAI or Anthropic API key. We never see it, store it, or proxy through it.</p>
-      </div>
-      <div class="ax-trust-item">
-        <div class="ax-trust-icon">👤</div>
-        <h3>Role-based access</h3>
-        <p>Management, Lecturer, and Student roles with feature flags. Org and department-level isolation built in.</p>
-      </div>
-      <div class="ax-trust-item">
-        <div class="ax-trust-icon">🛡️</div>
-        <h3>Security-hardened</h3>
-        <p>Helmet security headers, HTTPS enforcement, bcrypt passwords, JWT auth, rate limiting on all public endpoints.</p>
-      </div>
-      <div class="ax-trust-item">
-        <div class="ax-trust-icon">📋</div>
-        <h3>Audit trails</h3>
-        <p>Admin actions, impersonation events, and marking changes are logged for institutional governance and compliance.</p>
-      </div>
-      <div class="ax-trust-item">
-        <div class="ax-trust-icon">⚡</div>
-        <h3>Open source</h3>
-        <p>No black boxes. Inspect the code, fork it, or contribute. Transparency is the best security audit.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ── FAQ ── -->
-<section class="ax-section" id="faq">
-  <div class="ax-container ax-faq-container">
-    <div class="ax-section-header">
-      <div class="ax-badge">FAQ</div>
-      <h2 class="ax-section-title">Common questions</h2>
-    </div>
-    <div class="ax-faq-list">
-
-      <details class="ax-faq-item">
-        <summary>Does Acexen replace the marker?</summary>
-        <p>No — it assists them. Every AI mark goes through your moderation queue before it's released. You review, adjust, or override any score. Think of Acexen as a highly consistent first-pass marker that handles the repetitive work.</p>
-      </details>
-
-      <details class="ax-faq-item">
-        <summary>Which AI models does it use?</summary>
-        <p>Acexen works with OpenAI (GPT-4o, GPT-4o-mini, o3-mini) and Anthropic (Claude 3.5 Sonnet, Haiku). You choose the model per task type in the config file. Switching providers requires only changing one environment variable.</p>
-      </details>
-
-      <details class="ax-faq-item">
-        <summary>How accurate is the AI marking?</summary>
-        <p>Accuracy depends heavily on rubric quality. With a well-specified rubric and clear mark allocation, Acexen typically agrees with a human marker within ±5% on total score. Strictness levels (very strict / strict / moderate / lenient) let you calibrate the AI's disposition to match your department's standards.</p>
-      </details>
-
-      <details class="ax-faq-item">
-        <summary>Can it handle scanned or handwritten submissions?</summary>
-        <p>Yes. When PDF text extraction fails (scanned documents), Acexen automatically falls back to the vision API (GPT-4V or Claude Vision) to process the image. For handwriting, accuracy depends on legibility.</p>
-      </details>
-
-      <details class="ax-faq-item">
-        <summary>Does it work with Moodle?</summary>
-        <p>Yes. The Moodle integration lets you pull assignments directly from your LMS and push grades back. Requires the Moodle REST API to be enabled on your instance.</p>
-      </details>
-
-      <details class="ax-faq-item">
-        <summary>What are the server requirements?</summary>
-        <p>Node.js 18+, 2 GB RAM (4 GB recommended for large batches), and either SQLite (single server), MySQL, or PostgreSQL. A standard $10/month VPS handles most small-to-medium institutions comfortably.</p>
-      </details>
-
-      <details class="ax-faq-item">
-        <summary>How do I get started?</summary>
-        <p>Clone the repository, copy <code>.env.example</code> to <code>.env</code>, add your database URL and AI API key, then run <code>npm run setup &amp;&amp; npm run dev</code>. Full deployment instructions are in <code>DEPLOYMENT.md</code>. The managed hosting option means we handle all of this for you.</p>
-      </details>
-
-    </div>
-  </div>
-</section>
-
-<!-- ── CTA ── -->
-<section class="ax-cta-section">
-  <div class="ax-container ax-cta-inner">
-    <h2 class="ax-cta-title">Ready to reclaim your marking time?</h2>
-    <p class="ax-cta-sub">
-      Deploy Acexen on your server in under an hour, or let us host it for you.
-    </p>
-    <div class="ax-cta-actions">
-      <a href="/tools" class="ax-btn ax-btn-white ax-btn-lg">Launch the app →</a>
-      <a href="mailto:hello@acexen.com" class="ax-btn ax-btn-outline-white ax-btn-lg">Talk to us</a>
-    </div>
-  </div>
-</section>
-
-<!-- ── Footer ── -->
-<footer class="ax-footer">
-  <div class="ax-container ax-footer-inner">
-    <div class="ax-footer-brand">
-      <div class="ax-brand">
-        <div class="ax-brand-mark">A</div>
-        <span class="ax-brand-name" style="color:#fff">Acexen</span>
-      </div>
-      <p class="ax-footer-tagline">Academic Excellence Engine</p>
-    </div>
-    <div class="ax-footer-links">
-      <div class="ax-footer-col">
-        <div class="ax-footer-col-title">Product</div>
-        <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
-        <a href="#how-it-works">How it works</a>
-        <a href="/tools">Launch app</a>
-      </div>
-      <div class="ax-footer-col">
-        <div class="ax-footer-col-title">Resources</div>
-        <a href="https://github.com/kev10x/acexen">GitHub</a>
-        <a href="https://github.com/kev10x/acexen/blob/main/DEPLOYMENT.md">Deployment guide</a>
-        <a href="https://github.com/kev10x/acexen/issues">Report an issue</a>
-      </div>
-      <div class="ax-footer-col">
-        <div class="ax-footer-col-title">Contact</div>
-        <a href="mailto:hello@acexen.com">hello@acexen.com</a>
-        <a href="mailto:hello@acexen.com">Sales enquiry</a>
-        <a href="mailto:hello@acexen.com">Support</a>
-      </div>
-    </div>
-  </div>
-  <div class="ax-footer-bottom">
-    <div class="ax-container ax-footer-bottom-inner">
-      <span>© 2026 Acexen. Open-source under MIT licence.</span>
-      <span><a href="mailto:hello@acexen.com">Privacy</a> · <a href="mailto:hello@acexen.com">Terms</a></span>
-    </div>
-  </div>
-</footer>
-
-</body>
+    <script>
+      // Update footer year
+      document.getElementById('mm-year').textContent = new Date().getFullYear();
+    </script>
+  </body>
 </html>
+
