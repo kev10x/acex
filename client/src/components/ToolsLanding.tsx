@@ -52,9 +52,9 @@ const TOOLS: ToolCard[] = [
   {
     id: 'labs',
     label: 'Labs & Advanced Tools',
-    tagline: 'MCQ · Model Training',
+    tagline: 'MCQ · Model Training · Video Generation',
     description:
-      'Process multiple-choice answer sheets and export curated data for model-training and quality workflows.',
+      'Process multiple-choice answer sheets, export curated data for model-training workflows, and generate short AI video clips.',
     icon: Brain,
     accentBg: 'bg-amber-50',
     accentText: 'text-amber-700',

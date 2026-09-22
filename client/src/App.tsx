@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Upload,
   User,
+  Video,
   Wand2
 } from 'lucide-react';
 import LoginForm from './components/LoginForm';
@@ -49,6 +50,7 @@ const StudentModulePlayer = lazy(() => import('./components/StudentModulePlayer'
 const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
 const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudio'));
+const VideoGenerator = lazy(() => import('./components/VideoGenerator'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
@@ -61,7 +63,12 @@ const TOOL_WORKSPACES: Record<NonNullable<ToolContext>, WorkspaceType[]> = {
 };
 
 function getToolContext(pathname: string): ToolContext | 'landing' {
-  const match = pathname.match(/\/tools\/?([a-z-]*)?$/);
+  // The same build is served both at the historical /tools subpath and at
+  // the bare domain root (e.g. acexen.com/) — strip a leading /tools, if
+  // present, so both resolve identically instead of root-only paths
+  // falling through to null (and skipping the landing cards).
+  const normalized = pathname.replace(/^\/tools(?=\/|$)/, '') || '/';
+  const match = normalized.match(/^\/([a-z-]*)?$/);
   if (!match) return null;
   const segment = match[1] || '';
   if (segment === '') return 'landing';
@@ -86,14 +93,15 @@ type TabType =
   | 'modules'
   | 'moodle'
   | 'slide-gen'
+  | 'video-gen'
   | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
 type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
   student: ['modules', 'mcq', 'results']
 };
 
@@ -154,6 +162,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     label: 'Presentation Studio',
     description: 'Generate full PowerPoint presentations from topics or unit plans, with AI-designed slides and Grok images.',
     icon: Presentation
+  },
+  'video-gen': {
+    label: 'Video Generator',
+    description: 'Generate short AI video clips from a text prompt, powered by Grok Imagine.',
+    icon: Video
   },
   assessments: {
     label: 'Assessment Generator',
@@ -252,6 +265,7 @@ function WorkspaceShell({
       {activeTab === 'batches' && canAccessTab('batches') && <BatchManager />}
       {activeTab === 'training' && canAccessTab('training') && <TrainingDataManager />}
       {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGeneratorStudio initialContent={pendingSlideContent} />}
+      {activeTab === 'video-gen' && canAccessTab('video-gen') && <VideoGenerator />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
       {activeTab === 'revision-tracking' && canAccessTab('revision-tracking') && <RevisionTracker />}
       {activeTab === 'modules' && canAccessTab('modules') && (
@@ -327,7 +341,7 @@ function AppContent() {
       labs:
         normalizedRole === 'student'
           ? []
-          : (['mcq', 'training', 'slide-gen'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
+          : (['mcq', 'training', 'slide-gen', 'video-gen'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
       admin: normalizedRole === 'management' ? (['admin'] as TabType[]) : []
     }),
     [allowAssessmentCreation, allowContentCreation, allowPracticalCreation, normalizedRole]

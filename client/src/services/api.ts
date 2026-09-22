@@ -1624,6 +1624,40 @@ export const pptxJobsAPI = {
     api.get(`/pptx-jobs/${jobId}/download-partial`, { responseType: 'blob' }),
 };
 
+export interface VideoGenJob {
+  id: number;
+  prompt: string;
+  model: string;
+  duration_seconds: number;
+  aspect_ratio: string;
+  resolution: string;
+  generate_audio: boolean;
+  status: 'processing' | 'completed' | 'failed';
+  video_url: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const videoGenAPI = {
+  create: (data: {
+    prompt: string;
+    duration?: number;
+    aspect_ratio?: string;
+    resolution?: string;
+    generate_audio?: boolean;
+  }) => api.post<{ success: boolean; job: VideoGenJob }>('/video-gen', data),
+  list: (limit = 30) =>
+    api.get<{ success: boolean; jobs: VideoGenJob[] }>('/video-gen/jobs', { params: { limit } }),
+  getStatus: (jobId: number) =>
+    api.get<{ success: boolean; job: VideoGenJob }>(`/video-gen/jobs/${jobId}`),
+  remove: (jobId: number) => api.delete<{ success: boolean }>(`/video-gen/jobs/${jobId}`),
+  // <video> tags can't send an Authorization header, so fetch the file as a
+  // blob (the request interceptor attaches the auth token) and hand back an
+  // object URL for the caller to use as the <video src>.
+  getVideoBlob: (jobId: number) => api.get(`/video-gen/jobs/${jobId}/video`, { responseType: 'blob' }),
+};
+
 export const modulesAPI = {
   list: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules'),
   listAvailableStudents: () => api.get<{ success: boolean; students: { id: number; name: string; email: string }[] }>('/modules/students/available'),

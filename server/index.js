@@ -89,6 +89,7 @@ apiRouter.use('/content', require('./routes/content'));
 apiRouter.use('/modules', require('./routes/modules'));
 apiRouter.use('/moodle', require('./routes/moodle'));
 apiRouter.use('/slide-gen', require('./routes/slideGen'));
+apiRouter.use('/video-gen', require('./routes/videoGen'));
 apiRouter.use('/pptx-jobs', require('./routes/pptxJobs'));
 apiRouter.use('/revisions', require('./routes/revisions'));
 apiRouter.use('/system', require('./routes/system'));
