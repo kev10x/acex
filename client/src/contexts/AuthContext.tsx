@@ -171,7 +171,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateProfile = async (name?: string, email?: string) => {
     if (!token) throw new Error('Not authenticated');
-    const updatedUser = await authAPI.updateProfile(token, name, email);
+    const changes = await authAPI.updateProfile(token, name, email);
+    // The server returns only the changed columns (id/email/name); merge so the
+    // role, features and admin flags on the current session are not lost.
+    const updatedUser = { ...(user as User), ...changes };
     setUser(updatedUser);
     localStorage.setItem('user', JSON.stringify(updatedUser));
   };

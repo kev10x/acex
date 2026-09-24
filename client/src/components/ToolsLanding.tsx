@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowUpRight, BarChart3, Brain, LogOut, Presentation, Shield } from 'lucide-react';
-import BrandMark from './BrandMark';
+import BrandMark, { ProfileAvatarButton } from './BrandMark';
 
 type AppRole = 'management' | 'lecturer' | 'student';
 
@@ -116,9 +116,7 @@ export default function ToolsLanding({
             <span className="hidden rounded-full bg-primary-50 px-2.5 py-1 text-xs font-semibold text-primary-700 ring-1 ring-inset ring-primary-100 sm:inline-flex">
               {roleLabel}
             </span>
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-accent-600 text-xs font-bold text-white">
-              {initial}
-            </span>
+            <ProfileAvatarButton initial={initial} className="h-8 w-8 rounded-full text-xs" />
             <button
               onClick={onLogout}
               title="Log out"

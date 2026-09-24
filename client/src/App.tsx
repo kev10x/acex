@@ -24,7 +24,7 @@ import {
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
-import BrandMark from './components/BrandMark';
+import BrandMark, { ProfileAvatarButton } from './components/BrandMark';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToolsLanding from './components/ToolsLanding';
 import HeroPanel from './components/HeroPanel';
@@ -524,9 +524,7 @@ function AppContent() {
               {roleLabel}
             </span>
             <div className="flex items-center gap-2 rounded-full bg-white py-1 pl-1 pr-3 shadow-sm ring-1 ring-gray-200">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-accent-600 text-xs font-bold text-white">
-                {userInitial}
-              </span>
+              <ProfileAvatarButton initial={userInitial} className="h-7 w-7 rounded-full text-xs" />
               <span className="hidden max-w-[10rem] truncate text-sm font-medium text-gray-700 md:block">
                 {user.name || user.email}
               </span>

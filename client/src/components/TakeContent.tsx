@@ -645,16 +645,18 @@ const TakeContent: React.FC = () => {
             <h1 className="text-2xl font-bold" style={{ color: content?.theme?.heading_color || '#111827' }}>{content?.title}</h1>
             {content?.instructions && <p className="mt-2 text-sm" style={{ color: content?.theme?.text_color || '#4B5563' }}>{content.instructions}</p>}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Your name (for save/resume)</label>
-                <input
-                  type="text"
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
-                  placeholder="Full name"
-                />
-              </div>
+              {!defaultStudentName && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your name (for save/resume)</label>
+                  <input
+                    type="text"
+                    value={studentName}
+                    onChange={(e) => setStudentName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
+                    placeholder="Full name"
+                  />
+                </div>
+              )}
               <div className="flex flex-col justify-end">
                 <div className="text-xs text-gray-600 mb-1">Progress: {progressPercent}%</div>
                 <div className="w-full h-2 rounded-full bg-gray-200 overflow-hidden">

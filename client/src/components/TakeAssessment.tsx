@@ -514,17 +514,20 @@ const TakeAssessment: React.FC = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Your name *</label>
-            <input
-              type="text"
-              value={studentName}
-              onChange={(e) => setStudentName(e.target.value)}
-              required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
-              placeholder="Enter your full name"
-            />
-          </div>
+          {/* Logged-in students are identified by their account; only anonymous visitors are asked. */}
+          {!defaultStudentName && (
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Your name *</label>
+              <input
+                type="text"
+                value={studentName}
+                onChange={(e) => setStudentName(e.target.value)}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
+                placeholder="Enter your full name"
+              />
+            </div>
+          )}
 
           {activeQuestion && (() => {
             const q = activeQuestion;

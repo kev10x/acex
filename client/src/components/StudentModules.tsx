@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { modulesAPI } from '../services/api';
 import type { LearningModule, StudentHomeworkProgressItem } from '../services/api';
-import { BookOpen, Clock, Play, Users } from 'lucide-react';
+import { BookOpen, ClipboardCheck, Clock, GraduationCap, Loader2, Play, Sparkles } from 'lucide-react';
 
 export default function StudentModules() {
   const [modules, setModules] = useState<LearningModule[]>([]);
@@ -55,7 +55,7 @@ export default function StudentModules() {
     return (
       <div className="min-h-[16rem] flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600 mx-auto"></div>
+          <Loader2 className="mx-auto h-10 w-10 animate-spin text-primary-600" />
           <p className="mt-3 text-sm text-gray-600">Loading your modules...</p>
         </div>
       </div>
@@ -66,12 +66,12 @@ export default function StudentModules() {
     return (
       <div className="min-h-[16rem] flex items-center justify-center">
         <div className="text-center">
-          <div className="text-red-600 mb-2">⚠️ {error}</div>
+          <div className="mb-3 text-rose-600">{error}</div>
           <button
             onClick={loadStudentModules}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+            className="rounded-lg bg-primary-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-primary-700"
           >
-            Try Again
+            Try again
           </button>
         </div>
       </div>
@@ -80,38 +80,70 @@ export default function StudentModules() {
 
   if (modules.length === 0) {
     return (
-      <div className="min-h-[16rem] flex items-center justify-center">
+      <div className="flex min-h-[16rem] items-center justify-center">
         <div className="text-center">
-          <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No modules assigned</h3>
-          <p className="text-gray-600">You haven't been assigned to any learning modules yet.</p>
+          <span className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-500 ring-1 ring-inset ring-primary-100">
+            <BookOpen className="h-7 w-7" />
+          </span>
+          <h3 className="text-lg font-semibold text-gray-900">No modules yet</h3>
+          <p className="mt-1 text-sm text-gray-500">When your lecturer shares a module with you, it will appear here.</p>
         </div>
       </div>
     );
   }
 
+  // Group by course so a course reads as one ordered path; standalone modules go last.
+  const groups: { key: string; title: string | null; modules: LearningModule[] }[] = [];
+  modules.forEach((module) => {
+    const title = module.course_name || null;
+    const key = title || '__other';
+    let group = groups.find((g) => g.key === key);
+    if (!group) {
+      group = { key, title, modules: [] };
+      groups.push(group);
+    }
+    group.modules.push(module);
+  });
+  groups.sort((a, b) => (a.title ? 0 : 1) - (b.title ? 0 : 1));
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-600 via-primary-700 to-accent-700 p-6 text-white shadow-lg sm:p-8">
+        <div className="pointer-events-none absolute -right-10 -top-12 h-48 w-48 rounded-full bg-white/10" />
+        <div className="pointer-events-none absolute -bottom-16 left-1/3 h-40 w-40 rounded-full bg-accent-400/20" />
+        <div className="relative flex items-center gap-4">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
+            <GraduationCap className="h-6 w-6" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">My learning</h1>
+            <p className="mt-1 text-sm text-white/80">
+              {modules.length} module{modules.length === 1 ? '' : 's'} across {groups.length} course{groups.length === 1 ? '' : 's'}. Pick up where you left off.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {homeworkProgress.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-primary-200 p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Clock className="w-6 h-6 text-primary-600" />
-            <h2 className="text-xl font-bold text-gray-900">Homework Progress Timeline</h2>
+        <div className="rounded-2xl border border-gray-200/70 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
+              <Clock className="h-5 w-5" />
+            </span>
+            <h2 className="text-lg font-bold text-gray-900">Homework progress</h2>
           </div>
           <div className="space-y-3">
             {homeworkProgress.slice(0, 8).map((entry) => {
               const improved = entry.weak_area_outcomes.filter((w) => w.status === 'improved').length;
               const declined = entry.weak_area_outcomes.filter((w) => w.status === 'declined').length;
               return (
-                <div key={`progress-${entry.homework_module_id}`} className="rounded-lg border border-primary-100 bg-primary-50 p-3">
+                <div key={`progress-${entry.homework_module_id}`} className="rounded-xl border border-primary-100 bg-primary-50/60 p-3">
                   <p className="text-sm font-semibold text-primary-900">{entry.homework_module_name}</p>
-                  <p className="text-xs text-primary-800 mt-1">
+                  <p className="mt-1 text-xs text-primary-800">
                     Attempts: {entry.attempts_total} total, {entry.completed_attempts} completed
                     {entry.latest_score_percent != null ? ` • Latest score ${entry.latest_score_percent}%` : ''}
                   </p>
-                  <p className="text-xs text-primary-800">
-                    Weak-area trend: {improved} improved, {declined} declined
-                  </p>
+                  <p className="text-xs text-primary-800">Weak-area trend: {improved} improved, {declined} declined</p>
                 </div>
               );
             })}
@@ -119,64 +151,56 @@ export default function StudentModules() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <Users className="w-6 h-6 text-emerald-600" />
-          <h1 className="text-2xl font-bold text-gray-900">My Learning Modules</h1>
-        </div>
-
-        <div className="space-y-4">
-          {modules.map((module) => {
-            const firstLaunchableItem = getFirstLaunchableItem(module);
-
-            return (
-              <div
-                key={module.id}
-                className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-900">{module.name}</h2>
-                    <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
-                      <Clock className="w-4 h-4" />
-                      <span>{module.items.length} items</span>
+      {groups.map((group) => (
+        <section key={group.key}>
+          <div className="mb-3 flex items-center gap-2.5">
+            <Sparkles className="h-4 w-4 text-primary-500" />
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">{group.title || 'Other modules'}</h2>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{group.modules.length}</span>
+          </div>
+          <div className="space-y-3">
+            {group.modules.map((module, idx) => {
+              const firstLaunchableItem = getFirstLaunchableItem(module);
+              const lessons = module.items.filter((i) => i.item_type === 'content').length;
+              const quizzes = module.items.filter((i) => i.item_type === 'assessment').length;
+              return (
+                <div
+                  key={module.id}
+                  className="group flex flex-col gap-4 rounded-2xl border border-gray-200/70 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lg sm:flex-row sm:items-center"
+                >
+                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-accent-600 text-lg font-bold text-white shadow-[0_8px_20px_-6px_rgba(79,70,229,0.55)]">
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-lg font-semibold leading-snug text-gray-900">{module.name}</h3>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                      {lessons > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 font-medium text-primary-700 ring-1 ring-inset ring-primary-100">
+                          <BookOpen className="h-3 w-3" /> {lessons} lesson{lessons === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      {quizzes > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                          <ClipboardCheck className="h-3 w-3" /> {quizzes} quiz{quizzes === 1 ? '' : 'zes'}
+                        </span>
+                      )}
+                      {!firstLaunchableItem && <span className="text-amber-700">Nothing to open yet</span>}
                     </div>
                   </div>
                   <button
                     onClick={() => handleLaunchModule(module, firstLaunchableItem?.id)}
                     disabled={!firstLaunchableItem}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary-700 hover:shadow-md disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
                   >
-                    <Play className="w-4 h-4" />
-                    Launch Module
+                    <Play className="h-4 w-4" />
+                    Start
                   </button>
                 </div>
-
-                <div className="space-y-3">
-                  {!firstLaunchableItem && (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                      This module has been assigned to you, but it does not have any launchable items yet.
-                    </div>
-                  )}
-                  {firstLaunchableItem && (
-                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex items-start gap-3">
-                        <BookOpen className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-medium text-gray-900">Open this module to view its units.</p>
-                          <p className="mt-1 text-sm text-gray-600">
-                            Unit navigation is available inside the module player so the landing page stays focused on your assigned modules.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
