@@ -8,7 +8,7 @@ const LAST_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
 const ROLE_ALIASES = {
   admin: 'management',
   user: 'lecturer'

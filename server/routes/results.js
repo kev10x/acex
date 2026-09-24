@@ -15,7 +15,7 @@ const { isDocxDocument } = require('../services/documentExtractService');
 const { addCommentsToDocx } = require('../services/docxCommenter');
 
 const router = express.Router();
-const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
 
 const rowsOf = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 const normalizeRole = (role) => {

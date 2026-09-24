@@ -22,7 +22,7 @@ const { buildEducationLevelPromptBlock } = require('../services/educationLevelSe
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
-const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
 const isSuperAdmin = (user) => String(user?.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 const HOMEWORK_ANALYTICS_CACHE_TTL_MS = 60 * 1000;
 const HOMEWORK_ANALYTICS_CACHE_MAX_ENTRIES = 500;
