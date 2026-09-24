@@ -22,7 +22,7 @@ function SummaryVideoHero({ src }: { src?: string }) {
   return (
     <div className="mb-4 overflow-hidden rounded-2xl border border-gray-200 bg-black shadow-md">
       {src ? (
-        <video src={src} controls playsInline className="aspect-video w-full bg-black" />
+        <video src={src} controls playsInline preload="auto" onLoadedMetadata={(e) => { e.currentTarget.currentTime = 0.4; }} className="aspect-video w-full bg-black" />
       ) : (
         <div className="flex aspect-video items-center justify-center text-sm text-white/60">Loading summary video…</div>
       )}
