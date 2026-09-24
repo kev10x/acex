@@ -638,12 +638,23 @@ const initDatabase = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           applied_at TIMESTAMP NULL,
-          UNIQUE KEY uniq_lesson_summary_content (published_content_id),
+          section_index INT NOT NULL DEFAULT 0,
+          UNIQUE KEY uniq_lesson_summary_section (published_content_id, section_index),
           KEY idx_lesson_summary_status (status),
           FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE CASCADE,
           FOREIGN KEY (video_generation_id) REFERENCES video_generations(id) ON DELETE SET NULL
         )
       `);
+      // Summary videos were originally one per lesson; they are now one per section.
+      const lsvSectionCol = await query(`
+        SELECT COUNT(*) as count FROM information_schema.COLUMNS
+        WHERE table_schema = DATABASE() AND table_name = 'lesson_summary_videos' AND column_name = 'section_index'
+      `);
+      if ((lsvSectionCol.rows?.[0]?.count || lsvSectionCol?.[0]?.count || 0) === 0) {
+        await query(`ALTER TABLE lesson_summary_videos ADD COLUMN section_index INT NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE lesson_summary_videos ADD UNIQUE KEY uniq_lesson_summary_section (published_content_id, section_index)`);
+        await query(`ALTER TABLE lesson_summary_videos DROP INDEX uniq_lesson_summary_content`);
+      }
       await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
           id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2248,15 +2259,26 @@ const initDatabase = async () => {
       await query(`
         CREATE TABLE IF NOT EXISTS lesson_summary_videos (
           id SERIAL PRIMARY KEY,
-          published_content_id INTEGER NOT NULL UNIQUE REFERENCES published_content(id) ON DELETE CASCADE,
+          published_content_id INTEGER NOT NULL REFERENCES published_content(id) ON DELETE CASCADE,
           video_generation_id INTEGER NULL REFERENCES video_generations(id) ON DELETE SET NULL,
           status VARCHAR(20) NOT NULL DEFAULT 'pending',
           error_message TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          applied_at TIMESTAMP NULL
+          applied_at TIMESTAMP NULL,
+          section_index INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (published_content_id, section_index)
         )
       `);
+      const lsvSectionColPg = await query(`
+        SELECT COUNT(*) as count FROM information_schema.columns
+        WHERE table_name = 'lesson_summary_videos' AND column_name = 'section_index'
+      `);
+      if ((lsvSectionColPg.rows?.[0]?.count || lsvSectionColPg?.[0]?.count || 0) === 0) {
+        await query(`ALTER TABLE lesson_summary_videos ADD COLUMN section_index INTEGER NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE lesson_summary_videos DROP CONSTRAINT IF EXISTS lesson_summary_videos_published_content_id_key`);
+        await query(`ALTER TABLE lesson_summary_videos ADD CONSTRAINT uniq_lesson_summary_section UNIQUE (published_content_id, section_index)`);
+      }
       await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
           id SERIAL PRIMARY KEY,

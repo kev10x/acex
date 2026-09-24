@@ -1317,12 +1317,13 @@ router.get('/templates', requireAuth, requireFeature('content_creation'), async 
 /**
  * Queue a summary video for every published lesson the caller owns that does not
  * have one yet (management can pass all=true for every lesson). Videos arrive over
- * the following minutes via the background worker. Body: { retry_failed?, all? }
+ * the following minutes via the background worker. Body: { retry_failed?, force?, all? } — force regenerates existing ones
  */
 router.post('/summary-videos/backfill', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
     const includeAll = req.body?.all === true && String(req.user.role || '').toLowerCase() === 'management';
     const retryFailed = req.body?.retry_failed === true;
+    const force = req.body?.force === true;
     const q = includeAll
       ? await query('SELECT id FROM published_content ORDER BY id ASC')
       : (isMySQL()
@@ -1331,8 +1332,9 @@ router.post('/summary-videos/backfill', requireAuth, requireFeature('content_cre
     const results = { queued: 0, skipped: 0, errors: [] };
     for (const row of rowList(q)) {
       try {
-        const r = await lessonSummaryVideoService.queueSummaryVideo(row.id, { retryFailed });
-        if (r.queued) results.queued += 1; else results.skipped += 1;
+        const r = await lessonSummaryVideoService.queueSummaryVideo(row.id, { retryFailed, force });
+        results.queued += r.queued;
+        results.skipped += r.skipped;
       } catch (err) {
         results.errors.push({ content_id: row.id, error: err.message });
       }
@@ -1348,8 +1350,8 @@ router.post('/summary-videos/backfill', requireAuth, requireFeature('content_cre
 router.get('/summary-videos', requireAuth, async (req, res) => {
   try {
     const q = isMySQL()
-      ? await query('SELECT s.id, s.published_content_id, s.video_generation_id, s.status, s.error_message, c.title FROM lesson_summary_videos s JOIN published_content c ON c.id = s.published_content_id WHERE c.user_id = ? ORDER BY s.id ASC', [req.user.id])
-      : await query('SELECT s.id, s.published_content_id, s.video_generation_id, s.status, s.error_message, c.title FROM lesson_summary_videos s JOIN published_content c ON c.id = s.published_content_id WHERE c.user_id = $1 ORDER BY s.id ASC', [req.user.id]);
+      ? await query('SELECT s.id, s.published_content_id, s.section_index, s.video_generation_id, s.status, s.error_message, c.title FROM lesson_summary_videos s JOIN published_content c ON c.id = s.published_content_id WHERE c.user_id = ? ORDER BY s.published_content_id ASC, s.section_index ASC', [req.user.id])
+      : await query('SELECT s.id, s.published_content_id, s.section_index, s.video_generation_id, s.status, s.error_message, c.title FROM lesson_summary_videos s JOIN published_content c ON c.id = s.published_content_id WHERE c.user_id = $1 ORDER BY s.published_content_id ASC, s.section_index ASC', [req.user.id]);
     res.json({ success: true, items: rowList(q) });
   } catch (error) {
     console.error('Summary video status error:', error);
