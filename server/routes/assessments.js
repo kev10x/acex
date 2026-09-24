@@ -182,18 +182,27 @@ async function autoCreateGradeItemForModule(moduleId, publishedAssessmentId, ass
       : null;
     const title = String(assessment.title || `Assessment ${publishedAssessmentId}`).slice(0, 255);
 
+    // File it under the course's first grade category, if one exists, so it
+    // counts toward the weighted grade instead of sitting uncategorised.
+    const catRow = rowList(
+      isMySQLDb()
+        ? await query('SELECT id FROM grade_categories WHERE course_id = ? ORDER BY id ASC LIMIT 1', [courseId])
+        : await query('SELECT id FROM grade_categories WHERE course_id = $1 ORDER BY id ASC LIMIT 1', [courseId])
+    )[0];
+    const categoryId = catRow?.id ?? null;
+
     if (isMySQLDb()) {
       await query(
-        `INSERT IGNORE INTO grade_items (course_id, item_type, item_id, title, max_points)
-         VALUES (?, 'assessment', ?, ?, ?)`,
-        [courseId, publishedAssessmentId, title, maxPoints]
+        `INSERT IGNORE INTO grade_items (course_id, grade_category_id, item_type, item_id, title, max_points)
+         VALUES (?, ?, 'assessment', ?, ?, ?)`,
+        [courseId, categoryId, publishedAssessmentId, title, maxPoints]
       );
     } else {
       await query(
-        `INSERT INTO grade_items (course_id, item_type, item_id, title, max_points)
-         VALUES ($1, 'assessment', $2, $3, $4)
+        `INSERT INTO grade_items (course_id, grade_category_id, item_type, item_id, title, max_points)
+         VALUES ($1, $2, 'assessment', $3, $4, $5)
          ON CONFLICT (course_id, item_type, item_id) DO NOTHING`,
-        [courseId, publishedAssessmentId, title, maxPoints]
+        [courseId, categoryId, publishedAssessmentId, title, maxPoints]
       );
     }
   } catch (e) {

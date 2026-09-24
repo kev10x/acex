@@ -249,7 +249,7 @@ function normalizeSectionMascot(section, mascot, { includeMascot = false } = {})
   const normalizedBase = {
     title: String(src.title || fallback.title).slice(0, 160),
     alt_text: String(src.alt_text || fallback.alt_text).slice(0, 260),
-    image_url: typeof src.image_url === 'string' ? src.image_url : '',
+    image_url: typeof src.image_url === 'string' ? externalizeDataUrlImage(src.image_url) : '',
   };
   const rebuiltPrompt = buildMascotPromptFromContext(normalizedBase, section);
   return {
@@ -1181,6 +1181,33 @@ function shouldRefreshLegacyPrompt(visual, section, fallbackPrompt = '') {
   return /^(create a clean educational diagram illustrating:|create an educational scene image representing:)/i.test(currentPrompt);
 }
 
+// Generated / uploaded images arrive as base64 data URLs. Left inline they bloat
+// a lesson to megabytes (slow to load, save and publish), so any sizeable one is
+// written once to /uploads/content-images and the lesson stores just the URL.
+// Content-addressed, so re-saving the same lesson never duplicates files, and old
+// lessons convert themselves the next time they are read and repaired.
+const CONTENT_IMAGE_DIR = path.join(__dirname, '..', 'uploads', 'content-images');
+const CONTENT_IMAGE_MIN_BASE64_CHARS = 20000;
+function externalizeDataUrlImage(value) {
+  const match = /^data:image\/(png|jpe?g|webp|gif);base64,(.+)$/is.exec(typeof value === 'string' ? value : '');
+  if (!match || match[2].length < CONTENT_IMAGE_MIN_BASE64_CHARS) return value;
+  try {
+    const buf = Buffer.from(match[2], 'base64');
+    let ext = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase();
+    // The provider labels JPEG bytes as png; trust the bytes, not the label.
+    if (buf[0] === 0xff && buf[1] === 0xd8) ext = 'jpg';
+    else if (buf[0] === 0x89 && buf[1] === 0x50) ext = 'png';
+    const name = `${crypto.createHash('sha1').update(buf).digest('hex').slice(0, 24)}.${ext}`;
+    fs.mkdirSync(CONTENT_IMAGE_DIR, { recursive: true });
+    const file = path.join(CONTENT_IMAGE_DIR, name);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    return `/uploads/content-images/${name}`;
+  } catch (err) {
+    console.warn('Could not externalize content image:', err.message);
+    return value;
+  }
+}
+
 function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, includeImages = true } = {}) {
   const sectionTitle = String(section?.heading || section?.title || 'Section').trim() || 'Section';
   const incoming = Array.isArray(visuals) ? visuals : [];
@@ -1215,7 +1242,7 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
         title: String(v.title || fallback.title).slice(0, 160),
         alt_text: String(v.alt_text || fallback.alt_text).slice(0, 260),
         image_url: typeof v.image_url === 'string' && v.image_url.trim()
-          ? v.image_url
+          ? externalizeDataUrlImage(v.image_url)
           : fallback.image_url,
       };
       const rebuiltPrompt = buildVisualPromptFromContext(normalizedBase, section);

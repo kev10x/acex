@@ -224,6 +224,16 @@ const CourseManager: React.FC = () => {
     }
   };
 
+  const handleItemCategory = async (itemId: number, categoryId: number | null) => {
+    if (!selectedCourse) return;
+    try {
+      await coursesAPI.updateGradeItem(selectedCourse.id, itemId, { grade_category_id: categoryId });
+      setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, grade_category_id: categoryId } : i)));
+    } catch (e: any) {
+      notifyError(getApiErrorMessage(e, 'Failed to update grade item'), 'Update failed');
+    }
+  };
+
   const handleRemoveItem = async (itemId: number) => {
     if (!selectedCourse) return;
     try {
@@ -486,9 +496,22 @@ const CourseManager: React.FC = () => {
                         <span className="text-gray-800">{i.title || `Item #${i.id}`}</span>
                         {i.max_points && <span className="text-gray-400"> · {i.max_points} pts</span>}
                       </div>
-                      <button type="button" onClick={() => handleRemoveItem(i.id)} className="text-gray-400 hover:text-red-600">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <select
+                          value={i.grade_category_id ?? ''}
+                          onChange={(e) => handleItemCategory(i.id, e.target.value ? Number(e.target.value) : null)}
+                          className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600"
+                          title="Grade category"
+                        >
+                          <option value="">No category</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => handleRemoveItem(i.id)} className="text-gray-400 hover:text-red-600">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

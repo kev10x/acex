@@ -434,6 +434,43 @@ router.delete('/:id/grade-categories/:categoryId', requireAuth, requireCourseSta
  * Grade items: link an existing gradable thing (currently: a published
  * assessment) into a course + weighted category.
  */
+router.put('/:id/grade-items/:itemId', requireAuth, requireCourseStaff, async (req, res) => {
+  try {
+    const courseId = Number.parseInt(req.params.id, 10);
+    const itemId = Number.parseInt(req.params.itemId, 10);
+    if (!Number.isFinite(itemId)) return res.status(400).json({ error: 'Invalid grade item id' });
+    const body = req.body || {};
+    const sets = [];
+    const vals = [];
+    const add = (col, val) => { sets.push(col); vals.push(val); };
+    if (Object.prototype.hasOwnProperty.call(body, 'grade_category_id')) {
+      const catId = body.grade_category_id === null || body.grade_category_id === '' ? null : Number(body.grade_category_id);
+      if (catId !== null) {
+        const catQ = isMySQL()
+          ? await query('SELECT id FROM grade_categories WHERE id = ? AND course_id = ?', [catId, courseId])
+          : await query('SELECT id FROM grade_categories WHERE id = $1 AND course_id = $2', [catId, courseId]);
+        if (rowList(catQ).length === 0) return res.status(400).json({ error: 'Category not found in this course' });
+      }
+      add('grade_category_id', catId);
+    }
+    if (body.title !== undefined) add('title', String(body.title || '').trim().slice(0, 255) || null);
+    if (body.max_points !== undefined) add('max_points', body.max_points === null || body.max_points === '' ? null : Number(body.max_points));
+    if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+    const setSql = sets.map((col, idx) => (isMySQL() ? `${col} = ?` : `${col} = $${idx + 1}`)).join(', ');
+    const n = vals.length;
+    if (isMySQL()) {
+      await query(`UPDATE grade_items SET ${setSql} WHERE id = ? AND course_id = ?`, [...vals, itemId, courseId]);
+    } else {
+      await query(`UPDATE grade_items SET ${setSql} WHERE id = $${n + 1} AND course_id = $${n + 2}`, [...vals, itemId, courseId]);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Grade item update error:', error);
+    res.status(500).json({ error: 'Failed to update grade item' });
+  }
+});
+
 router.get('/:id/grade-items', requireAuth, requireCourseStaff, async (req, res) => {
   try {
     const items = await gradebookService.getGradeItems(Number.parseInt(req.params.id, 10));

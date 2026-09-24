@@ -1751,6 +1751,8 @@ export const coursesAPI = {
     api.get<{ success: boolean; items: GradeItem[] }>(`/courses/${courseId}/grade-items`),
   createGradeItem: (courseId: number, data: { grade_category_id?: number | null; item_type: string; item_id: number; title?: string; max_points?: number }) =>
     api.post<{ success: boolean; item: GradeItem }>(`/courses/${courseId}/grade-items`, data),
+  updateGradeItem: (courseId: number, itemId: number, data: { grade_category_id?: number | null; title?: string; max_points?: number | null }) =>
+    api.put<{ success: boolean }>(`/courses/${courseId}/grade-items/${itemId}`, data),
   removeGradeItem: (courseId: number, itemId: number) =>
     api.delete<{ success: boolean }>(`/courses/${courseId}/grade-items/${itemId}`),
 
