@@ -8,6 +8,8 @@ import {
   assessmentsAPI,
   contentAPI,
   modulesAPI,
+  coursesAPI,
+  Course,
   LearningModule,
   HomeworkHistoryItem,
   HomeworkOutcomeItem,
@@ -83,6 +85,8 @@ const ModuleOrganizer: React.FC = () => {
 
   // UI
   const [moduleName, setModuleName] = useState('');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [newModuleCourseId, setNewModuleCourseId] = useState<number | ''>('');
   const [libSearch, setLibSearch] = useState('');
   const [expandedContent, setExpandedContent] = useState<Set<number>>(new Set());
   const [studentByModule, setStudentByModule] = useState<Record<number, string>>({});
@@ -163,12 +167,30 @@ const ModuleOrganizer: React.FC = () => {
   };
 
   // ── Module CRUD ───────────────────────────────────────────
+  useEffect(() => {
+    coursesAPI.list().then((res) => {
+      if (res.data.success) setCourses(res.data.courses);
+    }).catch(() => setCourses([]));
+  }, []);
+
+  const handleSetModuleCourse = async (moduleId: number, courseId: number | null) => {
+    setWorking(`course-mod-${moduleId}`);
+    try {
+      await modulesAPI.setCourse(moduleId, courseId);
+      await loadAll();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Failed to update module course');
+    } finally {
+      setWorking(null);
+    }
+  };
+
   const handleCreateModule = async () => {
     const name = moduleName.trim();
     if (!name) return;
     setWorking('create');
     try {
-      await modulesAPI.create(name);
+      await modulesAPI.create(name, newModuleCourseId === '' ? null : newModuleCourseId);
       setModuleName('');
       await loadAll();
     } catch (e: any) {
@@ -1560,6 +1582,17 @@ const ModuleOrganizer: React.FC = () => {
               placeholder="New module name (e.g. Module 1: Algebra)"
               className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
             />
+            <select
+              value={newModuleCourseId}
+              onChange={(e) => setNewModuleCourseId(e.target.value ? Number(e.target.value) : '')}
+              className="w-44 shrink-0 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
+              title="Course this module belongs to"
+            >
+              <option value="">No course</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>{c.code ? `${c.code} · ${c.name}` : c.name}</option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={handleCreateModule}
@@ -1624,6 +1657,18 @@ const ModuleOrganizer: React.FC = () => {
                         <span className="text-xs text-indigo-400 shrink-0 tabular-nums">
                           {sortedItems.length} item{sortedItems.length !== 1 ? 's' : ''}
                         </span>
+                        <select
+                          value={module.course_id ?? ''}
+                          onChange={(e) => handleSetModuleCourse(module.id, e.target.value ? Number(e.target.value) : null)}
+                          disabled={working === `course-mod-${module.id}`}
+                          className="ml-2 max-w-[11rem] truncate rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600"
+                          title="Course"
+                        >
+                          <option value="">No course</option>
+                          {courses.map((c) => (
+                            <option key={c.id} value={c.id}>{c.code ? `${c.code} · ${c.name}` : c.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <button
                         type="button"

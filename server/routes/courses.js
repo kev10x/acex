@@ -157,11 +157,35 @@ router.get('/:id', requireAuth, async (req, res) => {
       ? await query("SELECT COUNT(*) as count FROM course_enrollments WHERE course_id = ? AND status = 'active'", [courseId])
       : await query("SELECT COUNT(*) as count FROM course_enrollments WHERE course_id = $1 AND status = 'active'", [courseId]);
 
+    // Modules in this course; a student only sees the ones they were given access to.
+    const modulesQ = isStudent && !isStaff && req.user.role !== 'management'
+      ? (isMySQL()
+          ? await query(
+              `SELECT m.id, m.name, (SELECT COUNT(*) FROM module_items mi WHERE mi.module_id = m.id) AS item_count
+               FROM modules m JOIN module_students ms ON ms.module_id = m.id
+               WHERE m.course_id = ? AND ms.student_user_id = ? ORDER BY m.created_at ASC, m.id ASC`,
+              [courseId, req.user.id])
+          : await query(
+              `SELECT m.id, m.name, (SELECT COUNT(*) FROM module_items mi WHERE mi.module_id = m.id) AS item_count
+               FROM modules m JOIN module_students ms ON ms.module_id = m.id
+               WHERE m.course_id = $1 AND ms.student_user_id = $2 ORDER BY m.created_at ASC, m.id ASC`,
+              [courseId, req.user.id]))
+      : (isMySQL()
+          ? await query(
+              `SELECT m.id, m.name, (SELECT COUNT(*) FROM module_items mi WHERE mi.module_id = m.id) AS item_count
+               FROM modules m WHERE m.course_id = ? ORDER BY m.created_at ASC, m.id ASC`,
+              [courseId])
+          : await query(
+              `SELECT m.id, m.name, (SELECT COUNT(*) FROM module_items mi WHERE mi.module_id = m.id) AS item_count
+               FROM modules m WHERE m.course_id = $1 ORDER BY m.created_at ASC, m.id ASC`,
+              [courseId]));
+
     res.json({
       success: true,
       course,
       staff: rowList(staffQ),
       enrollment_count: Number(rowList(countQ)[0]?.count || 0),
+      modules: rowList(modulesQ).map((m) => ({ id: m.id, name: m.name, item_count: Number(m.item_count || 0) })),
     });
   } catch (error) {
     console.error('Course get error:', error);
@@ -316,6 +340,21 @@ router.post('/:id/enrollments', requireAuth, requireCourseStaff, async (req, res
           await query(
             'INSERT INTO course_enrollments (course_id, student_user_id, enrolled_by) VALUES ($1, $2, $3) ON CONFLICT (course_id, student_user_id) DO UPDATE SET status = \'active\'',
             [courseId, user.id, req.user.id]
+          );
+        }
+        // Enrolling in a course gives access to each of its modules.
+        if (isMySQL()) {
+          await query(
+            `INSERT IGNORE INTO module_students (module_id, student_user_id)
+             SELECT id, ? FROM modules WHERE course_id = ?`,
+            [user.id, courseId]
+          );
+        } else {
+          await query(
+            `INSERT INTO module_students (module_id, student_user_id)
+             SELECT id, $1 FROM modules WHERE course_id = $2
+             ON CONFLICT DO NOTHING`,
+            [user.id, courseId]
           );
         }
         results.push({ email, success: true, student_user_id: user.id, name: user.name });

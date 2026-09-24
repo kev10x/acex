@@ -987,11 +987,45 @@ async function getContentMeta(itemId, userId, sectionIndex = -1) {
   return { title, code: row.code || '' };
 }
 
+// A module can be attached to a course only by someone who runs that course.
+async function userCanUseCourse(user, courseId) {
+  if (!Number.isFinite(courseId) || courseId <= 0) return false;
+  const courseQ = isMySQL()
+    ? await query('SELECT id, owner_user_id FROM courses WHERE id = ?', [courseId])
+    : await query('SELECT id, owner_user_id FROM courses WHERE id = $1', [courseId]);
+  const course = rowList(courseQ)[0];
+  if (!course) return false;
+  if (String(user.role || '').toLowerCase() === 'management') return true;
+  if (Number(course.owner_user_id) === Number(user.id)) return true;
+  const staffQ = isMySQL()
+    ? await query('SELECT id FROM course_staff WHERE course_id = ? AND user_id = ?', [courseId, user.id])
+    : await query('SELECT id FROM course_staff WHERE course_id = $1 AND user_id = $2', [courseId, user.id]);
+  return rowList(staffQ).length > 0;
+}
+
+// Everyone actively enrolled in a course gets access to each of its modules.
+async function syncCourseStudentsToModule(moduleId, courseId) {
+  if (isMySQL()) {
+    await query(
+      `INSERT IGNORE INTO module_students (module_id, student_user_id)
+       SELECT ?, student_user_id FROM course_enrollments WHERE course_id = ? AND status = 'active'`,
+      [moduleId, courseId]
+    );
+  } else {
+    await query(
+      `INSERT INTO module_students (module_id, student_user_id)
+       SELECT $1, student_user_id FROM course_enrollments WHERE course_id = $2 AND status = 'active'
+       ON CONFLICT DO NOTHING`,
+      [moduleId, courseId]
+    );
+  }
+}
+
 router.get('/', requireAuth, async (req, res) => {
   try {
     const modulesQ = isMySQL()
-      ? await query('SELECT id, name, created_at FROM modules WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
-      : await query('SELECT id, name, created_at FROM modules WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+      ? await query('SELECT m.id, m.name, m.created_at, m.course_id, c.name AS course_name FROM modules m LEFT JOIN courses c ON c.id = m.course_id WHERE m.user_id = ? ORDER BY m.created_at DESC', [req.user.id])
+      : await query('SELECT m.id, m.name, m.created_at, m.course_id, c.name AS course_name FROM modules m LEFT JOIN courses c ON c.id = m.course_id WHERE m.user_id = $1 ORDER BY m.created_at DESC', [req.user.id]);
     const modules = rowList(modulesQ);
     if (modules.length === 0) return res.json({ success: true, modules: [] });
 
@@ -2059,22 +2093,25 @@ router.post('/', requireAuth, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
     const cleanName = name.slice(0, 255);
-    let inserted;
-    if (isMySQL()) {
-      inserted = await query('INSERT INTO modules (user_id, name) VALUES (?, ?)', [req.user.id, cleanName]);
-      const id = inserted.insertId ?? inserted.lastID;
-      const q = await query('SELECT id, name, created_at FROM modules WHERE id = ? AND user_id = ?', [id, req.user.id]);
-      const row = rowList(q)[0];
-      invalidateHomeworkAnalyticsCacheForUser(req.user.id);
-      return res.json({ success: true, module: { ...row, items: [], students: [] } });
+    const rawCourseId = req.body?.course_id;
+    const courseId = rawCourseId === undefined || rawCourseId === null || rawCourseId === '' ? null : Number(rawCourseId);
+    if (courseId !== null && !(await userCanUseCourse(req.user, courseId))) {
+      return res.status(403).json({ error: 'You cannot add modules to that course' });
     }
-    inserted = await query(
-      'INSERT INTO modules (user_id, name) VALUES ($1, $2) RETURNING id, name, created_at',
-      [req.user.id, cleanName]
-    );
-    const row = rowList(inserted)[0];
+    let moduleId;
+    if (isMySQL()) {
+      const inserted = await query('INSERT INTO modules (user_id, name, course_id) VALUES (?, ?, ?)', [req.user.id, cleanName, courseId]);
+      moduleId = inserted.insertId ?? inserted.lastID;
+    } else {
+      const inserted = await query('INSERT INTO modules (user_id, name, course_id) VALUES ($1, $2, $3) RETURNING id', [req.user.id, cleanName, courseId]);
+      moduleId = rowList(inserted)[0]?.id;
+    }
+    if (courseId !== null) await syncCourseStudentsToModule(moduleId, courseId);
+    const q = isMySQL()
+      ? await query('SELECT m.id, m.name, m.created_at, m.course_id, c.name AS course_name FROM modules m LEFT JOIN courses c ON c.id = m.course_id WHERE m.id = ? AND m.user_id = ?', [moduleId, req.user.id])
+      : await query('SELECT m.id, m.name, m.created_at, m.course_id, c.name AS course_name FROM modules m LEFT JOIN courses c ON c.id = m.course_id WHERE m.id = $1 AND m.user_id = $2', [moduleId, req.user.id]);
     invalidateHomeworkAnalyticsCacheForUser(req.user.id);
-    res.json({ success: true, module: { ...row, items: [], students: [] } });
+    res.json({ success: true, module: { ...rowList(q)[0], items: [], students: [] } });
   } catch (error) {
     console.error('Create module error:', error);
     res.status(500).json({ error: 'Failed to create module' });
@@ -2084,13 +2121,32 @@ router.post('/', requireAuth, async (req, res) => {
 router.put('/:id', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const name = String(req.body?.name || '').trim().slice(0, 255);
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid module id' });
-    if (!name) return res.status(400).json({ error: 'name is required' });
-    if (isMySQL()) {
-      await query('UPDATE modules SET name = ? WHERE id = ? AND user_id = ?', [name, id, req.user.id]);
-    } else {
-      await query('UPDATE modules SET name = $1 WHERE id = $2 AND user_id = $3', [name, id, req.user.id]);
+    const hasName = req.body?.name !== undefined;
+    const hasCourse = Object.prototype.hasOwnProperty.call(req.body || {}, 'course_id');
+    const name = String(req.body?.name || '').trim().slice(0, 255);
+    if (hasName && !name) return res.status(400).json({ error: 'name is required' });
+    if (!hasName && !hasCourse) return res.status(400).json({ error: 'name or course_id is required' });
+
+    const moduleRow = await moduleBelongsToUser(id, req.user.id);
+    if (!moduleRow) return res.status(404).json({ error: 'Module not found' });
+
+    let courseId = null;
+    if (hasCourse) {
+      const raw = req.body.course_id;
+      courseId = raw === null || raw === '' ? null : Number(raw);
+      if (courseId !== null && !(await userCanUseCourse(req.user, courseId))) {
+        return res.status(403).json({ error: 'You cannot add modules to that course' });
+      }
+    }
+    if (hasName) {
+      if (isMySQL()) await query('UPDATE modules SET name = ? WHERE id = ? AND user_id = ?', [name, id, req.user.id]);
+      else await query('UPDATE modules SET name = $1 WHERE id = $2 AND user_id = $3', [name, id, req.user.id]);
+    }
+    if (hasCourse) {
+      if (isMySQL()) await query('UPDATE modules SET course_id = ? WHERE id = ? AND user_id = ?', [courseId, id, req.user.id]);
+      else await query('UPDATE modules SET course_id = $1 WHERE id = $2 AND user_id = $3', [courseId, id, req.user.id]);
+      if (courseId !== null) await syncCourseStudentsToModule(id, courseId);
     }
     invalidateHomeworkAnalyticsCacheForUser(req.user.id);
     res.json({ success: true, message: 'Module updated' });

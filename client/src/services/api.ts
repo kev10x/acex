@@ -1010,6 +1010,8 @@ export interface LearningModule {
   id: number;
   name: string;
   created_at: string;
+  course_id?: number | null;
+  course_name?: string | null;
   items: LearningModuleItem[];
   students: LearningModuleStudent[];
 }
@@ -1720,7 +1722,7 @@ export const coursesAPI = {
     api.post<{ success: boolean; course: Course }>('/courses', data),
   list: () => api.get<{ success: boolean; courses: Course[] }>('/courses'),
   get: (courseId: number) =>
-    api.get<{ success: boolean; course: Course; staff: CourseStaffMember[]; enrollment_count: number }>(`/courses/${courseId}`),
+    api.get<{ success: boolean; course: Course; staff: CourseStaffMember[]; enrollment_count: number; modules: { id: number; name: string; item_count: number }[] }>(`/courses/${courseId}`),
   update: (courseId: number, data: Partial<Course>) => api.put<{ success: boolean; course: Course }>(`/courses/${courseId}`, data),
   remove: (courseId: number) => api.delete<{ success: boolean }>(`/courses/${courseId}`),
 
@@ -1759,8 +1761,9 @@ export const coursesAPI = {
 export const modulesAPI = {
   list: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules'),
   listAvailableStudents: () => api.get<{ success: boolean; students: { id: number; name: string; email: string }[] }>('/modules/students/available'),
-  create: (name: string) => api.post<{ success: boolean; module: LearningModule }>('/modules', { name }),
+  create: (name: string, courseId?: number | null) => api.post<{ success: boolean; module: LearningModule }>('/modules', { name, course_id: courseId ?? null }),
   update: (id: number, name: string) => api.put(`/modules/${id}`, { name }),
+  setCourse: (id: number, courseId: number | null) => api.put(`/modules/${id}`, { course_id: courseId }),
   remove: (id: number) => api.delete(`/modules/${id}`),
   addItem: (moduleId: number, itemType: 'content' | 'assessment', itemId: number, sectionIndex?: number) =>
     api.post(`/modules/${moduleId}/items`, { item_type: itemType, item_id: itemId, section_index: sectionIndex }),

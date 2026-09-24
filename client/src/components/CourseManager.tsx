@@ -14,7 +14,7 @@ import {
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
 
-type Tab = 'roster' | 'grading' | 'gradebook';
+type Tab = 'roster' | 'modules' | 'grading' | 'gradebook';
 
 const CourseManager: React.FC = () => {
   const { notifySuccess, notifyError } = useNotification();
@@ -32,6 +32,7 @@ const CourseManager: React.FC = () => {
   const [creating, setCreating] = useState(false);
 
   const [staff, setStaff] = useState<CourseStaffMember[]>([]);
+  const [courseModules, setCourseModules] = useState<{ id: number; name: string; item_count: number }[]>([]);
   const [enrollments, setEnrollments] = useState<CourseEnrollment[]>([]);
   const [enrollEmails, setEnrollEmails] = useState('');
   const [enrolling, setEnrolling] = useState(false);
@@ -91,6 +92,12 @@ const CourseManager: React.FC = () => {
       // Students only ever see the gradebook tab — roster/grade-setup
       // endpoints are staff-only and would 403 for a student anyway.
       setActiveTab('gradebook');
+      try {
+        const detail = await coursesAPI.get(course.id);
+        if (detail.data.success) setCourseModules(detail.data.modules || []);
+      } catch (_) {
+        setCourseModules([]);
+      }
       return;
     }
     setActiveTab('roster');
@@ -102,7 +109,10 @@ const CourseManager: React.FC = () => {
         coursesAPI.listGradeItems(course.id),
         assessmentsAPI.getPublished(),
       ]);
-      if (detail.data.success) setStaff(detail.data.staff);
+      if (detail.data.success) {
+        setStaff(detail.data.staff);
+        setCourseModules(detail.data.modules || []);
+      }
       if (enrollRes.data.success) setEnrollments(enrollRes.data.enrollments);
       if (catRes.data.success) setCategories(catRes.data.categories);
       if (itemRes.data.success) setItems(itemRes.data.items);
@@ -265,7 +275,7 @@ const CourseManager: React.FC = () => {
 
           {!isStudent && (
             <div className="mt-4 flex gap-2 border-b border-gray-200">
-              {(['roster', 'grading', 'gradebook'] as Tab[]).map((tab) => (
+              {(['roster', 'modules', 'grading', 'gradebook'] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -274,12 +284,37 @@ const CourseManager: React.FC = () => {
                     activeTab === tab ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  {tab === 'roster' ? 'Roster' : tab === 'grading' ? 'Grade Setup' : 'Gradebook'}
+                  {tab === 'roster' ? 'Roster' : tab === 'modules' ? 'Modules' : tab === 'grading' ? 'Grade Setup' : 'Gradebook'}
                 </button>
               ))}
             </div>
           )}
         </div>
+
+        {(activeTab === 'modules' || (isStudent && activeTab === 'gradebook')) && (
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-sm font-semibold text-gray-800 mb-3">Course modules ({courseModules.length})</h2>
+            {courseModules.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                {isStudent
+                  ? 'No modules have been shared with you in this course yet.'
+                  : 'No modules yet. Create one in Learning Modules and choose this course.'}
+              </p>
+            ) : (
+              <ol className="divide-y divide-gray-100">
+                {courseModules.map((m, idx) => (
+                  <li key={m.id} className="flex items-center justify-between py-2.5 text-sm">
+                    <span className="flex items-center gap-3 text-gray-800">
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-50 text-xs font-semibold text-primary-700">{idx + 1}</span>
+                      {m.name}
+                    </span>
+                    <span className="text-xs text-gray-500">{m.item_count} item{m.item_count === 1 ? '' : 's'}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
 
         {!isStudent && activeTab === 'roster' && (
           <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
