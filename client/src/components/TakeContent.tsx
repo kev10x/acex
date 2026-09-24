@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2, Volume2 } from 'lucide-react';
-import { contentAPI } from '../services/api';
+import { contentAPI, videoGenAPI } from '../services/api';
 import type { GeneratedContent } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { buildContextualSectionBodyHtml, ContextualBlockLayout, getSectionBodyHtml, plainTextToRichHtml } from '../utils/richText';
@@ -108,6 +108,12 @@ const TakeContent: React.FC = () => {
   const [content, setContent] = useState<GeneratedContent | null>(null);
   const [videoStatus, setVideoStatus] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  // Blob URLs for videos embedded as lesson visuals (kind: 'video') — distinct
+  // from videoStatus/videoUrl above, which track a separate Sora-based video
+  // section. Streamed via an authenticated fetch, same as VideoGenerator.tsx.
+  const [embeddedVideoBlobUrls, setEmbeddedVideoBlobUrls] = useState<Record<number, string>>({});
+  const embeddedVideoBlobUrlsRef = useRef(embeddedVideoBlobUrls);
+  embeddedVideoBlobUrlsRef.current = embeddedVideoBlobUrls;
   const [studentName, setStudentName] = useState('');
   const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
   const [currentSection, setCurrentSection] = useState(0);
@@ -344,6 +350,33 @@ const TakeContent: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [currentSection, sectionCount, step]);
+
+  useEffect(() => {
+    const ids = new Set<number>();
+    (content?.sections || []).forEach((sec: any) => {
+      (Array.isArray(sec?.visuals) ? sec.visuals : []).forEach((v: any) => {
+        if (v?.kind === 'video' && Number.isFinite(Number(v.video_generation_id))) {
+          ids.add(Number(v.video_generation_id));
+        }
+      });
+    });
+    Array.from(ids).forEach(async (id) => {
+      if (embeddedVideoBlobUrlsRef.current[id]) return;
+      try {
+        const res = await videoGenAPI.getVideoBlob(id);
+        const url = URL.createObjectURL(res.data as Blob);
+        setEmbeddedVideoBlobUrls((prev) => ({ ...prev, [id]: url }));
+      } catch (_) {
+        // leave unplayable; the slot just shows a loading state
+      }
+    });
+  }, [content]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(embeddedVideoBlobUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   useEffect(() => {
     if (!code || !studentName.trim() || step !== 'content') return;
@@ -764,6 +797,9 @@ const TakeContent: React.FC = () => {
                           visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                             .filter(({ visual }) => visual.kind !== 'illustration' && visual.image_url && !isPlaceholderVisual(visual))
                         );
+                        const embeddedVideos = visuals
+                          .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
+                          .filter(({ visual }) => visual.kind === 'video');
                         return (
                           <>
                             {illustrations.map(({ visual, figNum }) => (
@@ -780,6 +816,16 @@ const TakeContent: React.FC = () => {
                             {images.map(({ visual, figNum }) => (
                               <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-white shadow-sm">
                                 <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />
+                                {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
+                              </figure>
+                            ))}
+                            {embeddedVideos.map(({ visual, figNum }) => (
+                              <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-black shadow-sm">
+                                {embeddedVideoBlobUrls[visual.video_generation_id] ? (
+                                  <video src={embeddedVideoBlobUrls[visual.video_generation_id]} controls className="w-full max-h-72 bg-black" />
+                                ) : (
+                                  <div className="h-32 flex items-center justify-center text-white/60 text-xs">Loading video…</div>
+                                )}
                                 {visual.title && <figcaption className="px-4 py-1.5 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}><span className="font-semibold">Figure {figNum}:</span> {visual.title}</figcaption>}
                               </figure>
                             ))}
@@ -872,6 +918,9 @@ const TakeContent: React.FC = () => {
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                     .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url)
                   );
+                  const videos = visuals
+                    .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
+                    .filter(({ visual }) => visual.kind === 'video');
                   const contextualIllustrations = illustrations.filter(({ visual }) => !isPlaceholderVisual(visual));
                   const contextualImages = images.filter(({ visual }) => !isPlaceholderVisual(visual));
                   const displayIllustrations = contextualIllustrations.length ? contextualIllustrations : illustrations;
@@ -935,6 +984,18 @@ const TakeContent: React.FC = () => {
                             </figcaption>
                           </figure>
                         ))}
+                        {videos.map(({ visual, figNum }) => (
+                          <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-black shadow-sm">
+                            {embeddedVideoBlobUrls[visual.video_generation_id] ? (
+                              <video src={embeddedVideoBlobUrls[visual.video_generation_id]} controls className="w-full max-h-72 bg-black" />
+                            ) : (
+                              <div className="h-32 flex items-center justify-center text-white/60 text-xs">Loading video…</div>
+                            )}
+                            <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
+                              <span className="font-semibold">Figure {figNum}:</span> {visual.title}
+                            </figcaption>
+                          </figure>
+                        ))}
                       </>
                     );
                   }
@@ -959,6 +1020,18 @@ const TakeContent: React.FC = () => {
                       {displayImages.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.25deg]' : 'md:rotate-[0.25deg]'}`}>
                           <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain" />
+                          <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
+                            <span className="font-semibold">Figure {figNum}:</span> {visual.title}
+                          </figcaption>
+                        </figure>
+                      ))}
+                      {videos.map(({ visual, figNum }) => (
+                        <figure key={figNum} className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-black shadow-sm">
+                          {embeddedVideoBlobUrls[visual.video_generation_id] ? (
+                            <video src={embeddedVideoBlobUrls[visual.video_generation_id]} controls className="w-full max-h-72 bg-black" />
+                          ) : (
+                            <div className="h-32 flex items-center justify-center text-white/60 text-xs">Loading video…</div>
+                          )}
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs" style={{ color: content?.theme?.text_color || '#6B7280' }}>
                             <span className="font-semibold">Figure {figNum}:</span> {visual.title}
                           </figcaption>

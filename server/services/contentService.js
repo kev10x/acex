@@ -1174,9 +1174,24 @@ function shouldRefreshLegacyPrompt(visual, section, fallbackPrompt = '') {
 function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, includeImages = true } = {}) {
   const sectionTitle = String(section?.heading || section?.title || 'Section').trim() || 'Section';
   const incoming = Array.isArray(visuals) ? visuals : [];
+
+  // Embedded videos (kind: 'video', referencing a video_generations row) are
+  // a distinct visual type, not an AI-generated image/illustration — they
+  // don't go through inferVisualKind/fallback-image logic below (which would
+  // otherwise reclassify them as 'image' and silently replace them with a
+  // placeholder image, destroying the embed on the next repair-on-read pass).
+  const videoVisuals = incoming
+    .filter((v) => v && typeof v === 'object' && v.kind === 'video' && Number.isFinite(Number(v.video_generation_id)))
+    .map((v) => ({
+      kind: 'video',
+      title: String(v.title || 'Video').slice(0, 160),
+      alt_text: String(v.alt_text || '').slice(0, 260),
+      video_generation_id: Number(v.video_generation_id),
+    }));
+
   const normalized = incoming
     .filter((v) => {
-      if (!v || typeof v !== 'object') return false;
+      if (!v || typeof v !== 'object' || v.kind === 'video') return false;
       const kind = inferVisualKind(v);
       if (kind === 'illustration' && !includeDiagrams) return false;
       if (kind === 'image' && !includeImages) return false;
@@ -1211,7 +1226,10 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
   if (includeImages && !normalized.some((v) => v.kind === 'image')) {
     normalized.push(createFallbackVisual(sectionTitle, 'image', 2));
   }
-  return normalized.slice(0, 4);
+  // Videos are kept outside the 4-visual image/illustration cap — an
+  // embedded video an author deliberately dropped in shouldn't get silently
+  // clipped by that limit.
+  return [...normalized.slice(0, 4), ...videoVisuals];
 }
 
 function ensureSectionBodyText(section = {}, index = 0) {
