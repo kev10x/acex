@@ -35,7 +35,7 @@ const clip = (value, max) => String(value || '').replace(/\s+/g, ' ').trim().sli
 
 const stripHtml = (value) => String(value || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
 
-// Abstract, non-violent imagery keeps the prompt clear of content moderation
+// Friendly doodle imagery keeps the prompt clear of content moderation
 // (security topics like "weaponization" or "exploitation" otherwise get rejected).
 // The narration line matters: without it the model crams speech into 15 seconds.
 function buildSectionPrompt(content, sectionIndex) {
@@ -48,9 +48,9 @@ function buildSectionPrompt(content, sectionIndex) {
     `A polished 15-second educational explainer video about one part of the lesson "${title}"${heading ? `: ${heading}` : ''}.`,
     idea ? `Key idea: ${idea}.` : '',
     excerpt ? `Context: ${excerpt}` : '',
-    'Style: clean modern motion graphics with smooth, unhurried camera moves.',
-    'Use abstract, non-violent visuals such as glowing network nodes, data streams, padlocks, shields, dashboards and diagrams.',
-    'No people, no weapons, no realistic violence or hacking scenes, and no on-screen text, captions or logos.',
+    'Style: a hand-drawn whiteboard doodle explainer animation. Colourful marker sketches draw themselves stroke by stroke onto a clean white background, with a playful hand-sketched look, and a drawing hand or marker visible as it sketches.',
+    'Draw simple doodle illustrations and diagrams: computers, networks, clouds, padlocks, shields, magnifying glasses and friendly cartoon characters, joined by hand-drawn arrows that link the ideas in order.',
+    'Keep everything light, friendly and non-threatening: no weapons, no violence, no realistic hacking scenes, and no written words, captions or logos in the drawings.',
     'Audio: a single calm narrator speaking slowly and clearly at a relaxed, unhurried pace with natural pauses between sentences, using no more than about 30 words in total, over soft ambient music. Never rush or add extra words.',
     'Suitable for university students.',
   ].filter(Boolean).join(' ');
