@@ -1128,23 +1128,23 @@ router.get('/student', requireAuth, async (req, res) => {
   try {
     const modulesQ = isMySQL()
       ? await query(
-          `SELECT DISTINCT m.id, m.name, m.created_at
+          `SELECT DISTINCT m.id, m.name, m.created_at, m.course_id
            FROM modules m
            INNER JOIN module_students ms ON ms.module_id = m.id
            LEFT JOIN homework_module_workflows hmw ON hmw.homework_module_id = m.id
            WHERE ms.student_user_id = ?
              AND (hmw.homework_module_id IS NULL OR hmw.status = 'published')
-           ORDER BY m.created_at DESC`,
+           ORDER BY (m.course_id IS NULL) ASC, m.course_id ASC, m.created_at ASC, m.id ASC`,
           [req.user.id]
         )
       : await query(
-          `SELECT DISTINCT m.id, m.name, m.created_at
+          `SELECT DISTINCT m.id, m.name, m.created_at, m.course_id
            FROM modules m
            INNER JOIN module_students ms ON ms.module_id = m.id
            LEFT JOIN homework_module_workflows hmw ON hmw.homework_module_id = m.id
            WHERE ms.student_user_id = $1
              AND (hmw.homework_module_id IS NULL OR hmw.status = 'published')
-           ORDER BY m.created_at DESC`,
+           ORDER BY (m.course_id IS NULL) ASC, m.course_id ASC, m.created_at ASC, m.id ASC`,
           [req.user.id]
         );
     const modules = rowList(modulesQ);
