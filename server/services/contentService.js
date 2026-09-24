@@ -157,10 +157,18 @@ async function generateImageForVisual(prompt, options = {}) {
           response_format: 'b64_json',
         });
     const b64 = response.data?.[0]?.b64_json;
-    if (!b64) return null;
+    if (!b64) {
+      if (options.throwOnError) throw new Error(`${provider} returned a response with no image data.`);
+      return null;
+    }
     return `data:image/png;base64,${b64}`;
   } catch (err) {
     console.warn(`Image generation failed via ${provider} (non-fatal):`, err?.message || err);
+    // Explicit user-triggered regeneration wants the real provider error
+    // (moderation rejection, bad param, quota) rather than a generic null.
+    if (options.throwOnError) {
+      throw new Error(`Image generation failed via ${provider}: ${err?.message || err}`);
+    }
     return null;
   }
 }
@@ -178,6 +186,7 @@ async function regenerateVisualWithGrok({ visual, contentTitle = '', sectionHead
   });
   const imageUrl = await generateImageForVisual(regenerationPrompt, {
     provider: 'xai',
+    throwOnError: true,
     visualKind: kind,
     title: currentVisual.title || '',
     sectionHeading,
@@ -258,6 +267,7 @@ async function regenerateMascotWithGrok({ mascot, contentTitle = '', sectionHead
   const prompt = buildMascotPromptFromContext(currentMascot, sectionContext);
   const imageUrl = await generateImageForVisual(prompt, {
     provider: 'xai',
+    throwOnError: true,
     visualKind: 'mascot',
     title: currentMascot.title || '',
     sectionHeading,
