@@ -629,6 +629,22 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS lesson_summary_videos (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          published_content_id INT NOT NULL,
+          video_generation_id INT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          applied_at TIMESTAMP NULL,
+          UNIQUE KEY uniq_lesson_summary_content (published_content_id),
+          KEY idx_lesson_summary_status (status),
+          FOREIGN KEY (published_content_id) REFERENCES published_content(id) ON DELETE CASCADE,
+          FOREIGN KEY (video_generation_id) REFERENCES video_generations(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
           id INT AUTO_INCREMENT PRIMARY KEY,
           published_content_id INT NOT NULL,
@@ -2228,6 +2244,18 @@ const initDatabase = async () => {
       `);
       await query(`
         CREATE INDEX IF NOT EXISTS idx_video_generations_user_created ON video_generations(user_id, created_at)
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS lesson_summary_videos (
+          id SERIAL PRIMARY KEY,
+          published_content_id INTEGER NOT NULL UNIQUE REFERENCES published_content(id) ON DELETE CASCADE,
+          video_generation_id INTEGER NULL REFERENCES video_generations(id) ON DELETE SET NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          applied_at TIMESTAMP NULL
+        )
       `);
       await query(`
         CREATE TABLE IF NOT EXISTS content_progress (

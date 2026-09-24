@@ -1221,6 +1221,7 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
     .filter((v) => v && typeof v === 'object' && v.kind === 'video' && Number.isFinite(Number(v.video_generation_id)))
     .map((v) => ({
       kind: 'video',
+      ...(v.summary ? { summary: true } : {}),
       title: String(v.title || 'Video').slice(0, 160),
       alt_text: String(v.alt_text || '').slice(0, 260),
       video_generation_id: Number(v.video_generation_id),
@@ -1256,17 +1257,20 @@ function normalizeSectionVisuals(section, visuals, { includeDiagrams = true, inc
       };
     });
 
-  // Only add fallbacks for types that are enabled and not already present
-  if (includeDiagrams && !normalized.some((v) => v.kind === 'illustration')) {
+  // Only add fallbacks for types that are enabled and not already present. A
+  // section whose opening images were deliberately replaced by the lesson
+  // summary video must not have placeholder images re-added.
+  const hasSummaryVideo = videoVisuals.some((v) => v.summary);
+  if (!hasSummaryVideo && includeDiagrams && !normalized.some((v) => v.kind === 'illustration')) {
     normalized.unshift(createFallbackVisual(sectionTitle, 'illustration', 1));
   }
-  if (includeImages && !normalized.some((v) => v.kind === 'image')) {
+  if (!hasSummaryVideo && includeImages && !normalized.some((v) => v.kind === 'image')) {
     normalized.push(createFallbackVisual(sectionTitle, 'image', 2));
   }
   // Videos are kept outside the 4-visual image/illustration cap — an
   // embedded video an author deliberately dropped in shouldn't get silently
   // clipped by that limit.
-  return [...normalized.slice(0, 4), ...videoVisuals];
+  return [...videoVisuals.filter((v) => v.summary), ...normalized.slice(0, 4), ...videoVisuals.filter((v) => !v.summary)];
 }
 
 function ensureSectionBodyText(section = {}, index = 0) {

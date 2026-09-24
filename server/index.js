@@ -129,6 +129,7 @@ const startServer = async () => {
     startGenerationJobWorkerPolling();
     startVideoProcessingPolling();
     scheduleFailedResponseCleanup();
+    require('./services/lessonSummaryVideoService').startWorker();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

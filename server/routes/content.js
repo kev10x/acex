@@ -13,6 +13,7 @@ const pdfParse = require('pdf-parse');
 const yauzl = require('yauzl');
 const { query } = require('../database/connection');
 const { requireAuth, requireFeature } = require('../middleware/auth');
+const lessonSummaryVideoService = require('../services/lessonSummaryVideoService');
 const contentService = require('../services/contentService');
 const aiService = require('../services/aiService');
 const feedbackVideoService = require('../services/feedbackVideoService');
@@ -1313,6 +1314,49 @@ router.get('/templates', requireAuth, requireFeature('content_creation'), async 
 /**
  * Publish content (store and get student link). Body: content, rubric_id?; optional: include_video (start Sora job).
  */
+/**
+ * Queue a summary video for every published lesson the caller owns that does not
+ * have one yet (management can pass all=true for every lesson). Videos arrive over
+ * the following minutes via the background worker. Body: { retry_failed?, all? }
+ */
+router.post('/summary-videos/backfill', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const includeAll = req.body?.all === true && String(req.user.role || '').toLowerCase() === 'management';
+    const retryFailed = req.body?.retry_failed === true;
+    const q = includeAll
+      ? await query('SELECT id FROM published_content ORDER BY id ASC')
+      : (isMySQL()
+          ? await query('SELECT id FROM published_content WHERE user_id = ? ORDER BY id ASC', [req.user.id])
+          : await query('SELECT id FROM published_content WHERE user_id = $1 ORDER BY id ASC', [req.user.id]));
+    const results = { queued: 0, skipped: 0, errors: [] };
+    for (const row of rowList(q)) {
+      try {
+        const r = await lessonSummaryVideoService.queueSummaryVideo(row.id, { retryFailed });
+        if (r.queued) results.queued += 1; else results.skipped += 1;
+      } catch (err) {
+        results.errors.push({ content_id: row.id, error: err.message });
+      }
+    }
+    res.json({ success: true, ...results });
+  } catch (error) {
+    console.error('Summary video backfill error:', error);
+    res.status(500).json({ error: 'Failed to queue summary videos' });
+  }
+});
+
+/** Status of the caller's lesson summary videos. */
+router.get('/summary-videos', requireAuth, async (req, res) => {
+  try {
+    const q = isMySQL()
+      ? await query('SELECT s.id, s.published_content_id, s.video_generation_id, s.status, s.error_message, c.title FROM lesson_summary_videos s JOIN published_content c ON c.id = s.published_content_id WHERE c.user_id = ? ORDER BY s.id ASC', [req.user.id])
+      : await query('SELECT s.id, s.published_content_id, s.video_generation_id, s.status, s.error_message, c.title FROM lesson_summary_videos s JOIN published_content c ON c.id = s.published_content_id WHERE c.user_id = $1 ORDER BY s.id ASC', [req.user.id]);
+    res.json({ success: true, items: rowList(q) });
+  } catch (error) {
+    console.error('Summary video status error:', error);
+    res.status(500).json({ error: 'Failed to load summary video status' });
+  }
+});
+
 router.post('/publish', requireAuth, requireFeature('content_creation'), async (req, res) => {
   try {
     const { content, rubric_id, include_video, module_id, module_name } = req.body;
@@ -1343,6 +1387,11 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
     }
     if (!code) return res.status(500).json({ error: 'Could not generate unique code' });
 
+    const idRow = rowList(isMySQL()
+      ? await query('SELECT id FROM published_content WHERE code = ?', [code])
+      : await query('SELECT id FROM published_content WHERE code = $1', [code]))[0];
+    const contentIdForSummary = idRow?.id || null;
+
     let moduleTargetId = null;
     if (module_name && String(module_name).trim()) {
       moduleTargetId = await getOrCreateModuleId(req.user.id, module_name);
@@ -1363,6 +1412,13 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
       if (contentId) {
         await addItemToModule(moduleTargetId, req.user.id, 'content', contentId, normalizedContent.title, code);
       }
+    }
+
+    // Every lesson gets a ~15s AI summary video (arrives later, via the background worker).
+    if (contentIdForSummary) {
+      lessonSummaryVideoService.queueSummaryVideo(contentIdForSummary).catch((err) => {
+        console.warn('Could not queue lesson summary video:', err.message);
+      });
     }
 
     let videoJobId = null;

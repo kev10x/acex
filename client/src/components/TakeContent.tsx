@@ -18,6 +18,18 @@ const buildSectionBackgroundStyle = (backgroundUrl?: string) => {
     backgroundRepeat: 'no-repeat',
   } as React.CSSProperties;
 };
+function SummaryVideoHero({ src }: { src?: string }) {
+  return (
+    <div className="mb-4 overflow-hidden rounded-2xl border border-gray-200 bg-black shadow-md">
+      {src ? (
+        <video src={src} controls playsInline className="aspect-video w-full bg-black" />
+      ) : (
+        <div className="flex aspect-video items-center justify-center text-sm text-white/60">Loading summary video…</div>
+      )}
+      <div className="bg-gray-900 px-4 py-2 text-xs font-medium text-white/80">Lesson summary · 15 seconds</div>
+    </div>
+  );
+}
 const toSecureSrc = (value?: string) => {
   const raw = String(value || '').trim();
   if (!raw || typeof window === 'undefined') return raw;
@@ -800,11 +812,13 @@ const TakeContent: React.FC = () => {
                           visuals.map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                             .filter(({ visual }) => visual.kind !== 'illustration' && visual.image_url && !isPlaceholderVisual(visual))
                         );
+                        const summaryVideo = visuals.find((v) => v.kind === 'video' && v.summary);
                         const embeddedVideos = visuals
                           .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
-                          .filter(({ visual }) => visual.kind === 'video');
+                          .filter(({ visual }) => visual.kind === 'video' && !visual.summary);
                         return (
                           <>
+                            {summaryVideo && <SummaryVideoHero src={embeddedVideoBlobUrls[summaryVideo.video_generation_id]} />}
                             {illustrations.map(({ visual, figNum }) => (
                               <figure key={figNum} className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50 shadow-sm">
                                 {visual.image_url && <img src={toSecureSrc(visual.image_url)} onError={handleImageFallback} alt={visual.alt_text || visual.title || `Figure ${figNum}`} className="w-full object-contain max-h-56" />}
@@ -921,9 +935,10 @@ const TakeContent: React.FC = () => {
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
                     .filter(({ visual }) => visual.kind !== 'illustration' && visual?.image_url)
                   );
+                  const summaryVideo = visuals.find((v) => v.kind === 'video' && v.summary);
                   const videos = visuals
                     .map((v, i) => ({ visual: v, figNum: figOffset + i + 1 }))
-                    .filter(({ visual }) => visual.kind === 'video');
+                    .filter(({ visual }) => visual.kind === 'video' && !visual.summary);
                   const contextualIllustrations = illustrations.filter(({ visual }) => !isPlaceholderVisual(visual));
                   const contextualImages = images.filter(({ visual }) => !isPlaceholderVisual(visual));
                   const displayIllustrations = contextualIllustrations.length ? contextualIllustrations : illustrations;
@@ -936,6 +951,7 @@ const TakeContent: React.FC = () => {
                     const extraFigures = [...displayIllustrations, ...displayImages].filter((fig) => fig.figNum !== mainFigure?.figNum && fig.visual?.extra_figure === true);
                     return (
                       <>
+                        {summaryVideo && <SummaryVideoHero src={embeddedVideoBlobUrls[summaryVideo.video_generation_id]} />}
                         <div className="space-y-3">
                             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
                               <div className="border border-slate-200 rounded-lg bg-transparent p-2">
@@ -1005,6 +1021,7 @@ const TakeContent: React.FC = () => {
 
                   return (
                     <>
+                      {summaryVideo && <SummaryVideoHero src={embeddedVideoBlobUrls[summaryVideo.video_generation_id]} />}
                       {displayIllustrations.map(({ visual, figNum }) => (
                         <figure key={figNum} className={`my-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm ${figNum % 2 === 0 ? 'md:-rotate-[0.35deg]' : 'md:rotate-[0.35deg]'}`}>
                           {visual.image_url ? (

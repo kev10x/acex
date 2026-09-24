@@ -12,19 +12,15 @@ const path = require('path');
 const { query } = require('../database/connection');
 const { requireAuth, requireFeature } = require('../middleware/auth');
 const grokVideoService = require('../services/grokVideoService');
+const { getJobRowById, refreshJobIfProcessing } = require('../services/videoJobService');
 const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const rowList = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 
-const VIDEO_GEN_DIR = path.join(__dirname, '..', 'uploads', 'video-gen');
 const PROJECTED_COST_USD = Number.parseFloat(process.env.VIDEO_GEN_PROJECTED_COST_USD || '0.5') || 0.5;
 const HISTORY_LIMIT_MAX = 100;
-
-try {
-  fs.mkdirSync(VIDEO_GEN_DIR, { recursive: true });
-} catch (_) {}
 
 function toPublicJob(row) {
   return {
@@ -47,13 +43,6 @@ async function getOwnedJobRow(jobId, userId) {
   const q = isMySQL()
     ? await query('SELECT * FROM video_generations WHERE id = ? AND user_id = ?', [jobId, userId])
     : await query('SELECT * FROM video_generations WHERE id = $1 AND user_id = $2', [jobId, userId]);
-  return rowList(q)[0] || null;
-}
-
-async function getJobRowById(jobId) {
-  const q = isMySQL()
-    ? await query('SELECT * FROM video_generations WHERE id = ?', [jobId])
-    : await query('SELECT * FROM video_generations WHERE id = $1', [jobId]);
   return rowList(q)[0] || null;
 }
 
@@ -81,59 +70,6 @@ async function isVideoEmbeddedInPublishedContent(jobId) {
     } catch (_) { /* malformed content_json — skip */ }
   }
   return false;
-}
-
-/**
- * If a job is still processing, check xAI now and, if done, download and
- * persist the video. Called lazily from GET /jobs/:id and GET /jobs — the
- * client polls those endpoints, so no background timer is needed (same
- * lazy-poll pattern the existing Sora content-video flow in content.js uses).
- */
-async function refreshJobIfProcessing(row) {
-  if (row.status !== 'processing' || !row.xai_request_id) return row;
-
-  let statusResult;
-  try {
-    statusResult = await grokVideoService.getVideoStatus(row.xai_request_id);
-  } catch (error) {
-    console.warn(`Video gen status check failed for job ${row.id}:`, error.message);
-    return row;
-  }
-
-  if (statusResult.status === 'processing') {
-    return row;
-  }
-
-  if (statusResult.status === 'failed') {
-    const errorMessage = String(statusResult.error || 'Video generation failed').slice(0, 2000);
-    if (isMySQL()) {
-      await query('UPDATE video_generations SET status = ?, error_message = ? WHERE id = ?', ['failed', errorMessage, row.id]);
-    } else {
-      await query('UPDATE video_generations SET status = $1, error_message = $2 WHERE id = $3', ['failed', errorMessage, row.id]);
-    }
-    return { ...row, status: 'failed', error_message: errorMessage };
-  }
-
-  // completed
-  try {
-    const buffer = await grokVideoService.downloadVideo(statusResult.videoUrl);
-    const filePath = path.join(VIDEO_GEN_DIR, `${row.id}.mp4`);
-    await fsPromises.writeFile(filePath, buffer);
-    if (isMySQL()) {
-      await query('UPDATE video_generations SET status = ?, file_path = ? WHERE id = ?', ['completed', filePath, row.id]);
-    } else {
-      await query('UPDATE video_generations SET status = $1, file_path = $2 WHERE id = $3', ['completed', filePath, row.id]);
-    }
-    return { ...row, status: 'completed', file_path: filePath };
-  } catch (error) {
-    const errorMessage = `Failed to download generated video: ${error.message}`.slice(0, 2000);
-    if (isMySQL()) {
-      await query('UPDATE video_generations SET status = ?, error_message = ? WHERE id = ?', ['failed', errorMessage, row.id]);
-    } else {
-      await query('UPDATE video_generations SET status = $1, error_message = $2 WHERE id = $3', ['failed', errorMessage, row.id]);
-    }
-    return { ...row, status: 'failed', error_message: errorMessage };
-  }
 }
 
 function streamMp4WithRange(req, res, filePath) {
