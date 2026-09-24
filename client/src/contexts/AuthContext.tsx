@@ -26,6 +26,7 @@ interface User {
   department_id?: number | null;
   role?: string;
   is_approved?: boolean;
+  is_super_admin?: boolean;
   features?: UserFeatures;
   impersonation?: {
     active: boolean;

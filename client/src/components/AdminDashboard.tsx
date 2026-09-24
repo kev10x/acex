@@ -364,6 +364,19 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleReassignOrganisation = async (userId: number, organisationId: number | null) => {
+    if (!token) return;
+    setActionLoading(userId);
+    try {
+      await authAPI.updateUserOrganisation(token, userId, organisationId);
+      await loadUsers();
+    } catch (err: any) {
+      notifyError(getActionErrorMessage(err, 'Failed to update organisation'));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleCreateOrganisation = async () => {
     if (!token) return;
     const name = newOrganisationName.trim();
@@ -574,7 +587,7 @@ const AdminDashboard: React.FC = () => {
     );
   }
 
-  const isSuperAdmin = user.email?.toLowerCase() === 'kkativu@gmail.com';
+  const isSuperAdmin = user.is_super_admin === true;
   const defaultDepartmentOrgId =
     newDepartmentOrganisationId === ''
       ? (isSuperAdmin ? null : user.organisation_id ?? null)
@@ -1903,6 +1916,9 @@ const AdminDashboard: React.FC = () => {
                       Registered
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Organisation
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1931,6 +1947,36 @@ const AdminDashboard: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(pendingUser.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {!pendingUser.organisation_name ? (
+                          <span className="text-sm text-gray-400">Individual account</span>
+                        ) : pendingUser.organisation_id ? (
+                          <div>
+                            <div className="text-sm text-gray-800">{pendingUser.organisation_name}</div>
+                            <span className="text-xs text-emerald-600">Existing organisation</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="text-sm text-gray-800">{pendingUser.organisation_name}</div>
+                            <span className="text-xs text-amber-600">New — created on approval</span>
+                            {isSuperAdmin && organisations.length > 0 && (
+                              <select
+                                className="mt-1 block w-full text-xs border border-gray-300 rounded px-1 py-0.5"
+                                disabled={actionLoading === pendingUser.id}
+                                value=""
+                                onChange={(e) => {
+                                  if (e.target.value) handleReassignOrganisation(pendingUser.id, Number(e.target.value));
+                                }}
+                              >
+                                <option value="">Link to existing instead…</option>
+                                {organisations.map((org) => (
+                                  <option key={org.id} value={org.id}>{org.name}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
