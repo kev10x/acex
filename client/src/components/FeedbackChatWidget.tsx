@@ -121,14 +121,14 @@ const FeedbackChatWidget: React.FC<Props> = ({ selectedResult }) => {
                 }
               }}
               placeholder="Ask about this feedback…"
-              className="flex-1 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="flex-1 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               disabled={chatLoading}
               maxLength={500}
             />
             <button
               onClick={sendChatMessage}
               disabled={!chatInput.trim() || chatLoading}
-              className="inline-flex items-center px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="inline-flex items-center px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
               aria-label="Send message"
             >
               <Send className="w-4 h-4" />

@@ -34,7 +34,7 @@ class ErrorBoundary extends Component<Props, State> {
       if (this.props.fallback) return this.props.fallback;
 
       return (
-        <div className="flex min-h-[300px] flex-col items-center justify-center rounded-xl border border-red-100 bg-red-50 p-8 text-center">
+        <div className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-red-100 bg-red-50/70 p-8 text-center">
           <AlertTriangle className="h-10 w-10 text-red-400" />
           <h2 className="mt-4 text-lg font-semibold text-red-800">Something went wrong</h2>
           <p className="mt-2 max-w-md text-sm text-red-600">
@@ -42,7 +42,7 @@ class ErrorBoundary extends Component<Props, State> {
           </p>
           <button
             onClick={this.handleReset}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-700"
           >
             <RefreshCw className="h-4 w-4" />
             Try again

@@ -1,3 +1,4 @@
+import { PublicBrand } from './BrandMark';
 import React, { useEffect, useRef, useState } from 'react';
 import { Award, Clock3, FileQuestion, Loader2, Send, Volume2 } from 'lucide-react';
 import { assessmentsAPI } from '../services/api';
@@ -325,7 +326,7 @@ const TakeAssessment: React.FC = () => {
   if (step === 'result' && submissionStatus?.result) {
     const result = submissionStatus.result;
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-6">
           <div className="flex items-center gap-3 text-green-600 mb-4">
             <Award className="w-8 h-8" />
@@ -376,7 +377,7 @@ const TakeAssessment: React.FC = () => {
     const isProcessing = submissionStatus?.status === 'processing';
 
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-6">
           <div className={`flex items-center gap-3 mb-4 ${isFailed ? 'text-red-600' : 'text-violet-600'}`}>
             {isFailed ? <FileQuestion className="w-8 h-8" /> : <Clock3 className="w-8 h-8" />}
@@ -430,7 +431,7 @@ const TakeAssessment: React.FC = () => {
 
   if (step === 'code' || (step === 'form' && !assessment)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6">
           <div className="flex items-center gap-3 mb-6">
             <FileQuestion className="w-8 h-8 text-violet-600" />
@@ -445,13 +446,13 @@ const TakeAssessment: React.FC = () => {
               value={codeInput}
               onChange={(e) => setCodeInput(e.target.value)}
               placeholder="e.g. Ab12Cd34"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               autoFocus
             />
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
               Continue
@@ -483,8 +484,9 @@ const TakeAssessment: React.FC = () => {
   }, 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-app py-8 px-4">
       <div className="max-w-3xl mx-auto">
+        <PublicBrand className="mb-6" />
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-2 break-words">{assessment.title}</h1>
           {assessment.topic && (
@@ -519,7 +521,7 @@ const TakeAssessment: React.FC = () => {
               value={studentName}
               onChange={(e) => setStudentName(e.target.value)}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               placeholder="Enter your full name"
             />
           </div>
@@ -568,7 +570,7 @@ const TakeAssessment: React.FC = () => {
                   <select
                     value={questionAudioVoice}
                     onChange={(e) => setQuestionAudioVoice(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 bg-white shadow-sm"
                   >
                     <option value="eve">Eve</option>
                     <option value="ara">Ara</option>
@@ -579,7 +581,7 @@ const TakeAssessment: React.FC = () => {
                   <select
                     value={questionAudioLanguage}
                     onChange={(e) => setQuestionAudioLanguage(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 bg-white shadow-sm"
                   >
                     {AUDIO_LANGUAGE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
@@ -613,7 +615,7 @@ const TakeAssessment: React.FC = () => {
                             value={letter}
                             checked={value === letter || value === String(optionIndex + 1)}
                             onChange={() => setAnswer(qNum, letter)}
-                            className="mt-1 text-violet-600 border-gray-300 focus:ring-violet-500"
+                            className="mt-1 text-violet-600 border-gray-300 focus:ring-primary-500"
                           />
                           <span className="inline-flex w-7 shrink-0 justify-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
                             {letter}
@@ -726,7 +728,7 @@ const TakeAssessment: React.FC = () => {
                     value={value}
                     onChange={(e) => setAnswer(qNum, e.target.value)}
                     rows={5}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                     placeholder="Type your answer here..."
                   />
                 )}
@@ -736,7 +738,7 @@ const TakeAssessment: React.FC = () => {
                     type="text"
                     value={value}
                     onChange={(e) => setAnswer(qNum, e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                     placeholder="Your answer"
                   />
                 )}
@@ -763,7 +765,7 @@ const TakeAssessment: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setCurrentQuestionIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
-                className="flex-1 py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
+                className="flex-1 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700"
               >
                 Next question
               </button>
@@ -771,7 +773,7 @@ const TakeAssessment: React.FC = () => {
               <button
                 type="submit"
                 disabled={step === 'submitting'}
-                className="flex-1 py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {step === 'submitting' ? (
                   <>

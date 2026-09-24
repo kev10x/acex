@@ -308,7 +308,7 @@ const MoodleIntegration: React.FC = () => {
                   value={connectForm.moodle_url}
                   onChange={(e) => setConnectForm((f) => ({ ...f, moodle_url: e.target.value }))}
                   placeholder="https://moodle.yourschool.edu"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                 />
               </div>
               <div>
@@ -318,7 +318,7 @@ const MoodleIntegration: React.FC = () => {
                   onChange={(e) => setConnectForm((f) => ({ ...f, moodle_token: e.target.value }))}
                   type="password"
                   placeholder="32-character token"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                 />
               </div>
             </div>
@@ -380,7 +380,7 @@ const MoodleIntegration: React.FC = () => {
                     type="button"
                     onClick={loadCourses}
                     disabled={loadingCourses}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 bg-white shadow-sm"
                   >
                     {loadingCourses ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                     {courses.length === 0 ? 'Load Courses' : 'Refresh'}
@@ -508,7 +508,7 @@ const MoodleIntegration: React.FC = () => {
                     <select
                       value={syncCourse}
                       onChange={(e) => e.target.value ? loadSyncCourse(Number(e.target.value)) : setSyncCourse('')}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                     >
                       <option value="">— Select course —</option>
                       {courses.map((c) => <option key={c.id} value={c.id}>{c.fullname}</option>)}
@@ -531,7 +531,7 @@ const MoodleIntegration: React.FC = () => {
                         setGradeRows([]);
                       }}
                       disabled={!syncCourse || loadingSync}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:opacity-50 bg-white shadow-sm"
                     >
                       <option value="">— Select assignment —</option>
                       {syncAssignments.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -551,13 +551,13 @@ const MoodleIntegration: React.FC = () => {
                       onChange={(e) => { setGradesCsv(e.target.value); setGradeRows([]); setPushResult(null); }}
                       rows={6}
                       placeholder={`# One student per line\nJohn Smith, 78, Great effort!\nJane Doe, 92, Excellent work.\nAlex Johnson, 55`}
-                      className="w-full px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y"
+                      className="w-full px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 resize-y bg-white shadow-sm"
                     />
                     <button
                       type="button"
                       onClick={parseAndMatchGrades}
                       disabled={!gradesCsv.trim()}
-                      className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 bg-white shadow-sm"
                     >
                       <RefreshCw className="w-4 h-4" />
                       Match Students
@@ -654,7 +654,7 @@ const MoodleIntegration: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 bg-white shadow-sm"
                   >
                     <Upload className="w-4 h-4" />
                     Upload XML file
@@ -668,7 +668,7 @@ const MoodleIntegration: React.FC = () => {
                   onChange={(e) => { setXmlInput(e.target.value); setImportResult(null); }}
                   rows={10}
                   placeholder={`<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n  <question type="multichoice">\n    ...\n  </question>\n</quiz>`}
-                  className="w-full px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y"
+                  className="w-full px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 resize-y bg-white shadow-sm"
                 />
 
                 {importResult && (

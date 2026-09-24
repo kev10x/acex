@@ -445,7 +445,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               onChange={(e) => handleTemplateFileChange(e.target.files?.[0] || null)}
               disabled={isAnalyzingTemplate} />
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzingTemplate}
-              className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed shadow-sm">
               {isAnalyzingTemplate ? <><Loader className="w-4 h-4 animate-spin" /> Analyzing…</> : <><Upload className="w-4 h-4" /> Upload .pptx Template</>}
             </button>
             {templateFile && (
@@ -464,7 +464,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               type="checkbox"
               checked={generateImages}
               onChange={(e) => setGenerateImages(e.target.checked)}
-              className="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-400"
+              className="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-primary-500"
             />
             <div>
               <span className="text-xs font-medium text-gray-800 group-hover:text-gray-900">
@@ -493,27 +493,27 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               </label>
               <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
                 placeholder="e.g., Climate Change, Photosynthesis, World War II"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
             </div>
 
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-gray-700">Teaching Goal (optional)</label>
               <textarea value={teachingGoal} onChange={(e) => setTeachingGoal(e.target.value)}
                 placeholder="What do students need to understand or be able to do?" rows={2}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Subject (optional)</label>
               <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
                 placeholder="e.g., Biology, History"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Education Level</label>
               <select value={level} onChange={(e) => setLevel(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400">
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm">
                 {EDUCATION_LEVEL_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
@@ -524,7 +524,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               <label className="mb-1 block text-xs font-medium text-gray-700">Number of Slides</label>
               <input type="number" min={1} max={20} value={numSlides}
                 onChange={(e) => setNumSlides(Math.max(1, Math.min(20, parseInt(e.target.value) || 8)))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
             </div>
 
             {/* Detail level */}
@@ -564,12 +564,12 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
               <label className="mb-1 block text-xs font-medium text-gray-700">Subject (optional)</label>
               <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
                 placeholder="e.g., Biology, History"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white" />
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Education Level</label>
               <select value={level} onChange={(e) => setLevel(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white">
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm">
                 {EDUCATION_LEVEL_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
@@ -601,11 +601,11 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
                 <div className="flex-1 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_80px_auto]">
                   <input type="text" value={unit.title} onChange={(e) => updateUnit(i, { title: e.target.value })}
                     placeholder={`Unit ${i + 1} heading`}
-                    className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                    className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
                   <div className="flex items-center gap-1.5">
                     <input type="number" min={1} max={20} value={unit.slideCount}
                       onChange={(e) => updateUnit(i, { slideCount: Math.max(1, Math.min(20, parseInt(e.target.value) || 8)) })}
-                      className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 text-center" />
+                      className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 text-center" />
                     <span className="text-xs text-gray-500 whitespace-nowrap">slides</span>
                   </div>
                   <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer whitespace-nowrap">
@@ -634,7 +634,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
             </label>
             <input type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)}
               min={new Date().toISOString().slice(0, 16)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white" />
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm" />
             {scheduledFor && (
               <p className="mt-1 text-xs text-indigo-700">Batch will be processed with Anthropic at the scheduled time.</p>
             )}
@@ -747,7 +747,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
             <div className="flex flex-col h-full justify-between">
               <div>
                 <div className="text-xs text-gray-400 mb-2">Slide {previewIndex + 1} • {currentSlide.slideType}</div>
-                <h3 className="text-3xl font-bold text-gray-900 mb-6">{currentSlide.title}</h3>
+                <h3 className="text-2xl font-bold text-gray-900 mb-6">{currentSlide.title}</h3>
                 <ul className="space-y-3">
                   {currentSlide.bullets.map((bullet, i) => (
                     <li key={i} className="flex items-start gap-3 text-base text-gray-700">
@@ -765,7 +765,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
             <button
               onClick={() => setPreviewIndex(Math.max(0, previewIndex - 1))}
               disabled={previewIndex === 0}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed bg-white shadow-sm"
             >
               ← Previous
             </button>
@@ -777,7 +777,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
             <button
               onClick={() => setPreviewIndex(Math.min(generatedSlides.length - 1, previewIndex + 1))}
               disabled={previewIndex === generatedSlides.length - 1}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed bg-white shadow-sm"
             >
               Next →
             </button>

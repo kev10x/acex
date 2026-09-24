@@ -327,11 +327,11 @@ const PracticalGenerator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+    <div className="w-full">
+      <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <div className="flex items-center gap-3 mb-4">
           <Beaker className="w-8 h-8 text-indigo-600" />
-          <h1 className="text-3xl font-bold text-gray-800">Practical Generator</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Practical Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
           Generate editable practical guides or assessments, including computer-based IT workflows and code examples.
@@ -351,7 +351,7 @@ const PracticalGenerator: React.FC = () => {
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="e.g. Building a secure REST API with Node.js"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
           </div>
 
@@ -361,7 +361,7 @@ const PracticalGenerator: React.FC = () => {
               <select
                 value={level}
                 onChange={(e) => setLevel(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 {EDUCATION_LEVEL_OPTIONS.map((option) => (
                   <option key={option.value || 'any'} value={option.value}>{option.label}</option>
@@ -373,7 +373,7 @@ const PracticalGenerator: React.FC = () => {
               <select
                 value={practicalType}
                 onChange={(e) => setPracticalType(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 {PRACTICAL_TYPES.map((type) => (
                   <option key={type} value={type}>{type}</option>
@@ -388,7 +388,7 @@ const PracticalGenerator: React.FC = () => {
                 max={240}
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Math.max(20, Math.min(240, Number.parseInt(e.target.value, 10) || 60)))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
           </div>
@@ -399,7 +399,7 @@ const PracticalGenerator: React.FC = () => {
               <select
                 value={mode}
                 onChange={(e) => setMode(e.target.value as 'guide' | 'assessment')}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 <option value="guide">Guide</option>
                 <option value="assessment">Assessment</option>
@@ -410,7 +410,7 @@ const PracticalGenerator: React.FC = () => {
               <select
                 value={deliveryMode}
                 onChange={(e) => setDeliveryMode(e.target.value as 'computer_based' | 'hands_on')}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 <option value="computer_based">Computer-based (IT)</option>
                 <option value="hands_on">Hands-on</option>
@@ -422,7 +422,7 @@ const PracticalGenerator: React.FC = () => {
                 value={programmingLanguage}
                 onChange={(e) => setProgrammingLanguage(e.target.value)}
                 placeholder="e.g. Python, JavaScript, Java"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
           </div>
@@ -435,7 +435,7 @@ const PracticalGenerator: React.FC = () => {
                 value={platformTools}
                 onChange={(e) => setPlatformTools(e.target.value)}
                 placeholder="One per line or comma-separated, e.g. VS Code, GitHub Classroom, Docker"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
             <div className="space-y-3 mt-1">
@@ -468,7 +468,7 @@ const PracticalGenerator: React.FC = () => {
                 value={learningObjectives}
                 onChange={(e) => setLearningObjectives(e.target.value)}
                 placeholder="One per line or comma-separated"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
             <div>
@@ -478,7 +478,7 @@ const PracticalGenerator: React.FC = () => {
                 value={materials}
                 onChange={(e) => setMaterials(e.target.value)}
                 placeholder="One per line or comma-separated"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
             <div>
@@ -488,7 +488,7 @@ const PracticalGenerator: React.FC = () => {
                 value={safetyFocus}
                 onChange={(e) => setSafetyFocus(e.target.value)}
                 placeholder="One per line or comma-separated"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
           </div>
@@ -506,14 +506,14 @@ const PracticalGenerator: React.FC = () => {
       </div>
 
       {editablePractical && (
-        <div className="bg-white rounded-lg shadow-lg p-6">
+        <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <label className="block text-xs font-semibold uppercase text-gray-500 mb-1">Title</label>
               <input
                 value={editablePractical.title}
                 onChange={(e) => updatePractical((current) => ({ ...current, title: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg font-semibold"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-lg font-semibold bg-white shadow-sm"
               />
               <p className="text-sm text-gray-500 mt-2">
                 {editablePractical.practical_type} | {editablePractical.mode} | {(editablePractical.delivery_mode || 'computer_based').replace('_', ' ')} | {editablePractical.estimated_duration_minutes} minutes
@@ -539,7 +539,7 @@ const PracticalGenerator: React.FC = () => {
               <button
                 type="button"
                 onClick={handleDownload}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+                className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
               >
                 <Download className="w-4 h-4 mr-2" />
                 Download
@@ -555,7 +555,7 @@ const PracticalGenerator: React.FC = () => {
                 rows={5}
                 value={editablePractical.overview}
                 onChange={(e) => updatePractical((current) => ({ ...current, overview: e.target.value }))}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
               />
             </div>
 
@@ -566,7 +566,7 @@ const PracticalGenerator: React.FC = () => {
                   rows={6}
                   value={toLineBlock(editablePractical.learning_objectives)}
                   onChange={(e) => updateStringArrayField('learning_objectives', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
                 />
               </div>
               <div>
@@ -575,7 +575,7 @@ const PracticalGenerator: React.FC = () => {
                   rows={6}
                   value={toLineBlock(editablePractical.digital_environment || [])}
                   onChange={(e) => updateStringArrayField('digital_environment', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
                 />
               </div>
             </div>
@@ -587,7 +587,7 @@ const PracticalGenerator: React.FC = () => {
                   rows={6}
                   value={toLineBlock(editablePractical.materials)}
                   onChange={(e) => updateStringArrayField('materials', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
                 />
               </div>
               <div>
@@ -596,7 +596,7 @@ const PracticalGenerator: React.FC = () => {
                   rows={6}
                   value={toLineBlock(editablePractical.safety_notes)}
                   onChange={(e) => updateStringArrayField('safety_notes', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
                 />
               </div>
             </div>
@@ -607,7 +607,7 @@ const PracticalGenerator: React.FC = () => {
                 rows={4}
                 value={toLineBlock(editablePractical.preparation_checklist)}
                 onChange={(e) => updateStringArrayField('preparation_checklist', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
               />
             </div>
 
@@ -617,7 +617,7 @@ const PracticalGenerator: React.FC = () => {
                 <button
                   type="button"
                   onClick={addStep}
-                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
                 >
                   <Plus className="w-4 h-4 mr-1" />
                   Add Step
@@ -632,7 +632,7 @@ const PracticalGenerator: React.FC = () => {
                         <input
                           value={step.title}
                           onChange={(e) => updateStep(index, 'title', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm font-medium bg-white shadow-sm"
                         />
                       </div>
                       <button
@@ -650,7 +650,7 @@ const PracticalGenerator: React.FC = () => {
                         rows={4}
                         value={step.instructions}
                         onChange={(e) => updateStep(index, 'instructions', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                       />
                     </div>
                     <div>
@@ -659,7 +659,7 @@ const PracticalGenerator: React.FC = () => {
                         rows={2}
                         value={step.expected_outcome || ''}
                         onChange={(e) => updateStep(index, 'expected_outcome', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                       />
                     </div>
                     <div>
@@ -668,7 +668,7 @@ const PracticalGenerator: React.FC = () => {
                         rows={2}
                         value={step.teacher_notes || ''}
                         onChange={(e) => updateStep(index, 'teacher_notes', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                       />
                     </div>
                     <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3 space-y-2">
@@ -688,21 +688,21 @@ const PracticalGenerator: React.FC = () => {
                         value={step.code_example?.language || programmingLanguage || 'text'}
                         onChange={(e) => updateStepCodeExample(index, 'language', e.target.value)}
                         placeholder="Language"
-                        className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm bg-white"
+                        className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white"
                       />
                       <textarea
                         rows={4}
                         value={step.code_example?.code || ''}
                         onChange={(e) => updateStepCodeExample(index, 'code', e.target.value)}
                         placeholder="Code snippet for this step"
-                        className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm font-mono bg-white"
+                        className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-primary-500 text-sm font-mono bg-white"
                       />
                       <textarea
                         rows={2}
                         value={step.code_example?.explanation || ''}
                         onChange={(e) => updateStepCodeExample(index, 'explanation', e.target.value)}
                         placeholder="Brief explanation of the snippet"
-                        className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm bg-white"
+                        className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white"
                       />
                     </div>
                   </div>
@@ -716,7 +716,7 @@ const PracticalGenerator: React.FC = () => {
                 <button
                   type="button"
                   onClick={addCodeExample}
-                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
                 >
                   <Plus className="w-4 h-4 mr-1" />
                   Add Code Example
@@ -730,7 +730,7 @@ const PracticalGenerator: React.FC = () => {
                         value={example.title}
                         onChange={(e) => updateCodeExample(index, 'title', e.target.value)}
                         placeholder="Example title"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                       />
                       <button
                         type="button"
@@ -744,21 +744,21 @@ const PracticalGenerator: React.FC = () => {
                       value={example.language}
                       onChange={(e) => updateCodeExample(index, 'language', e.target.value)}
                       placeholder="Language"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                     />
                     <textarea
                       rows={5}
                       value={example.code}
                       onChange={(e) => updateCodeExample(index, 'code', e.target.value)}
                       placeholder="Code snippet"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm font-mono"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm font-mono bg-white shadow-sm"
                     />
                     <textarea
                       rows={2}
                       value={example.explanation || ''}
                       onChange={(e) => updateCodeExample(index, 'explanation', e.target.value)}
                       placeholder="Explanation"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                     />
                   </div>
                 ))}
@@ -771,7 +771,7 @@ const PracticalGenerator: React.FC = () => {
                 rows={4}
                 value={toLineBlock(editablePractical.reflection_questions)}
                 onChange={(e) => updateStringArrayField('reflection_questions', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
               />
             </div>
 
@@ -791,7 +791,7 @@ const PracticalGenerator: React.FC = () => {
                           : current.optional_assessment,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm bg-white"
+                    className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white"
                   />
                 </div>
                 <div>
@@ -810,7 +810,7 @@ const PracticalGenerator: React.FC = () => {
                           : current.optional_assessment,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-indigo-500 text-sm bg-white"
+                    className="w-full px-3 py-2 border border-indigo-200 rounded-md focus:ring-2 focus:ring-primary-500 text-sm bg-white"
                   />
                 </div>
               </div>

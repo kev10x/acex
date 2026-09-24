@@ -529,11 +529,11 @@ const AssessmentGenerator: React.FC = () => {
   const historyPageItems = history.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+    <div className="w-full">
+      <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <div className="flex items-center gap-3 mb-6">
           <Sparkles className="w-8 h-8 text-purple-600" />
-          <h1 className="text-3xl font-bold text-gray-800">Assessment Generator</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Assessment Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
           Generate new assessments automatically based on your rubrics. The system creates questions that align with your rubric criteria, ensuring assessments match your marking standards.
@@ -559,7 +559,7 @@ const AssessmentGenerator: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => navigator.clipboard.writeText(item.link)}
-                      className="px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
+                      className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
                     >
                       Copy link
                     </button>
@@ -729,7 +729,7 @@ const AssessmentGenerator: React.FC = () => {
                 }
                 setGeneratedAssessment(null);
               }}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-primary-500"
             />
             <label htmlFor="useCustomTopics" className="text-sm font-medium text-gray-700">
               Use custom topic list (and level) instead of a memo/rubric
@@ -756,7 +756,7 @@ const AssessmentGenerator: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
                   >
                     <Upload className="w-4 h-4" />
                     Upload topic list (.txt or .csv)
@@ -775,7 +775,7 @@ const AssessmentGenerator: React.FC = () => {
                   onChange={(e) => setCustomTopicsText(e.target.value)}
                   placeholder="e.g. Photosynthesis, Cell division, Genetics, Evolution..."
                   rows={4}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
                 />
               </div>
               <div>
@@ -783,7 +783,7 @@ const AssessmentGenerator: React.FC = () => {
                 <select
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
                 >
                   {EDUCATION_LEVEL_OPTIONS.map((opt) => (
                     <option key={opt.value || 'any'} value={opt.value}>{opt.label}</option>
@@ -800,7 +800,7 @@ const AssessmentGenerator: React.FC = () => {
                 <select
                   value={selectedRubricId || ''}
                   onChange={(e) => handleRubricChange(e.target.value ? parseInt(e.target.value) : null)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
                 >
                   <option value="">Select a memo or rubric...</option>
                   {rubrics.map(rubric => (
@@ -843,7 +843,7 @@ const AssessmentGenerator: React.FC = () => {
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="e.g. World War II, Photosynthesis"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
                 />
               </div>
               <div>
@@ -851,7 +851,7 @@ const AssessmentGenerator: React.FC = () => {
                 <select
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
                 >
                   {EDUCATION_LEVEL_OPTIONS.map((opt) => (
                     <option key={opt.value || 'any'} value={opt.value}>{opt.label}</option>
@@ -868,7 +868,7 @@ const AssessmentGenerator: React.FC = () => {
             <select
               value={selectedContentId || ''}
               onChange={(e) => setSelectedContentId(e.target.value ? parseInt(e.target.value, 10) : null)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
             >
               <option value="">None</option>
               {myContentItems.map((item) => (
@@ -899,7 +899,7 @@ const AssessmentGenerator: React.FC = () => {
               <select
                 value={difficultyLevel}
                 onChange={(e) => setDifficultyLevel(e.target.value as any)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
               >
                 <option value="beginner">Beginner</option>
                 <option value="moderate">Moderate</option>
@@ -914,7 +914,7 @@ const AssessmentGenerator: React.FC = () => {
               <select
                 value={assessmentType}
                 onChange={(e) => setAssessmentType(e.target.value as any)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
               >
                 <option value="assignment">Assignment</option>
                 <option value="exam">Exam</option>
@@ -934,7 +934,7 @@ const AssessmentGenerator: React.FC = () => {
               max="20"
               value={questionCount}
               onChange={(e) => setQuestionCount(parseInt(e.target.value) || 5)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white shadow-sm"
             />
           </div>
 
@@ -949,7 +949,7 @@ const AssessmentGenerator: React.FC = () => {
                   name="questionTypeMode"
                   checked={questionTypeMode === 'mix'}
                   onChange={() => setQuestionTypeMode('mix')}
-                  className="text-purple-600 border-gray-300 focus:ring-purple-500"
+                  className="text-purple-600 border-gray-300 focus:ring-primary-500"
                 />
                 <span className="text-sm">Mix (AI chooses variety)</span>
               </label>
@@ -959,7 +959,7 @@ const AssessmentGenerator: React.FC = () => {
                   name="questionTypeMode"
                   checked={questionTypeMode === 'custom'}
                   onChange={() => setQuestionTypeMode('custom')}
-                  className="text-purple-600 border-gray-300 focus:ring-purple-500"
+                  className="text-purple-600 border-gray-300 focus:ring-primary-500"
                 />
                 <span className="text-sm">Select types:</span>
               </label>
@@ -976,7 +976,7 @@ const AssessmentGenerator: React.FC = () => {
                           setSelectedQuestionTypes((prev) => prev.filter((x) => x !== t));
                         }
                       }}
-                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      className="rounded border-gray-300 text-purple-600 focus:ring-primary-500"
                     />
                     <span className="text-sm">{QUESTION_TYPE_LABELS[t]}</span>
                   </label>
@@ -991,7 +991,7 @@ const AssessmentGenerator: React.FC = () => {
               id="usePatterns"
               checked={useExistingPatterns}
               onChange={(e) => setUseExistingPatterns(e.target.checked)}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-primary-500"
             />
             <label htmlFor="usePatterns" className="text-sm text-gray-700">
               Use patterns from existing marked assignments and rubrics
@@ -1008,7 +1008,7 @@ const AssessmentGenerator: React.FC = () => {
               (!useCustomTopics && !selectedRubricId && !selectedContentId) ||
               (questionTypeMode === 'custom' && selectedQuestionTypes.length === 0)
             }
-            className="w-full bg-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full bg-primary-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isGenerating ? (
               <>
@@ -1032,7 +1032,7 @@ const AssessmentGenerator: React.FC = () => {
       </div>
 
       {generatedAssessment && (
-        <div className="bg-white rounded-lg shadow-lg p-6">
+        <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <FileText className="w-6 h-6 text-purple-600" />
@@ -1067,7 +1067,7 @@ const AssessmentGenerator: React.FC = () => {
                   'zip'
                 )}
                 disabled={!!exportingFormat}
-                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
               >
                 {exportingFormat === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 SCORM
@@ -1122,7 +1122,7 @@ const AssessmentGenerator: React.FC = () => {
                         setError(e.response?.data?.error || 'Failed to publish');
                       }
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                   >
                     <Link2 className="w-4 h-4" />
                     Publish for students
@@ -1144,7 +1144,7 @@ const AssessmentGenerator: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => { navigator.clipboard.writeText(publishedLink); }}
-                  className="px-3 py-2 bg-violet-600 text-white rounded text-sm hover:bg-violet-700"
+                  className="px-3 py-2 bg-primary-600 text-white rounded text-sm hover:bg-primary-700"
                 >
                   Copy link
                 </button>

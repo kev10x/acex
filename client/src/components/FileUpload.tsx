@@ -246,7 +246,7 @@ const FileUpload: React.FC = () => {
             <select
               value={selectedBatchId}
               onChange={(e) => setSelectedBatchId(e.target.value ? Number(e.target.value) : '')}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             >
               <option value="">No folder (unassigned)</option>
               {batches.map((batch) => (
@@ -278,7 +278,7 @@ const FileUpload: React.FC = () => {
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   placeholder="For example: Term 1 Essays"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
               </div>
               <div>
@@ -290,14 +290,14 @@ const FileUpload: React.FC = () => {
                   value={newFolderDescription}
                   onChange={(e) => setNewFolderDescription(e.target.value)}
                   placeholder="Short note about this folder"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleCreateFolder}
                 disabled={creatingFolder}
-                className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 {creatingFolder ? 'Creating...' : 'Create folder'}
@@ -358,7 +358,7 @@ const FileUpload: React.FC = () => {
 
       {/* Uploaded Files List */}
       {assignments.length > 0 && (
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
           <div className="px-4 py-5 sm:p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Uploaded Assignments ({assignments.length})

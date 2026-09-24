@@ -1,3 +1,4 @@
+import { PublicBrand } from './BrandMark';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, ChevronDown, ChevronRight, ExternalLink, Layers, Loader2 } from 'lucide-react';
 import { modulesAPI } from '../services/api';
@@ -233,7 +234,7 @@ export default function StudentModulePlayer() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="text-center">
           <Loader2 className="w-10 h-10 animate-spin text-emerald-600 mx-auto" />
           <p className="mt-3 text-sm text-gray-600">Loading module...</p>
@@ -244,7 +245,7 @@ export default function StudentModulePlayer() {
 
   if (error || !moduleData) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6 text-center">
           <div className="text-red-600 mb-3">{error || 'Module not found.'}</div>
           <button

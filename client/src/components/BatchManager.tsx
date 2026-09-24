@@ -338,7 +338,7 @@ const BatchManager: React.FC = () => {
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
         >
           <FolderPlus className="h-5 w-5 mr-2" />
           Create Batch
@@ -417,13 +417,13 @@ const BatchManager: React.FC = () => {
 
       {/* Batches List */}
       {batches.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
+        <div className="text-center py-12 bg-white rounded-2xl shadow-sm border border-gray-200/70">
           <Folder className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No batches yet</h3>
           <p className="text-gray-500 mb-4">Create your first batch to organize assignments</p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700"
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 transition-colors"
           >
             <Plus className="h-5 w-5 mr-2" />
             Create Batch
@@ -446,7 +446,7 @@ const BatchManager: React.FC = () => {
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {batches.map((batch) => (
-            <div key={batch.id} className="bg-white rounded-lg shadow p-6">
+            <div key={batch.id} className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center">
                   <Folder className="h-8 w-8 text-primary-600 mr-3" />
@@ -512,13 +512,13 @@ const BatchManager: React.FC = () => {
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => openAssignModal(batch)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
                 >
                   Edit Contents
                 </button>
                 <button
                   onClick={() => { setShowUploadModal(batch); setUploadResults([]); }}
-                  className="inline-flex items-center justify-center gap-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  className="inline-flex items-center justify-center gap-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
                 >
                   <Upload className="h-4 w-4" />
                   Upload here
@@ -658,7 +658,7 @@ const BatchManager: React.FC = () => {
                   type="text"
                   value={newBatchName}
                   onChange={(e) => setNewBatchName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                   placeholder="e.g., Spring 2024 Assignments"
                 />
               </div>
@@ -669,7 +669,7 @@ const BatchManager: React.FC = () => {
                 <textarea
                   value={newBatchDescription}
                   onChange={(e) => setNewBatchDescription(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                   placeholder="Brief description of this batch"
                   rows={3}
                 />
@@ -682,14 +682,14 @@ const BatchManager: React.FC = () => {
                     setNewBatchDescription('');
                     setError(null);
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateBatch}
                   disabled={loading}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50"
+                  className="px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
                 >
                   {loading ? 'Creating...' : 'Create'}
                 </button>
@@ -726,7 +726,7 @@ const BatchManager: React.FC = () => {
                   type="text"
                   value={newBatchName}
                   onChange={(e) => setNewBatchName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
               </div>
               <div>
@@ -736,7 +736,7 @@ const BatchManager: React.FC = () => {
                 <textarea
                   value={newBatchDescription}
                   onChange={(e) => setNewBatchDescription(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                   rows={3}
                 />
               </div>
@@ -748,14 +748,14 @@ const BatchManager: React.FC = () => {
                     setNewBatchDescription('');
                     setError(null);
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleUpdateBatch}
                   disabled={loading}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50"
+                  className="px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
                 >
                   {loading ? 'Updating...' : 'Update'}
                 </button>
@@ -859,14 +859,14 @@ const BatchManager: React.FC = () => {
                     setSelectedAssignmentsToRemove([]);
                     setError(null);
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAssignToBatch}
                   disabled={loading || (selectedAssignments.length === 0 && selectedAssignmentsToRemove.length === 0)}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50"
+                  className="px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
                 >
                   {loading ? 'Saving...' : `Save Changes (${selectedAssignments.length + selectedAssignmentsToRemove.length})`}
                 </button>
@@ -932,7 +932,7 @@ const BatchManager: React.FC = () => {
             <div className="flex justify-end mt-4">
               <button
                 onClick={() => { setShowUploadModal(null); setUploadResults([]); fetchData(); }}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
               >
                 Done
               </button>
@@ -973,7 +973,7 @@ const BatchManager: React.FC = () => {
                 <select
                   value={selectedRubricId}
                   onChange={(e) => setSelectedRubricId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 >
                   <option value="">Select rubric</option>
                   {rubrics.map((r) => (
@@ -989,7 +989,7 @@ const BatchManager: React.FC = () => {
                   type="datetime-local"
                   value={scheduledFor}
                   onChange={(e) => setScheduledFor(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">Leave empty to start immediately.</p>
               </div>
@@ -998,7 +998,7 @@ const BatchManager: React.FC = () => {
                 <select
                   value={scheduleStrictness}
                   onChange={(e) => setScheduleStrictness(e.target.value as typeof scheduleStrictness)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 >
                   <option value="very_strict">Very Strict</option>
                   <option value="strict">Strict</option>
@@ -1017,7 +1017,7 @@ const BatchManager: React.FC = () => {
                 <select
                   value={scheduleFeedbackType}
                   onChange={(e) => setScheduleFeedbackType(e.target.value as typeof scheduleFeedbackType)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 >
                   <option value="standard">Standard</option>
                   <option value="prescriptive">Prescriptive (table)</option>
@@ -1038,7 +1038,7 @@ const BatchManager: React.FC = () => {
                 <select
                   value={scheduleFeedbackVerbosity}
                   onChange={(e) => setScheduleFeedbackVerbosity(e.target.value as typeof scheduleFeedbackVerbosity)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 >
                   <option value="brief">Brief</option>
                   <option value="standard">Standard</option>
@@ -1048,7 +1048,7 @@ const BatchManager: React.FC = () => {
               <div className="flex justify-end space-x-3 pt-2">
                 <button
                   onClick={() => { setShowScheduleModal(null); setScheduleStrictness('strict'); setScheduleFeedbackType('standard'); setScheduleFeedbackVerbosity('standard'); }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 bg-white shadow-sm"
                 >
                   Cancel
                 </button>

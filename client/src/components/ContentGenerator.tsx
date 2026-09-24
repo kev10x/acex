@@ -1606,11 +1606,11 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   };
 
   return (
-    <div className="w-full max-w-[1800px] mx-auto p-4 xl:p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+    <div className="w-full">
+      <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <div className="flex items-center gap-3 mb-6">
           <Presentation className="w-8 h-8 text-teal-600" />
-          <h1 className="text-3xl font-bold text-gray-800">Lesson Generator</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Lesson Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
           Create course content from topics: slide decks, lecture notes, and an interactive student view. Optionally add AI-generated video and upload a PowerPoint template for slides.
@@ -1824,7 +1824,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="button"
                 onClick={() => topicsFileInputRef.current?.click()}
                 disabled={isUploadingTopicsFile}
-                className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 shadow-sm"
                 title="Upload a PDF or DOCX file with topic lists"
               >
                 {isUploadingTopicsFile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -1836,7 +1836,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               onChange={(e) => setTopics(e.target.value)}
               placeholder="e.g. Photosynthesis, Cell division, Genetics..."
               rows={4}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
           </div>
           <div className={studioStep === 'plan' ? '' : 'hidden'}>
@@ -1845,7 +1845,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               value={teachingGoal}
               onChange={(e) => setTeachingGoal(e.target.value)}
               placeholder="e.g. exam readiness, conceptual mastery, discussion prep, project readiness"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
           </div>
           {studioStep === 'plan' && (
@@ -1864,7 +1864,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               <select
                 value={level}
                 onChange={(e) => setLevel(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 {EDUCATION_LEVEL_OPTIONS.map((o) => (
                   <option key={o.value || 'any'} value={o.value}>{o.label}</option>
@@ -1902,7 +1902,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     const value = parseInt(e.target.value, 10) || 5;
                     setNumSections(Math.max(1, Math.min(SECTION_COUNT_MAX, value)));
                   }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
                 {sectionMode === 'auto' && (
                   <p className="text-xs text-slate-600">
@@ -1919,7 +1919,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <select
                   value={templateId}
                   onChange={(e) => setTemplateId(e.target.value)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 >
                   {(templates.length > 0 ? templates : [{ id: 'classroom', name: 'Classroom Fresh', theme: {} }]).map((t) => (
                     <option key={t.id} value={t.id}>{t.name}</option>
@@ -1946,7 +1946,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 whitespace-nowrap"
+                  className="inline-flex items-center gap-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white hover:bg-gray-50 whitespace-nowrap shadow-sm"
                   title="Upload a .pptx file to use its theme and images"
                 >
                   <Upload className="w-4 h-4" />
@@ -1966,7 +1966,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
             <select
               value={rubricId ?? ''}
               onChange={(e) => setRubricId(e.target.value ? Number(e.target.value) : null)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             >
               <option value="">None</option>
               {rubrics.map((r) => (
@@ -2071,7 +2071,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                         const value = parseInt(e.target.value, 10) || 5;
                         setNumSections(Math.max(1, Math.min(SECTION_COUNT_MAX, value)));
                       }}
-                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                     />
                   </label>
                   <label className="md:col-span-2 flex items-center gap-2 text-sm text-slate-700">
@@ -2107,13 +2107,13 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     type="datetime-local"
                     value={scheduledFor}
                     onChange={(e) => setScheduledFor(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                   />
                 </div>
                 <button
                   onClick={handleSchedulePlanner}
                   disabled={isScheduling}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
                 >
                   {isScheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarClock className="w-4 h-4" />}
                   Schedule planner generation
@@ -2267,7 +2267,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={handlePptxRetry}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 text-white text-xs rounded-lg hover:bg-primary-700"
                     >
                       <Loader2 className="w-3 h-3" /> Retry
                     </button>
@@ -2314,14 +2314,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               )}
               <button
                 onClick={() => handlePublish(false)}
-                className="flex items-center gap-2 px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
               >
                 <Link2 className="w-4 h-4" />
                 {activePublishedContentId ? 'Update student version' : 'Publish for students'}
               </button>
               <button
                 onClick={() => handlePublish(true)}
-                className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
               >
                 <Video className="w-4 h-4" />
                 {activePublishedContentId ? 'Update with video kept' : 'Publish with video'}
@@ -2390,7 +2390,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <button
                   type="button"
                   onClick={() => navigator.clipboard.writeText(publishedLink)}
-                  className="px-3 py-2 bg-violet-600 text-white rounded text-sm hover:bg-violet-700"
+                  className="px-3 py-2 bg-primary-600 text-white rounded text-sm hover:bg-primary-700"
                 >
                   Copy
                 </button>
@@ -2464,7 +2464,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   </div>
                 </div>
                 <div className="mt-4 flex items-center justify-between gap-2">
-                  <button type="button" onClick={() => setSlideshowSection((p) => Math.max(0, p - 1))} disabled={clampedSlide <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40">← Previous</button>
+                  <button type="button" onClick={() => setSlideshowSection((p) => Math.max(0, p - 1))} disabled={clampedSlide <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40 bg-white shadow-sm">← Previous</button>
                   <div className="flex gap-1.5 items-center">
                     {sections.map((_: any, idx: number) => (
                       <button key={idx} type="button" onClick={() => setSlideshowSection(idx)}
@@ -2541,7 +2541,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     onChange={(e) => updateSectionField(i, 'body', e.target.value)}
                     placeholder="Section body"
                     rows={10}
-                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm leading-relaxed focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm leading-relaxed focus:ring-2 focus:ring-primary-500"
                   />
                   <div className="flex items-center gap-2">
                     {!!String((sec as any)?.raw_body || '').trim() && String((sec as any)?.raw_body || '').trim() !== String(sec?.body || '').trim() && (

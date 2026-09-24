@@ -20,3 +20,13 @@ export default function BrandMark({ size = 36, className = '' }: BrandMarkProps)
     </span>
   );
 }
+
+// Small logo + wordmark row for public, logged-out student pages.
+export function PublicBrand({ className = '' }: { className?: string }) {
+  return (
+    <div className={`flex items-center justify-center gap-2.5 ${className}`}>
+      <BrandMark size={30} />
+      <span className="text-[15px] font-bold tracking-tight text-gray-900">Acexen</span>
+    </div>
+  );
+}

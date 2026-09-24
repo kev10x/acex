@@ -134,7 +134,7 @@ const RubricManager: React.FC = () => {
         </div>
         <button
           onClick={() => setShowForm(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
         >
           <Plus className="w-4 h-4 mr-2" />
           New Rubric
@@ -155,7 +155,7 @@ const RubricManager: React.FC = () => {
 
       {/* Rubric Form */}
       {showForm && (
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
           <div className="px-4 py-5 sm:p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-medium text-gray-900">
@@ -295,7 +295,7 @@ const RubricManager: React.FC = () => {
                     <button
                       type="submit"
                       disabled={loading || formData.criteria.length === 0}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg shadow-sm text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 transition-colors"
                     >
                       <Save className="w-4 h-4 mr-2" />
                       {loading ? 'Saving...' : editingRubric ? 'Update' : 'Create'}
@@ -309,7 +309,7 @@ const RubricManager: React.FC = () => {
       )}
 
       {/* Rubrics List */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">
             Saved Rubrics ({rubrics.length})

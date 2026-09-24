@@ -1,3 +1,4 @@
+import BrandMark from './BrandMark';
 import React, { useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
 import { Lock, Eye, EyeOff, CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
@@ -86,6 +87,7 @@ const ResetPassword: React.FC<Props> = ({ onBackToLogin }) => {
         >
           <ArrowLeft className="h-4 w-4" /> Back to sign in
         </button>
+        <BrandMark size={44} className="mb-5" />
         <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Set a new password</h1>
         <p className="mt-1 text-sm text-slate-500">Must be at least 8 characters.</p>
       </div>

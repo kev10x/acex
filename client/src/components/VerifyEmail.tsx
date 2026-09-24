@@ -1,3 +1,4 @@
+import BrandMark from './BrandMark';
 import React, { useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
@@ -35,9 +36,10 @@ const VerifyEmail: React.FC<VerifyEmailProps> = ({ onBackToLogin }) => {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen flex items-center justify-center bg-app py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 rounded-2xl border border-gray-200/70 bg-white p-8 shadow-lg">
         <div className="text-center">
+          <BrandMark size={44} className="mb-2" />
           {status === 'loading' && (
             <>
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>

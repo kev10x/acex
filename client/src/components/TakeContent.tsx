@@ -1,3 +1,4 @@
+import { PublicBrand } from './BrandMark';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BookOpen, Loader2, Send, Award, Video, Lock, CheckCircle2, Volume2 } from 'lucide-react';
 import { contentAPI, videoGenAPI } from '../services/api';
@@ -570,7 +571,7 @@ const TakeContent: React.FC = () => {
 
   if (step === 'result' && result) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-6">
           <div className="flex items-center gap-3 text-green-600 mb-4">
             <Award className="w-8 h-8" />
@@ -600,7 +601,7 @@ const TakeContent: React.FC = () => {
 
   if (step === 'code' || (step === 'content' && !content)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6">
           <div className="flex items-center gap-3 mb-6">
             <BookOpen className="w-8 h-8 text-teal-600" />
@@ -619,7 +620,7 @@ const TakeContent: React.FC = () => {
                 value={codeInput}
                 onChange={(e) => setCodeInput(e.target.value)}
                 placeholder="Content code"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
               <button type="submit" className="w-full py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">Open content</button>
             </form>
@@ -650,7 +651,7 @@ const TakeContent: React.FC = () => {
                   type="text"
                   value={studentName}
                   onChange={(e) => setStudentName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                   placeholder="Full name"
                 />
               </div>
@@ -835,7 +836,7 @@ const TakeContent: React.FC = () => {
                     </div>
                   </div>
                   <div className="mt-4 flex items-center justify-between gap-2">
-                    <button type="button" onClick={goToPrevious} disabled={currentSection <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40">← Previous</button>
+                    <button type="button" onClick={goToPrevious} disabled={currentSection <= 0} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40 bg-white shadow-sm">← Previous</button>
                     <div className="flex gap-1.5 items-center">
                       {sections.map((sec, idx) => (
                         <button key={idx} type="button" onClick={() => canOpenSection(idx) && handleOpenSection(idx)} disabled={!canOpenSection(idx)}
@@ -881,7 +882,7 @@ const TakeContent: React.FC = () => {
                       <select
                         value={audioVoice}
                         onChange={(e) => setAudioVoice(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
                       >
                         <option value="eve">Eve</option>
                         <option value="ara">Ara</option>
@@ -892,7 +893,7 @@ const TakeContent: React.FC = () => {
                       <select
                         value={audioLanguage}
                         onChange={(e) => setAudioLanguage(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
                       >
                         <option value="en">English</option>
                         <option value="af">Afrikaans</option>
@@ -1056,7 +1057,7 @@ const TakeContent: React.FC = () => {
                     type="button"
                     onClick={goToPrevious}
                     disabled={currentSection <= 0}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40"
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 disabled:opacity-40 bg-white shadow-sm"
                   >
                     Previous
                   </button>
@@ -1086,7 +1087,7 @@ const TakeContent: React.FC = () => {
                     <select
                       value={audioVoice}
                       onChange={(e) => setAudioVoice(e.target.value)}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
                     >
                       <option value="eve">Eve</option>
                       <option value="ara">Ara</option>
@@ -1097,7 +1098,7 @@ const TakeContent: React.FC = () => {
                     <select
                       value={audioLanguage}
                       onChange={(e) => setAudioLanguage(e.target.value)}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
                     >
                       <option value="en">English</option>
                       <option value="af">Afrikaans</option>
@@ -1153,7 +1154,7 @@ const TakeContent: React.FC = () => {
                                     value={letter}
                                     checked={(quizAnswers[q.number] ?? '') === letter}
                                     onChange={() => setQuizAnswer(q.number, letter)}
-                                    className="text-teal-600 border-gray-300 focus:ring-teal-500"
+                                    className="text-teal-600 border-gray-300 focus:ring-primary-500"
                                   />
                                   <span className="text-gray-700">{opt}</span>
                                 </label>
@@ -1165,14 +1166,14 @@ const TakeContent: React.FC = () => {
                             value={quizAnswers[q.number] ?? ''}
                             onChange={(e) => setQuizAnswer(q.number, e.target.value)}
                             rows={3}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                             placeholder="Your answer"
                           />
                         )}
                       </div>
                     ))}
                     <div className="flex items-center justify-between">
-                      <button type="button" onClick={goToPrevious} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700">Back to content</button>
+                      <button type="button" onClick={goToPrevious} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white shadow-sm">Back to content</button>
                       <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
                         <Send className="w-4 h-4" />
                         Submit checkpoint

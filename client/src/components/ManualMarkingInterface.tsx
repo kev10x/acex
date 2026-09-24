@@ -185,7 +185,7 @@ const ManualMarkingInterface: React.FC = () => {
             <select
               value={selectedAssignment?.id || ''}
               onChange={(e) => handleAssignmentSelect(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             >
               <option value="">Choose an assignment...</option>
               {availableAssignments.map(assignment => (
@@ -204,7 +204,7 @@ const ManualMarkingInterface: React.FC = () => {
               <select
                 value={selectedRubric?.id || ''}
                 onChange={(e) => handleRubricSelect(Number(e.target.value))}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 <option value="">Choose a rubric...</option>
                 {rubrics.map(rubric => (
@@ -234,7 +234,7 @@ const ManualMarkingInterface: React.FC = () => {
               value={studentName}
               onChange={(e) => setStudentName(e.target.value)}
               placeholder="Enter student name..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
           </div>
         </div>
@@ -296,7 +296,7 @@ const ManualMarkingInterface: React.FC = () => {
                   value={score.feedback}
                   onChange={(e) => handleScoreChange(index, 'feedback', e.target.value)}
                   placeholder="Enter feedback for this criterion..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm bg-white shadow-sm"
                   rows={2}
                 />
               </div>
@@ -312,7 +312,7 @@ const ManualMarkingInterface: React.FC = () => {
               value={overallFeedback}
               onChange={(e) => setOverallFeedback(e.target.value)}
               placeholder="Enter overall feedback for the assignment..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               rows={3}
             />
           </div>
@@ -334,7 +334,7 @@ const ManualMarkingInterface: React.FC = () => {
             <button
               onClick={handleSubmit}
               disabled={loading || !studentName.trim()}
-              className="w-full flex items-center justify-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-colors"
             >
               {loading ? (
                 <>

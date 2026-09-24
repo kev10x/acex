@@ -156,7 +156,7 @@ const MCQInterface: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <div className="flex items-center space-x-3 mb-2">
             <ClipboardCheck className="h-6 w-6 text-primary-600" />
@@ -169,7 +169,7 @@ const MCQInterface: React.FC = () => {
       </div>
 
       {/* Answer Key Section */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
             <FileText className="h-5 w-5 mr-2" />
@@ -208,7 +208,7 @@ const MCQInterface: React.FC = () => {
       </div>
 
       {/* Form Selection */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">
             Select MCQ Forms ({selectedForms.length} selected)
@@ -253,12 +253,12 @@ const MCQInterface: React.FC = () => {
       </div>
 
       {/* Process Button */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <button
             onClick={handleProcessMCQ}
             disabled={loading || Object.keys(answerKey).length === 0 || selectedForms.length === 0}
-            className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? (
               <>
@@ -297,7 +297,7 @@ const MCQInterface: React.FC = () => {
 
       {/* Results */}
       {showResults && results.length > 0 && (
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
           <div className="px-4 py-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-900 flex items-center">
@@ -317,19 +317,19 @@ const MCQInterface: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                       Student Name
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                       Filename
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                       Score
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                       Percentage
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                       Correct / Total
                     </th>
                   </tr>

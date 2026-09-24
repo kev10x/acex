@@ -438,7 +438,7 @@ function CreateSeriesModal({
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="e.g. Research Proposal – Draft 1"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               required
             />
           </div>
@@ -448,7 +448,7 @@ function CreateSeriesModal({
               value={studentName}
               onChange={e => setStudentName(e.target.value)}
               placeholder="e.g. Jane Smith"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               required
             />
           </div>
@@ -457,7 +457,7 @@ function CreateSeriesModal({
             <select
               value={rubricId}
               onChange={e => setRubricId(parseInt(e.target.value))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               required
             >
               {rubrics.map(r => (
@@ -477,7 +477,7 @@ function CreateSeriesModal({
             <button
               type="submit"
               disabled={saving || !name.trim() || !studentName.trim() || !rubricId}
-              className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm transition-colors"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               Create
@@ -689,7 +689,7 @@ export default function RevisionTracker({ readOnly = false }: { readOnly?: boole
         {!readOnly && (
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 bg-primary-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+            className="flex items-center gap-1.5 bg-primary-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             New Series

@@ -784,7 +784,7 @@ const ResultsDashboard: React.FC = () => {
 
       {/* Analytics Section */}
       {!isStudent && showAnalytics && analytics && (
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white shadow-sm rounded-2xl p-6 border border-gray-200/70">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Analytics Overview</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -880,7 +880,7 @@ const ResultsDashboard: React.FC = () => {
       {/* Statistics Cards */}
       {!isStudent && stats && (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
             <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
@@ -900,7 +900,7 @@ const ResultsDashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
             <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
@@ -920,7 +920,7 @@ const ResultsDashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
             <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
@@ -940,7 +940,7 @@ const ResultsDashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
             <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
@@ -1007,11 +1007,11 @@ const ResultsDashboard: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidates</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assign To</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Submission</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Student Name</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Candidates</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Assign To</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -1050,7 +1050,7 @@ const ResultsDashboard: React.FC = () => {
                         <button
                           onClick={() => handleResolveIdentityConflict(item.id)}
                           disabled={item.candidates.length === 0 || identityResolveBusy === item.id}
-                          className="px-3 py-1.5 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                          className="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
                         >
                           {identityResolveBusy === item.id ? 'Resolving...' : 'Resolve'}
                         </button>
@@ -1065,7 +1065,7 @@ const ResultsDashboard: React.FC = () => {
       )}
 
       {/* Filters and Grouping */}
-      {!isStudent && <div className="bg-white shadow rounded-lg">
+      {!isStudent && <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <div className="flex flex-wrap items-end gap-4 mb-4">
             <div className="min-w-[180px]">
@@ -1182,7 +1182,7 @@ const ResultsDashboard: React.FC = () => {
             {(reviewMode !== 'all' || selectedRubric !== 'all' || dateFrom || dateTo || hourInterval) && (
               <button
                 onClick={clearFilters}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
               >
                 <X className="w-4 h-4 mr-1" />
                 Clear
@@ -1193,7 +1193,7 @@ const ResultsDashboard: React.FC = () => {
       </div>}
 
       {/* Results Table */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">
             {`Marking Results (${filteredAndGroupedResults.grouped 
@@ -1221,39 +1221,39 @@ const ResultsDashboard: React.FC = () => {
                 <table className="min-w-full table-fixed divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="w-[24%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[24%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                         Student/Assignment
                       </th>
                       {!isStudent && (
-                        <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[12%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                           Review Status
                         </th>
                       )}
                       {groupBy !== 'rubric' && (
-                        <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[14%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                           Rubric
                         </th>
                       )}
                       {groupBy !== 'folder' && (
-                        <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[12%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                           Folder
                         </th>
                       )}
-                      <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[10%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                         Score
                       </th>
-                      <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[12%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                         Confidence
                       </th>
-                      <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[10%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                         Tokens / Cost
                       </th>
                       {groupBy !== 'date' && (
-                        <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="w-[10%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                           Marked At
                         </th>
                       )}
-                      <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="w-[10%] px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
@@ -1773,7 +1773,7 @@ const ResultsDashboard: React.FC = () => {
                           type="text"
                           value={moderationReason}
                           onChange={(e) => setModerationReason(e.target.value)}
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                           placeholder="Reason for moderation or override"
                         />
                       </div>
@@ -1790,7 +1790,7 @@ const ResultsDashboard: React.FC = () => {
                           value={customFeedback}
                           onChange={(e) => setCustomFeedback(e.target.value)}
                           rows={4}
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                           placeholder="Add or edit feedback for this script"
                         />
                       </div>
@@ -1803,7 +1803,7 @@ const ResultsDashboard: React.FC = () => {
                           step="0.5"
                           value={overrideScore}
                           onChange={(e) => setOverrideScore(e.target.value)}
-                          className="w-full md:w-60 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          className="w-full md:w-60 border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                           placeholder="Leave blank to keep AI score"
                         />
                       </div>
@@ -1822,7 +1822,7 @@ const ResultsDashboard: React.FC = () => {
                           type="button"
                           onClick={handleSaveLecturerOverride}
                           disabled={savingModeration}
-                          className="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                          className="inline-flex items-center px-3 py-2 rounded-lg text-sm font-semibold bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
                         >
                           <Save className="w-4 h-4 mr-2" />
                           {savingModeration ? 'Saving...' : 'Save override'}
@@ -1857,7 +1857,7 @@ const ResultsDashboard: React.FC = () => {
                             <select
                               value={remarkOptions.assessment_type}
                               onChange={e => setRemarkOptions(o => ({ ...o, assessment_type: e.target.value }))}
-                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                             >
                               <option value="assignment">Assignment</option>
                               <option value="test">Test / Quiz</option>
@@ -1873,7 +1873,7 @@ const ResultsDashboard: React.FC = () => {
                             <select
                               value={remarkOptions.level}
                               onChange={e => setRemarkOptions(o => ({ ...o, level: normalizeEducationLevelValue(e.target.value, DEFAULT_MARKING_LEVEL) }))}
-                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                             >
                               {EDUCATION_LEVEL_OPTIONS.filter((option) => option.value).map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -1885,7 +1885,7 @@ const ResultsDashboard: React.FC = () => {
                             <select
                               value={remarkOptions.provider}
                               onChange={e => setRemarkOptions(o => ({ ...o, provider: e.target.value }))}
-                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                             >
                               <option value="openai">OpenAI</option>
                               <option value="anthropic">Anthropic (Claude)</option>
@@ -1896,7 +1896,7 @@ const ResultsDashboard: React.FC = () => {
                             <select
                               value={remarkOptions.strictness_level}
                               onChange={e => setRemarkOptions(o => ({ ...o, strictness_level: e.target.value }))}
-                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white shadow-sm"
                             >
                               <option value="very_strict">Very strict</option>
                               <option value="strict">Strict</option>
@@ -1980,7 +1980,7 @@ const ResultsDashboard: React.FC = () => {
                         <button
                           type="button"
                           onClick={handleStartFeedbackVideo}
-                          className="inline-flex items-center px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-md hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500"
+                          className="inline-flex items-center px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
                         >
                           <Video className="w-4 h-4 mr-2" />
                           Generate video
@@ -2318,7 +2318,7 @@ const ResultsDashboard: React.FC = () => {
                   {allowDownloadResults && (
                     <button
                       onClick={() => handleDownloadPDF(selectedResult.id)}
-                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-semibold rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 shadow-sm transition-colors"
                     >
                       <FileText className="w-4 h-4 mr-2" />
                       Download Report

@@ -25,6 +25,7 @@ import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
 import BrandMark from './components/BrandMark';
+import ErrorBoundary from './components/ErrorBoundary';
 import ToolsLanding from './components/ToolsLanding';
 import HeroPanel from './components/HeroPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -261,6 +262,7 @@ function WorkspaceShell({
   onCreateSlides: (content: GeneratedContent) => void;
 }) {
   return (
+    <ErrorBoundary key={activeTab}>
     <Suspense fallback={<TabLoadingFallback />}>
       {activeTab === 'upload' && canAccessTab('upload') && <FileUpload />}
       {activeTab === 'rubrics' && canAccessTab('rubrics') && <RubricManager />}
@@ -286,6 +288,7 @@ function WorkspaceShell({
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -587,12 +590,10 @@ function AppContent() {
           {currentWorkspaceTabs.length > 0 && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-600">
-                {activeWorkspaceMeta.label}
+                {activeWorkspace === 'student' && normalizedRole !== 'student' ? 'Learning Studio' : activeWorkspaceMeta.label}
               </p>
-              <h2 className="mt-1 text-2xl font-bold text-gray-900">{activeTabMeta.label}</h2>
-              <p className="mt-1 max-w-2xl text-sm text-gray-500">{activeTabMeta.description}</p>
               {currentWorkspaceTabs.length > 1 && (
-                <div className="-mx-1 mt-5 flex gap-1 overflow-x-auto border-b border-gray-200 px-1">
+                <div className="no-scrollbar -mx-1 mt-3 flex gap-1 overflow-x-auto border-b border-gray-200 px-1">
                   {currentWorkspaceTabs.map((tab) => {
                     const meta = TAB_META[tab];
                     const Icon = meta.icon;

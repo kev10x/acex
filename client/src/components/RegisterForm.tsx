@@ -1,3 +1,4 @@
+import BrandMark from './BrandMark';
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, Lock, User, AlertCircle, Building2, UserCircle } from 'lucide-react';
@@ -65,6 +66,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
       <div className="w-full max-w-md">
         <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl border border-slate-200/60 overflow-hidden">
           <div className="px-8 pt-10 pb-2">
+            <BrandMark size={44} className="mb-5" />
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Create your account</h1>
             <p className="mt-1 text-sm text-slate-500">
               Join Acexen, the Academic Excellence Engine, to streamline your marking workflow.

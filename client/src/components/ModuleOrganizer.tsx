@@ -773,7 +773,7 @@ const ModuleOrganizer: React.FC = () => {
                   setAssessmentPage(1);
                 }}
                 placeholder="Filter..."
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
               />
             </div>
 
@@ -1175,25 +1175,25 @@ const ModuleOrganizer: React.FC = () => {
                   value={homeworkStudentFilter}
                   onChange={(e) => setHomeworkStudentFilter(e.target.value)}
                   placeholder="Filter by student"
-                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                 />
                 <input
                   value={homeworkModuleFilter}
                   onChange={(e) => setHomeworkModuleFilter(e.target.value)}
                   placeholder="Filter by source module"
-                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                 />
                 <input
                   type="date"
                   value={homeworkDateFrom}
                   onChange={(e) => setHomeworkDateFrom(e.target.value)}
-                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                 />
                 <input
                   type="date"
                   value={homeworkDateTo}
                   onChange={(e) => setHomeworkDateTo(e.target.value)}
-                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
                 />
               </div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1229,7 +1229,7 @@ const ModuleOrganizer: React.FC = () => {
                         return next;
                       });
                     }}
-                    className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-400"
+                    className="rounded border-emerald-300 text-emerald-600 focus:ring-primary-500"
                   />
                   Select all filtered ({filteredHomeworkHistory.length})
                 </label>
@@ -1304,7 +1304,7 @@ const ModuleOrganizer: React.FC = () => {
                                 return next;
                               });
                             }}
-                            className="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-400"
+                            className="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-primary-500"
                           />
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-gray-900 truncate" title={item.homework_module_name}>
@@ -1519,7 +1519,7 @@ const ModuleOrganizer: React.FC = () => {
                             }))}
                             rows={3}
                             placeholder="Add guidance, rationale, or publication notes for this homework..."
-                            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500"
                           />
                           <div className="flex justify-end">
                             <button
@@ -1552,7 +1552,7 @@ const ModuleOrganizer: React.FC = () => {
               onChange={(e) => setModuleName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void handleCreateModule()}
               placeholder="New module name (e.g. Module 1: Algebra)"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
             />
             <button
               type="button"
@@ -1787,7 +1787,7 @@ const ModuleOrganizer: React.FC = () => {
                         <select
                           value={studentByModule[module.id] || ''}
                           onChange={(e) => setStudentByModule((p) => ({ ...p, [module.id]: e.target.value }))}
-                          className="flex-1 text-xs px-2 py-1.5 border border-gray-300 rounded-lg min-w-0 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                          className="flex-1 text-xs px-2 py-1.5 border border-gray-300 rounded-lg min-w-0 focus:outline-none focus:ring-1 focus:ring-primary-500"
                         >
                           <option value="">Select student</option>
                           {students.map((s) => (

@@ -444,7 +444,7 @@ const MarkingInterface: React.FC = () => {
       )}
 
       {/* Assessment Type and Level Selection */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Assessment Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -657,7 +657,7 @@ const MarkingInterface: React.FC = () => {
       </div>
 
       {/* Output Type Selection */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Output Type</h3>
           <div className="space-y-3">
@@ -740,7 +740,7 @@ const MarkingInterface: React.FC = () => {
       </div>
 
       {/* Rubric Selection */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Select Rubric</h3>
           {rubrics.length === 0 ? (
@@ -774,7 +774,7 @@ const MarkingInterface: React.FC = () => {
 
       {/* Batch Selection */}
       {batches.length > 0 && (
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
           <div className="px-4 py-5 sm:p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Select Batch (Optional)
@@ -856,7 +856,7 @@ const MarkingInterface: React.FC = () => {
       )}
 
       {/* Assignment Selection */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">
             Select Assignments ({selectedAssignments.length} selected)
@@ -919,7 +919,7 @@ const MarkingInterface: React.FC = () => {
 
       {/* Marked Assignments Status */}
       {markedAssignments.length > 0 && (
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
           <div className="px-4 py-5 sm:p-6">
             <button
               onClick={() => setIsMarkedAssignmentsExpanded(!isMarkedAssignmentsExpanded)}
@@ -959,7 +959,7 @@ const MarkingInterface: React.FC = () => {
                         <button
                           onClick={() => handleRetryAssignment(assignment.id)}
                           disabled={retryingAssignment === assignment.id || !lastMarkingParams}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-semibold rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-colors"
                           title={!lastMarkingParams ? 'Cannot retry: Please mark an assignment first to save settings' : 'Retry marking this assignment'}
                         >
                           {retryingAssignment === assignment.id ? (
@@ -1005,7 +1005,7 @@ const MarkingInterface: React.FC = () => {
         <button
           onClick={handleMarkAssignments}
           disabled={loading || !selectedRubric || selectedAssignments.length === 0}
-          className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center px-6 py-3 border border-transparent text-base font-semibold rounded-lg shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
             <>

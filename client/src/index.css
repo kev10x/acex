@@ -70,3 +70,6 @@ code {
   0%, 100% { opacity: .2; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.6); }
 }
+
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

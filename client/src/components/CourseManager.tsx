@@ -247,7 +247,7 @@ const CourseManager: React.FC = () => {
 
   if (selectedCourse) {
     return (
-      <div className="max-w-6xl mx-auto p-6">
+      <div className="w-full">
         <button
           type="button"
           onClick={() => setSelectedCourse(null)}
@@ -257,7 +257,7 @@ const CourseManager: React.FC = () => {
           All courses
         </button>
 
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
           <h1 className="text-2xl font-bold text-gray-800">{selectedCourse.name}</h1>
           <p className="text-sm text-gray-500 mt-1">
             {[selectedCourse.code, selectedCourse.term].filter(Boolean).join(' · ') || 'No code or term set'}
@@ -282,7 +282,7 @@ const CourseManager: React.FC = () => {
         </div>
 
         {!isStudent && activeTab === 'roster' && (
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
             <h2 className="text-sm font-semibold text-gray-800 mb-3">Enroll students</h2>
             <div className="flex flex-col sm:flex-row gap-2 mb-2">
               <textarea
@@ -290,13 +290,13 @@ const CourseManager: React.FC = () => {
                 onChange={(e) => setEnrollEmails(e.target.value)}
                 placeholder="student1@example.com, student2@example.com"
                 rows={2}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               />
               <button
                 type="button"
                 onClick={handleEnroll}
                 disabled={enrolling}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
               >
                 <Plus className="h-4 w-4" />
                 Enroll
@@ -361,23 +361,23 @@ const CourseManager: React.FC = () => {
 
         {!isStudent && activeTab === 'grading' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
               <h2 className="text-sm font-semibold text-gray-800 mb-3">Grade categories</h2>
               <div className="flex gap-2 mb-4">
                 <input
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   placeholder="e.g. Assignments"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
                 <input
                   type="number"
                   value={newCategoryWeight}
                   onChange={(e) => setNewCategoryWeight(Number(e.target.value))}
                   placeholder="%"
-                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                  className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 />
-                <button type="button" onClick={handleAddCategory} className="px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700">
+                <button type="button" onClick={handleAddCategory} className="px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 shadow-sm transition-colors">
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
@@ -405,13 +405,13 @@ const CourseManager: React.FC = () => {
               )}
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
               <h2 className="text-sm font-semibold text-gray-800 mb-3">Grade items</h2>
               <div className="space-y-2 mb-4">
                 <select
                   value={newItemAssessmentId}
                   onChange={(e) => setNewItemAssessmentId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                 >
                   <option value="">Select a published assessment...</option>
                   {publishedAssessments.map((a) => (
@@ -422,7 +422,7 @@ const CourseManager: React.FC = () => {
                   <select
                     value={newItemCategoryId}
                     onChange={(e) => setNewItemCategoryId(e.target.value ? Number(e.target.value) : '')}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                   >
                     <option value="">No category</option>
                     {categories.map((c) => (
@@ -434,9 +434,9 @@ const CourseManager: React.FC = () => {
                     value={newItemMaxPoints}
                     onChange={(e) => setNewItemMaxPoints(e.target.value ? Number(e.target.value) : '')}
                     placeholder="Max points"
-                    className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                    className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                   />
-                  <button type="button" onClick={handleAddItem} className="px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700">
+                  <button type="button" onClick={handleAddItem} className="px-3 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 shadow-sm transition-colors">
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
@@ -463,7 +463,7 @@ const CourseManager: React.FC = () => {
         )}
 
         {activeTab === 'gradebook' && (
-          <div className="bg-white rounded-lg shadow p-6 overflow-x-auto">
+          <div className="bg-white rounded-2xl shadow-sm p-6 overflow-x-auto border border-gray-200/70">
             {gradebookLoading ? (
               <p className="text-sm text-gray-500">Loading...</p>
             ) : gradebook.length === 0 ? (
@@ -503,18 +503,18 @@ const CourseManager: React.FC = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+    <div className="w-full">
+      <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-3">
             <BookOpen className="w-8 h-8 text-primary-600" />
-            <h1 className="text-3xl font-bold text-gray-800">Courses</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Courses</h1>
           </div>
           {!isStudent && (
             <button
               type="button"
               onClick={() => setShowCreate((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 shadow-sm transition-colors"
             >
               <Plus className="h-4 w-4" />
               New course
@@ -533,25 +533,25 @@ const CourseManager: React.FC = () => {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Course name *"
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
             <input
               value={newCode}
               onChange={(e) => setNewCode(e.target.value)}
               placeholder="Code (e.g. CS101)"
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
             <input
               value={newTerm}
               onChange={(e) => setNewTerm(e.target.value)}
               placeholder="Term (e.g. 2026 S2)"
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
             <button
               type="button"
               onClick={handleCreate}
               disabled={creating || !newName.trim()}
-              className="sm:col-span-3 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+              className="sm:col-span-3 px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 shadow-sm transition-colors"
             >
               {creating ? 'Creating...' : 'Create course'}
             </button>
@@ -562,7 +562,7 @@ const CourseManager: React.FC = () => {
       {loading ? (
         <p className="text-sm text-gray-500">Loading...</p>
       ) : courses.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-sm text-gray-500">
+        <div className="bg-white rounded-2xl shadow-sm p-8 text-center text-sm text-gray-500 border border-gray-200/70">
           No courses yet — create one to start enrolling students and building a gradebook.
         </div>
       ) : (
@@ -571,7 +571,7 @@ const CourseManager: React.FC = () => {
             <button
               key={course.id}
               onClick={() => openCourse(course)}
-              className="text-left bg-white rounded-lg shadow p-5 hover:shadow-md transition-shadow"
+              className="text-left bg-white rounded-2xl shadow-sm p-5 hover:shadow-md transition-shadow border border-gray-200/70"
             >
               <h3 className="text-lg font-semibold text-gray-800">{course.name}</h3>
               <p className="text-xs text-gray-400 mt-0.5">{[course.code, course.term].filter(Boolean).join(' · ') || 'No code or term'}</p>

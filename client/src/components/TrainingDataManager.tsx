@@ -167,7 +167,7 @@ const TrainingDataManager: React.FC = () => {
 
       {/* Statistics */}
       {stats && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <TrendingUp className="w-5 h-5" />
             Training Data Statistics
@@ -186,7 +186,7 @@ const TrainingDataManager: React.FC = () => {
               <div className="text-sm text-gray-600">Unique Rubrics</div>
             </div>
             <div>
-              <div className="text-2xl font-bold">{stats.avg_score.toFixed(1)}</div>
+              <div className="text-2xl font-bold">{Number(stats.avg_score || 0).toFixed(1)}</div>
               <div className="text-sm text-gray-600">Average Score</div>
             </div>
           </div>
@@ -194,7 +194,7 @@ const TrainingDataManager: React.FC = () => {
       )}
 
       {/* Export Options */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
+      <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
           <Database className="w-5 h-5" />
           Export Options
@@ -318,7 +318,7 @@ const TrainingDataManager: React.FC = () => {
       </div>
 
       {/* Exported Files */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200/70">
         <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
           <FileText className="w-5 h-5" />
           Exported Files

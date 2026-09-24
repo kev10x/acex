@@ -1,3 +1,4 @@
+import BrandMark from './BrandMark';
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authAPI } from '../services/api';
@@ -66,6 +67,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
       <div className="w-full max-w-md">
         <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl border border-slate-200/60 overflow-hidden">
           <div className="px-8 pt-10 pb-2">
+            <BrandMark size={44} className="mb-5" />
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Sign in to Acexen</h1>
             <p className="mt-1 text-sm text-slate-500">
               The Academic Excellence Engine

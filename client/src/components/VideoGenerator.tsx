@@ -134,11 +134,11 @@ const VideoGenerator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+    <div className="w-full">
+      <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <div className="flex items-center gap-3 mb-1">
           <Clapperboard className="w-8 h-8 text-primary-600" />
-          <h1 className="text-3xl font-bold text-gray-800">Video Generator</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Video Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
           Generate short AI video clips from a text prompt, powered by Grok Imagine.
@@ -155,7 +155,7 @@ const VideoGenerator: React.FC = () => {
               onChange={(e) => setPrompt(e.target.value)}
               rows={4}
               placeholder="A glowing crystal-powered rocket launching from red Martian dunes, ancient alien ruins lighting up in the background as it soars into a sky full of unfamiliar constellations"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 resize-y"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 resize-y bg-white shadow-sm"
             />
           </div>
 
@@ -183,7 +183,7 @@ const VideoGenerator: React.FC = () => {
                 id="video-aspect"
                 value={aspectRatio}
                 onChange={(e) => setAspectRatio(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 {ASPECT_RATIOS.map((ratio) => (
                   <option key={ratio} value={ratio}>{ratio}</option>
@@ -199,7 +199,7 @@ const VideoGenerator: React.FC = () => {
                 id="video-resolution"
                 value={resolution}
                 onChange={(e) => setResolution(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
               >
                 {RESOLUTIONS.map((res) => (
                   <option key={res.value} value={res.value}>{res.label}</option>
@@ -225,7 +225,7 @@ const VideoGenerator: React.FC = () => {
             type="button"
             onClick={handleGenerate}
             disabled={submitting}
-            className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-sm"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
             {submitting ? 'Starting...' : 'Generate video'}
@@ -238,13 +238,13 @@ const VideoGenerator: React.FC = () => {
         {loadingHistory ? (
           <div className="text-sm text-gray-500">Loading...</div>
         ) : jobs.length === 0 ? (
-          <div className="text-sm text-gray-500 bg-white rounded-lg shadow p-6 text-center">
+          <div className="text-sm text-gray-500 bg-white rounded-2xl shadow-sm p-6 text-center border border-gray-200/70">
             No videos generated yet — your generations will appear here.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {jobs.map((job) => (
-              <div key={job.id} className="bg-white rounded-lg shadow p-4">
+              <div key={job.id} className="bg-white rounded-2xl shadow-sm p-4 border border-gray-200/70">
                 <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center mb-3">
                   {job.status === 'completed' && videoUrls[job.id] ? (
                     <video src={videoUrls[job.id]} controls className="w-full h-full object-contain bg-black" />

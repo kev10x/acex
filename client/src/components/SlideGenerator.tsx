@@ -445,7 +445,7 @@ const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = (
               <input
                 type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
                 placeholder="e.g. Photosynthesis, World War II, Algebraic Expressions"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
             <div>
@@ -453,14 +453,14 @@ const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = (
               <input
                 type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
                 placeholder="e.g. Biology, History"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Education level</label>
               <select
                 value={level} onChange={(e) => setLevel(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
               >
                 {LEVELS.map((l) => <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>)}
               </select>
@@ -470,7 +470,7 @@ const SlideGenerator: React.FC<{ initialContent?: GeneratedContent | null }> = (
               <input
                 type="number" min={1} max={20} value={slideCount}
                 onChange={(e) => setSlideCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 8)))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white shadow-sm"
               />
             </div>
             <div className="flex items-end lg:col-span-3">
