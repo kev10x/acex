@@ -23,7 +23,7 @@ const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailServic
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
-const SUPER_ADMIN_EMAIL = 'kkativu@gmail.com';
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
 const ASSESSMENT_AUDIO_DIR = path.join(__dirname, '..', 'uploads', 'assessment-audio');
 const isSuperAdmin = (user) => String(user?.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 
