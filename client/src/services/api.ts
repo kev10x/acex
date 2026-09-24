@@ -2111,6 +2111,21 @@ export const authAPI = {
     const response = await api.post('/auth/resend-verification', { email });
     return response.data;
   },
+
+  getSetupInfo: async (token: string) => {
+    const response = await api.get('/auth/setup-account', { params: { token } });
+    return response.data as { valid: boolean; email: string; name: string; purpose: 'invite' | 'reset' };
+  },
+
+  setupAccount: async (token: string, password: string, name?: string) => {
+    const response = await api.post('/auth/setup-account', { token, password, name });
+    return response.data as { success: boolean; email: string; purpose: 'invite' | 'reset' };
+  },
+
+  forgotPassword: async (email: string) => {
+    const response = await api.post('/auth/forgot-password', { email });
+    return response.data as { success: boolean; message: string };
+  },
   
   // Admin endpoints
   getPendingUsers: async (token: string) => {

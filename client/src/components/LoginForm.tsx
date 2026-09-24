@@ -16,7 +16,27 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [requiresVerification, setRequiresVerification] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [sendingForgot, setSendingForgot] = useState(false);
   const { login } = useAuth();
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setForgotSent(false);
+    if (!email.trim()) {
+      setError('Enter your email address above first, then choose "Forgot password?"');
+      return;
+    }
+    setSendingForgot(true);
+    try {
+      await authAPI.forgotPassword(email.trim());
+      setForgotSent(true);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not send the reset email. Please try again.');
+    } finally {
+      setSendingForgot(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,6 +163,21 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
                     className="block w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-shadow"
                   />
                 </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={sendingForgot}
+                    className="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50"
+                  >
+                    {sendingForgot ? 'Sending...' : 'Forgot password?'}
+                  </button>
+                </div>
+                {forgotSent && (
+                  <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 ring-1 ring-inset ring-emerald-200">
+                    If an account exists for that email, a reset link is on its way. It expires in 1 hour.
+                  </p>
+                )}
               </div>
             </div>
 

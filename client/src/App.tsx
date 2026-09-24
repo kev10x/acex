@@ -24,6 +24,7 @@ import {
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
+import SetupAccount from './components/SetupAccount';
 import BrandMark, { ProfileAvatarButton } from './components/BrandMark';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToolsLanding from './components/ToolsLanding';
@@ -301,7 +302,7 @@ function AppContent() {
     setPendingSlideContent(content);
     setActiveTab('slide-gen');
   };
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'verify' | 'setup'>('login');
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const { user, loading, logout, impersonation, stopImpersonation } = useAuth();
 
@@ -331,6 +332,9 @@ function AppContent() {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('token') && window.location.pathname.includes('verify-email')) {
       setAuthMode('verify');
+    }
+    if (urlParams.get('token') && (window.location.pathname.includes('setup-account') || window.location.pathname.includes('reset-password'))) {
+      setAuthMode('setup');
     }
   }, []);
 
@@ -449,7 +453,7 @@ function AppContent() {
     );
   }
 
-  if (!user) {
+  if (!user || authMode === 'setup') {
     return (
       <div className="lg:flex lg:min-h-screen">
         <HeroPanel />
@@ -460,6 +464,14 @@ function AppContent() {
                 setAuthMode('login');
                 window.history.replaceState({}, '', window.location.pathname);
               }}
+            />
+          ) : authMode === 'setup' ? (
+            <SetupAccount
+              onBackToLogin={() => {
+                setAuthMode('login');
+                window.history.replaceState({}, '', '/tools/');
+              }}
+              onComplete={() => setAuthMode('login')}
             />
           ) : authMode === 'login' ? (
             <LoginForm onSwitchToRegister={() => setAuthMode('register')} />

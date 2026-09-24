@@ -1403,6 +1403,34 @@ const initDatabase = async () => {
         if ((verificationTokenExpiresCheck.rows?.[0]?.count || verificationTokenExpiresCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN verification_token_expires TIMESTAMP`);
         }
+
+        // One-time account setup / password reset links (only a hash of the token is stored).
+        const SetupTokenHashCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'setup_token_hash'
+        `);
+        if ((SetupTokenHashCheck.rows?.[0]?.count || SetupTokenHashCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN setup_token_hash VARCHAR(64) NULL`);
+        }
+
+        const SetupTokenExpiresCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'setup_token_expires'
+        `);
+        if ((SetupTokenExpiresCheck.rows?.[0]?.count || SetupTokenExpiresCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN setup_token_expires TIMESTAMP NULL`);
+        }
+
+        const SetupTokenPurposeCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'setup_token_purpose'
+        `);
+        if ((SetupTokenPurposeCheck.rows?.[0]?.count || SetupTokenPurposeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN setup_token_purpose VARCHAR(20) NULL`);
+        }
         
         const roleCheck = await query(`
           SELECT COUNT(*) as count 
@@ -2926,6 +2954,34 @@ const initDatabase = async () => {
         `);
         if ((verificationTokenExpiresCheck.rows?.[0]?.count || verificationTokenExpiresCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE users ADD COLUMN verification_token_expires TIMESTAMP`);
+        }
+
+        // One-time account setup / password reset links (only a hash of the token is stored).
+        const SetupTokenHashCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'setup_token_hash'
+        `);
+        if ((SetupTokenHashCheck.rows?.[0]?.count || SetupTokenHashCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN setup_token_hash VARCHAR(64) NULL`);
+        }
+
+        const SetupTokenExpiresCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'setup_token_expires'
+        `);
+        if ((SetupTokenExpiresCheck.rows?.[0]?.count || SetupTokenExpiresCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN setup_token_expires TIMESTAMP`);
+        }
+
+        const SetupTokenPurposeCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'setup_token_purpose'
+        `);
+        if ((SetupTokenPurposeCheck.rows?.[0]?.count || SetupTokenPurposeCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE users ADD COLUMN setup_token_purpose VARCHAR(20) NULL`);
         }
         
         const roleCheck = await query(`

@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { query } = require('../database/connection');
 const { requireAuth, requireAdmin, generateToken, normalizeRole, parseUserFeatures, mergeFeatures, normalizeFeatureSet } = require('../middleware/auth');
 const emailService = require('../services/emailService');
+const accountSetup = require('../services/accountSetupService');
 const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 
 const router = express.Router();
@@ -613,6 +614,64 @@ const mapUser = (u) => ({
   organisation_name: u.organisation_name || null,
   department_id: u.department_id || null,
   department_name: u.department_name || null
+});
+
+// ─── Account setup / password reset (one-time emailed links) ─────────────────
+
+// Look at a link before showing the form: who is it for, and is it still valid?
+router.get('/setup-account', authLimiter, async (req, res) => {
+  try {
+    const user = await accountSetup.findUserBySetupToken(String(req.query.token || ''));
+    if (!user) return res.status(400).json({ valid: false, error: 'This link is invalid or has expired.' });
+    res.json({ valid: true, email: user.email, name: user.name || '', purpose: user.setup_token_purpose || 'reset' });
+  } catch (error) {
+    console.error('Setup link check error:', error);
+    res.status(500).json({ error: 'Could not check this link' });
+  }
+});
+
+// Redeem a link: set the password (and, for a new student, their name).
+const redeemSetupLink = async (req, res) => {
+  try {
+    const { token, password, name } = req.body || {};
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    const user = await accountSetup.findUserBySetupToken(String(token || ''));
+    if (!user) return res.status(400).json({ error: 'This link is invalid or has expired. Please ask for a new one.' });
+    if (user.setup_token_purpose === 'invite' && !String(name || user.name || '').trim()) {
+      return res.status(400).json({ error: 'Please enter your name' });
+    }
+    await accountSetup.completeSetup(user, { password, name });
+    res.json({ success: true, email: user.email, purpose: user.setup_token_purpose || 'reset' });
+  } catch (error) {
+    console.error('Setup account error:', error);
+    res.status(500).json({ error: 'Could not save your password' });
+  }
+};
+router.post('/setup-account', authLimiter, redeemSetupLink);
+router.post('/reset-password', authLimiter, redeemSetupLink);
+
+// Request a password reset email. Always answers the same way so the endpoint
+// cannot be used to discover which addresses have accounts.
+router.post('/forgot-password', authLimiter, [body('email').isEmail().normalizeEmail()], async (req, res) => {
+  const generic = { success: true, message: 'If an account exists for that email, a reset link is on its way.' };
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.json(generic);
+    const result = await query('SELECT id, email, name, is_active FROM users WHERE email = $1', [req.body.email]);
+    const user = result.rows?.[0] || result?.[0];
+    if (user && user.is_active !== 0 && user.is_active !== false) {
+      const token = await accountSetup.issueSetupToken(user.id, 'reset');
+      emailService.sendPasswordResetEmail(user.email, token, user.name).catch((err) => {
+        console.error('Failed to send reset email:', err.message);
+      });
+    }
+    res.json(generic);
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.json(generic);
+  }
 });
 
 // Admin routes - Get pending users

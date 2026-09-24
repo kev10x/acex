@@ -1,6 +1,10 @@
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
+const APP_NAME = () => process.env.APP_NAME || 'MarkMate';
+const APP_COLOR = () => process.env.APP_COLOR || '#4F46E5';
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 class EmailService {
   constructor() {
     // Create transporter - supports multiple email providers
@@ -128,14 +132,64 @@ class EmailService {
     }
   }
 
+  // Sent when a lecturer enrols a student. A new or not-yet-activated account gets a
+  // link to set their name and password; an active one just gets a login link.
+  async sendEnrolmentEmail({ email, name, courseName, courseCode, invitedBy, setupUrl, loginUrl }) {
+    const app = APP_NAME();
+    const color = APP_COLOR();
+    const hasSetup = Boolean(setupUrl);
+    const actionUrl = hasSetup ? setupUrl : loginUrl;
+    const actionLabel = hasSetup ? 'Set up my account' : `Open ${app}`;
+    const course = `${courseName}${courseCode ? ` (${courseCode})` : ''}`;
+    const mailOptions = {
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
+      to: email,
+      subject: `You have been enrolled in ${courseName}`,
+      html: `
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: ${color}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="margin: 0;">${esc(app)}</h1>
+          </div>
+          <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+            <h2 style="color: #1f2937; margin-top: 0;">You are enrolled in ${esc(course)}</h2>
+            <p>Hello${name ? ` ${esc(name)}` : ''},</p>
+            <p>${invitedBy ? `${esc(invitedBy)} has enrolled you` : 'You have been enrolled'} in <strong>${esc(course)}</strong> on ${esc(app)}.</p>
+            ${hasSetup
+              ? '<p>Before you start, please set your name and choose a password. It only takes a moment.</p>'
+              : '<p>Your modules and quizzes are ready for you. Log in to get started.</p>'}
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${actionUrl}" style="background-color: ${color}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">${esc(actionLabel)}</a>
+            </div>
+            <p style="font-size: 14px; color: #6b7280;">Or copy and paste this link into your browser:</p>
+            <p style="font-size: 12px; color: #9ca3af; word-break: break-all;">${actionUrl}</p>
+            ${hasSetup ? '<p style="font-size: 14px; color: #6b7280;">This link is personal to you and expires in 7 days.</p>' : ''}
+          </div>
+          <div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
+            <p>&copy; ${new Date().getFullYear()} ${esc(app)}. All rights reserved.</p>
+          </div>
+        </body></html>
+      `,
+      text: `You are enrolled in ${course}\n\nHello${name ? ` ${name}` : ''},\n\n${invitedBy ? `${invitedBy} has enrolled you` : 'You have been enrolled'} in ${course} on ${app}.\n\n${hasSetup ? 'Set your name and password here' : 'Log in here'}: ${actionUrl}\n`,
+    };
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Enrolment email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending enrolment email:', error);
+      throw error;
+    }
+  }
+
   async sendPasswordResetEmail(email, token, name) {
-    const baseUrl = process.env.CLIENT_URL || process.env.BASE_URL || 'http://localhost:3000';
-    const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+    const resetUrl = `${require('./accountSetupService').getAppUrl()}/reset-password?token=${token}`;
 
     const mailOptions = {
       from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
       to: email,
-      subject: 'Reset your MarkMate password',
+      subject: `Reset your ${APP_NAME()} password`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -145,15 +199,15 @@ class EmailService {
           <title>Reset your password</title>
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0;">MarkMate</h1>
+          <div style="background-color: ${APP_COLOR()}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="margin: 0;">${esc(APP_NAME())}</h1>
           </div>
           <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
             <h2 style="color: #1f2937; margin-top: 0;">Reset your password</h2>
             <p>Hello${name ? ` ${name}` : ''},</p>
             <p>We received a request to reset your password. Click the button below to reset it:</p>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Reset Password</a>
+              <a href="${resetUrl}" style="background-color: ${APP_COLOR()}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Reset Password</a>
             </div>
             <p style="font-size: 14px; color: #6b7280;">Or copy and paste this link into your browser:</p>
             <p style="font-size: 12px; color: #9ca3af; word-break: break-all;">${resetUrl}</p>
@@ -161,13 +215,13 @@ class EmailService {
             <p style="font-size: 14px; color: #6b7280;">If you didn't request a password reset, you can safely ignore this email.</p>
           </div>
           <div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-            <p>© ${new Date().getFullYear()} MarkMate. All rights reserved.</p>
+            <p>© ${new Date().getFullYear()} ${esc(APP_NAME())}. All rights reserved.</p>
           </div>
         </body>
         </html>
       `,
       text: `
-        Reset your MarkMate password
+        Reset your ${APP_NAME()} password
         
         Hello${name ? ` ${name}` : ''},
         

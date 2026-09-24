@@ -7,6 +7,8 @@
 const express = require('express');
 const { query } = require('../database/connection');
 const { requireAuth, requireRoles } = require('../middleware/auth');
+const emailService = require('../services/emailService');
+const accountSetup = require('../services/accountSetupService');
 const gradebookService = require('../services/gradebookService');
 
 const router = express.Router();
@@ -51,6 +53,13 @@ async function findUserByEmail(email) {
     ? await query('SELECT id, name, email, role FROM users WHERE email = ?', [String(email).trim().toLowerCase()])
     : await query('SELECT id, name, email, role FROM users WHERE email = $1', [String(email).trim().toLowerCase()]);
   return rowList(q)[0] || null;
+}
+
+async function hasPendingSetup(userId) {
+  const q = isMySQL()
+    ? await query("SELECT id FROM users WHERE id = ? AND setup_token_purpose = 'invite'", [userId])
+    : await query("SELECT id FROM users WHERE id = $1 AND setup_token_purpose = 'invite'", [userId]);
+  return rowList(q).length > 0;
 }
 
 /**
@@ -323,14 +332,30 @@ router.post('/:id/enrollments', requireAuth, requireCourseStaff, async (req, res
       return res.status(400).json({ error: 'email or emails is required' });
     }
 
+    const course = await getCourseRow(courseId);
+    const inviterName = req.user.name || req.user.email || null;
+    const loginUrl = `${accountSetup.getAppUrl()}/`;
     const results = [];
-    for (const email of emails) {
-      const user = await findUserByEmail(email);
-      if (!user) {
-        results.push({ email, success: false, error: 'No account found with this email' });
+    for (const rawEmail of emails) {
+      const email = String(rawEmail || '').trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        results.push({ email: rawEmail, success: false, error: 'Not a valid email address' });
         continue;
       }
       try {
+        // Someone enrolled before they have an account gets one created for them and
+        // is emailed a link to set their name and password.
+        let user = await findUserByEmail(email);
+        let invited = false;
+        if (!user) {
+          user = await accountSetup.createInvitedStudent({ email, organisationId: req.user.organisation_id });
+          invited = true;
+        }
+        if (String(user.role || '').toLowerCase() !== 'student') {
+          results.push({ email, success: false, error: 'This account is not a student account' });
+          continue;
+        }
+
         if (isMySQL()) {
           await query(
             'INSERT IGNORE INTO course_enrollments (course_id, student_user_id, enrolled_by) VALUES (?, ?, ?)',
@@ -357,7 +382,29 @@ router.post('/:id/enrollments', requireAuth, requireCourseStaff, async (req, res
             [user.id, courseId]
           );
         }
-        results.push({ email, success: true, student_user_id: user.id, name: user.name });
+
+        // Email them. A student who has never set a password (invited earlier but not
+        // activated) gets a fresh setup link; an active student just gets a login link.
+        let emailSent = false;
+        try {
+          const pending = invited || (await hasPendingSetup(user.id));
+          const setupUrl = pending
+            ? `${accountSetup.getAppUrl()}/setup-account?token=${await accountSetup.issueSetupToken(user.id, 'invite')}`
+            : null;
+          await emailService.sendEnrolmentEmail({
+            email: user.email,
+            name: user.name,
+            courseName: course?.name || 'your course',
+            courseCode: course?.code || '',
+            invitedBy: inviterName,
+            setupUrl,
+            loginUrl,
+          });
+          emailSent = true;
+        } catch (mailError) {
+          console.error('Enrolment email failed:', mailError.message);
+        }
+        results.push({ email, success: true, student_user_id: user.id, name: user.name, invited, email_sent: emailSent });
       } catch (err) {
         results.push({ email, success: false, error: err.message });
       }

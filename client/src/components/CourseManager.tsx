@@ -153,10 +153,18 @@ const CourseManager: React.FC = () => {
     try {
       const res = await coursesAPI.enroll(selectedCourse.id, emails);
       const failed = res.data.results.filter((r) => !r.success);
+      const ok = res.data.results.filter((r) => r.success) as Array<{ invited?: boolean; email_sent?: boolean }>;
+      const invited = ok.filter((r) => r.invited).length;
+      const notEmailed = ok.filter((r) => r.email_sent === false).length;
       if (failed.length > 0) {
         notifyError(`${failed.length} could not be enrolled: ${failed.map((f) => f.email).join(', ')}`, 'Some enrollments failed');
-      } else {
-        notifySuccess(`Enrolled ${res.data.results.length} student(s)`, 'Success');
+      }
+      if (ok.length > 0) {
+        notifySuccess(
+          `Enrolled ${ok.length} student(s)${invited ? ` (${invited} new account${invited === 1 ? '' : 's'} invited)` : ''}. ` +
+            (notEmailed ? `${notEmailed} email(s) could not be sent.` : 'Enrolment emails sent.'),
+          'Success'
+        );
       }
       setEnrollEmails('');
       setCsvFileName('');
@@ -368,7 +376,7 @@ const CourseManager: React.FC = () => {
                 Import from CSV{csvFileName ? ` — ${csvFileName}` : ''}
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4">Students must already have an account. Separate multiple emails with commas or newlines, or import a CSV (a roster export, or a plain list of emails).</p>
+            <p className="text-xs text-gray-400 mb-4">Students receive an enrolment email. Anyone without an account is invited to set their name and password. Separate multiple emails with commas or newlines, or import a CSV.</p>
 
             <h2 className="text-sm font-semibold text-gray-800 mb-3">Roster ({enrollments.length})</h2>
             {enrollments.length === 0 ? (
