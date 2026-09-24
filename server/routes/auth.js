@@ -19,12 +19,26 @@ const authLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' }
 });
 
-async function ensureOrganisationIdByName(nameRaw) {
+// Looks up an existing organisation by exact (case-insensitive) name only —
+// never creates one. Used at signup time so a typo or a genuinely new
+// organisation name doesn't silently spawn a duplicate/empty org; instead
+// the user is left unassigned pending super-admin review.
+async function findOrganisationIdByName(nameRaw) {
   const name = String(nameRaw || '').trim();
   if (!name) return null;
   const existing = await query('SELECT id FROM organisations WHERE LOWER(name) = LOWER($1)', [name]);
   const ex = existing.rows?.[0] || existing?.[0];
-  if (ex?.id) return ex.id;
+  return ex?.id || null;
+}
+
+// Looks up an existing organisation by name, creating one if none matches.
+// Used only once a human (the super admin, approving a pending signup) has
+// confirmed the organisation should exist.
+async function ensureOrganisationIdByName(nameRaw) {
+  const name = String(nameRaw || '').trim();
+  if (!name) return null;
+  const existingId = await findOrganisationIdByName(name);
+  if (existingId) return existingId;
   const inserted = await query('INSERT INTO organisations (name) VALUES ($1)', [name]);
   return inserted.insertId || inserted.lastID || inserted.rows?.[0]?.id || null;
 }
@@ -68,6 +82,7 @@ function buildAuthUserPayload(user, impersonation = null) {
     department_name: user.department_name || null,
     role: normalizeRole(user.role),
     features,
+    is_super_admin: isSuperAdmin(user),
     impersonation
   };
 }
@@ -124,7 +139,11 @@ router.post('/register', authLimiter, [
     const verificationTokenExpires = new Date();
     verificationTokenExpires.setHours(verificationTokenExpires.getHours() + 24); // 24 hours from now
 
-    const organisationId = orgName ? await ensureOrganisationIdByName(orgName) : null;
+    // Only link to an organisation that already exists. A name with no match
+    // is not auto-created here — the user is left unassigned (organisation_id
+    // null) so only the super admin sees them pending review, and the org is
+    // created (or the typo corrected) as a deliberate step at approval time.
+    const organisationId = orgName ? await findOrganisationIdByName(orgName) : null;
 
     // Create user (account_type, organisation_name, organisation_id and verification columns)
     const result = await query(
@@ -562,7 +581,7 @@ const getRows = (result) => {
 // - regular management users can only manage users inside their own organisation
 async function getManageableTargetUser(requester, targetId) {
   const result = await query(
-    'SELECT id, role, organisation_id, department_id FROM users WHERE id = $1',
+    'SELECT id, role, organisation_id, organisation_name, department_id FROM users WHERE id = $1',
     [targetId]
   );
   const target = result.rows?.[0] || result?.[0];
@@ -758,9 +777,21 @@ router.post('/admin/users/:id/approve', requireAuth, requireAdmin, async (req, r
     if (guard.status === 'not_found') return res.status(404).json({ error: 'User not found' });
     if (guard.status === 'forbidden') return res.status(403).json({ error: 'Cannot manage users outside your organisation' });
 
+    // A pending signup with no matched organisation (a genuinely new org, or
+    // a typo of an existing one) only ever reaches this point via the super
+    // admin's review queue. Approving it is the deliberate moment the org is
+    // materialized — matched again (in case it was created since signup) or
+    // created fresh, and linked to this user.
+    if (guard.target.organisation_id == null && guard.target.organisation_name) {
+      const organisationId = await ensureOrganisationIdByName(guard.target.organisation_name);
+      if (organisationId) {
+        await query('UPDATE users SET organisation_id = $1 WHERE id = $2', [organisationId, id]);
+      }
+    }
+
     await query('UPDATE users SET is_approved = 1 WHERE id = $1', [id]);
     const result = await query(
-      'SELECT id, email, name, is_approved FROM users WHERE id = $1',
+      'SELECT id, email, name, is_approved, organisation_id FROM users WHERE id = $1',
       [id]
     );
     const user = result.rows?.[0] || result?.[0];
