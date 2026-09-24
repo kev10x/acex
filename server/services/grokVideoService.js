@@ -90,6 +90,20 @@ async function getVideoStatus(requestId) {
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
+    // A 4xx response means xAI has definitively rejected/terminated this job
+    // (e.g. content moderation) rather than a transient/network failure.
+    // Treat it as a terminal 'failed' status instead of throwing, so callers
+    // stop re-polling it.
+    if (res.status >= 400 && res.status < 500) {
+      let parsed;
+      try {
+        parsed = JSON.parse(errText);
+      } catch {
+        parsed = null;
+      }
+      const message = parsed?.error || parsed?.code || errText || `xAI Video API error ${res.status}`;
+      return { status: 'failed', error: message };
+    }
     throw new Error(`xAI Video API status error: ${res.status} ${errText}`);
   }
   const data = await res.json();
