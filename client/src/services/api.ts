@@ -1658,6 +1658,101 @@ export const videoGenAPI = {
   getVideoBlob: (jobId: number) => api.get(`/video-gen/jobs/${jobId}/video`, { responseType: 'blob' }),
 };
 
+export interface Course {
+  id: number;
+  organisation_id: number | null;
+  name: string;
+  code: string | null;
+  description: string | null;
+  term: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  owner_user_id: number;
+  status: string;
+  created_at: string;
+}
+
+export interface CourseStaffMember {
+  user_id: number;
+  role: string;
+  name: string;
+  email: string;
+}
+
+export interface CourseEnrollment {
+  id: number;
+  student_user_id: number;
+  status: string;
+  enrolled_at: string;
+  name: string;
+  email: string;
+}
+
+export interface GradeCategory {
+  id: number;
+  name: string;
+  weight_percent: number;
+}
+
+export interface GradeItem {
+  id: number;
+  grade_category_id: number | null;
+  item_type: string;
+  item_id: number;
+  title: string | null;
+  max_points: number | null;
+}
+
+export interface GradebookRow {
+  student_user_id: number;
+  name: string;
+  email: string;
+  item_scores: Record<number, number | null>;
+  category_averages: Record<number, number | null>;
+  final_grade_percent: number | null;
+}
+
+export const coursesAPI = {
+  create: (data: { name: string; code?: string; description?: string; term?: string; start_date?: string; end_date?: string }) =>
+    api.post<{ success: boolean; course: Course }>('/courses', data),
+  list: () => api.get<{ success: boolean; courses: Course[] }>('/courses'),
+  get: (courseId: number) =>
+    api.get<{ success: boolean; course: Course; staff: CourseStaffMember[]; enrollment_count: number }>(`/courses/${courseId}`),
+  update: (courseId: number, data: Partial<Course>) => api.put<{ success: boolean; course: Course }>(`/courses/${courseId}`, data),
+  remove: (courseId: number) => api.delete<{ success: boolean }>(`/courses/${courseId}`),
+
+  addStaff: (courseId: number, email: string, role = 'lecturer') =>
+    api.post<{ success: boolean; staff: CourseStaffMember }>(`/courses/${courseId}/staff`, { email, role }),
+  removeStaff: (courseId: number, userId: number) => api.delete<{ success: boolean }>(`/courses/${courseId}/staff/${userId}`),
+
+  listEnrollments: (courseId: number) =>
+    api.get<{ success: boolean; enrollments: CourseEnrollment[] }>(`/courses/${courseId}/enrollments`),
+  enroll: (courseId: number, emails: string[]) =>
+    api.post<{ success: boolean; results: Array<{ email: string; success: boolean; error?: string; name?: string }> }>(
+      `/courses/${courseId}/enrollments`,
+      { emails }
+    ),
+  unenroll: (courseId: number, studentUserId: number) =>
+    api.delete<{ success: boolean }>(`/courses/${courseId}/enrollments/${studentUserId}`),
+
+  listGradeCategories: (courseId: number) =>
+    api.get<{ success: boolean; categories: GradeCategory[] }>(`/courses/${courseId}/grade-categories`),
+  createGradeCategory: (courseId: number, data: { name: string; weight_percent: number }) =>
+    api.post<{ success: boolean; category: GradeCategory }>(`/courses/${courseId}/grade-categories`, data),
+  removeGradeCategory: (courseId: number, categoryId: number) =>
+    api.delete<{ success: boolean }>(`/courses/${courseId}/grade-categories/${categoryId}`),
+
+  listGradeItems: (courseId: number) =>
+    api.get<{ success: boolean; items: GradeItem[] }>(`/courses/${courseId}/grade-items`),
+  createGradeItem: (courseId: number, data: { grade_category_id?: number | null; item_type: string; item_id: number; title?: string; max_points?: number }) =>
+    api.post<{ success: boolean; item: GradeItem }>(`/courses/${courseId}/grade-items`, data),
+  removeGradeItem: (courseId: number, itemId: number) =>
+    api.delete<{ success: boolean }>(`/courses/${courseId}/grade-items/${itemId}`),
+
+  getGradebook: (courseId: number) =>
+    api.get<{ success: boolean; categories: GradeCategory[]; items: GradeItem[]; grades: GradebookRow[] }>(`/courses/${courseId}/gradebook`),
+};
+
 export const modulesAPI = {
   list: () => api.get<{ success: boolean; modules: LearningModule[] }>('/modules'),
   listAvailableStudents: () => api.get<{ success: boolean; students: { id: number; name: string; email: string }[] }>('/modules/students/available'),

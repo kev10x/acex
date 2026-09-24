@@ -36,12 +36,12 @@ const TOOLS: ToolCard[] = [
   {
     id: 'content',
     label: 'Learning Studio',
-    tagline: 'Assessments · Practicals · Content · Modules · Moodle',
+    tagline: 'Assessments · Practicals · Content · Modules · Courses · Moodle',
     description:
-      'Generate assessments, practical activities, and lesson content with AI, then organise them into learning modules for students.',
+      'Generate assessments, practical activities, and lesson content with AI, then organise them into modules and courses with a weighted gradebook.',
     studentLabel: 'Acexen LMS',
-    studentTagline: 'Modules · Assessments · Results',
-    studentDescription: 'Access your learning modules, complete assessments, and view your results.',
+    studentTagline: 'Modules · Courses · Assessments · Results',
+    studentDescription: 'Access your learning modules and courses, complete assessments, and view your results and grades.',
     icon: Presentation,
     accentBg: 'bg-emerald-50',
     accentText: 'text-emerald-700',

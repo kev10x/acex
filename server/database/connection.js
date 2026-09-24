@@ -260,12 +260,85 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS courses (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organisation_id INT NULL,
+          name VARCHAR(255) NOT NULL,
+          code VARCHAR(64) NULL,
+          description TEXT NULL,
+          term VARCHAR(100) NULL,
+          start_date DATE NULL,
+          end_date DATE NULL,
+          owner_user_id INT NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_courses_owner (owner_user_id),
+          FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS course_staff (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          course_id INT NOT NULL,
+          user_id INT NOT NULL,
+          role VARCHAR(20) NOT NULL DEFAULT 'lecturer',
+          added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_course_staff (course_id, user_id),
+          FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS course_enrollments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          course_id INT NOT NULL,
+          student_user_id INT NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          enrolled_by INT NULL,
+          UNIQUE KEY uniq_course_enrollment (course_id, student_user_id),
+          FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+          FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (enrolled_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS grade_categories (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          course_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          weight_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS grade_items (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          course_id INT NOT NULL,
+          grade_category_id INT NULL,
+          item_type VARCHAR(32) NOT NULL,
+          item_id INT NOT NULL,
+          title VARCHAR(500) NULL,
+          max_points DECIMAL(10,2) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_grade_item (course_id, item_type, item_id),
+          KEY idx_grade_items_category (grade_category_id),
+          FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+          FOREIGN KEY (grade_category_id) REFERENCES grade_categories(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS modules (
           id INT AUTO_INCREMENT PRIMARY KEY,
           user_id INT NOT NULL,
           name VARCHAR(255) NOT NULL,
+          course_id INT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL
         )
       `);
       await query(`
@@ -1357,6 +1430,14 @@ const initDatabase = async () => {
         if ((contentVideoIdsCheck.rows?.[0]?.count || contentVideoIdsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE content_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
         }
+        const modulesCourseIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'modules' AND column_name = 'course_id'
+        `);
+        if ((modulesCourseIdCheck.rows?.[0]?.count || modulesCourseIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE modules ADD COLUMN course_id INT NULL`);
+          await query(`ALTER TABLE modules ADD FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL`);
+        }
         const plannerIncludeDiagramsCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
           WHERE table_schema = DATABASE() AND table_name = 'content_planner_jobs' AND column_name = 'include_diagrams'
@@ -1799,10 +1880,76 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS courses (
+          id SERIAL PRIMARY KEY,
+          organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL,
+          name VARCHAR(255) NOT NULL,
+          code VARCHAR(64) NULL,
+          description TEXT NULL,
+          term VARCHAR(100) NULL,
+          start_date DATE NULL,
+          end_date DATE NULL,
+          owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_courses_owner ON courses(owner_user_id)
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS course_staff (
+          id SERIAL PRIMARY KEY,
+          course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          role VARCHAR(20) NOT NULL DEFAULT 'lecturer',
+          added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(course_id, user_id)
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS course_enrollments (
+          id SERIAL PRIMARY KEY,
+          course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          student_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          enrolled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+          UNIQUE(course_id, student_user_id)
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS grade_categories (
+          id SERIAL PRIMARY KEY,
+          course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          weight_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS grade_items (
+          id SERIAL PRIMARY KEY,
+          course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          grade_category_id INTEGER NULL REFERENCES grade_categories(id) ON DELETE SET NULL,
+          item_type VARCHAR(32) NOT NULL,
+          item_id INTEGER NOT NULL,
+          title VARCHAR(500) NULL,
+          max_points DECIMAL(10,2) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(course_id, item_type, item_id)
+        )
+      `);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_grade_items_category ON grade_items(grade_category_id)
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS modules (
           id SERIAL PRIMARY KEY,
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           name VARCHAR(255) NOT NULL,
+          course_id INTEGER NULL REFERENCES courses(id) ON DELETE SET NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
@@ -2767,6 +2914,13 @@ const initDatabase = async () => {
         `);
         if ((contentVideoIdsCheck.rows?.[0]?.count || contentVideoIdsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE content_videos ADD COLUMN openai_video_ids TEXT DEFAULT NULL`);
+        }
+        const modulesCourseIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'modules' AND column_name = 'course_id'
+        `);
+        if ((modulesCourseIdCheck.rows?.[0]?.count || modulesCourseIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE modules ADD COLUMN course_id INTEGER NULL REFERENCES courses(id) ON DELETE SET NULL`);
         }
         const plannerIncludeDiagramsCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.columns
