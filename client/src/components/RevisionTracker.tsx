@@ -273,13 +273,15 @@ function SeriesDetail({
   onUpload,
   onBack,
   uploading,
-  uploadError
+  uploadError,
+  readOnly
 }: {
   series: RevisionSeries & { revisions: RevisionSubmission[] };
   onUpload: (file: File) => void;
   onBack: () => void;
   uploading: boolean;
   uploadError: string | null;
+  readOnly: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [expandedRevisions, setExpandedRevisions] = useState<Set<number>>(new Set());
@@ -327,33 +329,35 @@ function SeriesDetail({
       {/* Overall progress bar */}
       <ProgressBar score={latest} baseline={baseline} />
 
-      {/* Upload drop zone */}
-      <div
-        onDragOver={e => e.preventDefault()}
-        onDrop={handleDrop}
-        className="border-2 border-dashed border-gray-300 rounded-xl p-5 text-center hover:border-primary-400 transition-colors cursor-pointer"
-        onClick={() => fileRef.current?.click()}
-      >
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.txt"
-          className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }}
-        />
-        {uploading ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-7 h-7 text-primary-500 animate-spin" />
-            <p className="text-sm text-gray-500">Marking revision… this may take a moment</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Upload className="w-7 h-7 text-gray-400" />
-            <p className="text-sm font-medium text-gray-600">Drop a new revision here or click to browse</p>
-            <p className="text-xs text-gray-400">PDF, DOCX, DOC, TXT</p>
-          </div>
-        )}
-      </div>
+      {/* Upload drop zone — staff only */}
+      {!readOnly && (
+        <div
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+          className="border-2 border-dashed border-gray-300 rounded-xl p-5 text-center hover:border-primary-400 transition-colors cursor-pointer"
+          onClick={() => fileRef.current?.click()}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }}
+          />
+          {uploading ? (
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="w-7 h-7 text-primary-500 animate-spin" />
+              <p className="text-sm text-gray-500">Marking revision… this may take a moment</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <Upload className="w-7 h-7 text-gray-400" />
+              <p className="text-sm font-medium text-gray-600">Drop a new revision here or click to browse</p>
+              <p className="text-xs text-gray-400">PDF, DOCX, DOC, TXT</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {uploadError && (
         <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -571,7 +575,7 @@ function StudentFolderList({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function RevisionTracker() {
+export default function RevisionTracker({ readOnly = false }: { readOnly?: boolean } = {}) {
   const [byStudent, setByStudent] = useState<Record<string, RevisionSeriesListItem[]>>({});
   const [seriesList, setSeriesList] = useState<RevisionSeriesListItem[]>([]);
   const [selectedSeriesId, setSelectedSeriesId] = useState<number | null>(null);
@@ -611,8 +615,8 @@ export default function RevisionTracker() {
 
   useEffect(() => {
     loadList();
-    loadRubrics();
-  }, [loadList, loadRubrics]);
+    if (!readOnly) loadRubrics();
+  }, [loadList, loadRubrics, readOnly]);
 
   const loadDetail = useCallback(async (id: number) => {
     setLoadingDetail(true);
@@ -675,16 +679,22 @@ export default function RevisionTracker() {
           <TrendingUp className="w-5 h-5 text-primary-600" />
           <div>
             <h1 className="text-base font-semibold text-gray-900">Revision Tracking</h1>
-            <p className="text-xs text-gray-500">Upload successive revisions and track longitudinal improvement</p>
+            <p className="text-xs text-gray-500">
+              {readOnly
+                ? 'Track your progress across successive revisions'
+                : 'Upload successive revisions and track longitudinal improvement'}
+            </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 bg-primary-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Series
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 bg-primary-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Series
+          </button>
+        )}
       </div>
 
       <div className="flex min-h-[500px]">
@@ -710,7 +720,11 @@ export default function RevisionTracker() {
           {!selectedSeriesId && (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
               <TrendingUp className="w-12 h-12 opacity-30" />
-              <p className="text-sm">Select a revision series from the left, or create a new one.</p>
+              <p className="text-sm">
+                {readOnly
+                  ? 'Select a revision series from the left to view your progress.'
+                  : 'Select a revision series from the left, or create a new one.'}
+              </p>
             </div>
           )}
 
@@ -727,12 +741,13 @@ export default function RevisionTracker() {
               onBack={() => { setSelectedSeriesId(null); setSelectedDetail(null); }}
               uploading={uploading}
               uploadError={uploadError}
+              readOnly={readOnly}
             />
           )}
         </div>
       </div>
 
-      {showCreate && (
+      {!readOnly && showCreate && (
         <CreateSeriesModal
           rubrics={rubrics}
           onClose={() => setShowCreate(false)}

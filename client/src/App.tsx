@@ -105,7 +105,7 @@ type IconType = typeof BarChart3;
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
   management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'moodle', 'admin'],
   lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'moodle'],
-  student: ['modules', 'mcq', 'results', 'courses']
+  student: ['modules', 'mcq', 'results', 'courses', 'revision-tracking']
 };
 
 const WORKSPACE_ORDER: WorkspaceType[] = ['marking', 'student', 'labs', 'admin'];
@@ -275,7 +275,9 @@ function WorkspaceShell({
       {activeTab === 'slide-gen' && canAccessTab('slide-gen') && <SlideGeneratorStudio initialContent={pendingSlideContent} />}
       {activeTab === 'video-gen' && canAccessTab('video-gen') && <VideoGenerator />}
       {activeTab === 'results' && canAccessTab('results') && <ResultsDashboard />}
-      {activeTab === 'revision-tracking' && canAccessTab('revision-tracking') && <RevisionTracker />}
+      {activeTab === 'revision-tracking' && canAccessTab('revision-tracking') && (
+        <RevisionTracker readOnly={normalizedRole === 'student'} />
+      )}
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
       )}
@@ -338,7 +340,7 @@ function AppContent() {
             ),
       student:
         normalizedRole === 'student'
-          ? (['modules', 'courses', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+          ? (['modules', 'courses', 'results', 'mcq', 'revision-tracking'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
           : (['assessments', 'practicals', 'content', 'modules', 'courses', 'moodle'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;

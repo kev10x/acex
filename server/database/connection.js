@@ -702,9 +702,11 @@ const initDatabase = async () => {
           rubric_id INT NOT NULL,
           name VARCHAR(255) NOT NULL,
           student_name VARCHAR(255) NOT NULL,
+          student_user_id INT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+          FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
+          FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL
         )
       `);
       await query(`
@@ -1631,11 +1633,22 @@ const initDatabase = async () => {
               rubric_id INT NOT NULL,
               name VARCHAR(255) NOT NULL,
               student_name VARCHAR(255) NOT NULL,
+              student_user_id INT NULL,
               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
               FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-              FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
+              FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
+              FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL
             )
           `);
+        } else {
+          const revisionSeriesStudentUserIdCheck = await query(`
+            SELECT COUNT(*) as count FROM information_schema.COLUMNS
+            WHERE table_schema = DATABASE() AND table_name = 'revision_series' AND column_name = 'student_user_id'
+          `);
+          if ((revisionSeriesStudentUserIdCheck.rows?.[0]?.count || revisionSeriesStudentUserIdCheck?.[0]?.count || 0) === 0) {
+            await query(`ALTER TABLE revision_series ADD COLUMN student_user_id INT NULL`);
+            await query(`ALTER TABLE revision_series ADD FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL`);
+          }
         }
         const revisionSubmissionsTableCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.TABLES
@@ -2282,6 +2295,7 @@ const initDatabase = async () => {
           rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
           name VARCHAR(255) NOT NULL,
           student_name VARCHAR(255) NOT NULL,
+          student_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
@@ -3104,9 +3118,18 @@ const initDatabase = async () => {
               rubric_id INTEGER NOT NULL REFERENCES rubrics(id) ON DELETE CASCADE,
               name VARCHAR(255) NOT NULL,
               student_name VARCHAR(255) NOT NULL,
+              student_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
           `);
+        } else {
+          const revisionSeriesStudentUserIdCheckPg = await query(`
+            SELECT COUNT(*) as count FROM information_schema.columns
+            WHERE table_name = 'revision_series' AND column_name = 'student_user_id'
+          `);
+          if ((revisionSeriesStudentUserIdCheckPg.rows?.[0]?.count || revisionSeriesStudentUserIdCheckPg?.[0]?.count || 0) === 0) {
+            await query(`ALTER TABLE revision_series ADD COLUMN student_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL`);
+          }
         }
         const revisionSubmissionsTableCheckPg = await query(`
           SELECT COUNT(*) as count FROM information_schema.tables
