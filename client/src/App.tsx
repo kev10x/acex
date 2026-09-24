@@ -24,6 +24,7 @@ import {
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import VerifyEmail from './components/VerifyEmail';
+import BrandMark from './components/BrandMark';
 import ToolsLanding from './components/ToolsLanding';
 import HeroPanel from './components/HeroPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -479,56 +480,68 @@ function AppContent() {
     );
   }
 
+  const roleLabel =
+    normalizedRole === 'management' ? 'Management' : normalizedRole === 'student' ? 'Student' : 'Lecturer';
+  const userInitial = String(user.name || user.email || '?').trim().charAt(0).toUpperCase();
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              {toolContext && (
-                <button
-                  onClick={() => navigate('/tools')}
-                  className="mb-2 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  All tools
-                </button>
-              )}
-              <div className="flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Acexen</h1>
-                <span className="ml-2 text-sm text-gray-500">The Academic Excellence Engine</span>
+    <div className="min-h-screen bg-app">
+      <header className="sticky top-0 z-40 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              onClick={() => navigate('/tools')}
+              title="All tools"
+              className="flex items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            >
+              <BrandMark size={34} />
+              <div className="hidden text-left sm:block">
+                <div className="text-[15px] font-bold leading-tight text-gray-900">Acexen</div>
+                <div className="text-[11px] leading-tight text-gray-500">The Academic Excellence Engine</div>
               </div>
-              {user.organisation_name && (
-                <p className="mt-1 text-sm text-gray-500">{user.organisation_name}</p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
-                <User className="mr-2 h-4 w-4" />
-                <span>{user.name || user.email}</span>
-              </div>
-              <div className="inline-flex items-center rounded-full bg-primary-50 px-3 py-1.5 text-sm font-medium text-primary-700">
-                {normalizedRole === 'management'
-                  ? 'Management'
-                  : normalizedRole === 'student'
-                    ? 'Student'
-                    : 'Lecturer'}
-              </div>
+            </button>
+            {user.organisation_name && (
+              <>
+                <span className="hidden h-6 w-px bg-gray-200 md:block" />
+                <span className="hidden truncate text-sm font-medium text-gray-500 md:block">{user.organisation_name}</span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            {toolContext && (
               <button
-                onClick={logout}
-                className="flex items-center space-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                onClick={() => navigate('/tools')}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
               >
-                <LogOut className="h-4 w-4" />
-                <span>Logout</span>
+                <ChevronLeft className="h-4 w-4" />
+                All tools
               </button>
+            )}
+            <span className="hidden rounded-full bg-primary-50 px-2.5 py-1 text-xs font-semibold text-primary-700 ring-1 ring-inset ring-primary-100 sm:inline-flex">
+              {roleLabel}
+            </span>
+            <div className="flex items-center gap-2 rounded-full bg-white py-1 pl-1 pr-3 shadow-sm ring-1 ring-gray-200">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-accent-600 text-xs font-bold text-white">
+                {userInitial}
+              </span>
+              <span className="hidden max-w-[10rem] truncate text-sm font-medium text-gray-700 md:block">
+                {user.name || user.email}
+              </span>
             </div>
+            <button
+              onClick={logout}
+              title="Log out"
+              className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            >
+              <LogOut className="h-[18px] w-[18px]" />
+            </button>
           </div>
         </div>
       </header>
 
       {impersonation?.active && (
-        <div className="bg-amber-50 border-b border-amber-200">
-          <div className="w-full px-4 sm:px-6 lg:px-8 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="border-b border-amber-200 bg-amber-50">
+          <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-3 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
             <div className="flex items-center gap-2 text-sm text-amber-900">
               <Shield className="h-4 w-4" />
               <span>
@@ -537,7 +550,7 @@ function AppContent() {
             </div>
             <button
               onClick={() => void stopImpersonation()}
-              className="inline-flex items-center justify-center rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+              className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
             >
               Stop impersonating
             </button>
@@ -545,32 +558,26 @@ function AppContent() {
         </div>
       )}
 
-      <nav className="sticky top-0 z-30 bg-white border-b border-gray-200">
-        <div className="w-full px-4 sm:px-6 lg:px-8 py-4">
-          {!toolContext && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8">
+        <div className="pt-8">
+          {!toolContext && availableWorkspaces.length > 1 && (
+            <div className="mb-6 inline-flex max-w-full gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-sm ring-1 ring-gray-200">
               {availableWorkspaces.map((workspace) => {
                 const meta = WORKSPACE_META[workspace];
                 const Icon = meta.icon;
                 const isActive = workspace === activeWorkspace;
-
                 return (
                   <button
                     key={workspace}
                     onClick={() => switchWorkspace(workspace)}
-                    className={`h-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-all ${
                       isActive
-                        ? `${meta.accent} shadow-sm`
-                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        ? 'bg-primary-600 text-white shadow-sm'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                   >
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <Icon className="h-4 w-4" />
-                      <span>{meta.label}</span>
-                    </div>
-                    <div className="mt-1 max-w-sm text-xs opacity-80">
-                      {meta.description}
-                    </div>
+                    <Icon className="h-4 w-4" />
+                    {meta.label}
                   </button>
                 );
               })}
@@ -578,56 +585,49 @@ function AppContent() {
           )}
 
           {currentWorkspaceTabs.length > 0 && (
-            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
-                    {activeWorkspaceMeta.label}
-                  </p>
-                  <h2 className="mt-1 text-lg font-semibold text-gray-900">
-                    {activeTabMeta.label}
-                  </h2>
-                  <p className="mt-1 max-w-2xl text-sm text-gray-600">
-                    {activeTabMeta.description}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-600">
+                {activeWorkspaceMeta.label}
+              </p>
+              <h2 className="mt-1 text-2xl font-bold text-gray-900">{activeTabMeta.label}</h2>
+              <p className="mt-1 max-w-2xl text-sm text-gray-500">{activeTabMeta.description}</p>
+              {currentWorkspaceTabs.length > 1 && (
+                <div className="-mx-1 mt-5 flex gap-1 overflow-x-auto border-b border-gray-200 px-1">
                   {currentWorkspaceTabs.map((tab) => {
                     const meta = TAB_META[tab];
                     const Icon = meta.icon;
                     const isActive = activeTab === tab;
-
                     return (
                       <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
-                        className={`inline-flex items-center rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
+                        className={`-mb-px inline-flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors ${
                           isActive
-                            ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
-                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                            ? 'border-primary-600 text-primary-700'
+                            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-800'
                         }`}
                       >
-                        <Icon className="mr-2 h-4 w-4" />
+                        <Icon className="h-4 w-4" />
                         {meta.label}
                       </button>
                     );
                   })}
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
-      </nav>
 
-      <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
-        <WorkspaceShell
-          activeTab={activeTab}
-          canAccessTab={canAccessTab}
-          normalizedRole={normalizedRole}
-          pendingSlideContent={pendingSlideContent}
-          onCreateSlides={handleCreateSlides}
-        />
-      </main>
+        <main className="py-6">
+          <WorkspaceShell
+            activeTab={activeTab}
+            canAccessTab={canAccessTab}
+            normalizedRole={normalizedRole}
+            pendingSlideContent={pendingSlideContent}
+            onCreateSlides={handleCreateSlides}
+          />
+        </main>
+      </div>
     </div>
   );
 }
