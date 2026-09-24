@@ -59,6 +59,13 @@ const authenticateToken = async (req, res, next) => {
       return res.status(403).json({ error: 'Account is inactive' });
     }
 
+    // Re-checked on every request, not just at login: a user approved when
+    // their token was issued but rejected since (without also being
+    // deactivated) must lose access immediately, not just on their next login.
+    if (!user.is_approved) {
+      return res.status(403).json({ error: 'Account is pending approval' });
+    }
+
     // Check session validity (jti-based revocation) — only for tokens that carry a jti
     if (decoded.jti) {
       const sessionResult = await query(

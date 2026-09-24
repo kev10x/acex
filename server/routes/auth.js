@@ -746,11 +746,23 @@ router.post('/admin/users/:id/impersonate', requireAuth, requireAdmin, async (re
       impersonated_by_email: req.user.email,
       impersonated_by_name: req.user.name || null
     };
+    // Give the impersonation token a jti too, so it gets a real user_sessions
+    // row: without one it was invisible to the admin sessions list and could
+    // not be revoked — it just ran until natural JWT expiry regardless of
+    // what happened to the admin's or target's account in the meantime.
+    const jti = crypto.randomUUID();
     const token = generateToken(targetUser.id, {
+      jti,
       impersonatedBy: req.user.id,
       impersonatedByEmail: req.user.email,
       impersonatedByName: req.user.name || null
     });
+    const ipAddress = req.ip || (String(req.headers['x-forwarded-for'] || '')).split(',')[0].trim() || null;
+    const userAgent = req.headers['user-agent'] || null;
+    query(
+      'INSERT INTO user_sessions (user_id, jti, ip_address, user_agent) VALUES ($1, $2, $3, $4)',
+      [targetUser.id, jti, ipAddress || null, userAgent || null]
+    ).catch((err) => console.warn('Failed to record impersonation session:', err.message));
 
     await auditAdminAction(req, 'impersonate_user', targetUser.id, {
       target_email: targetUser.email,
