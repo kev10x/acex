@@ -2408,3 +2408,18 @@ export const sessionsApi = {
 };
 
 export default api;
+
+export interface PrivacyStatus {
+  current_version: string;
+  accepted_at: string | null;
+  accepted_version: string | null;
+  needs_acceptance: boolean;
+}
+
+export const privacyAPI = {
+  status: () => api.get<{ success: boolean } & PrivacyStatus>('/privacy/status'),
+  accept: () => api.post<{ success: boolean } & PrivacyStatus>('/privacy/accept'),
+  downloadMyData: () => api.get('/privacy/my-data', { responseType: 'blob' }),
+  createRequest: (type: 'erasure' | 'correction' | 'objection', details: string) =>
+    api.post<{ success: boolean; message: string }>('/privacy/requests', { type, details }),
+};

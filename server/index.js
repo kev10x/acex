@@ -64,10 +64,28 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-if (basePath) {
-  app.use(basePath + '/uploads', express.static(path.join(__dirname, 'uploads')));
+// Baseline security headers (POPIA s19: reasonable technical safeguards).
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+// Only lesson artwork is public. Everything else under uploads/ (student scripts,
+// feedback videos, temp files, media processing) must never be served statically.
+const PUBLIC_UPLOAD_DIRS = ['content-images', 'content-template-media'];
+for (const dir of PUBLIC_UPLOAD_DIRS) {
+  const root = path.join(__dirname, 'uploads', dir);
+  app.use('/uploads/' + dir, express.static(root, { index: false, dotfiles: 'deny' }));
+  if (basePath) {
+    app.use(basePath + '/uploads/' + dir, express.static(root, { index: false, dotfiles: 'deny' }));
+  }
 }
 
 // API router (mount at /api and optionally at BASE_PATH + /api when proxy forwards full path e.g. /tools/api)
@@ -92,6 +110,7 @@ apiRouter.use('/moodle', require('./routes/moodle'));
 apiRouter.use('/slide-gen', require('./routes/slideGen'));
 apiRouter.use('/video-gen', require('./routes/videoGen'));
 apiRouter.use('/course-builder', require('./routes/courseBuilder'));
+apiRouter.use('/privacy', require('./routes/privacy'));
 apiRouter.use('/pptx-jobs', require('./routes/pptxJobs'));
 apiRouter.use('/revisions', require('./routes/revisions'));
 apiRouter.use('/system', require('./routes/system'));

@@ -57,6 +57,8 @@ const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudi
 const VideoGenerator = lazy(() => import('./components/VideoGenerator'));
 const CourseManager = lazy(() => import('./components/CourseManager'));
 const CourseBuilder = lazy(() => import('./components/CourseBuilder'));
+const PrivacyNotice = lazy(() => import('./components/PrivacyNotice'));
+const PrivacyConsentModal = lazy(() => import('./components/PrivacyConsentModal'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
@@ -437,6 +439,14 @@ function AppContent() {
     );
   }
 
+  if (currentPath.includes('privacy-notice')) {
+    return (
+      <Suspense fallback={<TabLoadingFallback />}>
+        <PrivacyNotice />
+      </Suspense>
+    );
+  }
+
   if (currentPath.includes('take-content')) {
     return (
       <Suspense fallback={<TabLoadingFallback />}>
@@ -512,6 +522,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-app">
+      <Suspense fallback={null}><PrivacyConsentModal /></Suspense>
       <header className="sticky top-0 z-40 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">

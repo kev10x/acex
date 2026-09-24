@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { KeyRound, Loader2, Mail, ShieldCheck, User as UserIcon, X } from 'lucide-react';
+import { Download, KeyRound, Loader2, Mail, ShieldCheck, User as UserIcon, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { getApiErrorMessage } from '../services/api';
+import { getApiErrorMessage, privacyAPI } from '../services/api';
 
 const ROLE_LABEL: Record<string, string> = { management: 'Management', lecturer: 'Lecturer', student: 'Student' };
 
@@ -15,6 +15,10 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [requestType, setRequestType] = useState<'erasure' | 'correction' | 'objection'>('erasure');
+  const [requestDetails, setRequestDetails] = useState('');
+  const [sendingRequest, setSendingRequest] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -60,6 +64,38 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const downloadMyData = async () => {
+    setDownloading(true);
+    try {
+      const res = await privacyAPI.downloadMyData();
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `my-data-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      notifyError(getApiErrorMessage(err, 'Could not export your data'), 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const sendRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSendingRequest(true);
+    try {
+      const res = await privacyAPI.createRequest(requestType, requestDetails.trim());
+      setRequestDetails('');
+      notifySuccess(res.data.message, 'Request sent');
+    } catch (err) {
+      notifyError(getApiErrorMessage(err, 'Could not send your request'), 'Request failed');
+    } finally {
+      setSendingRequest(false);
+    }
+  };
+
+  const privacyBase = ((import.meta as any).env?.BASE_URL || '/').replace(/\/$/, '');
   const inputCls = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm';
 
   return (
@@ -110,6 +146,25 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
               {savingPassword && <Loader2 className="h-4 w-4 animate-spin" />}Update password
             </button>
           </form>
+
+          <div className="space-y-3 border-t border-gray-100 pt-6">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900"><ShieldCheck className="h-4 w-4 text-primary-600" />Your data</h3>
+            <p className="text-xs text-gray-500">You can download everything Acexen holds about you, or ask for it to be corrected or deleted. Read the <a className="underline" href={`${privacyBase}/privacy-notice`} target="_blank" rel="noreferrer">privacy notice</a>.</p>
+            <button type="button" onClick={downloadMyData} disabled={downloading} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50">
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}Download my data
+            </button>
+            <form onSubmit={sendRequest} className="space-y-2">
+              <select className={inputCls} value={requestType} onChange={(e) => setRequestType(e.target.value as 'erasure' | 'correction' | 'objection')}>
+                <option value="erasure">Delete my information</option>
+                <option value="correction">Correct my information</option>
+                <option value="objection">Object to how it is used / human review</option>
+              </select>
+              <textarea className={inputCls} rows={2} maxLength={2000} value={requestDetails} onChange={(e) => setRequestDetails(e.target.value)} placeholder="Tell us what you need (optional)" />
+              <button type="submit" disabled={sendingRequest} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50">
+                {sendingRequest && <Loader2 className="h-4 w-4 animate-spin" />}Send request
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
