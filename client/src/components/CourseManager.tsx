@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { BookOpen, ChevronLeft, Plus, Trash2, Users } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { BookOpen, ChevronLeft, Plus, Trash2, Upload, Users } from 'lucide-react';
 import {
   coursesAPI,
   assessmentsAPI,
@@ -113,6 +113,28 @@ const CourseManager: React.FC = () => {
     }
   };
 
+  const [csvFileName, setCsvFileName] = useState('');
+  const csvFileRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvFile = async (file: File) => {
+    const text = await file.text();
+    // Pull every email-shaped token out of the file rather than parsing CSV
+    // structure strictly — this handles a bare list, "email" column with a
+    // header, or a "name,email" export equally well with no dependency.
+    const found = text.match(/[^\s,;<>"]+@[^\s,;<>"]+\.[^\s,;<>"]+/g) || [];
+    const emails = Array.from(new Set(found.map((e) => e.trim().replace(/[.,;]+$/, ''))));
+    if (emails.length === 0) {
+      notifyError('No email addresses found in that file', 'Nothing to import');
+      return;
+    }
+    setCsvFileName(file.name);
+    setEnrollEmails((prev) => {
+      const existing = prev.split(/[,\n]/).map((e) => e.trim()).filter(Boolean);
+      return Array.from(new Set([...existing, ...emails])).join('\n');
+    });
+    notifySuccess(`Found ${emails.length} email address(es) — review the list below, then click Enroll`, 'CSV parsed');
+  };
+
   const handleEnroll = async () => {
     if (!selectedCourse) return;
     const emails = enrollEmails.split(/[,\n]/).map((e) => e.trim()).filter(Boolean);
@@ -127,6 +149,7 @@ const CourseManager: React.FC = () => {
         notifySuccess(`Enrolled ${res.data.results.length} student(s)`, 'Success');
       }
       setEnrollEmails('');
+      setCsvFileName('');
       const enrollRes = await coursesAPI.listEnrollments(selectedCourse.id);
       if (enrollRes.data.success) setEnrollments(enrollRes.data.enrollments);
     } catch (e: any) {
@@ -261,7 +284,7 @@ const CourseManager: React.FC = () => {
         {!isStudent && activeTab === 'roster' && (
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-sm font-semibold text-gray-800 mb-3">Enroll students</h2>
-            <div className="flex flex-col sm:flex-row gap-2 mb-6">
+            <div className="flex flex-col sm:flex-row gap-2 mb-2">
               <textarea
                 value={enrollEmails}
                 onChange={(e) => setEnrollEmails(e.target.value)}
@@ -279,7 +302,28 @@ const CourseManager: React.FC = () => {
                 Enroll
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4">Students must already have an account. Separate multiple emails with commas or newlines.</p>
+            <div className="mb-4">
+              <input
+                ref={csvFileRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleCsvFile(f);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => csvFileRef.current?.click()}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-700 hover:text-primary-800"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import from CSV{csvFileName ? ` — ${csvFileName}` : ''}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Students must already have an account. Separate multiple emails with commas or newlines, or import a CSV (a roster export, or a plain list of emails).</p>
 
             <h2 className="text-sm font-semibold text-gray-800 mb-3">Roster ({enrollments.length})</h2>
             {enrollments.length === 0 ? (
