@@ -183,6 +183,45 @@ class EmailService {
     }
   }
 
+  async sendHomeworkEmail({ email, name, moduleName, assignedBy, loginUrl }) {
+    const app = APP_NAME();
+    const color = APP_COLOR();
+    const mailOptions = {
+      from: process.env.SMTP_FROM || process.env.GMAIL_USER || process.env.SMTP_USER || 'noreply@markmate.com',
+      to: email,
+      subject: `New homework for you: ${moduleName}`,
+      html: `
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: ${color}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="margin: 0;">${esc(app)}</h1>
+          </div>
+          <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+            <h2 style="color: #1f2937; margin-top: 0;">You have new homework</h2>
+            <p>Hello${name ? ` ${esc(name)}` : ''},</p>
+            <p>${assignedBy ? `${esc(assignedBy)} has prepared` : 'Your lecturer has prepared'} a personalised homework module for you, based on your recent work:</p>
+            <p style="font-size: 16px;"><strong>${esc(moduleName)}</strong></p>
+            <p>It contains a short lesson and an activity to help you strengthen the areas you found tricky.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${loginUrl}" style="background-color: ${color}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Open my homework</a>
+            </div>
+            <p style="font-size: 12px; color: #9ca3af; word-break: break-all;">${loginUrl}</p>
+          </div>
+        </body></html>
+      `,
+      text: `You have new homework\n\nHello${name ? ` ${name}` : ''},\n\n${assignedBy ? `${assignedBy} has prepared` : 'Your lecturer has prepared'} a personalised homework module for you: ${moduleName}\n\nOpen it here: ${loginUrl}\n`,
+    };
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log('Homework email sent:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('Error sending homework email:', error);
+      throw error;
+    }
+  }
+
   async sendPasswordResetEmail(email, token, name) {
     const resetUrl = `${require('./accountSetupService').getAppUrl()}/reset-password?token=${token}`;
 

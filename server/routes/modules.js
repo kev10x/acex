@@ -4,6 +4,7 @@ const { query } = require('../database/connection');
 const { requireAuth, requireFeature, requireRoles } = require('../middleware/auth');
 const contentService = require('../services/contentService');
 const aiService = require('../services/aiService');
+const emailService = require('../services/emailService');
 const aiConfig = require('../config/ai-config');
 const {
   inferGenerationErrorType,
@@ -580,6 +581,38 @@ async function createModule(userId, name) {
 }
 
 const HOMEWORK_WORKFLOW_STATES = new Set(['draft', 'reviewed', 'published']);
+
+// Tell a homework module's students it is now available. Called only when a
+// module moves into "published" (drafts are hidden from students), and never
+// blocks or fails the publish.
+async function notifyHomeworkPublished(moduleId, moduleName, assignedBy) {
+  try {
+    const q = isMySQL()
+      ? await query(
+          `SELECT u.email, u.name FROM module_students ms
+           INNER JOIN users u ON u.id = ms.student_user_id
+           WHERE ms.module_id = ? AND u.is_active = 1`,
+          [moduleId]
+        )
+      : await query(
+          `SELECT u.email, u.name FROM module_students ms
+           INNER JOIN users u ON u.id = ms.student_user_id
+           WHERE ms.module_id = $1 AND u.is_active = TRUE`,
+          [moduleId]
+        );
+    const loginUrl = require('../services/accountSetupService').getAppUrl();
+    for (const student of rowList(q)) {
+      if (!student.email) continue;
+      try {
+        await emailService.sendHomeworkEmail({ email: student.email, name: student.name, moduleName, assignedBy, loginUrl });
+      } catch (err) {
+        console.warn('[homework] Notification email failed for', student.email, err?.message || err);
+      }
+    }
+  } catch (err) {
+    console.warn('[homework] Could not notify students:', err?.message || err);
+  }
+}
 
 async function ensureHomeworkWorkflow(homeworkModuleId, userId, status = 'draft', notes = null, reasonSummary = null, reasonPayload = null) {
   const safeStatus = HOMEWORK_WORKFLOW_STATES.has(String(status)) ? String(status) : 'draft';
@@ -2484,6 +2517,9 @@ router.put('/homework-workflow/bulk', requireAuth, async (req, res) => {
       }
 
       updatedIds.push(moduleId);
+      if (status === 'published' && String(row.workflow_status || '') !== 'published') {
+        notifyHomeworkPublished(moduleId, String(row.name || 'Homework'), req.user.name).catch(() => {});
+      }
     }
 
     try {
@@ -2658,6 +2694,9 @@ router.put('/:id/homework-workflow', requireAuth, async (req, res) => {
       console.warn('[homework-workflow] Failed to persist single workflow event:', eventError?.message || eventError);
     }
     invalidateHomeworkAnalyticsCacheForUser(req.user.id);
+    if (status === 'published' && String(existing.status || '') !== 'published') {
+      notifyHomeworkPublished(moduleId, moduleName, req.user.name).catch(() => {});
+    }
 
     res.json({
       success: true,
