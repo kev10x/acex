@@ -878,10 +878,10 @@ const AdminDashboard: React.FC = () => {
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
+        <nav className="-mb-px no-scrollbar flex space-x-8 overflow-x-auto">
           <button
             onClick={() => setActiveTab('pending')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+            className={`shrink-0 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'pending'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -891,7 +891,7 @@ const AdminDashboard: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('all')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+            className={`shrink-0 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'all'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -901,7 +901,7 @@ const AdminDashboard: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('performance')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+            className={`shrink-0 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'performance'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -911,7 +911,7 @@ const AdminDashboard: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('system')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+            className={`shrink-0 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'system'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -921,7 +921,7 @@ const AdminDashboard: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('sessions')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+            className={`shrink-0 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'sessions'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1835,7 +1835,7 @@ const AdminDashboard: React.FC = () => {
               <p className="text-gray-600">No active sessions in the past 24 hours</p>
             </div>
           ) : (
-            <div className="bg-white shadow-sm rounded-2xl overflow-hidden border border-gray-200/70">
+            <div className="bg-white shadow-sm rounded-2xl overflow-x-auto border border-gray-200/70">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -1910,7 +1910,7 @@ const AdminDashboard: React.FC = () => {
               <p className="text-gray-600">No pending user approvals</p>
             </div>
           ) : (
-            <div className="bg-white shadow-sm rounded-2xl overflow-hidden border border-gray-200/70">
+            <div className="bg-white shadow-sm rounded-2xl overflow-x-auto border border-gray-200/70">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -2063,6 +2063,7 @@ const AdminDashboard: React.FC = () => {
               </p>
             </div>
           ) : (
+          <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -2273,6 +2274,7 @@ const AdminDashboard: React.FC = () => {
               })}
             </tbody>
           </table>
+          </div>
           )}
         </div>
       )}
