@@ -889,7 +889,7 @@ const SlideGeneratorStudio: React.FC<SlideGeneratorStudioProps> = ({ initialCont
                           <button
                             onClick={() => handlePastBatchDownload(job.id)}
                             disabled={isDownloading}
-                            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium disabled:opacity-60 disabled:cursor-not-allowed border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                           >
                             {isDownloading ? <Loader className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                             ZIP

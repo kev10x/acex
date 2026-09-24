@@ -627,8 +627,8 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="w-full">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
-        <p className="text-gray-600">Manage user registrations and permissions</p>
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Admin dashboard</h1>
+        <p className="mt-1 text-sm text-gray-500">Manage user registrations, permissions, and organisations.</p>
         {/* Debug info - remove in production */}
         {import.meta.env.DEV && (
           <div className="mt-2 text-xs text-gray-500">
@@ -639,36 +639,37 @@ const AdminDashboard: React.FC = () => {
         )}
       </div>
 
-      <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+      <details className="group mb-4 overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-gray-900 hover:bg-gray-50"><span>Role impersonation<span className="ml-2 font-normal text-gray-500">Test the app as a lecturer or student</span></span><span className="text-xs font-medium text-primary-600 group-open:hidden">Show</span><span className="hidden text-xs font-medium text-gray-500 group-open:inline">Hide</span></summary>
+      <div className="border-t border-gray-100 p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-indigo-900 mb-1">Role impersonation</h3>
-            <p className="text-xs text-indigo-800">
+            <p className="text-sm text-gray-500">
               Start an admin-only test session as an active approved lecturer or student account.
             </p>
           </div>
           <div className="grid w-full gap-3 sm:grid-cols-[160px_minmax(220px,1fr)_auto] lg:w-auto">
             <div>
-              <label className="block text-xs font-medium text-indigo-900 mb-1">Role</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Role</label>
               <select
                 value={impersonationRole}
                 onChange={(e) => {
                   setImpersonationRole(e.target.value as ImpersonableRole);
                   setImpersonationUserId('');
                 }}
-                className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm"
               >
                 <option value="lecturer">Lecturer</option>
                 <option value="student">Student</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-indigo-900 mb-1">Account</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Account</label>
               <select
                 value={impersonationUserId}
                 onChange={(e) => setImpersonationUserId(e.target.value ? Number(e.target.value) : '')}
                 disabled={impersonationCandidates.length === 0}
-                className="w-full rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm disabled:bg-indigo-100 disabled:text-indigo-400"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm disabled:bg-gray-100 disabled:text-gray-400"
               >
                 {impersonationCandidates.length === 0 ? (
                   <option value="">No eligible users</option>
@@ -688,7 +689,7 @@ const AdminDashboard: React.FC = () => {
               type="button"
               onClick={() => void handleRoleImpersonation()}
               disabled={!selectedImpersonationCandidate || actionLoading === selectedImpersonationCandidate.id}
-              className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50"
             >
               <User className="mr-2 h-4 w-4" />
               {actionLoading === selectedImpersonationCandidate?.id ? 'Starting...' : 'Start session'}
@@ -696,10 +697,13 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+      </details>
 
-      <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+      <details className="group mb-6 overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-gray-900 hover:bg-gray-50"><span>Organisations & departments<span className="ml-2 font-normal text-gray-500">Create organisations, departments and set feature access</span></span><span className="text-xs font-medium text-primary-600 group-open:hidden">Show</span><span className="hidden text-xs font-medium text-gray-500 group-open:inline">Hide</span></summary>
+      <div className="space-y-4 border-t border-gray-100 p-5">
         <div>
-          <h3 className="text-sm font-semibold text-gray-800 mb-1">Organisation and department management</h3>
+          <h3 className="hidden text-sm font-semibold text-gray-800 mb-1">Organisation and department management</h3>
           <p className="text-xs text-gray-600">
             {isSuperAdmin
               ? 'The super admin can create organisations and departments across the platform.'
@@ -870,6 +874,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
       </div>
+      </details>
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-6">
@@ -1989,7 +1994,7 @@ const AdminDashboard: React.FC = () => {
                           <button
                             onClick={() => handleApprove(pendingUser.id)}
                             disabled={actionLoading === pendingUser.id}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                            className="inline-flex items-center px-3 py-1 text-sm leading-4 font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
                             Approve
@@ -1997,7 +2002,7 @@ const AdminDashboard: React.FC = () => {
                           <button
                             onClick={() => handleReject(pendingUser.id)}
                             disabled={actionLoading === pendingUser.id}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
+                            className="inline-flex items-center px-3 py-1 text-sm leading-4 font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                           >
                             <XCircle className="h-4 w-4 mr-1" />
                             Reject

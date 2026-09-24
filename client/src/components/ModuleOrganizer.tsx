@@ -754,7 +754,7 @@ const ModuleOrganizer: React.FC = () => {
 
         {/* ── Library panel ──────────────────────────────── */}
         <div
-          className="lg:w-80 shrink-0 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden sticky top-4"
+          className="lg:w-80 shrink-0 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden lg:sticky lg:top-24 lg:self-start"
           onDragEnd={resetLibDrag}
         >
           <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
@@ -988,9 +988,11 @@ const ModuleOrganizer: React.FC = () => {
 
         {/* ── Modules panel ───────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-4">
-          <details className="bg-white border border-primary-200 rounded-xl shadow-sm overflow-hidden" open={trendRows.length > 0}>
-            <summary className="cursor-pointer list-none px-4 py-3 bg-primary-50 border-b border-primary-100 text-sm font-semibold text-primary-900">
-              Outcome trends by student ({trendRows.length})
+          <details className="group bg-white border border-gray-200/70 rounded-2xl shadow-sm overflow-hidden" open={trendRows.length > 0}>
+            <summary className="flex cursor-pointer list-none items-center gap-2.5 border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50">
+              <span className="h-2 w-2 rounded-full bg-primary-500" />
+              Outcome trends by student
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{trendRows.length}</span>
             </summary>
             <div className="p-3 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -1129,9 +1131,11 @@ const ModuleOrganizer: React.FC = () => {
             </div>
           </details>
 
-          <details className="bg-white border border-amber-200 rounded-xl shadow-sm overflow-hidden" open={homeworkReviewQueue.length > 0}>
-            <summary className="cursor-pointer list-none px-4 py-3 bg-amber-50 border-b border-amber-100 text-sm font-semibold text-amber-900">
-              Homework review queue ({homeworkReviewQueue.length})
+          <details className="group bg-white border border-gray-200/70 rounded-2xl shadow-sm overflow-hidden" open={homeworkReviewQueue.length > 0}>
+            <summary className="flex cursor-pointer list-none items-center gap-2.5 border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              Homework review queue
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{homeworkReviewQueue.length}</span>
             </summary>
             <div className="p-3">
               {homeworkReviewQueue.length === 0 ? (
@@ -1165,9 +1169,11 @@ const ModuleOrganizer: React.FC = () => {
             </div>
           </details>
 
-          <details className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden" open={homeworkHistory.length > 0}>
-            <summary className="cursor-pointer list-none px-4 py-3 bg-emerald-50 border-b border-emerald-100 text-sm font-semibold text-emerald-900">
-              Custom homework history ({homeworkHistory.length})
+          <details className="group bg-white border border-gray-200/70 rounded-2xl shadow-sm overflow-hidden" open={homeworkHistory.length > 0}>
+            <summary className="flex cursor-pointer list-none items-center gap-2.5 border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Custom homework history
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{homeworkHistory.length}</span>
             </summary>
             <div className="p-3">
               <div className="mb-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
@@ -1552,13 +1558,13 @@ const ModuleOrganizer: React.FC = () => {
               onChange={(e) => setModuleName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void handleCreateModule()}
               placeholder="New module name (e.g. Module 1: Algebra)"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
             />
             <button
               type="button"
               onClick={handleCreateModule}
               disabled={working === 'create' || !moduleName.trim()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary-600 text-white rounded-lg shadow-sm hover:bg-primary-700 disabled:opacity-50 whitespace-nowrap"
             >
               {working === 'create'
                 ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -1623,7 +1629,7 @@ const ModuleOrganizer: React.FC = () => {
                         type="button"
                         onClick={() => handleDeleteModule(module.id)}
                         disabled={working === `del-mod-${module.id}`}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 shrink-0"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg disabled:opacity-50 shrink-0 border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                       >
                         <Trash2 className="w-3 h-3" />
                         Delete
@@ -1800,7 +1806,7 @@ const ModuleOrganizer: React.FC = () => {
                           type="button"
                           onClick={() => handleAddStudent(module.id)}
                           disabled={!studentByModule[module.id] || working === `add-stu-${module.id}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 shrink-0"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg disabled:opacity-50 shrink-0 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                         >
                           <UserPlus className="w-3 h-3" />
                           Add

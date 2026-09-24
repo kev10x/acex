@@ -1609,7 +1609,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     <div className="w-full">
       <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200/70">
         <div className="flex items-center gap-3 mb-6">
-          <Presentation className="w-8 h-8 text-teal-600" />
+          <Presentation className="w-8 h-8 text-primary-600" />
           <h1 className="text-2xl font-bold text-gray-900">Lesson Generator</h1>
         </div>
         <p className="text-gray-600 mb-6">
@@ -1641,7 +1641,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 onClick={() => setStudioStep(step.id)}
                 className={`text-left rounded-lg border px-3 py-2 transition ${
                   studioStep === step.id
-                    ? 'border-teal-400 bg-white shadow-sm'
+                    ? 'border-primary-400 bg-white shadow-sm'
                     : 'border-slate-200 bg-white/60 hover:bg-white'
                 }`}
               >
@@ -1652,14 +1652,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           </div>
         </div>
 
-        <details className="mb-6 bg-teal-50 border border-teal-200 rounded-lg overflow-hidden">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-900 flex items-center justify-between">
+        <details className="mb-6 bg-primary-50 border border-primary-200 rounded-lg overflow-hidden">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-primary-900 flex items-center justify-between">
             <span>My published content links ({myContent.length})</span>
-            <button type="button" onClick={(e) => { e.preventDefault(); loadMyContent(); }} className="text-xs font-normal text-teal-700 underline hover:text-teal-900">Load</button>
+            <button type="button" onClick={(e) => { e.preventDefault(); loadMyContent(); }} className="text-xs font-normal text-primary-700 underline hover:text-primary-900">Load</button>
           </summary>
           <div className="px-4 pb-4">
             {myContent.length === 0 ? (
-              <p className="text-sm text-teal-900">No published content yet.</p>
+              <p className="text-sm text-primary-900">No published content yet.</p>
             ) : (
               <>
                 {selectedContentIds.size > 0 && (
@@ -1669,7 +1669,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       type="button"
                       onClick={handleDeleteSelected}
                       disabled={isDeletingSelected}
-                      className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-lg disabled:opacity-50 border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                     >
                       {isDeletingSelected ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                       Delete selected
@@ -1690,7 +1690,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     return (
                       <li
                         key={item.id}
-                        className={`flex items-center gap-2 flex-wrap rounded-lg px-2 py-1 transition-colors ${isSelected ? 'bg-teal-100 border border-teal-300' : 'border border-transparent'}`}
+                        className={`flex items-center gap-2 flex-wrap rounded-lg px-2 py-1 transition-colors ${isSelected ? 'bg-primary-100 border border-primary-300' : 'border border-transparent'}`}
                       >
                         <input
                           type="checkbox"
@@ -1702,14 +1702,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                               return next;
                             });
                           }}
-                          className="w-4 h-4 accent-teal-600 cursor-pointer"
+                          className="w-4 h-4 accent-primary-600 cursor-pointer"
                         />
                         <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
                         <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
                         <button
                           type="button"
                           onClick={() => navigator.clipboard.writeText(link)}
-                          className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+                          className="px-2 py-1 text-xs rounded-lg border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors"
                         >
                           Copy link
                         </button>
@@ -1717,7 +1717,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           type="button"
                           onClick={() => handleEditPublishedContent(item.id)}
                           disabled={loadingPublishedContentId === item.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                         >
                           {loadingPublishedContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
                           Edit
@@ -1726,7 +1726,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           type="button"
                           onClick={() => handleDeleteContent(item.id, item.title)}
                           disabled={deletingContentId === item.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg disabled:opacity-50 border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                           title="Delete published content"
                         >
                           {deletingContentId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -1777,7 +1777,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           <button
                             type="button"
                             onClick={() => navigator.clipboard.writeText(link)}
-                            className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
+                            className="px-2 py-1 text-xs rounded-lg border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors"
                           >
                             Copy link
                           </button>
@@ -1788,7 +1788,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           type="button"
                           onClick={() => handleCancelPlannerJob(job.id)}
                           disabled={cancellingPlannerJobId === job.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                         >
                           {cancellingPlannerJobId === job.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Cancel'}
                         </button>
@@ -1878,7 +1878,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   <button
                     type="button"
                     onClick={() => setSectionMode('manual')}
-                    className={`px-3 py-1.5 text-xs rounded border ${sectionMode === 'manual' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-slate-300'}`}
+                    className={`px-3 py-1.5 text-xs rounded border ${sectionMode === 'manual' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-700 border-slate-300'}`}
                   >
                     Manual
                   </button>
@@ -1888,7 +1888,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       setSectionMode('auto');
                       if (autoSectionSuggestion) setNumSections(autoSectionSuggestion);
                     }}
-                    className={`px-3 py-1.5 text-xs rounded border ${sectionMode === 'auto' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-slate-300'}`}
+                    className={`px-3 py-1.5 text-xs rounded border ${sectionMode === 'auto' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-700 border-slate-300'}`}
                   >
                     Auto from upload
                   </button>
@@ -1980,7 +1980,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="checkbox"
                 checked={includeDiagrams}
                 onChange={(e) => setIncludeDiagrams(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                className="w-4 h-4 text-primary-600 border-gray-300 rounded"
               />
               <span className="text-sm text-gray-700">Include charts/diagrams <span className="text-gray-400 text-xs">(AI-generated)</span></span>
             </label>
@@ -1989,7 +1989,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="checkbox"
                 checked={includeImages}
                 onChange={(e) => setIncludeImages(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                className="w-4 h-4 text-primary-600 border-gray-300 rounded"
               />
               <span className="text-sm text-gray-700">Include images <span className="text-gray-400 text-xs">(AI-generated, adds time)</span></span>
             </label>
@@ -1998,7 +1998,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="checkbox"
                 checked={includeMascot}
                 onChange={(e) => setIncludeMascot(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                className="w-4 h-4 text-primary-600 border-gray-300 rounded"
               />
               <span className="text-sm text-gray-700">Generate mascots per section <span className="text-gray-400 text-xs">(AI-generated)</span></span>
             </label>
@@ -2007,7 +2007,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="checkbox"
                 checked={includeBeautifyText}
                 onChange={(e) => setIncludeBeautifyText(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                className="w-4 h-4 text-primary-600 border-gray-300 rounded"
               />
               <span className="text-sm text-gray-700">Beautify section text with AI <span className="text-gray-400 text-xs">(extra pass, adds cost)</span></span>
             </label>
@@ -2016,7 +2016,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="checkbox"
                 checked={includeVideo}
                 onChange={(e) => setIncludeVideo(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                className="w-4 h-4 text-primary-600 border-gray-300 rounded"
               />
               <Video className="w-4 h-4 text-gray-500" />
               <span className="text-sm text-gray-700">Include AI video (Sora) when publishing</span>
@@ -2030,7 +2030,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   setIncludeTextToSpeech(enabled);
                   if (generatedContentRef.current) setGeneratedContentTracked({ ...generatedContentRef.current, tts_enabled: enabled });
                 }}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                className="w-4 h-4 text-primary-600 border-gray-300 rounded"
               />
               <span className="text-sm text-gray-700">Enable text-to-speech for students</span>
             </label>
@@ -2079,7 +2079,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       type="checkbox"
                       checked={planConfirmed}
                       onChange={(e) => setPlanConfirmed(e.target.checked)}
-                      className="w-4 h-4 text-teal-600 border-gray-300 rounded"
+                      className="w-4 h-4 text-primary-600 border-gray-300 rounded"
                     />
                     I confirm these settings and want to start generation now.
                   </label>
@@ -2089,7 +2089,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <button
                   onClick={handleGenerate}
                   disabled={isGenerating || !planConfirmed}
-                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                 >
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                   Generate content
@@ -2135,7 +2135,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 type="button"
                 onClick={handleGenerate}
                 disabled={isGenerating}
-                className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
               >
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                 Regenerate from current plan
@@ -2143,19 +2143,19 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
             </div>
           )}
           {generationProgress.active && (
-            <div className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-3">
-              <div className="mb-1 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-teal-800">
+            <div className="rounded-lg border border-primary-100 bg-primary-50 px-3 py-3">
+              <div className="mb-1 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-primary-800">
                 <span>{generationProgress.label}</span>
                 <span>{Math.round(generationProgress.percent)}%</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-teal-100">
+              <div className="h-2 overflow-hidden rounded-full bg-primary-100">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 transition-all duration-700 ease-out"
+                  className="h-full rounded-full bg-gradient-to-r from-primary-500 to-cyan-500 transition-all duration-700 ease-out"
                   style={{ width: `${Math.max(0, Math.min(100, generationProgress.percent))}%` }}
                 />
               </div>
               {generationProgress.detail && (
-                <p className="mt-2 text-xs text-teal-900/80">{generationProgress.detail}</p>
+                <p className="mt-2 text-xs text-primary-900/80">{generationProgress.detail}</p>
               )}
             </div>
           )}
@@ -2176,14 +2176,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   <button
                     type="button"
                     onClick={() => setPreviewMode('content')}
-                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'content' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'content' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
                     Content
                   </button>
                   <button
                     type="button"
                     onClick={() => { setPreviewMode('slideshow'); setSlideshowSection(0); }}
-                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'slideshow' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${previewMode === 'slideshow' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
                     Slideshow
                   </button>
@@ -2197,7 +2197,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               <button
                 onClick={handleSaveDraft}
                 disabled={isSavingDraft}
-                className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
               >
                 {isSavingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                 {activePublishedContentId ? 'Save published content' : activeHistoryId ? 'Save changes' : 'Save draft'}
@@ -2221,7 +2221,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               <button
                 onClick={() => handleExport('pptx')}
                 disabled={!!exporting}
-                className="flex items-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
               >
                 {exporting === 'pptx' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 Download PPTX
@@ -2289,7 +2289,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               <button
                 onClick={() => handleExport('lecture-notes')}
                 disabled={!!exporting}
-                className="flex items-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
               >
                 {exporting === 'lecture-notes' ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />}
                 Lecture notes
@@ -2297,34 +2297,35 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               <button
                 onClick={handleExportScorm}
                 disabled={!!exporting}
-                className="flex items-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
               >
                 {exporting === 'scorm' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                 SCORM package
               </button>
+              <div className="hidden flex-1 lg:block" />
               {onCreateSlides && (
                 <button
                   type="button"
                   onClick={() => onCreateSlides(generatedContent)}
-                  className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
                 >
                   <SlidersHorizontal className="w-4 h-4" />
                   Create slides
                 </button>
               )}
               <button
-                onClick={() => handlePublish(false)}
-                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-              >
-                <Link2 className="w-4 h-4" />
-                {activePublishedContentId ? 'Update student version' : 'Publish for students'}
-              </button>
-              <button
                 onClick={() => handlePublish(true)}
-                className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                className="inline-flex items-center gap-2 rounded-lg border border-primary-200 bg-primary-50 px-3.5 py-2 text-sm font-semibold text-primary-700 transition-colors hover:bg-primary-100"
               >
                 <Video className="w-4 h-4" />
                 {activePublishedContentId ? 'Update with video kept' : 'Publish with video'}
+              </button>
+              <button
+                onClick={() => handlePublish(false)}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+              >
+                <Link2 className="w-4 h-4" />
+                {activePublishedContentId ? 'Update student version' : 'Publish for students'}
               </button>
             </div>
           </div>
@@ -2335,7 +2336,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <select
                   value={selectedModuleId ?? ''}
                   onChange={(e) => setSelectedModuleId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
                 >
                   <option value="">Do not assign</option>
                   {modules.map((module) => (
@@ -2349,7 +2350,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   value={newModuleName}
                   onChange={(e) => setNewModuleName(e.target.value)}
                   placeholder="New module name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
                 />
               </div>
             </div>
@@ -2360,7 +2361,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               <input
                 value={generatedContent.title || ''}
                 onChange={(e) => updateGeneratedContent((current) => ({ ...current, title: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
               />
             </div>
             <div>
@@ -2369,14 +2370,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 value={generatedContent.instructions || ''}
                 onChange={(e) => updateGeneratedContent((current) => ({ ...current, instructions: e.target.value }))}
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm"
               />
             </div>
             <div>
               <button
                 type="button"
                 onClick={addSection}
-                className="px-3 py-2 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+                className="px-3 py-2 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
               >
                 Add section
               </button>
@@ -2416,12 +2417,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
             </div>
           )}
           {activePublishedContentId && (
-            <div className="mb-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-800">
+            <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-800">
               Editing published content{activePublishedContentCode ? ` (${activePublishedContentCode})` : ''}. Use `Save published content` to update the existing student-facing item.
             </div>
           )}
           <div className="mb-4 text-xs text-gray-600">
-            Text-to-speech status: <span className={`font-semibold ${generatedContent.tts_enabled !== false ? 'text-teal-700' : 'text-slate-500'}`}>{generatedContent.tts_enabled !== false ? 'Enabled' : 'Disabled'}</span>
+            Text-to-speech status: <span className={`font-semibold ${generatedContent.tts_enabled !== false ? 'text-primary-700' : 'text-slate-500'}`}>{generatedContent.tts_enabled !== false ? 'Enabled' : 'Disabled'}</span>
           </div>
           {previewMode === 'slideshow' && (() => {
             const sections = generatedContent.sections || [];
@@ -2469,10 +2470,10 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     {sections.map((_: any, idx: number) => (
                       <button key={idx} type="button" onClick={() => setSlideshowSection(idx)}
                         title={(sections[idx] as any).heading || (sections[idx] as any).title || `Section ${idx + 1}`}
-                        className={`rounded-full transition-all ${idx === clampedSlide ? 'w-4 h-3 bg-teal-600' : 'w-2.5 h-2.5 bg-gray-300 hover:bg-teal-300'}`} />
+                        className={`rounded-full transition-all ${idx === clampedSlide ? 'w-4 h-3 bg-primary-600' : 'w-2.5 h-2.5 bg-gray-300 hover:bg-primary-300'}`} />
                     ))}
                   </div>
-                  <button type="button" onClick={() => setSlideshowSection((p) => Math.min(totalSlides - 1, p + 1))} disabled={clampedSlide >= totalSlides - 1} className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40">Next →</button>
+                  <button type="button" onClick={() => setSlideshowSection((p) => Math.min(totalSlides - 1, p + 1))} disabled={clampedSlide >= totalSlides - 1} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-40">Next →</button>
                 </div>
               </div>
             );
@@ -2485,7 +2486,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
               (studioStep === 'polish' && i !== activeSectionIndex) ? null : (
               <div
                 key={i}
-                className={`border rounded-xl p-4 transition ${dragOverKey === `section:${i}` ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white'}`}
+                className={`border rounded-xl p-4 transition ${dragOverKey === `section:${i}` ? 'border-primary-400 bg-primary-50' : 'border-slate-200 bg-white'}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverKey(`section:${i}`); }}
                 onDragLeave={() => setDragOverKey(null)}
                 onDrop={(e) => handleDropOnSection(i, e)}
@@ -2498,7 +2499,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     <button
                       type="button"
                       onClick={() => removeSection(i)}
-                      className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                      className="px-2 py-1 text-xs rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                     >
                       Remove section
                     </button>
@@ -2531,7 +2532,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     <button
                       type="button"
                       onClick={() => applyContextualLayoutToEditor(i)}
-                      className="px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800"
+                      className="px-2 py-1 text-xs rounded-lg border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                     >
                       Apply contextual blocks
                     </button>
@@ -2561,18 +2562,18 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     <button
                       type="button"
                       onClick={() => addCustomVisual(i, 'illustration')}
-                      className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                      className="px-2 py-1 text-xs rounded-lg border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                     >
                       Add custom chart/diagram
                     </button>
                     <button
                       type="button"
                       onClick={() => addCustomVisual(i, 'image')}
-                      className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
+                      className="px-2 py-1 text-xs rounded-lg border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors"
                     >
                       Add custom image
                     </button>
-                    <label className="px-2 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800 cursor-pointer">
+                    <label className="px-2 py-1 text-xs rounded-lg cursor-pointer border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors">
                       Add section background
                       <input
                         type="file"
@@ -2605,7 +2606,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           type="button"
                           onClick={() => handleRegenerateMascot(i)}
                           disabled={regeneratingVisualKey === `mascot:${i}`}
-                          className="px-2 py-0.5 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                          className="px-2 py-0.5 rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                         >
                           {regeneratingVisualKey === `mascot:${i}` ? 'Regenerating mascot...' : 'Regenerate mascot'}
                         </button>
@@ -2614,26 +2615,26 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                         value={(sec as any)?.mascot?.title || ''}
                         onChange={(e) => updateMascotField(i, 'title', e.target.value)}
                         placeholder="Mascot title"
-                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                       />
                       <input
                         value={(sec as any)?.mascot?.alt_text || ''}
                         onChange={(e) => updateMascotField(i, 'alt_text', e.target.value)}
                         placeholder="Mascot alt text"
-                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                       />
                       <textarea
                         value={(sec as any)?.mascot?.prompt || ''}
                         onChange={(e) => updateMascotField(i, 'prompt', e.target.value)}
                         placeholder="Mascot generation prompt"
                         rows={2}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-[11px]"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                       />
                       <input
                         value={(sec as any)?.mascot?.image_url || ''}
                         onChange={(e) => updateMascotField(i, 'image_url', e.target.value)}
                         placeholder="Mascot image URL or data URL"
-                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                       />
                       <input
                         type="file"
@@ -2655,7 +2656,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                                   type="button"
                                   onClick={() => handleRegenerateVisual(i, vIdx)}
                                   disabled={regeneratingVisualKey === `${i}:${vIdx}`}
-                                  className="px-2 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                                  className="px-2 py-0.5 rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                                 >
                                   {regeneratingVisualKey === `${i}:${vIdx}` ? 'Regenerating visual...' : 'Regenerate visual'}
                                 </button>
@@ -2663,7 +2664,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                               <button
                                 type="button"
                                 onClick={() => removeVisual(i, vIdx)}
-                                className="px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                                className="px-2 py-0.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                               >
                                 Remove
                               </button>
@@ -2673,13 +2674,13 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                             value={visual.title || ''}
                             onChange={(e) => updateVisualField(i, vIdx, 'title', e.target.value)}
                             placeholder="Caption title"
-                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                            className="w-full mb-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                           />
                           <input
                             value={visual.alt_text || ''}
                             onChange={(e) => updateVisualField(i, vIdx, 'alt_text', e.target.value)}
                             placeholder="Alt text"
-                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                            className="w-full mb-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                           />
                           {visual.kind === 'video' ? (
                             <p className="text-[11px] text-gray-500">
@@ -2706,13 +2707,13 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                                   ? 'Prompt used for graph / diagram generation'
                                   : 'Prompt used for image generation'}
                                 rows={3}
-                                className="w-full mb-1 px-2 py-1 border border-gray-300 rounded text-[11px]"
+                                className="w-full mb-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                               />
                               <input
                                 value={visual.image_url || ''}
                                 onChange={(e) => updateVisualField(i, vIdx, 'image_url', e.target.value)}
                                 placeholder="Image URL or data URL"
-                                className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                                className="w-full mb-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                               />
                               <input
                                 type="file"
@@ -2730,7 +2731,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <div className="relative z-10 rounded-lg border border-slate-200 bg-white p-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Student preview</div>
                 <h3 className="font-semibold text-gray-800 mb-1 text-base">{sec.heading || sec.title || 'Section'}</h3>
-                {sec.support && <p className="text-teal-700 text-sm font-medium mb-2">{sec.support}</p>}
+                {sec.support && <p className="text-primary-700 text-sm font-medium mb-2">{sec.support}</p>}
                 {isPlayfulTemplate && (() => {
                   const figureList = sectionFigures[i] || [];
                   const imageFigures = dedupeFigureEntries(figureList.filter(({ visual }) => visual?.image_url));
@@ -2756,7 +2757,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                                   onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, mainFigure.visualIndex, e); }}
                                   className={`rounded-lg overflow-hidden cursor-pointer transition ${
                                     dragOverKey === mainFigure.figureKey
-                                      ? 'ring-2 ring-teal-300'
+                                      ? 'ring-2 ring-primary-300'
                                       : selectedVisualKey === mainFigure.figureKey
                                       ? 'ring-2 ring-emerald-300'
                                       : 'hover:ring-2 hover:ring-slate-200'
@@ -2818,7 +2819,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           onDrop={(e) => { e.stopPropagation(); handleDropOnVisual(i, visualIndex, e); }}
                           className={`mt-4 border rounded-lg overflow-hidden bg-white cursor-pointer transition ${
                             dragOverKey === figureKey
-                              ? 'border-teal-400 ring-2 ring-teal-200'
+                              ? 'border-primary-400 ring-2 ring-primary-200'
                               : selectedVisualKey === figureKey
                               ? 'border-emerald-400 ring-2 ring-emerald-200'
                               : 'border-gray-200 hover:border-emerald-300'
@@ -2890,7 +2891,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                               type="button"
                               onClick={(e) => { e.stopPropagation(); handleRegenerateVisual(i, visualIndex); }}
                               disabled={regeneratingVisualKey === figureKey}
-                              className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50"
+                              className="px-3 py-1.5 text-xs font-semibold rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                             >
                               {regeneratingVisualKey === figureKey ? 'Retrying...' : 'Image failed — Retry'}
                             </button>
@@ -2950,7 +2951,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                         isFailed
                           ? 'border-amber-300 bg-amber-50'
                           : dragOverKey === figureKey
-                          ? 'border-teal-400 ring-2 ring-teal-200'
+                          ? 'border-primary-400 ring-2 ring-primary-200'
                           : selectedVisualKey === figureKey
                           ? 'border-emerald-400 ring-2 ring-emerald-200'
                           : 'border-gray-200 hover:border-emerald-300'
@@ -2969,7 +2970,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                               type="button"
                               onClick={(e) => { e.stopPropagation(); handleRegenerateVisual(i, visualIndex); }}
                               disabled={regeneratingVisualKey === figureKey}
-                              className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50"
+                              className="px-3 py-1.5 text-xs font-semibold rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                             >
                               {regeneratingVisualKey === figureKey ? 'Retrying...' : 'Image failed — Retry'}
                             </button>
@@ -3074,7 +3075,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   }}
                   className={`w-full text-left rounded-lg border px-2 py-2 text-xs transition ${
                     activeSectionIndex === idx
-                      ? 'border-teal-400 bg-teal-50 text-teal-900'
+                      ? 'border-primary-400 bg-primary-50 text-primary-900'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -3094,7 +3095,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                 <div className="flex items-center justify-between"><span>Short sections (&lt;90 words)</span><span className={qualityChecks.shortCount ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{qualityChecks.shortCount}</span></div>
                 <div className="flex items-center justify-between"><span>Missing key points</span><span className={qualityChecks.missingSupportCount ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{qualityChecks.missingSupportCount}</span></div>
                 <div className="flex items-center justify-between"><span>Duplicate headings</span><span className={qualityChecks.duplicateHeadingCount ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{qualityChecks.duplicateHeadingCount}</span></div>
-                <div className="pt-2 border-t border-slate-200 flex items-center justify-between"><span>Quality score</span><span className="font-bold text-teal-700">{qualityChecks.passRate}%</span></div>
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between"><span>Quality score</span><span className="font-bold text-primary-700">{qualityChecks.passRate}%</span></div>
               </div>
             </div>
           )}
@@ -3102,7 +3103,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           {templateImages.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Images className="w-4 h-4 text-teal-600" />
+                <Images className="w-4 h-4 text-primary-600" />
                 <span className="text-sm font-semibold text-gray-700">Template assets</span>
               </div>
               <p className="text-xs text-gray-500 mb-3">Drag an image onto a section or visual slot to use it.</p>
@@ -3112,7 +3113,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     key={idx}
                     draggable
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', url)}
-                    className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition"
+                    className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-primary-400 hover:shadow-sm transition"
                     title={`Drag to use this image`}
                   >
                     <img
@@ -3131,7 +3132,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
           {videoLibrary.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Video className="w-4 h-4 text-teal-600" />
+                <Video className="w-4 h-4 text-primary-600" />
                 <span className="text-sm font-semibold text-gray-700">Video library</span>
               </div>
               <p className="text-xs text-gray-500 mb-3">Drag a video onto a section to embed it.</p>
@@ -3144,7 +3145,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       e.dataTransfer.setData(VIDEO_DRAG_MIME, JSON.stringify({ video_generation_id: job.id, prompt: job.prompt }));
                       e.dataTransfer.effectAllowed = 'copy';
                     }}
-                    className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition bg-black"
+                    className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-primary-400 hover:shadow-sm transition bg-black"
                     title={job.prompt}
                   >
                     {videoBlobUrls[job.id] ? (

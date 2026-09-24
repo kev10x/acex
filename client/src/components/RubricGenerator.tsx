@@ -331,7 +331,7 @@ const RubricGenerator: React.FC = () => {
                 <button
                   onClick={handleSaveRubric}
                   disabled={loading}
-                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                  className="inline-flex items-center px-3 py-1 text-sm font-medium rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                 >
                   <Save className="w-4 h-4 mr-1" />
                   Save Rubric

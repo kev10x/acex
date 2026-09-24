@@ -542,13 +542,13 @@ const AssessmentGenerator: React.FC = () => {
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">{backgroundGenerationNotice}</div>
         )}
 
-        <details className="mb-6 bg-violet-50 border border-violet-200 rounded-lg overflow-hidden" open={publishedList.length > 0}>
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-violet-900">
+        <details className="mb-4 bg-gray-50/70 border border-gray-200 rounded-xl overflow-hidden" open={publishedList.length > 0}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-gray-900">
             My published assessment links ({publishedList.length})
           </summary>
           <div className="px-4 pb-4">
             {publishedList.length === 0 ? (
-              <p className="text-sm text-violet-900">No published assessments yet.</p>
+              <p className="text-sm text-gray-500">No published assessments yet.</p>
             ) : (
               <>
                 <ul className="space-y-2">
@@ -567,7 +567,7 @@ const AssessmentGenerator: React.FC = () => {
                       type="button"
                       onClick={() => handleDeletePublished(item.id, item.title)}
                       disabled={deletingPublishedId === item.id}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg disabled:opacity-50 border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                       title="Delete published assessment"
                     >
                       {deletingPublishedId === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -606,8 +606,8 @@ const AssessmentGenerator: React.FC = () => {
           </div>
         </details>
 
-        <details className="mb-6 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden" open={history.length > 0}>
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+        <details className="mb-6 bg-gray-50/70 border border-gray-200 rounded-xl overflow-hidden" open={history.length > 0}>
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-gray-900 inline-flex items-center gap-2">
             <History className="w-4 h-4" />
             Assessment generator history ({history.length})
           </summary>
@@ -625,7 +625,7 @@ const AssessmentGenerator: React.FC = () => {
                 type="button"
                 onClick={clearHistory}
                 disabled={history.length === 0}
-                className="px-2 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+                className="px-2 py-1 text-xs rounded-lg disabled:opacity-50 border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
               >
                 Clear all
               </button>
@@ -649,14 +649,14 @@ const AssessmentGenerator: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => loadFromHistory(item)}
-                      className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                      className="px-2 py-1 text-xs rounded-lg border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                     >
                       Load
                     </button>
                     <button
                       type="button"
                       onClick={() => removeHistoryItem(item.id)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors"
                     >
                       <Trash2 className="w-3 h-3" />
                       Remove
@@ -695,22 +695,22 @@ const AssessmentGenerator: React.FC = () => {
         </details>
 
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-primary-50 rounded-lg">
-            <div>
-              <div className="text-sm text-gray-600">Total Assignments</div>
-              <div className="text-2xl font-bold text-primary-600">{stats.total_assignments}</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">Total Assignments</div>
+              <div className="mt-1 text-2xl font-bold text-gray-900">{stats.total_assignments}</div>
             </div>
-            <div>
-              <div className="text-sm text-gray-600">With Text</div>
-              <div className="text-2xl font-bold text-green-600">{stats.assignments_with_text}</div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">With Text</div>
+              <div className="mt-1 text-2xl font-bold text-gray-900">{stats.assignments_with_text}</div>
             </div>
-            <div>
-              <div className="text-sm text-gray-600">Marked</div>
-              <div className="text-2xl font-bold text-purple-600">{stats.marked_assignments}</div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">Marked</div>
+              <div className="mt-1 text-2xl font-bold text-gray-900">{stats.marked_assignments}</div>
             </div>
-            <div>
-              <div className="text-sm text-gray-600">Rubrics</div>
-              <div className="text-2xl font-bold text-orange-600">{stats.available_rubrics}</div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">Rubrics</div>
+              <div className="mt-1 text-2xl font-bold text-gray-900">{stats.available_rubrics}</div>
             </div>
           </div>
         )}

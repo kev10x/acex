@@ -1,7 +1,21 @@
+import { PageHeader } from './ui';
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw, Folder, X } from 'lucide-react';
 import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch, MarkingAssessmentType, MarkingOutputType } from '../services/api';
 import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
+
+function StepTitle({ n, title, optional, hint }: { n: number; title: string; optional?: boolean; hint?: string }) {
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-600 text-xs font-bold text-white shadow-sm">
+        {n}
+      </span>
+      <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+      {optional && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">Optional</span>}
+      {hint && <span className="text-sm text-gray-500">{hint}</span>}
+    </div>
+  );
+}
 
 const MarkingInterface: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -411,12 +425,10 @@ const MarkingInterface: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Mark Assignments</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Select a rubric and assignments to mark using AI.
-        </p>
-      </div>
+      <PageHeader
+        title="Mark assignments"
+        description="Choose your settings, pick a rubric and the scripts to mark, then let AI do the first pass."
+      />
 
       {/* Error/Success Messages */}
       {error && (
@@ -446,7 +458,7 @@ const MarkingInterface: React.FC = () => {
       {/* Assessment Type and Level Selection */}
       <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Assessment Settings</h3>
+          <StepTitle n={1} title="Assessment Settings" />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Assessment Type */}
             <div>
@@ -659,7 +671,7 @@ const MarkingInterface: React.FC = () => {
       {/* Output Type Selection */}
       <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Output Type</h3>
+          <StepTitle n={2} title="Output Type" />
           <div className="space-y-3">
             {(!hasSelectedAssignments || selectedOnlyPdf) && (
               <label className="flex items-start">
@@ -742,13 +754,20 @@ const MarkingInterface: React.FC = () => {
       {/* Rubric Selection */}
       <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Select Rubric</h3>
+          <StepTitle n={3} title="Select Rubric" />
           {rubrics.length === 0 ? (
             <p className="text-gray-500">No rubrics available. Please create a rubric first.</p>
           ) : (
             <div className="space-y-3">
               {rubrics.map((rubric) => (
-                <label key={rubric.id} className="flex items-start">
+                <label
+                  key={rubric.id}
+                  className={`flex cursor-pointer items-start rounded-xl border p-4 transition-colors ${
+                    selectedRubric === rubric.id
+                      ? 'border-primary-400 bg-primary-50/60 ring-1 ring-primary-200'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
                   <input
                     type="radio"
                     name="rubric"
@@ -776,9 +795,7 @@ const MarkingInterface: React.FC = () => {
       {batches.length > 0 && (
         <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
           <div className="px-4 py-5 sm:p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Select Batch (Optional)
-            </h3>
+            <StepTitle n={4} title="Select batch" optional />
             <p className="text-sm text-gray-600 mb-4">
               Select a batch to automatically select all assignments in that batch, or select individual assignments below. You can also remark entire batches.
             </p>
@@ -858,9 +875,7 @@ const MarkingInterface: React.FC = () => {
       {/* Assignment Selection */}
       <div className="bg-white shadow-sm rounded-2xl border border-gray-200/70">
         <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">
-            Select Assignments ({selectedAssignments.length} selected)
-          </h3>
+          <StepTitle n={5} title="Select assignments" hint={`${selectedAssignments.length} selected`} />
           
           {availableAssignments.length === 0 ? (
             <p className="text-gray-500">No assignments available to mark. Upload PDF or DOCX files, or retry failed ones from above.</p>
@@ -992,11 +1007,16 @@ const MarkingInterface: React.FC = () => {
       )}
 
       {/* Mark Button */}
-      <div className="flex justify-end gap-3">
+      <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200/80 bg-white/90 p-3 pl-5 shadow-lg backdrop-blur">
+        <div className="text-sm text-gray-600">
+          <span className="font-semibold text-gray-900">{selectedAssignments.length}</span> assignment{selectedAssignments.length === 1 ? '' : 's'} selected
+          {!selectedRubric && <span className="ml-2 text-amber-600">· choose a rubric</span>}
+        </div>
+        <div className="flex gap-3">
         {loading && (
           <button
             onClick={handleCancelMarking}
-            className="inline-flex items-center px-6 py-3 border border-red-300 text-base font-medium rounded-md shadow-sm text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+            className="inline-flex items-center px-4 py-2.5 border border-red-300 text-sm font-medium rounded-lg shadow-sm text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
           >
             <X className="w-5 h-5 mr-2" />
             Cancel
@@ -1005,7 +1025,7 @@ const MarkingInterface: React.FC = () => {
         <button
           onClick={handleMarkAssignments}
           disabled={loading || !selectedRubric || selectedAssignments.length === 0}
-          className="inline-flex items-center px-6 py-3 border border-transparent text-base font-semibold rounded-lg shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center px-5 py-2.5 border border-transparent text-sm font-semibold rounded-lg shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
             <>
@@ -1015,10 +1035,11 @@ const MarkingInterface: React.FC = () => {
           ) : (
             <>
               <Play className="w-5 h-5 mr-2" />
-              Mark Selected Assignments
+              Mark selected
             </>
           )}
         </button>
+        </div>
       </div>
     </div>
   );

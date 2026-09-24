@@ -1,3 +1,4 @@
+import { PageHeader, StatCard, MetricTile, SectionCard, btn } from './ui';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Download, Eye, Trash2, BarChart3, TrendingUp, Clock, CheckCircle, FileText, ChevronDown, ChevronUp, X, FileCheck, AlertTriangle, Shield, Video, Flag, Save, RefreshCw, Pencil } from 'lucide-react';
 import {
@@ -725,57 +726,35 @@ const ResultsDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">{isStudent ? 'Student Portal: My Results' : 'Results Dashboard'}</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            {isStudent ? 'View your marked scripts grouped by folder.' : 'View and manage marking results.'}
-          </p>
-        </div>
-        {!isStudent && <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setShowAnalytics(!showAnalytics)}
-            className="inline-flex items-center px-4 py-2 border border-primary-300 text-sm font-medium rounded-md shadow-sm text-primary-700 bg-white hover:bg-primary-50"
-          >
-            <BarChart3 className="w-4 h-4 mr-2" />
-            {showAnalytics ? 'Hide' : 'Show'} Analytics
-          </button>
-          {allowDownloadResults && (
-            <div className="flex space-x-2">
-              <button
-                onClick={handleDownloadAll}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download All (JSON)
-              </button>
-              <button
-                onClick={handleDownloadCSV}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download CSV
-              </button>
-              <button
-                onClick={handleDownloadBatchPDF}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                Download All PDFs
-              </button>
-            </div>
-          )}
-          <div className="flex space-x-2">
-            <button
-              onClick={handleDeleteAllResults}
-              className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md shadow-sm text-red-700 bg-white hover:bg-red-50"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete All Results
+      <PageHeader
+        title={isStudent ? 'My Results' : 'Results'}
+        description={isStudent ? 'View your marked scripts grouped by folder.' : 'Review, moderate, and export marked work.'}
+        actions={!isStudent ? (
+          <>
+            <button onClick={() => setShowAnalytics(!showAnalytics)} className={btn.secondary}>
+              <BarChart3 className="h-4 w-4" />
+              {showAnalytics ? 'Hide' : 'Show'} analytics
             </button>
-          </div>
-        </div>}
-      </div>
+            {allowDownloadResults && (
+              <div className="inline-flex overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm">
+                <button onClick={handleDownloadAll} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                  <Download className="h-4 w-4" /> JSON
+                </button>
+                <button onClick={handleDownloadCSV} className="inline-flex items-center gap-1.5 border-l border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                  <Download className="h-4 w-4" /> CSV
+                </button>
+                <button onClick={handleDownloadBatchPDF} className="inline-flex items-center gap-1.5 border-l border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                  <FileText className="h-4 w-4" /> PDFs
+                </button>
+              </div>
+            )}
+            <button onClick={handleDeleteAllResults} className={btn.ghostDanger} title="Delete all results">
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </button>
+          </>
+        ) : undefined}
+      />
 
       {/* Error Message */}
       {error && (
@@ -879,116 +858,35 @@ const ResultsDashboard: React.FC = () => {
 
       {/* Statistics Cards */}
       {!isStudent && stats && (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <CheckCircle className="h-6 w-6 text-green-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Total Results
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {stats.totalResults}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <TrendingUp className="h-6 w-6 text-primary-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Average Score
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {stats.averageScore.toFixed(1)}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Clock className="h-6 w-6 text-yellow-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Recent (7 days)
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {stats.recentResults}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200/70">
-            <div className="p-5">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <BarChart3 className="h-6 w-6 text-purple-400" />
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Status Counts
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {stats.statusCounts.length}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard label="Total results" value={stats.totalResults} icon={CheckCircle} tone="green" />
+          <StatCard label="Average score" value={stats.averageScore.toFixed(1)} icon={TrendingUp} tone="primary" />
+          <StatCard label="Recent (7 days)" value={stats.recentResults} icon={Clock} tone="amber" />
+          <StatCard label="Status counts" value={stats.statusCounts.length} icon={BarChart3} tone="violet" />
         </div>
       )}
 
       {!isStudent && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <div className="text-sm font-medium text-amber-700">Queued For Review</div>
-            <div className="mt-1 text-2xl font-bold text-amber-900">{reviewQueueSummary.totalQueued}</div>
+        <SectionCard title="Review queue" description="Work that needs a human look before it is final." bodyClassName="p-4 sm:p-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <MetricTile label="Queued for review" value={reviewQueueSummary.totalQueued} tone="amber" />
+            <MetricTile label="Lecturer flagged" value={reviewQueueSummary.flagged} tone="rose" />
+            <MetricTile label="AI suggested" value={reviewQueueSummary.aiSuggested} tone="primary" />
+            <MetricTile label="Low confidence" value={reviewQueueSummary.lowConfidence} tone="orange" />
+            <MetricTile label="Reviewed" value={reviewQueueSummary.reviewed} tone="green" />
           </div>
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="text-sm font-medium text-red-700">Lecturer Flagged</div>
-            <div className="mt-1 text-2xl font-bold text-red-900">{reviewQueueSummary.flagged}</div>
-          </div>
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="text-sm font-medium text-yellow-700">AI Suggested Review</div>
-            <div className="mt-1 text-2xl font-bold text-yellow-900">{reviewQueueSummary.aiSuggested}</div>
-          </div>
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-            <div className="text-sm font-medium text-orange-700">Low Criterion Confidence</div>
-            <div className="mt-1 text-2xl font-bold text-orange-900">{reviewQueueSummary.lowConfidence}</div>
-          </div>
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="text-sm font-medium text-green-700">Reviewed</div>
-            <div className="mt-1 text-2xl font-bold text-green-900">{reviewQueueSummary.reviewed}</div>
-          </div>
+        </SectionCard>
+      )}
+
+      {!isStudent && identityConflicts && (identityConflicts.items?.length ?? 0) === 0 && (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/50 px-4 py-3 text-sm text-emerald-800">
+          <CheckCircle className="h-4 w-4" />
+          No unresolved student identity conflicts.
         </div>
       )}
 
-      {!isStudent && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+      {!isStudent && !(identityConflicts && (identityConflicts.items?.length ?? 0) === 0) && (
+        <div className="rounded-2xl border border-gray-200/70 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Submission Identity Conflict Queue</h3>
