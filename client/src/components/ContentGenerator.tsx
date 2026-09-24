@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images, SlidersHorizontal } from 'lucide-react';
-import { contentAPI, rubricsAPI, modulesAPI, pptxJobsAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, PptxJobProgress, getApiErrorMessage } from '../services/api';
+import { contentAPI, rubricsAPI, modulesAPI, pptxJobsAPI, videoGenAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, PptxJobProgress, VideoGenJob, getApiErrorMessage } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -25,6 +25,17 @@ const CONTEXTUAL_LAYOUT_OPTIONS: Array<{ value: ContextualBlockLayout; label: st
   { value: 'business', label: 'Business' },
   { value: 'plain', label: 'Plain' },
 ];
+const VIDEO_DRAG_MIME = 'application/x-markmate-video';
+const getVideoDragPayload = (e: React.DragEvent): { video_generation_id: number; prompt?: string } | null => {
+  const raw = e.dataTransfer.getData(VIDEO_DRAG_MIME);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const id = Number(parsed?.video_generation_id);
+    if (Number.isFinite(id)) return { video_generation_id: id, prompt: parsed?.prompt };
+  } catch (_) { /* not a video drag payload */ }
+  return null;
+};
 const isDiagramVisual = (visual: any) => inferVisualKind(visual) === 'illustration';
 const hasVisualSource = (visual: any) =>
   !!String(visual?.image_url || '').trim() || isDiagramVisual(visual);
@@ -188,6 +199,10 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [previewMode, setPreviewMode] = useState<'content' | 'slideshow'>('content');
   const [slideshowSection, setSlideshowSection] = useState(0);
   const [templateImages, setTemplateImages] = useState<string[]>([]);
+  const [videoLibrary, setVideoLibrary] = useState<VideoGenJob[]>([]);
+  const [videoBlobUrls, setVideoBlobUrls] = useState<Record<number, string>>({});
+  const videoBlobUrlsRef = useRef(videoBlobUrls);
+  videoBlobUrlsRef.current = videoBlobUrls;
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [showRenderDebugger, setShowRenderDebugger] = useState(false);
@@ -292,6 +307,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     loadRubrics();
     loadTemplates();
     loadModules();
+    loadVideoLibrary();
   }, []);
 
   // Adopts a content-generation job's result once useContentGenerationProgress finds
@@ -627,6 +643,60 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       setModules([]);
     }
   };
+
+  const loadVideoLibrary = async () => {
+    try {
+      const res = await videoGenAPI.list(30);
+      if (res.data.success) {
+        setVideoLibrary(res.data.jobs.filter((job) => job.status === 'completed'));
+      }
+    } catch (_) {
+      setVideoLibrary([]);
+    }
+  };
+
+  // Videos stream from an authenticated endpoint (no plain <video src>), so
+  // both the drag-source library cards and any video already embedded in
+  // the content need their blob fetched once and cached by job id — same
+  // approach VideoGenerator.tsx uses for its own history.
+  const ensureVideoBlobLoaded = async (videoGenerationId: number) => {
+    if (videoBlobUrlsRef.current[videoGenerationId]) return;
+    try {
+      const res = await videoGenAPI.getVideoBlob(videoGenerationId);
+      const url = URL.createObjectURL(res.data as Blob);
+      setVideoBlobUrls((prev) => ({ ...prev, [videoGenerationId]: url }));
+    } catch (_) {
+      // leave unplayable; the slot will just show a loading/broken state
+    }
+  };
+
+  useEffect(() => {
+    videoLibrary.forEach((job) => ensureVideoBlobLoaded(job.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoLibrary]);
+
+  const embeddedVideoIds = useMemo(() => {
+    const ids = new Set<number>();
+    (generatedContent?.sections || []).forEach((sec: any) => {
+      (Array.isArray(sec?.visuals) ? sec.visuals : []).forEach((v: any) => {
+        if (v?.kind === 'video' && Number.isFinite(Number(v.video_generation_id))) {
+          ids.add(Number(v.video_generation_id));
+        }
+      });
+    });
+    return Array.from(ids);
+  }, [generatedContent?.sections]);
+
+  useEffect(() => {
+    embeddedVideoIds.forEach((id) => ensureVideoBlobLoaded(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embeddedVideoIds]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(videoBlobUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   useEffect(() => {
     const activeJobs = plannerJobs.some((job) => job.status === 'scheduled' || job.status === 'processing');
@@ -1240,6 +1310,24 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
     });
   };
 
+  const setVisualAsVideo = (sectionIndex: number, visualIndex: number, videoGenerationId: number, label?: string) => {
+    updateGeneratedContent((current) => {
+      const sections = Array.isArray(current.sections) ? [...current.sections] : [];
+      const section = sections[sectionIndex] || { heading: '', support: '', body: '', visuals: [] };
+      const visuals = Array.isArray((section as any).visuals) ? [...(section as any).visuals] : [];
+      const visual = visuals[visualIndex] || {};
+      visuals[visualIndex] = {
+        ...visual,
+        kind: 'video',
+        video_generation_id: videoGenerationId,
+        image_url: undefined,
+        title: visual.title || label || 'Video',
+      };
+      sections[sectionIndex] = { ...section, visuals };
+      return { ...current, sections };
+    });
+  };
+
   const refreshVisualPrompt = (sectionIndex: number, visualIndex: number) => {
     if (!generatedContent) return;
     const section = generatedContent.sections?.[sectionIndex];
@@ -1472,6 +1560,12 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
 
   const handleDropOnVisual = (sectionIndex: number, visualIndex: number, e: React.DragEvent) => {
     e.preventDefault();
+    const videoPayload = getVideoDragPayload(e);
+    if (videoPayload) {
+      setVisualAsVideo(sectionIndex, visualIndex, videoPayload.video_generation_id, videoPayload.prompt);
+      setDragOverKey(null);
+      return;
+    }
     const url = e.dataTransfer.getData('text/plain');
     if (url) updateVisualField(sectionIndex, visualIndex, 'image_url', url);
     setDragOverKey(null);
@@ -1479,6 +1573,21 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
 
   const handleDropOnSection = (sectionIndex: number, e: React.DragEvent) => {
     e.preventDefault();
+    const videoPayload = getVideoDragPayload(e);
+    if (videoPayload) {
+      setDragOverKey(null);
+      updateGeneratedContent((c) => {
+        const sections = [...(c.sections || [])];
+        const visuals: ContentVisual[] = [...(sections[sectionIndex]?.visuals || []), {
+          kind: 'video' as const,
+          title: videoPayload.prompt || 'Video',
+          video_generation_id: videoPayload.video_generation_id,
+        }];
+        sections[sectionIndex] = { ...sections[sectionIndex], visuals };
+        return { ...c, sections };
+      });
+      return;
+    }
     const url = e.dataTransfer.getData('text/plain');
     if (!url) return;
     setDragOverKey(null);
@@ -2572,39 +2681,47 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                             placeholder="Alt text"
                             className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
                           />
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-[11px] font-medium text-gray-500">
-                              {isDiagramVisual(visual) ? 'Graph generation prompt' : 'Image generation prompt'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => refreshVisualPrompt(i, vIdx)}
-                              className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
-                            >
-                              {isDiagramVisual(visual) ? 'Refresh graph prompt' : 'Refresh prompt'}
-                            </button>
-                          </div>
-                          <textarea
-                            value={visual.prompt || ''}
-                            onChange={(e) => updateVisualField(i, vIdx, 'prompt', e.target.value)}
-                            placeholder={isDiagramVisual(visual)
-                              ? 'Prompt used for graph / diagram generation'
-                              : 'Prompt used for image generation'}
-                            rows={3}
-                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded text-[11px]"
-                          />
-                          <input
-                            value={visual.image_url || ''}
-                            onChange={(e) => updateVisualField(i, vIdx, 'image_url', e.target.value)}
-                            placeholder="Image URL or data URL"
-                            className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
-                          />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => uploadVisualImage(i, vIdx, e.target.files?.[0] || null)}
-                            className="w-full"
-                          />
+                          {visual.kind === 'video' ? (
+                            <p className="text-[11px] text-gray-500">
+                              Embedded video — drag a different one from the Video library to replace it.
+                            </p>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-[11px] font-medium text-gray-500">
+                                  {isDiagramVisual(visual) ? 'Graph generation prompt' : 'Image generation prompt'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => refreshVisualPrompt(i, vIdx)}
+                                  className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
+                                >
+                                  {isDiagramVisual(visual) ? 'Refresh graph prompt' : 'Refresh prompt'}
+                                </button>
+                              </div>
+                              <textarea
+                                value={visual.prompt || ''}
+                                onChange={(e) => updateVisualField(i, vIdx, 'prompt', e.target.value)}
+                                placeholder={isDiagramVisual(visual)
+                                  ? 'Prompt used for graph / diagram generation'
+                                  : 'Prompt used for image generation'}
+                                rows={3}
+                                className="w-full mb-1 px-2 py-1 border border-gray-300 rounded text-[11px]"
+                              />
+                              <input
+                                value={visual.image_url || ''}
+                                onChange={(e) => updateVisualField(i, vIdx, 'image_url', e.target.value)}
+                                placeholder="Image URL or data URL"
+                                className="w-full mb-1 px-2 py-1 border border-gray-300 rounded"
+                              />
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => uploadVisualImage(i, vIdx, e.target.files?.[0] || null)}
+                                className="w-full"
+                              />
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -2623,6 +2740,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   const sceneFigures = candidateFigures.filter(({ visual }) => !isDiagramVisual(visual));
                   const mainFigure = diagramFigures[0] || sceneFigures[0] || candidateFigures[0] || null;
                   const extraFigures = candidateFigures.filter((f) => f.figureKey !== mainFigure?.figureKey && f.visual?.extra_figure === true);
+                  const videoFigures = figureList.filter(({ visual }) => visual?.kind === 'video');
                   const keyPoint = String(sec.support || sec.heading || sec.title || 'Remember this point').trim();
                   const mascotHeroSrc = String((sec as any)?.mascot?.image_url || '').trim() || pickPlayfulCompanion(i * 2, playfulAssetPool) || '';
                   return (
@@ -2714,6 +2832,26 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           />
                           <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
                             <span className="font-semibold text-gray-700">Figure {figNum}:</span> {visual.title}
+                          </figcaption>
+                        </figure>
+                      ))}
+                      {videoFigures.map(({ visual, figNum, visualIndex, figureKey }) => (
+                        <figure
+                          key={figNum}
+                          onClick={() => setSelectedVisualKey(figureKey)}
+                          className={`mt-4 border rounded-lg overflow-hidden bg-black cursor-pointer transition ${
+                            selectedVisualKey === figureKey
+                              ? 'border-emerald-400 ring-2 ring-emerald-200'
+                              : 'border-gray-200 hover:border-emerald-300'
+                          }`}
+                        >
+                          {videoBlobUrls[visual.video_generation_id] ? (
+                            <video src={videoBlobUrls[visual.video_generation_id]} controls className="w-full max-h-64 bg-black" />
+                          ) : (
+                            <div className="h-32 flex items-center justify-center text-white/60 text-xs">Loading video…</div>
+                          )}
+                          <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
+                            <span className="font-semibold text-gray-700">Video {figNum}:</span> {visual.title}
                           </figcaption>
                         </figure>
                       ))}
@@ -2868,6 +3006,28 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                     </figure>
                   );
                 })}
+
+                {/* Video figure — shown after body text */}
+                {(sectionFigures[i] || []).filter(({ visual }) => visual?.kind === 'video').map(({ visual, figNum, figureKey }) => (
+                  <figure
+                    key={figNum}
+                    onClick={() => setSelectedVisualKey(figureKey)}
+                    className={`mt-4 border rounded-lg overflow-hidden bg-black cursor-pointer transition ${
+                      selectedVisualKey === figureKey
+                        ? 'border-emerald-400 ring-2 ring-emerald-200'
+                        : 'border-gray-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    {videoBlobUrls[visual.video_generation_id] ? (
+                      <video src={videoBlobUrls[visual.video_generation_id]} controls className="w-full max-h-64 bg-black" />
+                    ) : (
+                      <div className="h-32 flex items-center justify-center text-white/60 text-xs">Loading video…</div>
+                    )}
+                    <figcaption className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-600">
+                      <span className="font-semibold text-gray-700">Video {figNum}:</span> {visual.title}
+                    </figcaption>
+                  </figure>
+                ))}
                   </>
                 )}
                 {showRenderDebugger && (
@@ -2962,6 +3122,38 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                       className="w-full h-16 object-cover"
                       draggable={false}
                     />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {videoLibrary.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Video className="w-4 h-4 text-teal-600" />
+                <span className="text-sm font-semibold text-gray-700">Video library</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Drag a video onto a section to embed it.</p>
+              <div className="grid grid-cols-2 gap-2">
+                {videoLibrary.map((job) => (
+                  <div
+                    key={job.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(VIDEO_DRAG_MIME, JSON.stringify({ video_generation_id: job.id, prompt: job.prompt }));
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    className="cursor-grab active:cursor-grabbing border border-slate-200 rounded overflow-hidden hover:border-teal-400 hover:shadow-sm transition bg-black"
+                    title={job.prompt}
+                  >
+                    {videoBlobUrls[job.id] ? (
+                      <video src={videoBlobUrls[job.id]} muted className="w-full h-16 object-cover pointer-events-none" />
+                    ) : (
+                      <div className="w-full h-16 flex items-center justify-center text-white/60">
+                        <Video className="w-5 h-5" />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

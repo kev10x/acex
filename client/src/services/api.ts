@@ -912,11 +912,14 @@ export interface ContentSection {
   mascot?: ContentMascot | null;
 }
 export interface ContentVisual {
-  kind: 'image' | 'illustration';
+  kind: 'image' | 'illustration' | 'video';
   title?: string;
   alt_text?: string;
   prompt?: string;
   image_url?: string;
+  // Only set when kind === 'video' — references a video_generations row,
+  // streamed via videoGenAPI.getVideoBlob rather than image_url.
+  video_generation_id?: number;
 }
 export interface ContentMascot {
   title?: string;

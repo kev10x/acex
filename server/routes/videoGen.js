@@ -50,6 +50,39 @@ async function getOwnedJobRow(jobId, userId) {
   return rowList(q)[0] || null;
 }
 
+async function getJobRowById(jobId) {
+  const q = isMySQL()
+    ? await query('SELECT * FROM video_generations WHERE id = ?', [jobId])
+    : await query('SELECT * FROM video_generations WHERE id = $1', [jobId]);
+  return rowList(q)[0] || null;
+}
+
+function jsonContainsVideoId(node, jobId) {
+  if (node == null || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some((item) => jsonContainsVideoId(item, jobId));
+  if (node.kind === 'video' && Number(node.video_generation_id) === jobId) return true;
+  return Object.values(node).some((value) => jsonContainsVideoId(value, jobId));
+}
+
+// A video embedded as a lesson visual needs to be watchable by whoever can
+// view that lesson (e.g. a student), not just by the lecturer who generated
+// it — the same "public once embedded" posture lesson images already have
+// (served unauthenticated from /uploads). A cheap LIKE pre-filter narrows
+// the row scan before the exact recursive check confirms a real match.
+async function isVideoEmbeddedInPublishedContent(jobId) {
+  const needle = `%"video_generation_id":${jobId}%`;
+  const q = isMySQL()
+    ? await query('SELECT content_json FROM published_content WHERE content_json LIKE ?', [needle])
+    : await query('SELECT content_json FROM published_content WHERE content_json LIKE $1', [needle]);
+  for (const row of rowList(q)) {
+    try {
+      const parsed = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+      if (jsonContainsVideoId(parsed, jobId)) return true;
+    } catch (_) { /* malformed content_json — skip */ }
+  }
+  return false;
+}
+
 /**
  * If a job is still processing, check xAI now and, if done, download and
  * persist the video. Called lazily from GET /jobs/:id and GET /jobs — the
@@ -246,7 +279,13 @@ router.get('/jobs/:id/video', requireAuth, async (req, res) => {
     const jobId = Number.parseInt(req.params.id, 10);
     if (!Number.isFinite(jobId)) return res.status(400).json({ error: 'Invalid job id' });
 
-    const row = await getOwnedJobRow(jobId, req.user.id);
+    let row = await getOwnedJobRow(jobId, req.user.id);
+    if (!row) {
+      const anyRow = await getJobRowById(jobId);
+      if (anyRow && (await isVideoEmbeddedInPublishedContent(jobId))) {
+        row = anyRow;
+      }
+    }
     if (!row || row.status !== 'completed' || !row.file_path) {
       return res.status(404).json({ error: 'Video not available' });
     }
