@@ -12,11 +12,14 @@ import {
   getApiErrorMessage,
 } from '../services/api';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 
 type Tab = 'roster' | 'grading' | 'gradebook';
 
 const CourseManager: React.FC = () => {
   const { notifySuccess, notifyError } = useNotification();
+  const { user } = useAuth();
+  const isStudent = (user?.role || '').toLowerCase() === 'student';
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -84,6 +87,12 @@ const CourseManager: React.FC = () => {
 
   const openCourse = async (course: Course) => {
     setSelectedCourse(course);
+    if (isStudent) {
+      // Students only ever see the gradebook tab — roster/grade-setup
+      // endpoints are staff-only and would 403 for a student anyway.
+      setActiveTab('gradebook');
+      return;
+    }
     setActiveTab('roster');
     try {
       const [detail, enrollRes, catRes, itemRes, publishedRes] = await Promise.all([
@@ -197,7 +206,10 @@ const CourseManager: React.FC = () => {
     setGradebookLoading(true);
     try {
       const res = await coursesAPI.getGradebook(selectedCourse.id);
-      if (res.data.success) setGradebook(res.data.grades);
+      if (res.data.success) {
+        setGradebook(res.data.grades);
+        if (isStudent) setItems(res.data.items);
+      }
     } catch (e: any) {
       notifyError(getApiErrorMessage(e, 'Failed to load gradebook'), 'Load failed');
     } finally {
@@ -228,23 +240,25 @@ const CourseManager: React.FC = () => {
             {[selectedCourse.code, selectedCourse.term].filter(Boolean).join(' · ') || 'No code or term set'}
           </p>
 
-          <div className="mt-4 flex gap-2 border-b border-gray-200">
-            {(['roster', 'grading', 'gradebook'] as Tab[]).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                  activeTab === tab ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab === 'roster' ? 'Roster' : tab === 'grading' ? 'Grade Setup' : 'Gradebook'}
-              </button>
-            ))}
-          </div>
+          {!isStudent && (
+            <div className="mt-4 flex gap-2 border-b border-gray-200">
+              {(['roster', 'grading', 'gradebook'] as Tab[]).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    activeTab === tab ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab === 'roster' ? 'Roster' : tab === 'grading' ? 'Grade Setup' : 'Gradebook'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {activeTab === 'roster' && (
+        {!isStudent && activeTab === 'roster' && (
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-sm font-semibold text-gray-800 mb-3">Enroll students</h2>
             <div className="flex flex-col sm:flex-row gap-2 mb-6">
@@ -301,7 +315,7 @@ const CourseManager: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'grading' && (
+        {!isStudent && activeTab === 'grading' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-sm font-semibold text-gray-800 mb-3">Grade categories</h2>
@@ -452,18 +466,24 @@ const CourseManager: React.FC = () => {
             <BookOpen className="w-8 h-8 text-primary-600" />
             <h1 className="text-3xl font-bold text-gray-800">Courses</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowCreate((v) => !v)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700"
-          >
-            <Plus className="h-4 w-4" />
-            New course
-          </button>
+          {!isStudent && (
+            <button
+              type="button"
+              onClick={() => setShowCreate((v) => !v)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700"
+            >
+              <Plus className="h-4 w-4" />
+              New course
+            </button>
+          )}
         </div>
-        <p className="text-gray-600">Manage enrollment, weighted grading, and the gradebook for each course.</p>
+        <p className="text-gray-600">
+          {isStudent
+            ? 'View your enrolled courses and track your grades.'
+            : 'Manage enrollment, weighted grading, and the gradebook for each course.'}
+        </p>
 
-        {showCreate && (
+        {!isStudent && showCreate && (
           <div className="mt-4 p-4 border border-gray-200 rounded-lg grid grid-cols-1 sm:grid-cols-3 gap-3">
             <input
               value={newName}

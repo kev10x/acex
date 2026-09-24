@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 let diffLines;
 try { diffLines = require('diff').diffLines; } catch (e) { diffLines = null; }
 const { query, rowsOf, firstRow } = require('../database/connection');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRoles, normalizeRole } = require('../middleware/auth');
 const { extractTextFromDocument } = require('../services/documentExtractService');
 const { generateMarking, parseMarkingResponsePayload, parseAiJsonResponse } = require('../services/markingService');
 const aiConfig = require('../config/ai-config');
@@ -216,8 +216,27 @@ Respond with ONLY this JSON (no markdown, no explanation):
   }
 };
 
+// Best-effort link to a student's own account, matched by display name
+// (case-insensitive), preferring a match in the creator's own organisation.
+// Returns null if no confident match is found — the series still works
+// as free-text-only in that case.
+async function findStudentUserId(studentName, requesterOrgId) {
+  const name = String(studentName || '').trim();
+  if (!name) return null;
+  const rows = rowsOf(await query(
+    `SELECT id, organisation_id FROM users WHERE role = 'student' AND LOWER(TRIM(name)) = LOWER(?)`,
+    [name]
+  ));
+  if (rows.length === 0) return null;
+  if (requesterOrgId != null) {
+    const orgMatch = rows.find((r) => r.organisation_id === requesterOrgId);
+    if (orgMatch) return orgMatch.id;
+  }
+  return rows.length === 1 ? rows[0].id : null;
+}
+
 // POST /api/revisions — create a new revision series
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
   try {
     const { name, student_name, rubric_id } = req.body;
     if (!name || !student_name || !rubric_id) {
@@ -230,18 +249,20 @@ router.post('/', requireAuth, async (req, res) => {
     ));
     if (!rubric) return res.status(404).json({ error: 'Rubric not found' });
 
+    const studentUserId = await findStudentUserId(student_name, req.user.organisation_id);
+
     const isMySQL = process.env.DATABASE_URL?.startsWith('mysql:');
     let seriesId;
     if (isMySQL) {
       const result = await query(
-        'INSERT INTO revision_series (user_id, rubric_id, name, student_name) VALUES (?, ?, ?, ?)',
-        [req.user.id, rubric_id, name.trim(), student_name.trim()]
+        'INSERT INTO revision_series (user_id, rubric_id, name, student_name, student_user_id) VALUES (?, ?, ?, ?, ?)',
+        [req.user.id, rubric_id, name.trim(), student_name.trim(), studentUserId]
       );
       seriesId = getInsertId(result);
     } else {
       const result = await query(
-        'INSERT INTO revision_series (user_id, rubric_id, name, student_name) VALUES ($1, $2, $3, $4) RETURNING id',
-        [req.user.id, rubric_id, name.trim(), student_name.trim()]
+        'INSERT INTO revision_series (user_id, rubric_id, name, student_name, student_user_id) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [req.user.id, rubric_id, name.trim(), student_name.trim(), studentUserId]
       );
       seriesId = result.rows[0].id;
     }
@@ -259,7 +280,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // POST /api/revisions/:id/upload — upload a new revision and trigger marking
-router.post('/:id/upload', requireAuth, upload.single('file'), async (req, res) => {
+router.post('/:id/upload', requireAuth, requireRoles(['management', 'lecturer']), upload.single('file'), async (req, res) => {
   const file = req.file;
   try {
     const seriesId = parseInt(req.params.id);
@@ -427,9 +448,12 @@ router.post('/:id/upload', requireAuth, upload.single('file'), async (req, res) 
   }
 });
 
-// GET /api/revisions — list all revision series for the authenticated user
+// GET /api/revisions — list revision series. Staff see series they created;
+// students see only series linked to their own account (their own uploads).
 router.get('/', requireAuth, async (req, res) => {
   try {
+    const isStudent = normalizeRole(req.user.role) === 'student';
+    const whereClause = isStudent ? 'rs.student_user_id = ?' : 'rs.user_id = ?';
     const rows = rowsOf(await query(
       `SELECT rs.id, rs.name, rs.student_name, rs.created_at,
               r.id AS rubric_id, r.name AS rubric_name, r.total_points,
@@ -439,7 +463,7 @@ router.get('/', requireAuth, async (req, res) => {
        FROM revision_series rs
        JOIN rubrics r ON r.id = rs.rubric_id
        LEFT JOIN revision_submissions rv ON rv.series_id = rs.id
-       WHERE rs.user_id = ?
+       WHERE ${whereClause}
        GROUP BY rs.id, rs.name, rs.student_name, rs.created_at, r.id, r.name, r.total_points
        ORDER BY MAX(rv.uploaded_at) DESC, rs.created_at DESC`,
       [req.user.id]
@@ -470,14 +494,19 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/revisions/:id — get full detail for a single series
+// GET /api/revisions/:id — get full detail for a single series.
+// Staff can view series they created; students can view series linked to
+// their own account (read-only — enforced client-side and by the
+// staff-only create/upload/delete routes above).
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const seriesId = parseInt(req.params.id);
+    const isStudent = normalizeRole(req.user.role) === 'student';
+    const whereClause = isStudent ? 'rs.id = ? AND rs.student_user_id = ?' : 'rs.id = ? AND rs.user_id = ?';
     const series = firstRow(await query(
       `SELECT rs.*, r.name AS rubric_name, r.total_points, r.criteria
        FROM revision_series rs JOIN rubrics r ON r.id = rs.rubric_id
-       WHERE rs.id = ? AND rs.user_id = ?`,
+       WHERE ${whereClause}`,
       [seriesId, req.user.id]
     ));
     if (!series) return res.status(404).json({ error: 'Series not found' });
@@ -539,7 +568,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // DELETE /api/revisions/:id — delete a series and all its revisions
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, requireRoles(['management', 'lecturer']), async (req, res) => {
   try {
     const seriesId = parseInt(req.params.id);
     const series = firstRow(await query(
