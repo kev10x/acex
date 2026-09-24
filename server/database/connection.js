@@ -656,6 +656,22 @@ const initDatabase = async () => {
         await query(`ALTER TABLE lesson_summary_videos DROP INDEX uniq_lesson_summary_content`);
       }
       await query(`
+        CREATE TABLE IF NOT EXISTS course_build_jobs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          course_id INT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'queued',
+          config_json LONGTEXT NOT NULL,
+          progress_json LONGTEXT NULL,
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_course_build_jobs_user (user_id, created_at),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
           id INT AUTO_INCREMENT PRIMARY KEY,
           published_content_id INT NOT NULL,
@@ -2307,6 +2323,19 @@ const initDatabase = async () => {
         await query(`ALTER TABLE lesson_summary_videos DROP CONSTRAINT IF EXISTS lesson_summary_videos_published_content_id_key`);
         await query(`ALTER TABLE lesson_summary_videos ADD CONSTRAINT uniq_lesson_summary_section UNIQUE (published_content_id, section_index)`);
       }
+      await query(`
+        CREATE TABLE IF NOT EXISTS course_build_jobs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          course_id INTEGER NULL REFERENCES courses(id) ON DELETE SET NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'queued',
+          config_json TEXT NOT NULL,
+          progress_json TEXT NULL,
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       await query(`
         CREATE TABLE IF NOT EXISTS content_progress (
           id SERIAL PRIMARY KEY,

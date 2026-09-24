@@ -91,6 +91,7 @@ apiRouter.use('/courses', require('./routes/courses'));
 apiRouter.use('/moodle', require('./routes/moodle'));
 apiRouter.use('/slide-gen', require('./routes/slideGen'));
 apiRouter.use('/video-gen', require('./routes/videoGen'));
+apiRouter.use('/course-builder', require('./routes/courseBuilder'));
 apiRouter.use('/pptx-jobs', require('./routes/pptxJobs'));
 apiRouter.use('/revisions', require('./routes/revisions'));
 apiRouter.use('/system', require('./routes/system'));
@@ -130,6 +131,7 @@ const startServer = async () => {
     startVideoProcessingPolling();
     scheduleFailedResponseCleanup();
     require('./services/lessonSummaryVideoService').startWorker();
+    require('./services/courseBuilderService').markInterruptedJobs().catch(() => {});
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

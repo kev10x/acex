@@ -1417,7 +1417,7 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
     }
 
     // Every lesson gets a ~15s AI summary video (arrives later, via the background worker).
-    if (contentIdForSummary) {
+    if (contentIdForSummary && req.body?.summary_video !== false) {
       lessonSummaryVideoService.queueSummaryVideo(contentIdForSummary).catch((err) => {
         console.warn('Could not queue lesson summary video:', err.message);
       });

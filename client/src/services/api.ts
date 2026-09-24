@@ -1717,6 +1717,38 @@ export interface GradebookRow {
   final_grade_percent: number | null;
 }
 
+export interface CourseBuildProgress {
+  phase: string;
+  course: { status: string; id: number | null };
+  category: { status: string };
+  modules: { name: string; status: string; module_id: number | null; lesson: string; quiz: string; error: string | null }[];
+  students: { status: string; enrolled: number; invited: number; emailed: number; failed: number; failed_emails?: string[]; error?: string };
+}
+export interface CourseBuildJob {
+  id: number;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
+  course_id: number | null;
+  course_name: string | null;
+  error_message: string | null;
+  progress: CourseBuildProgress | null;
+}
+export interface CourseBuildConfig {
+  existing_course_id?: number | null;
+  course: { name: string; code?: string; term?: string; description?: string };
+  modules: { name: string; lesson_topics: string; quiz_topics: string; lesson: boolean; quiz: boolean }[];
+  options: { level: string; lesson_sections: number; lesson_images: boolean; quiz_questions: number; summary_videos: boolean };
+  students: string[];
+}
+
+export const courseBuilderAPI = {
+  outline: (data: { name: string; description?: string; module_count?: number; level?: string }) =>
+    api.post<{ success: boolean; description: string; modules: { name: string; lesson_topics: string; quiz_topics: string }[] }>('/course-builder/outline', data, { timeout: 120000 }),
+  start: (config: CourseBuildConfig) => api.post<{ success: boolean; job_id: number }>('/course-builder/jobs', config),
+  list: () => api.get<{ success: boolean; jobs: CourseBuildJob[] }>('/course-builder/jobs'),
+  get: (id: number) => api.get<{ success: boolean; job: CourseBuildJob }>(`/course-builder/jobs/${id}`),
+  resume: (id: number) => api.post<{ success: boolean }>(`/course-builder/jobs/${id}/resume`),
+};
+
 export const coursesAPI = {
   create: (data: { name: string; code?: string; description?: string; term?: string; start_date?: string; end_date?: string }) =>
     api.post<{ success: boolean; course: Course }>('/courses', data),

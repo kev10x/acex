@@ -56,6 +56,7 @@ const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
 const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudio'));
 const VideoGenerator = lazy(() => import('./components/VideoGenerator'));
 const CourseManager = lazy(() => import('./components/CourseManager'));
+const CourseBuilder = lazy(() => import('./components/CourseBuilder'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
@@ -100,14 +101,15 @@ type TabType =
   | 'slide-gen'
   | 'video-gen'
   | 'courses'
+  | 'course-builder'
   | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
 type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'moodle'],
   student: ['modules', 'mcq', 'results', 'courses', 'revision-tracking']
 };
 
@@ -199,6 +201,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     description: 'Manage enrollment, weighted grading, and the gradebook for each course.',
     icon: BookOpen
   },
+  'course-builder': {
+    label: 'Course Builder',
+    description: 'Build a whole course in one go: modules, lessons, quizzes and students.',
+    icon: Wand2
+  },
   moodle: {
     label: 'Moodle Integration',
     description: 'Browse courses, push grades to Moodle, and import quiz questions.',
@@ -255,12 +262,14 @@ function WorkspaceShell({
   normalizedRole,
   pendingSlideContent,
   onCreateSlides,
+  onNavigateTab,
 }: {
   activeTab: TabType;
   canAccessTab: (tab: TabType) => boolean;
   normalizedRole: AppRole;
   pendingSlideContent: GeneratedContent | null;
   onCreateSlides: (content: GeneratedContent) => void;
+  onNavigateTab: (tab: TabType) => void;
 }) {
   return (
     <ErrorBoundary key={activeTab}>
@@ -286,6 +295,7 @@ function WorkspaceShell({
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
       )}
       {activeTab === 'courses' && canAccessTab('courses') && <CourseManager />}
+      {activeTab === 'course-builder' && canAccessTab('course-builder') && <CourseBuilder onOpenCourses={() => onNavigateTab('courses')} />}
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
@@ -349,11 +359,12 @@ function AppContent() {
       student:
         normalizedRole === 'student'
           ? (['modules', 'courses', 'results', 'mcq', 'revision-tracking'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-          : (['assessments', 'practicals', 'content', 'modules', 'courses', 'moodle'] as TabType[])
+          : (['assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'moodle'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;
                 if (tab === 'practicals') return allowPracticalCreation;
                 if (tab === 'content') return allowContentCreation;
+                if (tab === 'course-builder') return allowContentCreation;
                 return true;
               })
               .filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab)),
@@ -636,6 +647,7 @@ function AppContent() {
             normalizedRole={normalizedRole}
             pendingSlideContent={pendingSlideContent}
             onCreateSlides={handleCreateSlides}
+            onNavigateTab={setActiveTab}
           />
         </main>
       </div>
