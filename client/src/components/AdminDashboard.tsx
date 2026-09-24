@@ -2038,7 +2038,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white shadow-sm rounded-2xl overflow-hidden border border-gray-200/70">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-900">User Access Audit</h3>
               <p className="text-xs text-gray-600">Review user-level overrides alongside organisation policy.</p>
@@ -2067,25 +2067,19 @@ const AdminDashboard: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                   User
                 </th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                   Role
                 </th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                   Organisation / Department
                 </th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                   Features
                 </th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                  Registered
-                </th>
-                <th className="px-6 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -2095,40 +2089,65 @@ const AdminDashboard: React.FC = () => {
                 const feat = userData.features || {};
                 const organisationFeatures = organisations.find((org) => org.id === userData.organisation_id)?.features || {};
                 return (
-                <tr key={userData.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center">
-                        <User className="h-6 w-6 text-primary-600" />
+                <tr key={userData.id} className="align-top hover:bg-gray-50/60">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-shrink-0 h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center">
+                        <User className="h-4 w-4 text-primary-600" />
                       </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-gray-900 truncate max-w-[220px]">
                           {userData.name || 'No name'}
                         </div>
-                        <div className="text-sm text-gray-500">{userData.email}</div>
+                        <div className="text-xs text-gray-500 truncate max-w-[220px]" title={userData.email}>{userData.email}</div>
+                        <div className="text-[11px] text-gray-400">
+                          Joined {new Date(userData.created_at).toLocaleDateString()}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {userData.is_approved ? (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                              Approved
+                            </span>
+                          ) : (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                              Pending
+                            </span>
+                          )}
+                          {userData.is_active === false && (
+                            <span className="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-gray-200 text-gray-800">
+                              <Lock className="h-3 w-3 mr-1" />
+                              Locked
+                            </span>
+                          )}
+                          {!userData.email_verified && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                              Unverified
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <select
                       value={normalizeRole(userData.role)}
                       onChange={(e) => handleRoleChange(userData.id, e.target.value as UserRole)}
                       disabled={actionLoading === userData.id || userData.id === user?.id}
-                      className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
+                      className="text-sm py-1 border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
                     >
                       <option value="student">Student</option>
                       <option value="lecturer">Lecturer</option>
                       <option value="management">Management</option>
                     </select>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-2 min-w-[220px]">
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="flex flex-col gap-1.5 min-w-[180px]">
                       {isSuperAdmin ? (
                         <select
                           value={userData.organisation_id || ''}
                           onChange={(e) => handleOrganisationChange(userData.id, e.target.value ? Number(e.target.value) : null)}
                           disabled={actionLoading === userData.id}
-                          className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
+                          className="text-sm py-1 border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
                         >
                           <option value="">No organisation</option>
                           {organisations.map((org) => (
@@ -2144,7 +2163,7 @@ const AdminDashboard: React.FC = () => {
                         value={userData.department_id || ''}
                         onChange={(e) => handleDepartmentChange(userData.id, e.target.value ? Number(e.target.value) : null)}
                         disabled={actionLoading === userData.id || !userData.organisation_id}
-                        className="text-sm border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
+                        className="text-sm py-1 border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
                       >
                         <option value="">{userData.organisation_id ? 'No department' : 'Assign organisation first'}</option>
                         {departments
@@ -2155,75 +2174,35 @@ const AdminDashboard: React.FC = () => {
                       </select>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-3 text-xs min-w-[280px]">
+                  <td className="px-4 py-3">
+                    <div className="grid grid-cols-1 min-[1360px]:grid-cols-[repeat(2,max-content)] gap-x-5 gap-y-1 text-xs">
                       {FEATURE_DEFINITIONS.map(({ key, label, icon: Icon }) => {
                         const organisationAllowed = isFeatureAllowed(organisationFeatures[key]);
                         const userAllowed = isFeatureAllowed(feat[key]);
                         const effectiveAllowed = getEffectiveFeatureValue(feat, organisationFeatures, key);
-                        const orgStatusLabel = organisationAllowed ? 'Organisation enabled' : 'Organisation disabled';
-                        const userStatusLabel = userAllowed ? 'User enabled' : 'User disabled';
+                        const tooltip = `${label}: user ${userAllowed ? 'enabled' : 'disabled'}, organisation ${organisationAllowed ? 'enabled' : 'disabled'} — effective ${effectiveAllowed ? 'enabled' : 'disabled'}`;
 
                         return (
-                          <div key={key} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 text-gray-700">
-                                <Icon className="h-3.5 w-3.5 text-gray-500" />
-                                <span>{label}</span>
-                              </div>
-                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${effectiveAllowed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                {effectiveAllowed ? 'Effective: enabled' : 'Effective: disabled'}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between gap-3">
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={userAllowed}
-                                  onChange={(e) => handleFeaturesChange(userData.id, key, e.target.checked)}
-                                  disabled={actionLoading === userData.id || userData.id === user?.id}
-                                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                />
-                                <span className={`${userAllowed ? 'text-gray-700' : 'text-red-700'}`}>{userStatusLabel}</span>
-                              </label>
-                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${organisationAllowed ? 'bg-primary-100 text-primary-800' : 'bg-amber-100 text-amber-800'}`}>
-                                {orgStatusLabel}
-                              </span>
-                            </div>
-                          </div>
+                          <label key={key} title={tooltip} className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap py-0.5">
+                            <input
+                              type="checkbox"
+                              checked={userAllowed}
+                              onChange={(e) => handleFeaturesChange(userData.id, key, e.target.checked)}
+                              disabled={actionLoading === userData.id || userData.id === user?.id}
+                              className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <Icon className={`h-3.5 w-3.5 ${effectiveAllowed ? 'text-green-600' : 'text-gray-400'}`} />
+                            <span className={effectiveAllowed ? 'text-gray-800' : 'text-gray-400 line-through'}>{label}</span>
+                            {!organisationAllowed && (
+                              <span className="rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800">Org off</span>
+                            )}
+                          </label>
                         );
                       })}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col space-y-1">
-                      {userData.is_approved ? (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                          Approved
-                        </span>
-                      ) : (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                          Pending
-                        </span>
-                      )}
-                      {userData.is_active === false && (
-                        <span className="px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full bg-gray-200 text-gray-800">
-                          <Lock className="h-3 w-3 mr-1" />
-                          Locked
-                        </span>
-                      )}
-                      {!userData.email_verified && (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
-                          Unverified
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(userData.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end items-center gap-2 flex-wrap">
+                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex justify-end items-center gap-1">
                       {!userData.is_approved && userData.email_verified && (
                         <button
                           onClick={() => handleApprove(userData.id)}
