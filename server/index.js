@@ -87,6 +87,7 @@ apiRouter.use('/local-models', require('./routes/local-models'));
 apiRouter.use('/assessments', require('./routes/assessments'));
 apiRouter.use('/content', require('./routes/content'));
 apiRouter.use('/modules', require('./routes/modules'));
+apiRouter.use('/courses', require('./routes/courses'));
 apiRouter.use('/moodle', require('./routes/moodle'));
 apiRouter.use('/slide-gen', require('./routes/slideGen'));
 apiRouter.use('/video-gen', require('./routes/videoGen'));

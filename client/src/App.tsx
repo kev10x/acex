@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
+  BookOpen,
   Brain,
   ChevronLeft,
   ClipboardCheck,
@@ -51,6 +52,7 @@ const MoodleIntegration = lazy(() => import('./components/MoodleIntegration'));
 const SlideGenerator = lazy(() => import('./components/SlideGenerator'));
 const SlideGeneratorStudio = lazy(() => import('./components/SlideGeneratorStudio'));
 const VideoGenerator = lazy(() => import('./components/VideoGenerator'));
+const CourseManager = lazy(() => import('./components/CourseManager'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
@@ -94,15 +96,16 @@ type TabType =
   | 'moodle'
   | 'slide-gen'
   | 'video-gen'
+  | 'courses'
   | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
 type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'moodle'],
-  student: ['modules', 'mcq', 'results']
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'moodle'],
+  student: ['modules', 'mcq', 'results', 'courses']
 };
 
 const WORKSPACE_ORDER: WorkspaceType[] = ['marking', 'student', 'labs', 'admin'];
@@ -188,6 +191,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     description: 'Organise assessments and content into learning modules for students.',
     icon: Layers
   },
+  courses: {
+    label: 'Courses',
+    description: 'Manage enrollment, weighted grading, and the gradebook for each course.',
+    icon: BookOpen
+  },
   moodle: {
     label: 'Moodle Integration',
     description: 'Browse courses, push grades to Moodle, and import quiz questions.',
@@ -271,6 +279,7 @@ function WorkspaceShell({
       {activeTab === 'modules' && canAccessTab('modules') && (
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
       )}
+      {activeTab === 'courses' && canAccessTab('courses') && <CourseManager />}
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
@@ -329,8 +338,8 @@ function AppContent() {
             ),
       student:
         normalizedRole === 'student'
-          ? (['modules', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-          : (['assessments', 'practicals', 'content', 'modules', 'moodle'] as TabType[])
+          ? (['modules', 'courses', 'results', 'mcq'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
+          : (['assessments', 'practicals', 'content', 'modules', 'courses', 'moodle'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;
                 if (tab === 'practicals') return allowPracticalCreation;
