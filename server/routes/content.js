@@ -31,6 +31,8 @@ const { resolvePromptRegistryVersion } = require('../services/promptRegistryServ
 const { JWT_SECRET } = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
 
+const courseScope = require('../services/courseScopeService');
+
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const API_BASE = (process.env.API_PUBLIC_BASE || '').replace(/\/$/, '') || '/api';
@@ -1365,6 +1367,7 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
     if (!content || !content.title) {
       return res.status(400).json({ error: 'content with title is required' });
     }
+    const requestedCourse = await courseScope.parseRequestedCourse(req.user, req.body?.course_id);
     const normalizedContent = contentService.normalizeGeneratedContent(content);
     let code;
     for (let i = 0; i < 5; i++) {
@@ -1403,6 +1406,10 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
       if (!moduleRow) {
         return res.status(404).json({ error: 'Module not found' });
       }
+    }
+
+    if (contentIdForSummary) {
+      await courseScope.fileItemUnderCourse('content', contentIdForSummary, requestedCourse, moduleTargetId);
     }
 
     if (moduleTargetId) {
@@ -1487,6 +1494,7 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
       message: 'Content published. Share the link with students.',
     });
   } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
     console.error('Content publish error:', error);
     res.status(500).json({ error: 'Failed to publish content' });
   }
@@ -1498,8 +1506,8 @@ router.post('/publish', requireAuth, requireFeature('content_creation'), async (
 router.get('/my', requireAuth, async (req, res) => {
   try {
     const q = isMySQL()
-      ? await query('SELECT id, code, title, content_json, created_at FROM published_content WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
-      : await query('SELECT id, code, title, content_json, created_at FROM published_content WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+      ? await query('SELECT pc.id, pc.code, pc.title, pc.content_json, pc.created_at, pc.course_id, c.name AS course_name FROM published_content pc LEFT JOIN courses c ON c.id = pc.course_id WHERE pc.user_id = ? ORDER BY pc.created_at DESC', [req.user.id])
+      : await query('SELECT pc.id, pc.code, pc.title, pc.content_json, pc.created_at, pc.course_id, c.name AS course_name FROM published_content pc LEFT JOIN courses c ON c.id = pc.course_id WHERE pc.user_id = $1 ORDER BY pc.created_at DESC', [req.user.id]);
     const rows = Array.isArray(q) ? q : (q.rows || []);
     let repairedCount = 0;
     const repairedRows = await Promise.all(rows.map((r) => normalizeAndRepairPublishedContentRow(r, { userId: req.user.id })));
@@ -1513,7 +1521,7 @@ router.get('/my', requireAuth, async (req, res) => {
           }))
         : [];
       if (r.repaired) repairedCount += 1;
-      return { id: r.id, code: r.code, title: r.title, sections, created_at: r.created_at };
+      return { id: r.id, code: r.code, title: r.title, sections, created_at: r.created_at, course_id: r.course_id ?? null, course_name: r.course_name ?? null };
     });
     res.json({ success: true, items, repaired_count: repairedCount });
   } catch (error) {
@@ -1525,6 +1533,22 @@ router.get('/my', requireAuth, async (req, res) => {
 /**
  * Get one of the current user's published content items for editing.
  */
+router.put('/my/:id/course', requireAuth, requireFeature('content_creation'), async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+    const owned = rowList(isMySQL()
+      ? await query('SELECT id FROM published_content WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('SELECT id FROM published_content WHERE id = $1 AND user_id = $2', [id, req.user.id]))[0];
+    if (!owned) return res.status(404).json({ error: 'Content not found' });
+    const requested = await courseScope.parseRequestedCourse(req.user, req.body?.course_id === undefined ? null : req.body.course_id);
+    await courseScope.setItemCourse('content', id, requested.courseId);
+    res.json({ success: true, course_id: requested.courseId });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to move content' });
+  }
+});
+
 router.get('/my/:id', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);

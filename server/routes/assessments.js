@@ -21,6 +21,8 @@ const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../ser
 const { resolvePromptRegistryVersion } = require('../services/promptRegistryService');
 const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailService');
 
+const courseScope = require('../services/courseScopeService');
+
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
@@ -1392,8 +1394,8 @@ router.get('/published', requireAuth, async (req, res) => {
   try {
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT id, code, assessment_json, batch_id, created_at FROM published_assessments WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
-      : await query('SELECT id, code, assessment_json, batch_id, created_at FROM published_assessments WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+      ? await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = ? ORDER BY pa.created_at DESC', [req.user.id])
+      : await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = $1 ORDER BY pa.created_at DESC', [req.user.id]);
     const rows = result.rows || result;
     const list = Array.isArray(rows) ? rows : [rows];
     const base = process.env.CLIENT_URL || '';
@@ -1414,6 +1416,8 @@ router.get('/published', requireAuth, async (req, res) => {
         question_count,
         link: `${takePath}?code=${r.code}`,
         created_at: r.created_at,
+        course_id: r.course_id ?? null,
+        course_name: r.course_name ?? null,
       };
     });
     res.json({ success: true, items });
@@ -1565,6 +1569,23 @@ router.delete('/history', requireAuth, requireFeature('assessment_creation'), as
 /**
  * Delete one of the current user's published assessments.
  */
+router.put('/published/:id/course', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
+  try {
+    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+    const ownedQ = isMySQL
+      ? await query('SELECT id FROM published_assessments WHERE id = ? AND user_id = ?', [id, req.user.id])
+      : await query('SELECT id FROM published_assessments WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (!(ownedQ.rows || ownedQ)[0]) return res.status(404).json({ error: 'Assessment not found' });
+    const requested = await courseScope.parseRequestedCourse(req.user, req.body?.course_id === undefined ? null : req.body.course_id);
+    await courseScope.setItemCourse('assessment', id, requested.courseId);
+    res.json({ success: true, course_id: requested.courseId });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to move assessment' });
+  }
+});
+
 router.delete(['/published/:id', '/:id'], requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -1652,6 +1673,7 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
     if (!assessment || !rubric_id) {
       return res.status(400).json({ error: 'assessment and rubric_id are required' });
     }
+    const requestedCourse = await courseScope.parseRequestedCourse(req.user, req.body?.course_id);
     if (!assessment.title || !assessment.questions || !Array.isArray(assessment.questions)) {
       return res.status(400).json({ error: 'Invalid assessment: needs title and questions array' });
     }
@@ -1696,6 +1718,10 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
       }
     }
 
+    if (publishedId) {
+      await courseScope.fileItemUnderCourse('assessment', publishedId, requestedCourse, moduleTargetId);
+    }
+
     if (publishedId && moduleTargetId) {
       await addItemToModule(moduleTargetId, req.user.id, 'assessment', publishedId, assessment.title || `Assessment ${publishedId}`, code);
       await autoCreateGradeItemForModule(moduleTargetId, publishedId, assessment);
@@ -1721,6 +1747,7 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
       message: 'Assessment published. Share the link with students.',
     });
   } catch (error) {
+    if (error.status === 403) return res.status(403).json({ error: error.message });
     console.error('Publish assessment error:', error);
     res.status(500).json({ error: 'Failed to publish assessment' });
   }

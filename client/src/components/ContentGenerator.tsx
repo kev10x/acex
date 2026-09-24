@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Loader2, Video, Link2, Upload, X, Presentation, BookOpen, Trash2, CalendarClock, History, Images, SlidersHorizontal } from 'lucide-react';
+import { CourseFilterSelect, CourseAssignSelect, CourseGroupHeading, CourseFilter, useCourses, filterByCourse, sortByCourse, courseLabel } from './CourseLibraryControls';
 import { contentAPI, rubricsAPI, modulesAPI, pptxJobsAPI, videoGenAPI, GeneratedContent, ContentVisual, ContentPlannerJob, ContentTemplate, ContentHistoryItem as ApiContentHistoryItem, LearningModule, PublishedContentItem, GenerationTrace, PptxJobProgress, VideoGenJob, getApiErrorMessage } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { useNotification } from '../contexts/NotificationContext';
@@ -171,6 +172,9 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
   const [plannerJobs, setPlannerJobs] = useState<ContentPlannerJob[]>([]);
   const [history, setHistory] = useState<ApiContentHistoryItem[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
+  const courses = useCourses();
+  const [courseFilter, setCourseFilter] = useState<CourseFilter>('all');
+  const [publishCourse, setPublishCourse] = useState('');
   const [newModuleName, setNewModuleName] = useState('');
   const [modules, setModules] = useState<LearningModule[]>([]);
   const [scheduledFor, setScheduledFor] = useState('');
@@ -1051,7 +1055,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
         return;
       }
 
-      const payload: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string } = {
+      const payload: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string; course_id?: number | null } = {
         content: withGenerationSettings(generatedContent),
         rubric_id: rubricId || undefined,
         include_video: withVideo,
@@ -1061,6 +1065,8 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
       } else if (selectedModuleId) {
         payload.module_id = selectedModuleId;
       }
+      if (publishCourse === 'none') payload.course_id = null;
+      else if (publishCourse) payload.course_id = Number(publishCourse);
       const res = await contentAPI.publish(payload);
       if (res.data.success && res.data.code) {
         const link = res.data.link;
@@ -1658,8 +1664,16 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
             <button type="button" onClick={(e) => { e.preventDefault(); loadMyContent(); }} className="text-xs font-normal text-primary-700 underline hover:text-primary-900">Load</button>
           </summary>
           <div className="px-4 pb-4">
+            {myContent.length > 0 && (
+              <div className="mb-3 flex items-center gap-2 text-xs text-primary-900">
+                <span>Course:</span>
+                <CourseFilterSelect courses={courses} value={courseFilter} onChange={setCourseFilter} />
+              </div>
+            )}
             {myContent.length === 0 ? (
               <p className="text-sm text-primary-900">No published content yet.</p>
+            ) : filterByCourse(myContent, courseFilter).length === 0 ? (
+              <p className="text-sm text-primary-900">Nothing filed under this course yet.</p>
             ) : (
               <>
                 {selectedContentIds.size > 0 && (
@@ -1684,12 +1698,14 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   </div>
                 )}
                 <ul className="space-y-2">
-                  {myContent.map((item) => {
+                  {sortByCourse(filterByCourse(myContent, courseFilter)).map((item, idx, arr) => {
                     const link = `${typeof window !== 'undefined' ? window.location.origin : ''}${basePath}/take-content?code=${item.code}`;
                     const isSelected = selectedContentIds.has(item.id);
+                    const showHeading = courseFilter === 'all' && (idx === 0 || (arr[idx - 1].course_id ?? null) !== (item.course_id ?? null));
                     return (
+                      <React.Fragment key={item.id}>
+                      {showHeading && <CourseGroupHeading label={courseLabel(item)} />}
                       <li
-                        key={item.id}
                         className={`flex items-center gap-2 flex-wrap rounded-lg px-2 py-1 transition-colors ${isSelected ? 'bg-primary-100 border border-primary-300' : 'border border-transparent'}`}
                       >
                         <input
@@ -1705,6 +1721,18 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           className="w-4 h-4 accent-primary-600 cursor-pointer"
                         />
                         <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                        <CourseAssignSelect
+                          courses={courses}
+                          value={item.course_id}
+                          onChange={async (courseId) => {
+                            try {
+                              await contentAPI.setCourse(item.id, courseId);
+                              loadMyContent();
+                            } catch (e: any) {
+                              setError(e?.response?.data?.error || 'Could not move this content');
+                            }
+                          }}
+                        />
                         <input readOnly value={link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
                         <button
                           type="button"
@@ -1733,6 +1761,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                           Delete
                         </button>
                       </li>
+                      </React.Fragment>
                     );
                   })}
                 </ul>
@@ -2330,7 +2359,7 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
             </div>
           </div>
           <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Module folder</label>
                 <select
@@ -2342,6 +2371,18 @@ const ContentGenerator: React.FC<{ onCreateSlides?: (content: GeneratedContent) 
                   {modules.map((module) => (
                     <option key={module.id} value={module.id}>{module.name}</option>
                   ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Course</label>
+                <select
+                  value={publishCourse}
+                  onChange={(e) => setPublishCourse(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">Same as module (if any)</option>
+                  {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="none">No course</option>
                 </select>
               </div>
               <div>

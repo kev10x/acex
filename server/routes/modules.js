@@ -5,6 +5,7 @@ const { requireAuth, requireFeature, requireRoles } = require('../middleware/aut
 const contentService = require('../services/contentService');
 const aiService = require('../services/aiService');
 const emailService = require('../services/emailService');
+const courseScope = require('../services/courseScopeService');
 const aiConfig = require('../config/ai-config');
 const {
   inferGenerationErrorType,
@@ -581,6 +582,34 @@ async function createModule(userId, name) {
 }
 
 const HOMEWORK_WORKFLOW_STATES = new Set(['draft', 'reviewed', 'published']);
+
+// Attach a published item to a module (skips silently if it is already there).
+async function addItemToModule(moduleId, userId, itemType, itemId, snapshotTitle, snapshotCode) {
+  if (!Number.isFinite(moduleId) || moduleId <= 0) return;
+  const moduleRow = await moduleBelongsToUser(moduleId, userId);
+  if (!moduleRow) return;
+  const maxQ = isMySQL()
+    ? await query('SELECT COALESCE(MAX(position), -1) AS max_position FROM module_items WHERE module_id = ?', [moduleId])
+    : await query('SELECT COALESCE(MAX(position), -1) AS max_position FROM module_items WHERE module_id = $1', [moduleId]);
+  const nextPos = Number(rowList(maxQ)[0]?.max_position ?? -1) + 1;
+  try {
+    if (isMySQL()) {
+      await query(
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [moduleId, itemType, itemId, snapshotTitle, snapshotCode, nextPos, -1]
+      );
+    } else {
+      await query(
+        `INSERT INTO module_items (module_id, item_type, item_id, snapshot_title, snapshot_code, position, section_index)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [moduleId, itemType, itemId, snapshotTitle, snapshotCode, nextPos, -1]
+      );
+    }
+  } catch (err) {
+    if (!(err?.code === 'ER_DUP_ENTRY' || String(err?.message || '').toLowerCase().includes('unique'))) throw err;
+  }
+}
 
 // Tell a homework module's students it is now available. Called only when a
 // module moves into "published" (drafts are hidden from students), and never
@@ -3745,8 +3774,8 @@ router.post(
       if (!sourceModule) return res.status(404).json({ error: 'Module not found' });
 
       const sourceMetaQ = isMySQL()
-        ? await query('SELECT id, name FROM modules WHERE id = ? AND user_id = ?', [sourceModuleId, req.user.id])
-        : await query('SELECT id, name FROM modules WHERE id = $1 AND user_id = $2', [sourceModuleId, req.user.id]);
+        ? await query('SELECT id, name, course_id FROM modules WHERE id = ? AND user_id = ?', [sourceModuleId, req.user.id])
+        : await query('SELECT id, name, course_id FROM modules WHERE id = $1 AND user_id = $2', [sourceModuleId, req.user.id]);
       const sourceMeta = rowList(sourceMetaQ)[0] || { id: sourceModuleId, name: `Module ${sourceModuleId}` };
 
       const enrolledQ = isMySQL()
@@ -3871,6 +3900,11 @@ router.post(
         throw new Error('Failed to create homework module');
       }
       telemetry.homework_module_id = Number(homeworkModuleId) || null;
+      const homeworkCourseId = sourceMeta.course_id ? Number(sourceMeta.course_id) : null;
+      if (homeworkCourseId) {
+        if (isMySQL()) await query('UPDATE modules SET course_id = ? WHERE id = ?', [homeworkCourseId, homeworkModuleId]);
+        else await query('UPDATE modules SET course_id = $1 WHERE id = $2', [homeworkCourseId, homeworkModuleId]);
+      }
       await addStudentToModuleIfMissing(homeworkModuleId, studentUserId);
       await ensureHomeworkWorkflow(
         homeworkModuleId,
@@ -4085,6 +4119,11 @@ Rules:
 
       const publishedContent = await publishContentForHomework(req.user.id, generatedContent, rubric.id);
       const publishedAssessment = await publishAssessmentForHomework(req.user.id, assessment, rubric.id);
+
+      if (homeworkCourseId) {
+        await courseScope.setItemCourse('content', publishedContent.id, homeworkCourseId);
+        await courseScope.setItemCourse('assessment', publishedAssessment.id, homeworkCourseId);
+      }
 
       await addItemToModule(
         homeworkModuleId,

@@ -219,6 +219,7 @@ const initDatabase = async () => {
           rubric_id INT NOT NULL,
           batch_id INT NULL,
           user_id INT NOT NULL,
+          course_id INT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE,
           FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL,
@@ -1510,6 +1511,46 @@ const initDatabase = async () => {
         if ((modulesCourseIdCheck.rows?.[0]?.count || modulesCourseIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE modules ADD COLUMN course_id INT NULL`);
           await query(`ALTER TABLE modules ADD FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL`);
+        }
+        // Libraries can be separated by course (course_id is set on publish; existing items are filed from their module).
+        const published_contentCourseIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'published_content' AND column_name = 'course_id'
+        `);
+        if ((published_contentCourseIdCheck.rows?.[0]?.count || published_contentCourseIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE published_content ADD COLUMN course_id INT NULL`);
+          try {
+            await query(`
+              UPDATE published_content SET course_id = (
+                SELECT m.course_id FROM module_items mi
+                INNER JOIN modules m ON m.id = mi.module_id
+                WHERE mi.item_type = 'content' AND mi.item_id = published_content.id AND m.course_id IS NOT NULL
+                ORDER BY mi.id LIMIT 1
+              )
+            `);
+          } catch (backfillError) {
+            console.warn('Could not backfill published_content.course_id:', backfillError?.message || backfillError);
+          }
+        }
+        // Libraries can be separated by course (course_id is set on publish; existing items are filed from their module).
+        const published_assessmentsCourseIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'published_assessments' AND column_name = 'course_id'
+        `);
+        if ((published_assessmentsCourseIdCheck.rows?.[0]?.count || published_assessmentsCourseIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE published_assessments ADD COLUMN course_id INT NULL`);
+          try {
+            await query(`
+              UPDATE published_assessments SET course_id = (
+                SELECT m.course_id FROM module_items mi
+                INNER JOIN modules m ON m.id = mi.module_id
+                WHERE mi.item_type = 'assessment' AND mi.item_id = published_assessments.id AND m.course_id IS NOT NULL
+                ORDER BY mi.id LIMIT 1
+              )
+            `);
+          } catch (backfillError) {
+            console.warn('Could not backfill published_assessments.course_id:', backfillError?.message || backfillError);
+          }
         }
         const plannerIncludeDiagramsCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
@@ -3070,6 +3111,46 @@ const initDatabase = async () => {
         `);
         if ((modulesCourseIdCheck.rows?.[0]?.count || modulesCourseIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE modules ADD COLUMN course_id INTEGER NULL REFERENCES courses(id) ON DELETE SET NULL`);
+        }
+        // Libraries can be separated by course (course_id is set on publish; existing items are filed from their module).
+        const published_contentCourseIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'published_content' AND column_name = 'course_id'
+        `);
+        if ((published_contentCourseIdCheck.rows?.[0]?.count || published_contentCourseIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE published_content ADD COLUMN course_id INTEGER NULL`);
+          try {
+            await query(`
+              UPDATE published_content SET course_id = (
+                SELECT m.course_id FROM module_items mi
+                INNER JOIN modules m ON m.id = mi.module_id
+                WHERE mi.item_type = 'content' AND mi.item_id = published_content.id AND m.course_id IS NOT NULL
+                ORDER BY mi.id LIMIT 1
+              )
+            `);
+          } catch (backfillError) {
+            console.warn('Could not backfill published_content.course_id:', backfillError?.message || backfillError);
+          }
+        }
+        // Libraries can be separated by course (course_id is set on publish; existing items are filed from their module).
+        const published_assessmentsCourseIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'published_assessments' AND column_name = 'course_id'
+        `);
+        if ((published_assessmentsCourseIdCheck.rows?.[0]?.count || published_assessmentsCourseIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE published_assessments ADD COLUMN course_id INTEGER NULL`);
+          try {
+            await query(`
+              UPDATE published_assessments SET course_id = (
+                SELECT m.course_id FROM module_items mi
+                INNER JOIN modules m ON m.id = mi.module_id
+                WHERE mi.item_type = 'assessment' AND mi.item_id = published_assessments.id AND m.course_id IS NOT NULL
+                ORDER BY mi.id LIMIT 1
+              )
+            `);
+          } catch (backfillError) {
+            console.warn('Could not backfill published_assessments.course_id:', backfillError?.message || backfillError);
+          }
         }
         const plannerIncludeDiagramsCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.columns

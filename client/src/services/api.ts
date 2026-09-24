@@ -857,7 +857,7 @@ export const assessmentsAPI = {
     safety_focus?: string[];
   }) => api.post<{ success: boolean; practical: GeneratedPractical; input?: any }>('/assessments/generate-practical', data),
   getStats: () => api.get('/assessments/stats'),
-  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string }) =>
+  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null }) =>
     api.post('/assessments/publish', data),
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
@@ -889,6 +889,7 @@ export const assessmentsAPI = {
   getPublished: () => api.get('/assessments/published'),
   /** Delete one published assessment owned by current user. */
   deletePublished: (id: number) => api.delete(`/assessments/published/${id}`),
+  setPublishedCourse: (id: number, courseId: number | null) => api.put<{ success: boolean }>(`/assessments/published/${id}/course`, { course_id: courseId }),
   saveHistory: (data: { assessment: GeneratedAssessment; input?: any }) =>
     api.post<{ success: boolean; item: AssessmentHistoryItem }>('/assessments/history', data),
   getHistory: () => api.get<{ success: boolean; items: AssessmentHistoryItem[] }>('/assessments/history'),
@@ -985,6 +986,8 @@ export interface PublishedContentItem {
   content?: GeneratedContent;
   rubric_id?: number | null;
   created_at: string;
+  course_id?: number | null;
+  course_name?: string | null;
 }
 
 export interface LearningModuleItem {
@@ -1453,13 +1456,14 @@ export const contentAPI = {
     include_mascot?: boolean;
     include_beautify_text?: boolean;
   }) => api.post<{ success: boolean; content: GeneratedContent; generation_trace?: GenerationTrace | null; generation_job_id?: number | null }>('/content/generate', data),
-  publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string }) =>
+  publish: (data: { content: GeneratedContent; rubric_id?: number; include_video?: boolean; module_id?: number; module_name?: string; course_id?: number | null }) =>
     api.post('/content/publish', data),
   getMy: () => api.get<{ success: boolean; items: PublishedContentItem[] }>('/content/my'),
   getMyItem: (id: number) => api.get<{ success: boolean; item: PublishedContentItem }>(`/content/my/${id}`),
   updateMy: (id: number, data: { content: GeneratedContent; rubric_id?: number | null }) =>
     api.put<{ success: boolean; item: PublishedContentItem }>(`/content/my/${id}`, data),
   deleteMy: (id: number) => api.delete(`/content/my/${id}`),
+  setCourse: (id: number, courseId: number | null) => api.put<{ success: boolean }>(`/content/my/${id}/course`, { course_id: courseId }),
   getByCode: (code: string) => api.get(`/content/take/${code}`),
   regenerateVisual: (data: {
     visual: ContentVisual;

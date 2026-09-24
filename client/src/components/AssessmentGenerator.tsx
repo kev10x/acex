@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
+import { CourseFilterSelect, CourseAssignSelect, CourseGroupHeading, CourseFilter, useCourses, filterByCourse, sortByCourse, courseLabel } from './CourseLibraryControls';
 import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
@@ -53,9 +54,12 @@ const AssessmentGenerator: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [modules, setModules] = useState<LearningModule[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
+  const courses = useCourses();
+  const [courseFilter, setCourseFilter] = useState<CourseFilter>('all');
+  const [publishCourse, setPublishCourse] = useState('');
   const [newModuleName, setNewModuleName] = useState('');
   const [rubrics, setRubrics] = useState<any[]>([]);
-  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string }[]>([]);
+  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string; course_id?: number | null; course_name?: string | null }[]>([]);
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
   const [history, setHistory] = useState<ApiAssessmentHistoryItem[]>([]);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
@@ -523,9 +527,10 @@ const AssessmentGenerator: React.FC = () => {
     }
   };
 
-  const publishedPageCount = Math.max(1, Math.ceil(publishedList.length / PUBLISHED_PAGE_SIZE));
+  const publishedFiltered = sortByCourse(filterByCourse(publishedList, courseFilter));
+  const publishedPageCount = Math.max(1, Math.ceil(publishedFiltered.length / PUBLISHED_PAGE_SIZE));
   const historyPageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
-  const publishedPageItems = publishedList.slice((publishedPage - 1) * PUBLISHED_PAGE_SIZE, publishedPage * PUBLISHED_PAGE_SIZE);
+  const publishedPageItems = publishedFiltered.slice((publishedPage - 1) * PUBLISHED_PAGE_SIZE, publishedPage * PUBLISHED_PAGE_SIZE);
   const historyPageItems = history.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
   return (
@@ -547,14 +552,36 @@ const AssessmentGenerator: React.FC = () => {
             My published assessment links ({publishedList.length})
           </summary>
           <div className="px-4 pb-4">
+            {publishedList.length > 0 && (
+              <div className="mb-3 flex items-center gap-2 text-xs text-gray-600">
+                <span>Course:</span>
+                <CourseFilterSelect courses={courses} value={courseFilter} onChange={(v) => { setCourseFilter(v); setPublishedPage(1); }} />
+              </div>
+            )}
             {publishedList.length === 0 ? (
               <p className="text-sm text-gray-500">No published assessments yet.</p>
+            ) : publishedFiltered.length === 0 ? (
+              <p className="text-sm text-gray-500">Nothing filed under this course yet.</p>
             ) : (
               <>
                 <ul className="space-y-2">
-                {publishedPageItems.map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 flex-wrap">
+                {publishedPageItems.map((item, idx, arr) => (
+                  <React.Fragment key={item.id}>
+                  {courseFilter === 'all' && (idx === 0 || (arr[idx - 1].course_id ?? null) !== (item.course_id ?? null)) && <CourseGroupHeading label={courseLabel(item)} />}
+                  <li className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                    <CourseAssignSelect
+                      courses={courses}
+                      value={item.course_id}
+                      onChange={async (courseId) => {
+                        try {
+                          await assessmentsAPI.setPublishedCourse(item.id, courseId);
+                          loadPublished();
+                        } catch (e: any) {
+                          setError(e?.response?.data?.error || 'Could not move this assessment');
+                        }
+                      }}
+                    />
                     <input readOnly value={item.link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
                     <button
                       type="button"
@@ -574,6 +601,7 @@ const AssessmentGenerator: React.FC = () => {
                       Delete
                     </button>
                   </li>
+                  </React.Fragment>
                 ))}
                 </ul>
                 {publishedPageCount > 1 && (
@@ -1088,6 +1116,18 @@ const AssessmentGenerator: React.FC = () => {
                         ))}
                       </select>
                     </div>
+                    <div className="flex-1 min-w-[180px]">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Course</label>
+                      <select
+                        value={publishCourse}
+                        onChange={(e) => setPublishCourse(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                      >
+                        <option value="">Same as module (if any)</option>
+                        {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <option value="none">No course</option>
+                      </select>
+                    </div>
                     <div className="flex-1 min-w-[220px]">
                       <label className="block text-xs font-semibold text-gray-700 mb-1">Create new module folder</label>
                       <input
@@ -1102,7 +1142,7 @@ const AssessmentGenerator: React.FC = () => {
                     onClick={async () => {
                       if (!generatedAssessment || !savedRubricId) return;
                       try {
-                        const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string } = {
+                        const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null } = {
                           assessment: generatedAssessment,
                           rubric_id: savedRubricId,
                         };
@@ -1111,6 +1151,8 @@ const AssessmentGenerator: React.FC = () => {
                         } else if (selectedModuleId) {
                           payload.module_id = selectedModuleId;
                         }
+                        if (publishCourse === 'none') payload.course_id = null;
+                        else if (publishCourse) payload.course_id = Number(publishCourse);
                         const res = await assessmentsAPI.publish(payload);
                         if (res.data.success && res.data.code) {
                           const link = `${window.location.origin}/tools/take-assessment?code=${res.data.code}`;
