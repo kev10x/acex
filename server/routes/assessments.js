@@ -160,6 +160,47 @@ async function moduleBelongsToUser(moduleId, userId) {
   return rowList(row)[0] || null;
 }
 
+// If the module this assessment was just added to belongs to a course,
+// auto-create a matching grade item there so it shows up in the gradebook
+// without a staff member having to add it by hand. Silently a no-op when the
+// module has no course (most modules don't) — that's the normal case, not
+// an error. Idempotent: publishing/re-adding the same assessment to the same
+// course-linked module again just hits the existing UNIQUE(course_id,
+// item_type, item_id) constraint and does nothing.
+async function autoCreateGradeItemForModule(moduleId, publishedAssessmentId, assessment) {
+  try {
+    const moduleRow = rowList(
+      isMySQLDb()
+        ? await query('SELECT course_id FROM modules WHERE id = ?', [moduleId])
+        : await query('SELECT course_id FROM modules WHERE id = $1', [moduleId])
+    )[0];
+    const courseId = moduleRow?.course_id;
+    if (!courseId) return;
+
+    const maxPoints = Array.isArray(assessment.questions)
+      ? assessment.questions.reduce((sum, q) => sum + (Number(q.points) || 0), 0) || null
+      : null;
+    const title = String(assessment.title || `Assessment ${publishedAssessmentId}`).slice(0, 255);
+
+    if (isMySQLDb()) {
+      await query(
+        `INSERT IGNORE INTO grade_items (course_id, item_type, item_id, title, max_points)
+         VALUES (?, 'assessment', ?, ?, ?)`,
+        [courseId, publishedAssessmentId, title, maxPoints]
+      );
+    } else {
+      await query(
+        `INSERT INTO grade_items (course_id, item_type, item_id, title, max_points)
+         VALUES ($1, 'assessment', $2, $3, $4)
+         ON CONFLICT (course_id, item_type, item_id) DO NOTHING`,
+        [courseId, publishedAssessmentId, title, maxPoints]
+      );
+    }
+  } catch (e) {
+    console.warn('Auto-create grade item on publish failed:', e.message);
+  }
+}
+
 async function getOrCreateModuleId(userId, name) {
   const cleanName = String(name || '').trim().slice(0, 255);
   if (!cleanName) return null;
@@ -1648,6 +1689,7 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
 
     if (publishedId && moduleTargetId) {
       await addItemToModule(moduleTargetId, req.user.id, 'assessment', publishedId, assessment.title || `Assessment ${publishedId}`, code);
+      await autoCreateGradeItemForModule(moduleTargetId, publishedId, assessment);
     }
 
     const batchName = `Assessment Submissions - ${String(assessment.title || 'Published Assessment').trim()}`.slice(0, 255);
