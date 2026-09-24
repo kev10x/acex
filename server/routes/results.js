@@ -150,10 +150,12 @@ router.get('/', requireAuth, async (req, res) => {
     const role = normalizeRole(req.user.role);
     let result;
     if (role === 'student') {
+      // Name/email keys are a fallback for older or logged-out submissions; a
+      // submission made while logged in as this student carries their
+      // student_user_id, which is the reliable link (a typed name rarely
+      // matches the account name exactly).
       const keys = getStudentIdentityKeys(req.user);
-      if (keys.length === 0) {
-        return res.json({ success: true, results: [] });
-      }
+      if (keys.length === 0) keys.push('\u0000');
       const placeholders = keys.map(() => '?').join(',');
       result = await query(
         `SELECT 
@@ -179,13 +181,18 @@ router.get('/', requireAuth, async (req, res) => {
         LEFT JOIN rubrics r ON mr.rubric_id = r.id
         LEFT JOIN marking_result_moderation m ON m.result_id = mr.id
         LEFT JOIN users reviewer ON reviewer.id = m.updated_by_user_id
-        WHERE LOWER(TRIM(COALESCE(mr.student_name, ''))) IN (${placeholders})
-          AND (
-            (? IS NULL AND owner.organisation_id IS NULL)
-            OR owner.organisation_id = ?
+        WHERE mr.assignment_id IN (
+            SELECT s.assignment_id FROM assessment_submissions s WHERE s.student_user_id = ?
+          )
+          OR (
+            LOWER(TRIM(COALESCE(mr.student_name, ''))) IN (${placeholders})
+            AND (
+              (? IS NULL AND owner.organisation_id IS NULL)
+              OR owner.organisation_id = ?
+            )
           )
         ORDER BY mr.marked_at DESC`,
-        [...keys, req.user.organisation_id || null, req.user.organisation_id || null]
+        [req.user.id, ...keys, req.user.organisation_id || null, req.user.organisation_id || null]
       );
     } else {
       result = await query(
