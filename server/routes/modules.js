@@ -1708,11 +1708,12 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
                    s.assignment_id,
                    mr.scores,
                    mr.total_score,
-                   mr.effective_total_score,
+                   COALESCE(mrm.override_total_score, mr.total_score) AS effective_total_score,
                    mr.marked_at
                  FROM assessment_submissions s
                  LEFT JOIN marking_results mr
                    ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = 1))
+                 LEFT JOIN marking_result_moderation mrm ON mrm.result_id = mr.id
                  WHERE s.published_assessment_id IN (${assessmentIds.map(() => '?').join(', ')})
                    AND s.student_user_id IN (${studentIds.map(() => '?').join(', ')})
                    AND s.status IN ('completed', 'processing', 'queued')`,
@@ -1728,11 +1729,12 @@ router.get('/homework-outcomes', requireAuth, async (req, res) => {
                    s.assignment_id,
                    mr.scores,
                    mr.total_score,
-                   mr.effective_total_score,
+                   COALESCE(mrm.override_total_score, mr.total_score) AS effective_total_score,
                    mr.marked_at
                  FROM assessment_submissions s
                  LEFT JOIN marking_results mr
                    ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = TRUE))
+                 LEFT JOIN marking_result_moderation mrm ON mrm.result_id = mr.id
                  WHERE s.published_assessment_id = ANY($1::int[])
                    AND s.student_user_id = ANY($2::int[])
                    AND s.status IN ('completed', 'processing', 'queued')`,
@@ -1907,11 +1909,12 @@ router.get('/homework-trends', requireAuth, async (req, res) => {
                    s.assignment_id,
                    mr.scores,
                    mr.total_score,
-                   mr.effective_total_score,
+                   COALESCE(mrm.override_total_score, mr.total_score) AS effective_total_score,
                    mr.marked_at
                  FROM assessment_submissions s
                  LEFT JOIN marking_results mr
                    ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = 1))
+                 LEFT JOIN marking_result_moderation mrm ON mrm.result_id = mr.id
                  WHERE s.published_assessment_id IN (${assessmentIds.map(() => '?').join(', ')})
                    AND s.student_user_id IN (${studentIds.map(() => '?').join(', ')})
                    AND s.status IN ('completed', 'processing', 'queued')`,
@@ -1927,11 +1930,12 @@ router.get('/homework-trends', requireAuth, async (req, res) => {
                    s.assignment_id,
                    mr.scores,
                    mr.total_score,
-                   mr.effective_total_score,
+                   COALESCE(mrm.override_total_score, mr.total_score) AS effective_total_score,
                    mr.marked_at
                  FROM assessment_submissions s
                  LEFT JOIN marking_results mr
                    ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = TRUE))
+                 LEFT JOIN marking_result_moderation mrm ON mrm.result_id = mr.id
                  WHERE s.published_assessment_id = ANY($1::int[])
                    AND s.student_user_id = ANY($2::int[])
                    AND s.status IN ('completed', 'processing', 'queued')`,
@@ -3759,11 +3763,12 @@ router.post(
           }
           const q = await query(
             `SELECT s.id, s.student_name, s.student_user_id, s.status, s.result_id, s.assignment_id, s.submitted_at, s.completed_at,
-                    mr.scores, mr.feedback, mr.effective_feedback, mr.total_score, mr.effective_total_score, mr.marked_at
+                    mr.scores, mr.feedback, COALESCE(NULLIF(TRIM(mrm.custom_feedback), ''), mr.feedback) AS effective_feedback, mr.total_score, COALESCE(mrm.override_total_score, mr.total_score) AS effective_total_score, mr.marked_at
              FROM assessment_submissions s
              INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
              LEFT JOIN marking_results mr
                ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = 1))
+             LEFT JOIN marking_result_moderation mrm ON mrm.result_id = mr.id
              WHERE pa.user_id = ?
                AND s.published_assessment_id IN (${assessmentPlaceholders})
                AND (${studentMatchClause})
@@ -3778,11 +3783,12 @@ router.post(
         const includeNameFallback = studentNameCandidates.length > 0;
         const q = await query(
           `SELECT s.id, s.student_name, s.student_user_id, s.status, s.result_id, s.assignment_id, s.submitted_at, s.completed_at,
-                  mr.scores, mr.feedback, mr.effective_feedback, mr.total_score, mr.effective_total_score, mr.marked_at
+                  mr.scores, mr.feedback, COALESCE(NULLIF(TRIM(mrm.custom_feedback), ''), mr.feedback) AS effective_feedback, mr.total_score, COALESCE(mrm.override_total_score, mr.total_score) AS effective_total_score, mr.marked_at
            FROM assessment_submissions s
            INNER JOIN published_assessments pa ON pa.id = s.published_assessment_id
            LEFT JOIN marking_results mr
              ON (mr.id = s.result_id OR (s.assignment_id IS NOT NULL AND mr.assignment_id = s.assignment_id AND mr.is_current = TRUE))
+           LEFT JOIN marking_result_moderation mrm ON mrm.result_id = mr.id
            WHERE pa.user_id = $1
              AND s.published_assessment_id = ANY($2::int[])
              AND (s.student_user_id = $3${includeNameFallback ? ' OR LOWER(TRIM(s.student_name)) = ANY($4::text[])' : ''})
