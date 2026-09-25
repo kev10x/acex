@@ -92,6 +92,8 @@ const HeroPanel: React.FC = () => {
           backgroundPosition: '0 0, 7px 7px',
         }}
       />
+      {/* Navy tint so the copy stays readable over the bright gradient */}
+      <div className="pointer-events-none absolute inset-0 bg-[rgba(10,22,64,0.55)]" />
       {sparkles.map((s, i) => (
         <span
           key={i}
