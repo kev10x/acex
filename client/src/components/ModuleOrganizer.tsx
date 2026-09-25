@@ -111,6 +111,7 @@ const ModuleOrganizer: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
+  const [collapsedCourses, setCollapsedCourses] = useState<Set<string>>(new Set());
 
   useEffect(() => { void loadAll(); }, []);
 
@@ -735,6 +736,31 @@ const ModuleOrganizer: React.FC = () => {
   const resetLibDrag = () => { setIsDraggingFromLib(false); setDropTarget(null); };
 
   // ── Render ────────────────────────────────────────────────
+  // Modules are arranged by course: named courses first (A-Z), modules without a course last.
+  const moduleGroups: { key: string; title: string; courseId: number | null; modules: LearningModule[] }[] = [];
+  [...modules]
+    .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '') || a.id - b.id)
+    .forEach((module) => {
+      const key = module.course_id ? `c${module.course_id}` : 'none';
+      let group = moduleGroups.find((g) => g.key === key);
+      if (!group) {
+        const course = courses.find((c) => c.id === module.course_id);
+        const title = module.course_id
+          ? (module.course_name || (course ? (course.code ? `${course.code} · ${course.name}` : course.name) : `Course ${module.course_id}`))
+          : 'No course';
+        group = { key, title, courseId: module.course_id ?? null, modules: [] };
+        moduleGroups.push(group);
+      }
+      group.modules.push(module);
+    });
+  moduleGroups.sort((a, b) => (a.courseId ? 0 : 1) - (b.courseId ? 0 : 1) || a.title.localeCompare(b.title));
+  const toggleCourseGroup = (key: string) =>
+    setCollapsedCourses((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+
   return (
     <div className="space-y-4">
       {previewTarget && (
@@ -1616,8 +1642,26 @@ const ModuleOrganizer: React.FC = () => {
               message="Create one, then drag content from the library."
             />
           ) : (
-            <div className="space-y-4">
-              {modules.map((module) => {
+            <div className="space-y-6">
+              {moduleGroups.map((group) => {
+                const collapsed = collapsedCourses.has(group.key);
+                return (
+                  <section key={group.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleCourseGroup(group.key)}
+                      className="mb-3 flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left"
+                      aria-expanded={!collapsed}
+                    >
+                      {collapsed ? <ChevronRight className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
+                      <span className={`text-sm font-bold ${group.courseId ? 'text-gray-900' : 'text-gray-500'}`}>{group.title}</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 tabular-nums">
+                        {group.modules.length} module{group.modules.length === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                    {!collapsed && (
+                    <div className="space-y-4">
+              {group.modules.map((module) => {
                 const sortedItems = [...module.items].sort(
                   (a, b) => (a.position - b.position) || (a.id - b.id)
                 );
@@ -1897,6 +1941,11 @@ const ModuleOrganizer: React.FC = () => {
                       )}
                     </div>
                   </div>
+                );
+              })}
+                    </div>
+                    )}
+                  </section>
                 );
               })}
             </div>
