@@ -7,7 +7,7 @@ interface BrandMarkProps {
   className?: string;
 }
 
-// Acexen logo tile: an "A" on the brand indigo-to-violet gradient. Matches public/favicon.svg.
+// Acexen logo tile: an "A" with a spark on the brand indigo-to-violet gradient. Matches public/favicon.svg.
 export default function BrandMark({ size = 36, className = '' }: BrandMarkProps) {
   return (
     <span
@@ -15,9 +15,10 @@ export default function BrandMark({ size = 36, className = '' }: BrandMarkProps)
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      <svg viewBox="0 0 64 64" width={size * 0.62} height={size * 0.62} fill="none" stroke="#fff" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 50 L32 12 L50 50" strokeWidth="7" />
-        <path d="M22 38 H42" strokeWidth="6" />
+      <svg viewBox="0 0 64 64" width={size * 0.9} height={size * 0.9} fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 51 L30 16 L46 51" stroke="#fff" strokeWidth="8" />
+        <path d="M22.5 41 H37.5" stroke="#fff" strokeWidth="6" />
+        <path d="M50 8 L52.6 14.4 L59 17 L52.6 19.6 L50 26 L47.4 19.6 L41 17 L47.4 14.4 Z" fill="#fde68a" />
       </svg>
     </span>
   );
