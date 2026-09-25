@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { modulesAPI } from '../services/api';
 import type { LearningModule, StudentHomeworkProgressItem } from '../services/api';
-import { BookOpen, ClipboardCheck, Clock, GraduationCap, Loader2, Play, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, ChevronRight, ClipboardCheck, Clock, Folder, FolderOpen, GraduationCap, Loader2, Play } from 'lucide-react';
 
 export default function StudentModules() {
   const [modules, setModules] = useState<LearningModule[]>([]);
   const [homeworkProgress, setHomeworkProgress] = useState<StudentHomeworkProgressItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   useEffect(() => {
     loadStudentModules();
@@ -106,6 +107,10 @@ export default function StudentModules() {
   });
   groups.sort((a, b) => (a.title ? 0 : 1) - (b.title ? 0 : 1));
 
+  // A single course opens straight away; several show as folders to choose from.
+  const activeKey = openKey ?? (groups.length === 1 ? groups[0].key : null);
+  const openGroup = groups.find((g) => g.key === activeKey) || null;
+
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-600 via-primary-700 to-accent-700 p-6 text-white shadow-lg sm:p-8">
@@ -151,15 +156,53 @@ export default function StudentModules() {
         </div>
       )}
 
-      {groups.map((group) => (
-        <section key={group.key}>
-          <div className="mb-3 flex items-center gap-2.5">
-            <Sparkles className="h-4 w-4 text-primary-500" />
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">{group.title || 'Other modules'}</h2>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">{group.modules.length}</span>
+      {!openGroup && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {groups.map((group) => {
+            const lessonTotal = group.modules.reduce((n, m) => n + m.items.filter((i) => i.item_type === 'content').length, 0);
+            const quizTotal = group.modules.reduce((n, m) => n + m.items.filter((i) => i.item_type === 'assessment').length, 0);
+            return (
+              <button
+                key={group.key}
+                type="button"
+                onClick={() => setOpenKey(group.key)}
+                className="group flex items-center gap-4 rounded-2xl border border-gray-200/70 bg-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-lg"
+              >
+                <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-accent-600 text-white shadow-[0_8px_20px_-6px_rgba(79,70,229,0.55)]">
+                  <Folder className="h-7 w-7" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-lg font-semibold text-gray-900">{group.title || 'Other modules'}</span>
+                  <span className="mt-1 block text-sm text-gray-500">
+                    {group.modules.length} module{group.modules.length === 1 ? '' : 's'}
+                    {lessonTotal > 0 && <> · {lessonTotal} lesson{lessonTotal === 1 ? '' : 's'}</>}
+                    {quizTotal > 0 && <> · {quizTotal} quiz{quizTotal === 1 ? '' : 'zes'}</>}
+                  </span>
+                </span>
+                <ChevronRight className="h-5 w-5 shrink-0 text-gray-300 transition-colors group-hover:text-primary-500" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {openGroup && (
+        <section>
+          <div className="mb-4 flex items-center gap-3">
+            {groups.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setOpenKey(null)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50"
+              >
+                <ArrowLeft className="h-4 w-4" /> All courses
+              </button>
+            )}
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100"><FolderOpen className="h-5 w-5" /></span>
+            <h2 className="min-w-0 truncate text-xl font-bold text-gray-900">{openGroup.title || 'Other modules'}</h2>
           </div>
           <div className="space-y-3">
-            {group.modules.map((module, idx) => {
+            {openGroup.modules.map((module, idx) => {
               const firstLaunchableItem = getFirstLaunchableItem(module);
               const lessons = module.items.filter((i) => i.item_type === 'content').length;
               const quizzes = module.items.filter((i) => i.item_type === 'assessment').length;
@@ -200,7 +243,7 @@ export default function StudentModules() {
             })}
           </div>
         </section>
-      ))}
+      )}
     </div>
   );
 }
