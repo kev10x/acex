@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ArrowDown, ArrowUp, Boxes, ChevronDown, ChevronRight,
-  ClipboardCheck, Eye, FileText, GripVertical, Loader2,
+  ClipboardCheck, Eye, FileText, Folder, FolderOpen, GripVertical, Loader2,
   Plus, Search, Trash2, User, UserPlus, X,
 } from 'lucide-react';
 import {
@@ -1646,21 +1646,24 @@ const ModuleOrganizer: React.FC = () => {
               {moduleGroups.map((group) => {
                 const collapsed = collapsedCourses.has(group.key);
                 return (
-                  <section key={group.key}>
+                  <section key={group.key} className={`rounded-2xl border ${group.courseId ? 'border-indigo-100 bg-indigo-50/40' : 'border-gray-200 bg-gray-50/60'}`}>
                     <button
                       type="button"
                       onClick={() => toggleCourseGroup(group.key)}
-                      className="mb-3 flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left"
+                      className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left"
                       aria-expanded={!collapsed}
                     >
-                      {collapsed ? <ChevronRight className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
-                      <span className={`text-sm font-bold ${group.courseId ? 'text-gray-900' : 'text-gray-500'}`}>{group.title}</span>
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 tabular-nums">
+                      {collapsed
+                        ? <Folder className={`h-5 w-5 shrink-0 ${group.courseId ? 'text-indigo-500' : 'text-gray-400'}`} />
+                        : <FolderOpen className={`h-5 w-5 shrink-0 ${group.courseId ? 'text-indigo-600' : 'text-gray-500'}`} />}
+                      <span className={`min-w-0 flex-1 truncate text-sm font-bold ${group.courseId ? 'text-gray-900' : 'text-gray-500'}`}>{group.title}</span>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-200 tabular-nums">
                         {group.modules.length} module{group.modules.length === 1 ? '' : 's'}
                       </span>
+                      {collapsed ? <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" /> : <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />}
                     </button>
                     {!collapsed && (
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-4 pb-4">
               {group.modules.map((module) => {
                 const sortedItems = [...module.items].sort(
                   (a, b) => (a.position - b.position) || (a.id - b.id)
