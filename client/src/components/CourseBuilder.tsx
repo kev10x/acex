@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Circle, Loader2, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from 'lucide-react';
-import { courseBuilderAPI, CourseBuildConfig, CourseBuildJob } from '../services/api';
+import { courseBuilderAPI, cohortsAPI, Cohort, CourseBuildConfig, CourseBuildJob } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS } from '../constants/educationLevels';
 
 type ModuleDraft = CourseBuildConfig['modules'][number];
@@ -35,6 +35,8 @@ export default function CourseBuilder({ onOpenCourses }: { onOpenCourses: () => 
   const [modules, setModules] = useState<ModuleDraft[]>([]);
   const [options, setOptions] = useState({ level: '', lesson_sections: 4, lesson_images: true, quiz_questions: 5, summary_videos: false });
   const [studentText, setStudentText] = useState('');
+  const [cohorts, setCohorts] = useState<Cohort[]>([]);
+  const [cohortId, setCohortId] = useState('');
   const [drafting, setDrafting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
@@ -53,6 +55,7 @@ export default function CourseBuilder({ onOpenCourses }: { onOpenCourses: () => 
       const active = res.data.jobs.find((j) => j.status === 'queued' || j.status === 'running' || j.status === 'interrupted');
       if (active) setJob(active);
     }).catch(() => { /* wizard still usable */ });
+    cohortsAPI.list().then((res) => setCohorts(res.data.cohorts)).catch(() => { /* cohort picker is optional */ });
   }, []);
 
   useEffect(() => {
@@ -85,6 +88,7 @@ export default function CourseBuilder({ onOpenCourses }: { onOpenCourses: () => 
 
   const config = (): CourseBuildConfig => ({
     course, modules: modules.filter((m) => m.name.trim()), options, students,
+    cohort_id: cohortId ? Number(cohortId) : undefined,
   });
 
   const start = async () => {
@@ -114,7 +118,7 @@ export default function CourseBuilder({ onOpenCourses }: { onOpenCourses: () => 
   };
 
   const reset = () => {
-    setJob(null); setStep(0); setModules([]); setStudentText('');
+    setJob(null); setStep(0); setModules([]); setStudentText(''); setCohortId('');
     setCourse({ name: '', code: '', term: '', description: '' }); setError('');
   };
 
@@ -290,9 +294,26 @@ export default function CourseBuilder({ onOpenCourses }: { onOpenCourses: () => 
 
           {step === 3 && (
             <>
+              {cohorts.length > 0 && (
+                <div>
+                  <label className={labelCls}>Enrol an existing cohort (optional)</label>
+                  <select className={inputCls} value={cohortId} onChange={(e) => { setCohortId(e.target.value); if (e.target.value) setStudentText(''); }}>
+                    <option value="">Don't use a cohort, paste emails instead</option>
+                    {cohorts.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.member_count ?? 0} student{(c.member_count ?? 0) === 1 ? '' : 's'})</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">Every student currently on that cohort's roster is enrolled. Manage rosters from the Cohorts tab.</p>
+                </div>
+              )}
               <div>
-                <label className={labelCls}>Student email addresses (optional)</label>
-                <textarea className={inputCls} rows={6} value={studentText} onChange={(e) => setStudentText(e.target.value)} placeholder="Paste emails separated by commas, spaces or new lines" />
+                <label className={labelCls}>Student email addresses {cohortId ? '(ignored while a cohort is selected)' : '(optional)'}</label>
+                <textarea
+                  className={inputCls}
+                  rows={6}
+                  value={studentText}
+                  disabled={!!cohortId}
+                  onChange={(e) => setStudentText(e.target.value)}
+                  placeholder="Paste emails separated by commas, spaces or new lines"
+                />
                 <p className="mt-1 text-xs text-gray-500">{students.length} valid address{students.length === 1 ? '' : 'es'}. New students get an email inviting them to set their name and password.</p>
               </div>
             </>
@@ -308,7 +329,12 @@ export default function CourseBuilder({ onOpenCourses }: { onOpenCourses: () => 
                   ))}
                 </ul>
               </div>
-              <p>{lessonCount} lessons of {options.lesson_sections} sections, {quizCount} quizzes of {options.quiz_questions} questions, {students.length} student{students.length === 1 ? '' : 's'} to enrol.</p>
+              <p>
+                {lessonCount} lessons of {options.lesson_sections} sections, {quizCount} quizzes of {options.quiz_questions} questions,{' '}
+                {cohortId
+                  ? <>the <strong>{cohorts.find((c) => String(c.id) === cohortId)?.name}</strong> cohort ({cohorts.find((c) => String(c.id) === cohortId)?.member_count ?? 0} students) to enrol.</>
+                  : <>{students.length} student{students.length === 1 ? '' : 's'} to enrol.</>}
+              </p>
               <p>Estimated time: about {estMinutes} minutes{videoCount ? `, plus ${videoCount} summary videos generated afterwards` : ''}. This uses AI credits for each lesson and quiz.</p>
             </div>
           )}

@@ -1695,6 +1695,8 @@ export interface CourseEnrollment {
   enrolled_at: string;
   name: string;
   email: string;
+  cohort_id?: number | null;
+  cohort_name?: string | null;
 }
 
 export interface GradeCategory {
@@ -1742,6 +1744,7 @@ export interface CourseBuildConfig {
   modules: { name: string; lesson_topics: string; quiz_topics: string; lesson: boolean; quiz: boolean }[];
   options: { level: string; lesson_sections: number; lesson_images: boolean; quiz_questions: number; summary_videos: boolean };
   students: string[];
+  cohort_id?: number;
 }
 
 export const courseBuilderAPI = {
@@ -1751,6 +1754,37 @@ export const courseBuilderAPI = {
   list: () => api.get<{ success: boolean; jobs: CourseBuildJob[] }>('/course-builder/jobs'),
   get: (id: number) => api.get<{ success: boolean; job: CourseBuildJob }>(`/course-builder/jobs/${id}`),
   resume: (id: number) => api.post<{ success: boolean }>(`/course-builder/jobs/${id}/resume`),
+};
+
+export interface Cohort {
+  id: number;
+  organisation_id: number | null;
+  name: string;
+  code: string | null;
+  intake_date: string | null;
+  end_date: string | null;
+  status: string;
+  owner_user_id: number;
+  created_at: string;
+  member_count?: number;
+}
+export interface CohortMember { id: number; name: string; email: string; added_at: string }
+export interface CohortEnrolResult { email: string; success: boolean; student_user_id?: number; name?: string; invited?: boolean; email_sent?: boolean; error?: string }
+
+export const cohortsAPI = {
+  create: (data: { name: string; code?: string; intake_date?: string; end_date?: string }) =>
+    api.post<{ success: boolean; cohort: Cohort }>('/cohorts', data),
+  list: () => api.get<{ success: boolean; cohorts: Cohort[] }>('/cohorts'),
+  get: (id: number) => api.get<{ success: boolean; cohort: Cohort; members: CohortMember[]; courses: { id: number; name: string; code: string | null }[] }>(`/cohorts/${id}`),
+  update: (id: number, data: Partial<Pick<Cohort, 'name' | 'code' | 'intake_date' | 'end_date' | 'status'>>) =>
+    api.put<{ success: boolean; cohort: Cohort }>(`/cohorts/${id}`, data),
+  delete: (id: number) => api.delete<{ success: boolean }>(`/cohorts/${id}`),
+  addMembers: (id: number, emails: string[]) =>
+    api.post<{ success: boolean; results: CohortEnrolResult[] }>(`/cohorts/${id}/members`, { emails }),
+  removeMember: (id: number, studentUserId: number) =>
+    api.delete<{ success: boolean }>(`/cohorts/${id}/members/${studentUserId}`),
+  enrolCourse: (id: number, courseId: number) =>
+    api.post<{ success: boolean; results: CohortEnrolResult[] }>(`/cohorts/${id}/enrol-course`, { course_id: courseId }),
 };
 
 export const coursesAPI = {

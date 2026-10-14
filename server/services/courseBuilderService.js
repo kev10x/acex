@@ -65,8 +65,9 @@ function normalizeConfig(raw) {
   const students = [...new Set((Array.isArray(c.students) ? c.students : [])
     .map((e) => clip(e, 254).toLowerCase())
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))].slice(0, LIMITS.students);
+  const cohortId = Number(c.cohort_id) > 0 ? Number(c.cohort_id) : null;
 
-  return { existing_course_id: existingCourseId, course, modules, options, students };
+  return { existing_course_id: existingCourseId, course, modules, options, students, cohort_id: cohortId };
 }
 
 function freshProgress(config) {
@@ -82,7 +83,7 @@ function freshProgress(config) {
       quiz: m.quiz ? 'pending' : 'skipped',
       error: null,
     })),
-    students: { status: config.students.length ? 'pending' : 'skipped', enrolled: 0, invited: 0, emailed: 0, failed: 0 },
+    students: { status: (config.students.length || config.cohort_id) ? 'pending' : 'skipped', enrolled: 0, invited: 0, emailed: 0, failed: 0 },
   };
 }
 const existingOr = (config) => (config.existing_course_id ? 'done' : 'pending');
@@ -240,11 +241,13 @@ async function runJob(jobId) {
     }
 
     // 4. Students last, so enrolment emails go out once the course is ready.
-    if (progress.students.status === 'pending' && config.students.length) {
+    if (progress.students.status === 'pending' && (config.students.length || config.cohort_id)) {
       progress.students.status = 'running';
       await persist();
       try {
-        const res = await api('POST', `/courses/${courseId}/enrollments`, { emails: config.students });
+        const res = config.cohort_id
+          ? await api('POST', `/cohorts/${config.cohort_id}/enrol-course`, { course_id: courseId })
+          : await api('POST', `/courses/${courseId}/enrollments`, { emails: config.students });
         const results = res.results || [];
         progress.students = {
           status: 'done',

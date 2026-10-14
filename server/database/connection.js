@@ -292,17 +292,45 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS cohorts (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          organisation_id INT NULL,
+          name VARCHAR(255) NOT NULL,
+          code VARCHAR(64) NULL,
+          intake_date DATE NULL,
+          end_date DATE NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          owner_user_id INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS cohort_members (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          cohort_id INT NOT NULL,
+          student_user_id INT NOT NULL,
+          added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_cohort_member (cohort_id, student_user_id),
+          FOREIGN KEY (cohort_id) REFERENCES cohorts(id) ON DELETE CASCADE,
+          FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS course_enrollments (
           id INT AUTO_INCREMENT PRIMARY KEY,
           course_id INT NOT NULL,
           student_user_id INT NOT NULL,
           status VARCHAR(20) NOT NULL DEFAULT 'active',
+          cohort_id INT NULL,
           enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           enrolled_by INT NULL,
           UNIQUE KEY uniq_course_enrollment (course_id, student_user_id),
           FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
           FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY (enrolled_by) REFERENCES users(id) ON DELETE SET NULL
+          FOREIGN KEY (enrolled_by) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (cohort_id) REFERENCES cohorts(id) ON DELETE SET NULL
         )
       `);
       await query(`
@@ -1512,6 +1540,14 @@ const initDatabase = async () => {
           await query(`ALTER TABLE modules ADD COLUMN course_id INT NULL`);
           await query(`ALTER TABLE modules ADD FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL`);
         }
+        const enrollmentsCohortIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'course_enrollments' AND column_name = 'cohort_id'
+        `);
+        if ((enrollmentsCohortIdCheck.rows?.[0]?.count || enrollmentsCohortIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE course_enrollments ADD COLUMN cohort_id INT NULL`);
+          await query(`ALTER TABLE course_enrollments ADD FOREIGN KEY (cohort_id) REFERENCES cohorts(id) ON DELETE SET NULL`);
+        }
         // Libraries can be separated by course (course_id is set on publish; existing items are filed from their module).
         const published_contentCourseIdCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
@@ -2034,11 +2070,34 @@ const initDatabase = async () => {
         )
       `);
       await query(`
+        CREATE TABLE IF NOT EXISTS cohorts (
+          id SERIAL PRIMARY KEY,
+          organisation_id INTEGER NULL REFERENCES organisations(id) ON DELETE SET NULL,
+          name VARCHAR(255) NOT NULL,
+          code VARCHAR(64) NULL,
+          intake_date DATE NULL,
+          end_date DATE NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS cohort_members (
+          id SERIAL PRIMARY KEY,
+          cohort_id INTEGER NOT NULL REFERENCES cohorts(id) ON DELETE CASCADE,
+          student_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(cohort_id, student_user_id)
+        )
+      `);
+      await query(`
         CREATE TABLE IF NOT EXISTS course_enrollments (
           id SERIAL PRIMARY KEY,
           course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
           student_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           status VARCHAR(20) NOT NULL DEFAULT 'active',
+          cohort_id INTEGER NULL REFERENCES cohorts(id) ON DELETE SET NULL,
           enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           enrolled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
           UNIQUE(course_id, student_user_id)
@@ -3111,6 +3170,13 @@ const initDatabase = async () => {
         `);
         if ((modulesCourseIdCheck.rows?.[0]?.count || modulesCourseIdCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE modules ADD COLUMN course_id INTEGER NULL REFERENCES courses(id) ON DELETE SET NULL`);
+        }
+        const enrollmentsCohortIdCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'course_enrollments' AND column_name = 'cohort_id'
+        `);
+        if ((enrollmentsCohortIdCheck.rows?.[0]?.count || enrollmentsCohortIdCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE course_enrollments ADD COLUMN cohort_id INTEGER NULL REFERENCES cohorts(id) ON DELETE SET NULL`);
         }
         // Libraries can be separated by course (course_id is set on publish; existing items are filed from their module).
         const published_contentCourseIdCheck = await query(`

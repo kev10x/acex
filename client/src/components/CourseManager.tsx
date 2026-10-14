@@ -3,6 +3,8 @@ import { BookOpen, ChevronLeft, Plus, Trash2, Upload, Users } from 'lucide-react
 import {
   coursesAPI,
   assessmentsAPI,
+  cohortsAPI,
+  Cohort,
   Course,
   CourseStaffMember,
   CourseEnrollment,
@@ -36,6 +38,9 @@ const CourseManager: React.FC = () => {
   const [enrollments, setEnrollments] = useState<CourseEnrollment[]>([]);
   const [enrollEmails, setEnrollEmails] = useState('');
   const [enrolling, setEnrolling] = useState(false);
+  const [cohorts, setCohorts] = useState<Cohort[]>([]);
+  const [enrollCohortId, setEnrollCohortId] = useState('');
+  const [enrollingCohort, setEnrollingCohort] = useState(false);
 
   const [categories, setCategories] = useState<GradeCategory[]>([]);
   const [items, setItems] = useState<GradeItem[]>([]);
@@ -62,6 +67,7 @@ const CourseManager: React.FC = () => {
   };
 
   useEffect(() => {
+    cohortsAPI.list().then((res) => setCohorts(res.data.cohorts)).catch(() => { /* cohort enrol is optional */ });
     loadCourses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -143,6 +149,28 @@ const CourseManager: React.FC = () => {
       return Array.from(new Set([...existing, ...emails])).join('\n');
     });
     notifySuccess(`Found ${emails.length} email address(es) — review the list below, then click Enroll`, 'CSV parsed');
+  };
+
+  const handleEnrolCohort = async () => {
+    if (!selectedCourse || !enrollCohortId) return;
+    setEnrollingCohort(true);
+    try {
+      const res = await cohortsAPI.enrolCourse(Number(enrollCohortId), selectedCourse.id);
+      const failed = res.data.results.filter((r) => !r.success);
+      const ok = res.data.results.filter((r) => r.success);
+      if (failed.length > 0) {
+        notifyError(`${failed.length} could not be enrolled: ${failed.map((f) => f.email).join(', ')}`, 'Some enrollments failed');
+      }
+      if (ok.length > 0) {
+        notifySuccess(`Enrolled ${ok.length} student(s) from the cohort.`, 'Success');
+      }
+      const enrollRes = await coursesAPI.listEnrollments(selectedCourse.id);
+      if (enrollRes.data.success) setEnrollments(enrollRes.data.enrollments);
+    } catch (e: any) {
+      notifyError(getApiErrorMessage(e, 'Failed to enrol this cohort'), 'Enrol failed');
+    } finally {
+      setEnrollingCohort(false);
+    }
   };
 
   const handleEnroll = async () => {
@@ -378,6 +406,33 @@ const CourseManager: React.FC = () => {
             </div>
             <p className="text-xs text-gray-400 mb-4">Students receive an enrolment email. Anyone without an account is invited to set their name and password. Separate multiple emails with commas or newlines, or import a CSV.</p>
 
+            {cohorts.length > 0 && (
+              <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Or enrol a whole cohort</h3>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={enrollCohortId}
+                    onChange={(e) => setEnrollCohortId(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                  >
+                    <option value="">Choose a cohort</option>
+                    {cohorts.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.member_count ?? 0} student{(c.member_count ?? 0) === 1 ? '' : 's'})</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleEnrolCohort}
+                    disabled={!enrollCohortId || enrollingCohort}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    <Users className="h-4 w-4" />
+                    Enrol cohort
+                  </button>
+                </div>
+              </div>
+            )}
+
             <h2 className="text-sm font-semibold text-gray-800 mb-3">Roster ({enrollments.length})</h2>
             {enrollments.length === 0 ? (
               <p className="text-sm text-gray-500">No students enrolled yet.</p>
@@ -386,7 +441,10 @@ const CourseManager: React.FC = () => {
                 {enrollments.map((e) => (
                   <div key={e.id} className="flex items-center justify-between py-2">
                     <div>
-                      <p className="text-sm text-gray-800">{e.name}</p>
+                      <p className="text-sm text-gray-800">
+                        {e.name}
+                        {e.cohort_name && <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">{e.cohort_name}</span>}
+                      </p>
                       <p className="text-xs text-gray-500">{e.email}</p>
                     </div>
                     <button type="button" onClick={() => handleUnenroll(e.student_user_id)} className="text-gray-400 hover:text-red-600">

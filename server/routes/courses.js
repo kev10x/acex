@@ -10,6 +10,7 @@ const { requireAuth, requireRoles } = require('../middleware/auth');
 const emailService = require('../services/emailService');
 const accountSetup = require('../services/accountSetupService');
 const gradebookService = require('../services/gradebookService');
+const enrollmentService = require('../services/enrollmentService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -297,14 +298,16 @@ router.get('/:id/enrollments', requireAuth, requireCourseStaff, async (req, res)
     const courseId = Number.parseInt(req.params.id, 10);
     const q = isMySQL()
       ? await query(
-          `SELECT ce.id, ce.student_user_id, ce.status, ce.enrolled_at, u.name, u.email
+          `SELECT ce.id, ce.student_user_id, ce.status, ce.enrolled_at, ce.cohort_id, co.name AS cohort_name, u.name, u.email
            FROM course_enrollments ce JOIN users u ON u.id = ce.student_user_id
+           LEFT JOIN cohorts co ON co.id = ce.cohort_id
            WHERE ce.course_id = ? ORDER BY u.name`,
           [courseId]
         )
       : await query(
-          `SELECT ce.id, ce.student_user_id, ce.status, ce.enrolled_at, u.name, u.email
+          `SELECT ce.id, ce.student_user_id, ce.status, ce.enrolled_at, ce.cohort_id, co.name AS cohort_name, u.name, u.email
            FROM course_enrollments ce JOIN users u ON u.id = ce.student_user_id
+           LEFT JOIN cohorts co ON co.id = ce.cohort_id
            WHERE ce.course_id = $1 ORDER BY u.name`,
           [courseId]
         );
@@ -331,84 +334,11 @@ router.post('/:id/enrollments', requireAuth, requireCourseStaff, async (req, res
     if (emails.length === 0) {
       return res.status(400).json({ error: 'email or emails is required' });
     }
-
-    const course = await getCourseRow(courseId);
-    const inviterName = req.user.name || req.user.email || null;
-    const loginUrl = `${accountSetup.getAppUrl()}/`;
-    const results = [];
-    for (const rawEmail of emails) {
-      const email = String(rawEmail || '').trim();
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        results.push({ email: rawEmail, success: false, error: 'Not a valid email address' });
-        continue;
-      }
-      try {
-        // Someone enrolled before they have an account gets one created for them and
-        // is emailed a link to set their name and password.
-        let user = await findUserByEmail(email);
-        let invited = false;
-        if (!user) {
-          user = await accountSetup.createInvitedStudent({ email, organisationId: req.user.organisation_id });
-          invited = true;
-        }
-        if (String(user.role || '').toLowerCase() !== 'student') {
-          results.push({ email, success: false, error: 'This account is not a student account' });
-          continue;
-        }
-
-        if (isMySQL()) {
-          await query(
-            'INSERT IGNORE INTO course_enrollments (course_id, student_user_id, enrolled_by) VALUES (?, ?, ?)',
-            [courseId, user.id, req.user.id]
-          );
-        } else {
-          await query(
-            'INSERT INTO course_enrollments (course_id, student_user_id, enrolled_by) VALUES ($1, $2, $3) ON CONFLICT (course_id, student_user_id) DO UPDATE SET status = \'active\'',
-            [courseId, user.id, req.user.id]
-          );
-        }
-        // Enrolling in a course gives access to each of its modules.
-        if (isMySQL()) {
-          await query(
-            `INSERT IGNORE INTO module_students (module_id, student_user_id)
-             SELECT id, ? FROM modules WHERE course_id = ?`,
-            [user.id, courseId]
-          );
-        } else {
-          await query(
-            `INSERT INTO module_students (module_id, student_user_id)
-             SELECT id, $1 FROM modules WHERE course_id = $2
-             ON CONFLICT DO NOTHING`,
-            [user.id, courseId]
-          );
-        }
-
-        // Email them. A student who has never set a password (invited earlier but not
-        // activated) gets a fresh setup link; an active student just gets a login link.
-        let emailSent = false;
-        try {
-          const pending = invited || (await hasPendingSetup(user.id));
-          const setupUrl = pending
-            ? `${accountSetup.getAppUrl()}/setup-account?token=${await accountSetup.issueSetupToken(user.id, 'invite')}`
-            : null;
-          await emailService.sendEnrolmentEmail({
-            email: user.email,
-            name: user.name,
-            courseName: course?.name || 'your course',
-            courseCode: course?.code || '',
-            invitedBy: inviterName,
-            setupUrl,
-            loginUrl,
-          });
-          emailSent = true;
-        } catch (mailError) {
-          console.error('Enrolment email failed:', mailError.message);
-        }
-        results.push({ email, success: true, student_user_id: user.id, name: user.name, invited, email_sent: emailSent });
-      } catch (err) {
-        results.push({ email, success: false, error: err.message });
-      }
-    }
+    const results = await enrollmentService.enrollEmailsInCourse(courseId, emails, {
+      enrolledByUserId: req.user.id,
+      organisationId: req.user.organisation_id,
+      inviterName: req.user.name || req.user.email || null,
+    });
     res.json({ success: true, results });
   } catch (error) {
     console.error('Enrollment create error:', error);

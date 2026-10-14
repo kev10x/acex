@@ -19,6 +19,7 @@ import {
   Upload,
   User,
   Video,
+  Users,
   Wand2
 } from 'lucide-react';
 import LoginForm from './components/LoginForm';
@@ -59,6 +60,7 @@ const CourseManager = lazy(() => import('./components/CourseManager'));
 const CourseBuilder = lazy(() => import('./components/CourseBuilder'));
 const PrivacyNotice = lazy(() => import('./components/PrivacyNotice'));
 const PrivacyConsentModal = lazy(() => import('./components/PrivacyConsentModal'));
+const Cohorts = lazy(() => import('./components/Cohorts'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
@@ -104,14 +106,15 @@ type TabType =
   | 'video-gen'
   | 'courses'
   | 'course-builder'
+  | 'cohorts'
   | 'admin';
 type AppRole = 'management' | 'lecturer' | 'student';
 type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle'],
   student: ['modules', 'mcq', 'results', 'courses', 'revision-tracking']
 };
 
@@ -202,6 +205,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     label: 'Courses',
     description: 'Manage enrollment, weighted grading, and the gradebook for each course.',
     icon: BookOpen
+  },
+  cohorts: {
+    label: 'Cohorts',
+    description: 'Group students into reusable intakes and enrol them into courses in one go.',
+    icon: Users
   },
   'course-builder': {
     label: 'Course Builder',
@@ -298,6 +306,7 @@ function WorkspaceShell({
       )}
       {activeTab === 'courses' && canAccessTab('courses') && <CourseManager />}
       {activeTab === 'course-builder' && canAccessTab('course-builder') && <CourseBuilder onOpenCourses={() => onNavigateTab('courses')} />}
+      {activeTab === 'cohorts' && canAccessTab('cohorts') && <Cohorts />}
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
       {activeTab === 'admin' && normalizedRole === 'management' && <AdminDashboard />}
     </Suspense>
@@ -361,7 +370,7 @@ function AppContent() {
       student:
         normalizedRole === 'student'
           ? (['modules', 'courses', 'results', 'mcq', 'revision-tracking'] as TabType[]).filter((tab) => ROLE_TAB_ACCESS[normalizedRole].includes(tab))
-          : (['assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'moodle'] as TabType[])
+          : (['assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle'] as TabType[])
               .filter((tab) => {
                 if (tab === 'assessments') return allowAssessmentCreation;
                 if (tab === 'practicals') return allowPracticalCreation;
