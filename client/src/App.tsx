@@ -14,6 +14,7 @@ import {
   LogOut,
   Presentation,
   Shield,
+  ShieldCheck,
   Sparkles,
   TrendingUp,
   Upload,
@@ -62,6 +63,7 @@ const PrivacyNotice = lazy(() => import('./components/PrivacyNotice'));
 const PrivacyConsentModal = lazy(() => import('./components/PrivacyConsentModal'));
 const Cohorts = lazy(() => import('./components/Cohorts'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
+const IntegrityReports = lazy(() => import('./components/IntegrityReports'));
 
 type ToolContext = 'marking' | 'content' | 'labs' | 'admin' | null;
 
@@ -94,6 +96,7 @@ type TabType =
   | 'manual-marking'
   | 'results'
   | 'revision-tracking'
+  | 'integrity'
   | 'mcq'
   | 'batches'
   | 'training'
@@ -113,8 +116,8 @@ type WorkspaceType = 'marking' | 'student' | 'labs' | 'admin';
 type IconType = typeof BarChart3;
 
 const ROLE_TAB_ACCESS: Record<AppRole, TabType[]> = {
-  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle', 'admin'],
-  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle'],
+  management: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'integrity', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle', 'admin'],
+  lecturer: ['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'integrity', 'mcq', 'batches', 'training', 'slide-gen', 'video-gen', 'assessments', 'practicals', 'content', 'modules', 'courses', 'course-builder', 'cohorts', 'moodle'],
   student: ['modules', 'mcq', 'results', 'courses', 'revision-tracking']
 };
 
@@ -155,6 +158,11 @@ const TAB_META: Record<TabType, { label: string; description: string; icon: Icon
     label: 'Revision Tracking',
     description: 'Track longitudinal improvement across successive document revisions.',
     icon: TrendingUp
+  },
+  integrity: {
+    label: 'Exam Integrity',
+    description: 'Monitoring settings and integrity reports for monitored assessments.',
+    icon: ShieldCheck
   },
   mcq: {
     label: 'MCQ Forms',
@@ -305,6 +313,7 @@ function WorkspaceShell({
         normalizedRole === 'student' ? <StudentModules /> : <ModuleOrganizer />
       )}
       {activeTab === 'courses' && canAccessTab('courses') && <CourseManager />}
+      {activeTab === 'integrity' && canAccessTab('integrity') && <IntegrityReports />}
       {activeTab === 'course-builder' && canAccessTab('course-builder') && <CourseBuilder onOpenCourses={() => onNavigateTab('courses')} />}
       {activeTab === 'cohorts' && canAccessTab('cohorts') && <Cohorts />}
       {activeTab === 'moodle' && canAccessTab('moodle') && <MoodleIntegration />}
@@ -331,6 +340,21 @@ function AppContent() {
     window.history.pushState(null, '', path);
     setCurrentPath(path);
   };
+
+  // A student sent to sign in from a monitored assessment goes straight back to it.
+  useEffect(() => {
+    if (!user) return;
+    let target: string | null = null;
+    try {
+      target = window.sessionStorage.getItem('acex-post-login-redirect');
+      window.sessionStorage.removeItem('acex-post-login-redirect');
+    } catch (_) {
+      target = null;
+    }
+    if (target && target.startsWith('/') && !target.startsWith('//') && target.includes('take-assessment')) {
+      window.location.replace(target);
+    }
+  }, [user]);
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -364,7 +388,7 @@ function AppContent() {
       marking:
         normalizedRole === 'student'
           ? []
-          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'batches'] as TabType[]).filter((tab) =>
+          : (['upload', 'rubrics', 'generator', 'marking', 'manual-marking', 'results', 'revision-tracking', 'integrity', 'batches'] as TabType[]).filter((tab) =>
               ROLE_TAB_ACCESS[normalizedRole].includes(tab)
             ),
       student:
