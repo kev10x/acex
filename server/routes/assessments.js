@@ -24,6 +24,7 @@ const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailServic
 const courseScope = require('../services/courseScopeService');
 const { normalizeSettings: normalizeIntegritySettings, parseStoredSettings: parseIntegritySettings } = require('../services/assessmentIntegrityService');
 const { createAttemptsRouter, findInProgressAttempt, canViewReports } = require('./assessmentAttempts');
+const coursePolicy = require('../services/courseIntegrityPolicyService');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -1585,7 +1586,8 @@ router.put('/published/:id/course', requireAuth, requireFeature('assessment_crea
     if (!(ownedQ.rows || ownedQ)[0]) return res.status(404).json({ error: 'Assessment not found' });
     const requested = await courseScope.parseRequestedCourse(req.user, req.body?.course_id === undefined ? null : req.body.course_id);
     await courseScope.setItemCourse('assessment', id, requested.courseId);
-    res.json({ success: true, course_id: requested.courseId });
+    const appliedIntegrity = await coursePolicy.enforceOnCourse(id, requested.courseId);
+    res.json({ success: true, course_id: requested.courseId, integrity_settings_applied: appliedIntegrity });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Failed to move assessment' });
   }
@@ -1675,7 +1677,11 @@ router.get('/stats', async (req, res) => {
 router.post('/publish', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
     const { assessment, rubric_id, module_id, module_name } = req.body;
-    const integritySettings = normalizeIntegritySettings(req.body.integrity_settings);
+    // undefined = "course default": the course's monitoring rule applies once the course is known.
+    const requestedIntegrity = Object.prototype.hasOwnProperty.call(req.body, 'integrity_settings')
+      ? normalizeIntegritySettings(req.body.integrity_settings)
+      : undefined;
+    const integritySettings = requestedIntegrity ?? null;
     if (!assessment || !rubric_id) {
       return res.status(400).json({ error: 'assessment and rubric_id are required' });
     }
@@ -1705,6 +1711,8 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
     }
 
     const requestedCourse = await courseScope.parseRequestedCourse(req.user, req.body?.course_id);
+    let finalIntegrity = integritySettings;
+    let courseRule = null;
     let code;
     let publishedId = null;
     for (let i = 0; i < 5; i++) {
@@ -1747,7 +1755,15 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
     }
 
     if (publishedId) {
-      await courseScope.fileItemUnderCourse('assessment', publishedId, requestedCourse, moduleTargetId);
+      const filedCourseId = await courseScope.fileItemUnderCourse('assessment', publishedId, requestedCourse, moduleTargetId);
+      const policy = await coursePolicy.getCoursePolicy(filedCourseId);
+      if (policy) {
+        finalIntegrity = coursePolicy.resolvePublishSettings(policy, requestedIntegrity);
+        courseRule = { required: policy.required, preset: policy.settings.preset };
+        if (JSON.stringify(finalIntegrity) !== JSON.stringify(integritySettings)) {
+          await query('UPDATE published_assessments SET integrity_settings = $1 WHERE id = $2', [finalIntegrity ? JSON.stringify(finalIntegrity) : null, publishedId]);
+        }
+      }
     }
 
     if (publishedId && moduleTargetId) {
@@ -1772,6 +1788,8 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
       code,
       batch_id: batchId,
       link: `${takePath}?code=${code}`,
+      integrity_settings: finalIntegrity,
+      course_rule: courseRule,
       message: 'Assessment published. Share the link with students.',
     });
   } catch (error) {
@@ -2644,7 +2662,10 @@ router.post('/submit', optionalAuth, async (req, res) => {
       return res.status(404).json({ error: 'Assessment not found or link expired' });
     }
     if (parseIntegritySettings(pub.integrity_settings)) {
-      return res.status(409).json({ error: 'This assessment is monitored. Start it from the assessment page and submit from there.' });
+      return res.status(409).json({
+        code: 'assessment_monitored',
+        error: 'Monitoring was turned on for this assessment after you opened it. Reload the page to start it as a monitored assessment.'
+      });
     }
     const assessment = typeof pub.assessment_json === 'string' ? JSON.parse(pub.assessment_json) : pub.assessment_json;
 

@@ -120,6 +120,8 @@ const TakeAssessment: React.FC = () => {
   // Staff preview (?preview=1): the student view with nothing recorded or submitted.
   const [previewMode] = useState(() => new URLSearchParams(window.location.search).get('preview') === '1');
   const [previewLog, setPreviewLog] = useState<IntegrityClientEvent[]>([]);
+  // Monitoring was switched on after this page loaded: submitting needs a reload into a monitored attempt.
+  const [needsReload, setNeedsReload] = useState(false);
   const addPreviewEvents = (events: IntegrityClientEvent[]) => {
     if (events.length) setPreviewLog((prev) => [...prev, ...events].slice(-100));
   };
@@ -472,6 +474,7 @@ const TakeAssessment: React.FC = () => {
         setStep('form');
       }
     } catch (e: any) {
+      setNeedsReload(e.response?.data?.code === 'assessment_monitored');
       setError(e.response?.data?.error || e.message || 'Failed to submit. Please try again.');
       setStep('form');
     }
@@ -1130,6 +1133,15 @@ const TakeAssessment: React.FC = () => {
           {error && (
             <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
               {error}
+              {needsReload && (
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-3 block rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Reload the assessment
+                </button>
+              )}
             </div>
           )}
 

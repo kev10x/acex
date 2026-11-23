@@ -1,8 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { integrityAPI, IntegrityPreset, IntegritySettings, IntegritySettingsInput } from '../services/api';
+import { integrityAPI, IntegrityPreset, IntegritySaveImpact, IntegritySettings, IntegritySettingsInput } from '../services/api';
 import { btn } from './ui';
 import { PRESET_LABELS } from '../utils/integrityText';
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Plain-language account of what a settings change means for students right now. */
+export const describeSaveImpact = (impact: IntegritySaveImpact | undefined, monitored: boolean) => {
+  if (!impact) return monitored ? 'Monitoring settings saved.' : 'Monitoring is off for this assessment.';
+  const midAttempt = impact.in_progress_attempts;
+  if (!impact.was_monitored && impact.now_monitored) {
+    return 'Monitoring is on. Students who open the link now must sign in and opt in before they see questions. Anyone who already had it open will be asked to reload before they can submit.';
+  }
+  if (impact.was_monitored && impact.now_monitored) {
+    return midAttempt > 0
+      ? `Saved. ${plural(midAttempt, 'student is', 'students are')} mid-attempt: they keep the settings they started with until they reload the page, but network rules apply to them straight away. New attempts use the new settings.`
+      : 'Saved. New attempts use these settings.';
+  }
+  if (impact.was_monitored && !impact.now_monitored) {
+    return `Monitoring is off. Students now open the assessment without signing in or opting in.${midAttempt > 0 ? ` ${plural(midAttempt, 'student')} already mid-attempt can still finish and submit.` : ''}`;
+  }
+  return 'Saved. This assessment is not monitored.';
+};
 
 export type IntegrityPresetMap = Record<string, Omit<IntegritySettings, 'enabled' | 'preset' | 'allowed_ip_ranges'>>;
 
@@ -25,8 +45,12 @@ export default function IntegritySettingsEditor({
   useEffect(() => {
     setDraft(settings ?? { enabled: false, preset: 'test' });
     setIpText((settings?.allowed_ip_ranges || []).join('\n'));
-    setMessage(null);
   }, [settings, publishedId]);
+
+  // Keep the save confirmation when the saved settings come back; clear it for another assessment.
+  useEffect(() => {
+    setMessage(null);
+  }, [publishedId]);
 
   const applyPreset = (preset: IntegrityPreset) => {
     setDraft((prev) => (preset === 'custom' ? { ...prev, preset } : { ...prev, ...(presets[preset] || {}), preset }));
@@ -40,8 +64,10 @@ export default function IntegritySettingsEditor({
       const allowed = ipText.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
       const res = await integrityAPI.updateSettings(publishedId, { ...draft, allowed_ip_ranges: allowed });
       onSaved(res.data.settings);
-      setMessage(res.data.settings ? 'Monitoring settings saved.' : 'Monitoring is off for this assessment.');
+      setMessage(describeSaveImpact(res.data.impact, Boolean(res.data.settings)));
     } catch (e: any) {
+      // A refused change (e.g. a course requires monitoring) leaves the saved settings in place.
+      if (e.response?.status === 409) setDraft(settings ?? { enabled: false, preset: 'test' });
       setMessage(e.response?.data?.error || 'Could not save settings.');
     } finally {
       setSaving(false);
@@ -129,8 +155,10 @@ export default function IntegritySettingsEditor({
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
           Save settings
         </button>
-        {message && <span className="text-sm text-gray-600">{message}</span>}
       </div>
+      {message && (
+        <p role="status" className="max-w-3xl rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700 ring-1 ring-inset ring-gray-200">{message}</p>
+      )}
     </div>
   );
 }
