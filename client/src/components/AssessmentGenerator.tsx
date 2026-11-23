@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History, ShieldCheck } from 'lucide-react';
 import { CourseFilterSelect, CourseAssignSelect, CourseGroupHeading, CourseFilter, useCourses, filterByCourse, sortByCourse, courseLabel } from './CourseLibraryControls';
-import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace, IntegritySettings, IntegritySettingsInput } from '../services/api';
+import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace, IntegritySettings, IntegritySettingsInput, CourseIntegrityPolicy, integrityAPI } from '../services/api';
 import PublishedMonitoringDialog from './PublishedMonitoringDialog';
 import { PRESET_LABELS } from '../utils/integrityText';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
@@ -61,7 +61,9 @@ const AssessmentGenerator: React.FC = () => {
   const [courseFilter, setCourseFilter] = useState<CourseFilter>('all');
   const [publishCourse, setPublishCourse] = useState('');
   const [newModuleName, setNewModuleName] = useState('');
-  const [publishIntegrity, setPublishIntegrity] = useState<'off' | 'quiz' | 'test' | 'exam'>('off');
+  const [publishIntegrity, setPublishIntegrity] = useState<'default' | 'off' | 'quiz' | 'test' | 'exam'>('default');
+  const [publishCourseRule, setPublishCourseRule] = useState<CourseIntegrityPolicy | null>(null);
+  const [publishNote, setPublishNote] = useState<string | null>(null);
   const [rubrics, setRubrics] = useState<any[]>([]);
   const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string; course_id?: number | null; course_name?: string | null; monitored?: boolean; integrity_settings?: IntegritySettings | null; submission_count?: number }[]>([]);
   const [monitoringItemId, setMonitoringItemId] = useState<number | null>(null);
@@ -280,6 +282,24 @@ const AssessmentGenerator: React.FC = () => {
     }
   };
 
+  // The selected course's monitoring rule, shown on the publish form.
+  useEffect(() => {
+    const courseId = Number(publishCourse);
+    if (!publishCourse || publishCourse === 'none' || !Number.isFinite(courseId)) {
+      setPublishCourseRule(null);
+      return;
+    }
+    let cancelled = false;
+    integrityAPI.getCourseRule(courseId)
+      .then((res) => { if (!cancelled) setPublishCourseRule(res.data.policy); })
+      .catch(() => { if (!cancelled) setPublishCourseRule(null); });
+    return () => { cancelled = true; };
+  }, [publishCourse]);
+
+  useEffect(() => {
+    if (publishCourseRule?.required && publishIntegrity === 'off') setPublishIntegrity('default');
+  }, [publishCourseRule, publishIntegrity]);
+
   // Publish a new link, or update an existing one in place (same code, settings and gradebook entry).
   const publishAssessment = async (replacePublishedId?: number) => {
     if (!generatedAssessment || !savedRubricId) return;
@@ -292,7 +312,10 @@ const AssessmentGenerator: React.FC = () => {
       if (replacePublishedId) {
         payload.replace_published_id = replacePublishedId;
       } else {
-        payload.integrity_settings = publishIntegrity === 'off' ? null : { enabled: true, preset: publishIntegrity };
+        // "Course default" leaves the choice to the course's monitoring rule, if it has one.
+        if (publishIntegrity !== 'default') {
+          payload.integrity_settings = publishIntegrity === 'off' ? null : { enabled: true, preset: publishIntegrity };
+        }
         if (newModuleName.trim()) {
           payload.module_name = newModuleName.trim();
         } else if (selectedModuleId) {
@@ -304,6 +327,12 @@ const AssessmentGenerator: React.FC = () => {
       const res = await assessmentsAPI.publish(payload);
       if (res.data.success && res.data.code) {
         setPublishedLink(`${window.location.origin}/tools/take-assessment?code=${res.data.code}`);
+        const applied: IntegritySettings | null | undefined = res.data.integrity_settings;
+        setPublishNote(res.data.updated
+          ? 'Existing link updated: students keep using the same link and monitoring settings.'
+          : applied
+            ? `Monitored: ${PRESET_LABELS[applied.preset]}${res.data.course_rule ? ` (course rule${res.data.course_rule.required ? ', required' : ''})` : ''}.`
+            : 'Not monitored.');
         setDuplicateChoice(null);
         loadPublished();
         loadModules();
@@ -1194,11 +1223,17 @@ const AssessmentGenerator: React.FC = () => {
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
                         title="Monitored assessments need students to sign in and opt in; settings can be changed later under Exam Integrity."
                       >
-                        <option value="off">Not monitored</option>
+                        <option value="default">Course default</option>
+                        <option value="off" disabled={Boolean(publishCourseRule?.required)}>Not monitored</option>
                         <option value="quiz">Monitored: low-stakes quiz</option>
                         <option value="test">Monitored: test</option>
                         <option value="exam">Monitored: formal exam</option>
                       </select>
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        {publishCourseRule
+                          ? `This course: ${PRESET_LABELS[publishCourseRule.settings.preset]}${publishCourseRule.required ? ' (required)' : ' by default'}`
+                          : 'Course default: not monitored unless the course has a rule'}
+                      </p>
                     </div>
                     <div className="flex-1 min-w-[220px]">
                       <label className="block text-xs font-semibold text-gray-700 mb-1">Create new module folder</label>
@@ -1250,6 +1285,7 @@ const AssessmentGenerator: React.FC = () => {
                 </button>
               </div>
               <p className="text-sm text-violet-700 mt-2">Students open this link to take the assessment; marking runs when they submit.</p>
+              {publishNote && <p className="text-sm font-medium text-violet-900 mt-1">{publishNote}</p>}
             </div>
           )}
 

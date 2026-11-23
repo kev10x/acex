@@ -40,8 +40,23 @@ function createFakeDb({ settings }) {
           { number: 3, question: 'Q three', correct_pairings: { 1: 'A' } }
         ]
       }),
-      created_at: '2026-11-01'
+      created_at: '2026-11-01',
+      course_id: 30
+    }, {
+      id: 11,
+      code: 'OPEN1',
+      user_id: 2,
+      rubric_id: 1,
+      batch_id: null,
+      integrity_settings: null,
+      assessment_json: JSON.stringify({ title: 'Practice quiz', questions: [] }),
+      created_at: '2026-11-02',
+      course_id: 30
     }],
+    courses: [
+      { id: 30, name: 'Biology 101', code: 'BIO101', organisation_id: 5, owner_user_id: 2, integrity_policy: null },
+      { id: 31, name: 'Other org course', code: 'X1', organisation_id: 9, owner_user_id: 5, integrity_policy: null }
+    ],
     attempts: [],
     events: [],
     submissions: []
@@ -127,6 +142,49 @@ function createFakeDb({ settings }) {
     if (q.startsWith('SELECT published_assessment_id, status, integrity_status, COUNT(*)')) {
       return [];
     }
+    if (q.startsWith('SELECT status, COUNT(*) AS n FROM assessment_attempts')) {
+      const counts = {};
+      db.attempts.filter((a) => a.published_assessment_id === params[0]).forEach((a) => { counts[a.status] = (counts[a.status] || 0) + 1; });
+      return Object.entries(counts).map(([status, n]) => ({ status, n }));
+    }
+    if (q.startsWith('SELECT COUNT(*) AS n FROM assessment_submissions')) {
+      return [{ n: db.submissions.length }];
+    }
+    if (q.startsWith('SELECT integrity_policy FROM courses')) {
+      return db.courses.filter((c) => c.id === params[0]);
+    }
+    if (q.startsWith('SELECT name FROM courses')) {
+      return db.courses.filter((c) => c.id === params[0]);
+    }
+    if (q.startsWith('SELECT c.id, c.name, c.organisation_id, c.integrity_policy')) {
+      return db.courses.filter((c) => c.id === params[0]).map((c) => ({ ...c, owner_organisation_id: USERS[c.owner_user_id]?.organisation_id }));
+    }
+    if (q.startsWith('SELECT c.id, c.name, c.code, c.integrity_policy')) {
+      return db.courses
+        .filter((c) => c.organisation_id === params[0] || USERS[c.owner_user_id]?.organisation_id === params[1])
+        .map((c) => ({
+          ...c,
+          assessment_count: db.published.filter((p) => p.course_id === c.id).length,
+          unmonitored_count: db.published.filter((p) => p.course_id === c.id && !p.integrity_settings).length
+        }));
+    }
+    if (q.startsWith('UPDATE courses SET integrity_policy')) {
+      db.courses.find((c) => c.id === params[1]).integrity_policy = params[0];
+      return {};
+    }
+    if (q.startsWith('SELECT id, integrity_settings FROM published_assessments WHERE course_id')) {
+      return db.published.filter((p) => p.course_id === params[0]);
+    }
+    if (q.startsWith('UPDATE published_assessments SET integrity_settings') && q.includes('WHERE id')) {
+      db.published.find((p) => p.id === params[1]).integrity_settings = params[0];
+      return {};
+    }
+    if (q.startsWith('SELECT id, owner_user_id FROM courses')) {
+      return db.courses.filter((c) => c.id === params[0]);
+    }
+    if (q.startsWith('SELECT id FROM course_staff')) {
+      return [];
+    }
     throw new Error(`Unexpected SQL in test: ${q}`);
   };
   return { db, query };
@@ -135,6 +193,10 @@ function createFakeDb({ settings }) {
 function setup({ settings = { enabled: true, preset: 'test' }, ip = '10.0.0.5' } = {}) {
   const fake = createFakeDb({ settings });
   const submissions = [];
+  // Services that query the database must load fresh so they use this test's fake.
+  for (const service of ['courseIntegrityPolicyService', 'courseScopeService']) {
+    delete require.cache[require.resolve(path.join(__dirname, '..', 'services', `${service}.js`))];
+  }
   const { module: attemptsModule, restore } = loadWithMocks(path.join(__dirname, 'assessmentAttempts.js'), {
     '../database/connection': { query: fake.query },
     '../middleware/auth': {
@@ -308,4 +370,42 @@ test('preview: staff see the student view without answer keys, and nothing is re
   assert.equal((await as(3, 'get', '/attempts/preview/EXAM1')).status, 404, 'other lecturers');
   assert.equal((await as(1, 'get', '/attempts/preview/EXAM1')).status, 403, 'students');
   assert.equal((await as(2, 'get', '/attempts/presets')).body.presets.exam.copy_paste, 'block');
+});
+
+test('settings: saving reports what changed for students', async (t) => {
+  const { as, restore } = setup();
+  t.after(restore);
+  await as(1, 'post', '/attempts/start').send({ code: 'EXAM1', session_id: 'tab-a' });
+  const res = await as(2, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: true, preset: 'quiz' } });
+  assert.deepEqual(res.body.impact, { was_monitored: true, now_monitored: true, in_progress_attempts: 1, submissions: 0 });
+});
+
+test('course rules: management sets a required rule, existing assessments follow, monitoring cannot be switched off', async (t) => {
+  const { as, db, restore } = setup();
+  t.after(restore);
+
+  assert.equal((await as(2, 'get', '/attempts/course-rules')).status, 403, 'lecturers cannot manage course rules');
+  const list = await as(4, 'get', '/attempts/course-rules');
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.courses.map((c) => c.name), ['Biology 101'], 'only courses in the manager\'s organisation');
+  assert.equal(list.body.courses[0].unmonitored_count, 1);
+
+  assert.equal((await as(5, 'put', '/attempts/course-rules/30').send({ settings: { enabled: true, preset: 'exam' }, required: true })).status, 404);
+  const saved = await as(4, 'put', '/attempts/course-rules/30').send({ settings: { enabled: true, preset: 'exam' }, required: true });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.applied_to_existing, 1, 'required rule applies to the unmonitored assessment');
+  assert.equal(JSON.parse(db.published[1].integrity_settings).preset, 'exam');
+
+  const off = await as(2, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: false } });
+  assert.equal(off.status, 409);
+  assert.match(off.body.error, /required for assessments in "Biology 101"/);
+  const stricter = await as(2, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: true, preset: 'quiz' } });
+  assert.equal(stricter.status, 200, 'lecturers can still pick another preset');
+
+  const rule = await as(2, 'get', '/attempts/course-rules/30');
+  assert.equal(rule.body.policy.required, true);
+
+  const removed = await as(4, 'put', '/attempts/course-rules/30').send({ settings: { enabled: false } });
+  assert.equal(removed.body.policy, null);
+  assert.equal(db.courses[0].integrity_policy, null);
 });

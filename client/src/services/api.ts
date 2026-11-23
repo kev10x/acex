@@ -725,6 +725,28 @@ export interface IntegrityEvent {
   created_at: string;
 }
 
+export interface IntegritySaveImpact {
+  was_monitored: boolean;
+  now_monitored: boolean;
+  in_progress_attempts: number;
+  submissions: number;
+}
+
+// A course's monitoring rule, set by management.
+export interface CourseIntegrityPolicy {
+  settings: IntegritySettings;
+  required: boolean;
+}
+
+export interface CourseIntegrityRuleItem {
+  id: number;
+  name: string;
+  code: string | null;
+  policy: CourseIntegrityPolicy | null;
+  assessment_count: number;
+  unmonitored_count: number;
+}
+
 export interface MonitoredAssessmentItem {
   id: number;
   code: string;
@@ -759,7 +781,13 @@ export const integrityAPI = {
   exportCsv: (publishedId: number) =>
     api.get(`/assessments/attempts/assessment/${publishedId}/export.csv`, { responseType: 'blob' }),
   updateSettings: (publishedId: number, settings: IntegritySettingsInput) =>
-    api.put<{ success: boolean; settings: IntegritySettings | null }>(`/assessments/attempts/assessment/${publishedId}/settings`, { settings }),
+    api.put<{ success: boolean; settings: IntegritySettings | null; impact?: IntegritySaveImpact }>(`/assessments/attempts/assessment/${publishedId}/settings`, { settings }),
+  listCourseRules: () =>
+    api.get<{ success: boolean; courses: CourseIntegrityRuleItem[] }>('/assessments/attempts/course-rules'),
+  saveCourseRule: (courseId: number, data: { settings: IntegritySettingsInput; required: boolean; apply_to_existing?: boolean }) =>
+    api.put<{ success: boolean; policy: CourseIntegrityPolicy | null; applied_to_existing: number }>(`/assessments/attempts/course-rules/${courseId}`, data),
+  getCourseRule: (courseId: number) =>
+    api.get<{ success: boolean; policy: CourseIntegrityPolicy | null }>(`/assessments/attempts/course-rules/${courseId}`),
   reopenAttempt: (attemptId: number) =>
     api.post(`/assessments/attempts/attempt/${attemptId}/reopen`),
   getPresets: () =>

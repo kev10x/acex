@@ -15,6 +15,8 @@ const crypto = require('crypto');
 const { query } = require('../database/connection');
 const { requireAuth } = require('../middleware/auth');
 const integrity = require('../services/assessmentIntegrityService');
+const coursePolicy = require('../services/courseIntegrityPolicyService');
+const { userCanUseCourse } = require('../services/courseScopeService');
 
 // Another browser session sending events within this window counts as a second session.
 const ACTIVE_SESSION_MS = 45000;
@@ -69,7 +71,7 @@ const loadPublishedByCode = async (code) => firstRow(await query(
 ));
 
 const loadPublishedById = async (id) => firstRow(await query(
-  `SELECT pa.id, pa.code, pa.assessment_json, pa.rubric_id, pa.batch_id, pa.user_id, pa.integrity_settings,
+  `SELECT pa.id, pa.code, pa.assessment_json, pa.rubric_id, pa.batch_id, pa.user_id, pa.integrity_settings, pa.course_id,
           u.organisation_id AS owner_organisation_id
    FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id
    WHERE pa.id = $1`,
@@ -564,9 +566,113 @@ const createAttemptsRouter = ({ createSubmission }) => {
 
   router.put('/assessment/:publishedId/settings', requireAuth, requireStaff, withViewablePublished(async (req, res, pub) => {
     const settings = integrity.normalizeSettings(req.body?.settings);
+    const policy = await coursePolicy.getCoursePolicy(pub.course_id);
+    if (!settings && policy?.required) {
+      const course = firstRow(await query('SELECT name FROM courses WHERE id = $1', [pub.course_id]));
+      return res.status(409).json({
+        error: `Monitoring is required for assessments in ${course?.name ? `"${course.name}"` : 'this course'}. Management sets this under Exam Integrity → Course rules.`
+      });
+    }
+    const wasMonitored = Boolean(integrity.parseStoredSettings(pub.integrity_settings));
     await query('UPDATE published_assessments SET integrity_settings = $1 WHERE id = $2', [settings ? JSON.stringify(settings) : null, pub.id]);
-    res.json({ success: true, settings });
+
+    // What the change means for students right now.
+    const statusRows = rowsOf(await query(
+      'SELECT status, COUNT(*) AS n FROM assessment_attempts WHERE published_assessment_id = $1 GROUP BY status',
+      [pub.id]
+    ));
+    const attemptsWith = (status) => Number(statusRows.find((row) => row.status === status)?.n || 0);
+    const submissions = Number(firstRow(await query(
+      'SELECT COUNT(*) AS n FROM assessment_submissions WHERE published_assessment_id = $1',
+      [pub.id]
+    ))?.n || 0);
+    res.json({
+      success: true,
+      settings,
+      impact: {
+        was_monitored: wasMonitored,
+        now_monitored: Boolean(settings),
+        in_progress_attempts: attemptsWith('in_progress'),
+        submissions
+      }
+    });
   }));
+
+  // ------------------------------------------------------------ course rules
+
+  const requireManagement = (req, res, next) => {
+    if (normalizeRole(req.user?.role) !== 'management') {
+      return res.status(403).json({ error: 'Only management can set course rules' });
+    }
+    return next();
+  };
+
+  const loadOrgCourse = async (user, courseId) => firstRow(await query(
+    `SELECT c.id, c.name, c.organisation_id, c.integrity_policy, u.organisation_id AS owner_organisation_id
+     FROM courses c LEFT JOIN users u ON u.id = c.owner_user_id WHERE c.id = $1`,
+    [courseId]
+  ));
+  const inUserOrganisation = (user, course) => Boolean(course) && user.organisation_id != null && (
+    Number(course.organisation_id) === Number(user.organisation_id)
+    || Number(course.owner_organisation_id) === Number(user.organisation_id)
+  );
+
+  router.get('/course-rules', requireAuth, requireManagement, async (req, res) => {
+    try {
+      if (req.user.organisation_id == null) return res.json({ success: true, courses: [] });
+      const courses = rowsOf(await query(
+        `SELECT c.id, c.name, c.code, c.integrity_policy,
+                (SELECT COUNT(*) FROM published_assessments pa WHERE pa.course_id = c.id) AS assessment_count,
+                (SELECT COUNT(*) FROM published_assessments pa WHERE pa.course_id = c.id AND pa.integrity_settings IS NULL) AS unmonitored_count
+         FROM courses c LEFT JOIN users u ON u.id = c.owner_user_id
+         WHERE c.organisation_id = $1 OR u.organisation_id = $2
+         ORDER BY c.name`,
+        [req.user.organisation_id, req.user.organisation_id]
+      ));
+      res.json({
+        success: true,
+        courses: courses.map((course) => ({
+          id: course.id,
+          name: course.name,
+          code: course.code,
+          policy: coursePolicy.parsePolicy(course.integrity_policy),
+          assessment_count: Number(course.assessment_count || 0),
+          unmonitored_count: Number(course.unmonitored_count || 0)
+        }))
+      });
+    } catch (error) {
+      console.error('Course rules list error:', error);
+      res.status(500).json({ error: 'Failed to load course rules' });
+    }
+  });
+
+  router.put('/course-rules/:courseId', requireAuth, requireManagement, async (req, res) => {
+    try {
+      const course = await loadOrgCourse(req.user, Number(req.params.courseId));
+      if (!inUserOrganisation(req.user, course)) return res.status(404).json({ error: 'Course not found' });
+      const policy = coursePolicy.normalizePolicyInput(req.body);
+      await query('UPDATE courses SET integrity_policy = $1 WHERE id = $2', [policy ? JSON.stringify(policy) : null, course.id]);
+      const applied = policy && (policy.required || req.body?.apply_to_existing === true)
+        ? await coursePolicy.applyToUnmonitored(course.id, policy)
+        : 0;
+      res.json({ success: true, policy, applied_to_existing: applied });
+    } catch (error) {
+      console.error('Course rule save error:', error);
+      res.status(500).json({ error: 'Failed to save course rule' });
+    }
+  });
+
+  // Read-only: the rule for a course a lecturer can publish to (shown on the publish form).
+  router.get('/course-rules/:courseId', requireAuth, requireStaff, async (req, res) => {
+    try {
+      const courseId = Number(req.params.courseId);
+      if (!(await userCanUseCourse(req.user, courseId))) return res.status(404).json({ error: 'Course not found' });
+      res.json({ success: true, policy: await coursePolicy.getCoursePolicy(courseId) });
+    } catch (error) {
+      console.error('Course rule read error:', error);
+      res.status(500).json({ error: 'Failed to load course rule' });
+    }
+  });
 
   const withViewableAttempt = (handler) => async (req, res) => {
     try {

@@ -331,6 +331,14 @@ const initDatabase = async () => {
           FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE SET NULL
         )
       `);
+      // Exam integrity rule per course, set by management: default monitoring settings, optionally required.
+      const courseIntegrityPolicyCheck = await query(`
+        SELECT COUNT(*) as count FROM information_schema.COLUMNS
+        WHERE table_schema = DATABASE() AND table_name = 'courses' AND column_name = 'integrity_policy'
+      `);
+      if ((courseIntegrityPolicyCheck.rows?.[0]?.count || courseIntegrityPolicyCheck?.[0]?.count || 0) === 0) {
+        await query(`ALTER TABLE courses ADD COLUMN integrity_policy JSON NULL`);
+      }
       await query(`
         CREATE TABLE IF NOT EXISTS course_staff (
           id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2182,6 +2190,7 @@ const initDatabase = async () => {
       await query(`
         CREATE INDEX IF NOT EXISTS idx_courses_owner ON courses(owner_user_id)
       `);
+      await query(`ALTER TABLE courses ADD COLUMN IF NOT EXISTS integrity_policy JSONB NULL`);
       await query(`
         CREATE TABLE IF NOT EXISTS course_staff (
           id SERIAL PRIMARY KEY,

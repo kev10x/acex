@@ -11,6 +11,8 @@ import {
 } from '../services/api';
 import { EmptyState, PageHeader, SectionCard, btn } from './ui';
 import IntegritySettingsEditor from './IntegritySettingsEditor';
+import CourseIntegrityRules from './CourseIntegrityRules';
+import { useAuth } from '../contexts/AuthContext';
 import { openStudentPreview } from './PublishedMonitoringDialog';
 import { PRESET_LABELS, describeEvent } from '../utils/integrityText';
 
@@ -152,6 +154,8 @@ function AttemptDetail({ attemptId, onClose, onChanged }: { attemptId: number; o
 }
 
 const IntegrityReports: React.FC = () => {
+  const { user } = useAuth();
+  const isManagement = user?.role === 'management' || user?.role === 'admin';
   const [items, setItems] = useState<MonitoredAssessmentItem[]>([]);
   const [presets, setPresets] = useState<Record<string, any>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -359,6 +363,15 @@ const IntegrityReports: React.FC = () => {
             )}
           </SectionCard>
         </>
+      )}
+
+      {isManagement && (
+        <CourseIntegrityRules
+          onChanged={() => {
+            void loadList();
+            if (selectedId) void loadReport(selectedId);
+          }}
+        />
       )}
 
       {openAttemptId && (
