@@ -655,6 +655,7 @@ export interface IntegritySettings {
   hide_questions_on_leave: boolean;
   copy_paste: 'log' | 'block';
   right_click: 'log' | 'block';
+  screenshots: 'log' | 'block';
   shuffle_questions: boolean;
   allowed_ip_ranges: string[];
 }
@@ -672,7 +673,8 @@ export type IntegrityEventType =
   | 'text_burst'
   | 'print_attempt'
   | 'extension_injected'
-  | 'second_tab';
+  | 'second_tab'
+  | 'screenshot_key';
 
 export interface IntegrityClientEvent {
   type: IntegrityEventType;
@@ -683,6 +685,7 @@ export interface IntegrityClientEvent {
   blocked?: boolean;
   source?: 'drop';
   signature?: string;
+  combo?: string;
 }
 
 export type IntegrityStatus = 'clean' | 'review_suggested' | 'review_needed';
@@ -1022,9 +1025,14 @@ export const assessmentsAPI = {
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/assessments/submit', data),
-  getQuestionAudio: (code: string, questionIndex: number, voiceId = 'eve', language = 'en', attemptToken?: string | null) =>
+  getQuestionAudio: (code: string, questionIndex: number, voiceId = 'eve', language = 'en', attemptToken?: string | null, displayNumber?: number | null) =>
     api.get(`/assessments/audio/${code}/${questionIndex}`, {
-      params: { voice_id: voiceId, language, ...(attemptToken ? { attempt: attemptToken } : {}) },
+      params: {
+        voice_id: voiceId,
+        language,
+        ...(attemptToken ? { attempt: attemptToken } : {}),
+        ...(displayNumber ? { display_number: displayNumber } : {})
+      },
       responseType: 'blob'
     }),
   getSubmissionStatus: (submissionCode: string) => api.get(`/assessments/submission-status/${submissionCode}`),

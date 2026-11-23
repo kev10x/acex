@@ -135,3 +135,24 @@ test('shuffledOrder is a permutation', () => {
   const order = svc.shuffledOrder(10);
   assert.deepEqual([...order].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 });
+
+test('screenshot keys: one press is noted, repeats and screenshot-then-leave count more', () => {
+  const one = svc.summarizeAttempt([{ type: 'screenshot_key', details: { combo: 'Print Screen' }, question_number: 2, client_time: at(10) }]);
+  assert.equal(one.status, 'clean');
+  assert.equal(one.reasons[0].text, 'Pressed Print Screen 1 time (Q2)');
+
+  const thenLeft = svc.summarizeAttempt([
+    { type: 'screenshot_key', details: { combo: 'Win+Shift+S' }, question_number: 3, client_time: at(10) },
+    { type: 'focus_lost', duration_ms: 30000, client_time: at(42) }
+  ]);
+  assert.ok(thenLeft.reasons.some((r) => r.code === 'screenshot_then_leave'));
+  assert.equal(thenLeft.status, 'review_suggested');
+
+  const events = svc.sanitizeClientEvents([
+    { type: 'screenshot_key', combo: 'Cmd+Shift+4', client_time: at(1) },
+    { type: 'screenshot_key', combo: '<script>', client_time: at(2) }
+  ]);
+  assert.deepEqual(events.map((e) => e.details.combo), ['Cmd+Shift+4', 'Screenshot shortcut']);
+  assert.equal(svc.normalizeSettings({ enabled: true, preset: 'exam' }).screenshots, 'block');
+  assert.equal(svc.normalizeSettings({ enabled: true, preset: 'test' }).screenshots, 'log');
+});

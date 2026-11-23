@@ -10,6 +10,22 @@ import { integrityAPI, IntegrityClientEvent, IntegritySettings } from '../servic
 
 const FLUSH_INTERVAL_MS = 10000;
 const BURST_MIN_CHARS = 50;
+// How long questions stay hidden after a screenshot shortcut in block mode.
+const SCREENSHOT_HIDE_MS = 1500;
+
+/** Name of a screenshot shortcut, or null. macOS often handles its own shortcuts before the page sees them. */
+export const screenshotComboOf = (event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'shiftKey'>) => {
+  if (event.key === 'PrintScreen') return 'Print Screen';
+  if (event.metaKey && event.shiftKey) {
+    const key = event.key.toLowerCase();
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    if (key === 's' && !isMac) return 'Win+Shift+S';
+    if (key === '3' || key === '4' || key === '5' || key === '#' || key === '$' || key === '%') {
+      return `Cmd+Shift+${({ '#': '3', $: '4', '%': '5' } as Record<string, string>)[key] || key}`;
+    }
+  }
+  return null;
+};
 const MAX_QUEUE = 500;
 // Low-value events (right-clicks, short copies) are capped so a fidgety student does not flood the log.
 const MAX_PER_INFO_TYPE = 30;
@@ -76,6 +92,7 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
   const [away, setAway] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(typeof document !== 'undefined' && document.fullscreenElement));
   const [connectionProblem, setConnectionProblem] = useState(false);
+  const [screenshotHidden, setScreenshotHidden] = useState(false);
 
   const queueRef = useRef<IntegrityClientEvent[]>([]);
   const typeCountsRef = useRef<Record<string, number>>({});
@@ -171,6 +188,26 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     if (!active || !token || !settings) return undefined;
     const blockCopyPaste = settings.copy_paste === 'block';
     const blockRightClick = settings.right_click === 'block';
+    const blockScreenshots = settings.screenshots === 'block';
+    let lastScreenshotAt = 0;
+    let screenshotTimer: number | undefined;
+    const onScreenshotKey = (event: KeyboardEvent) => {
+      const combo = screenshotComboOf(event);
+      if (!combo) return;
+      const now = Date.now();
+      // Print Screen often fires on both keydown and keyup: count one press.
+      if (now - lastScreenshotAt < 1000) return;
+      lastScreenshotAt = now;
+      push({ type: 'screenshot_key', combo, question_number: questionNumberOf(document.activeElement), blocked: blockScreenshots || undefined });
+      if (blockScreenshots) {
+        event.preventDefault();
+        // Best effort: replace the captured image on the clipboard and hide the questions briefly.
+        navigator.clipboard?.writeText?.('').catch(() => {});
+        setScreenshotHidden(true);
+        window.clearTimeout(screenshotTimer);
+        screenshotTimer = window.setTimeout(() => setScreenshotHidden(false), SCREENSHOT_HIDE_MS);
+      }
+    };
 
     if (settings.require_fullscreen && !isFullscreenSupported()) {
       push({ type: 'fullscreen_unsupported' });
@@ -225,6 +262,7 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
+      onScreenshotKey(event);
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
         if (blockCopyPaste) event.preventDefault();
         push({ type: 'print_attempt', blocked: blockCopyPaste || undefined });
@@ -309,6 +347,8 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     document.addEventListener('drop', onDrop, true);
     document.addEventListener('contextmenu', onContextMenu, true);
     document.addEventListener('keydown', onKeyDown, true);
+    // Windows browsers often only report Print Screen on key up.
+    document.addEventListener('keyup', onScreenshotKey, true);
     document.addEventListener('beforeinput', onBeforeInput, true);
     document.addEventListener('input', onInput, true);
     document.addEventListener('focusin', onFocusIn, true);
@@ -330,6 +370,8 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
       document.removeEventListener('drop', onDrop, true);
       document.removeEventListener('contextmenu', onContextMenu, true);
       document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('keyup', onScreenshotKey, true);
+      window.clearTimeout(screenshotTimer);
       document.removeEventListener('beforeinput', onBeforeInput, true);
       document.removeEventListener('input', onInput, true);
       document.removeEventListener('focusin', onFocusIn, true);
@@ -337,5 +379,5 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     };
   }, [active, token, settings, push, markAway, markBack, flush, dryRun]);
 
-  return { away, isFullscreen, connectionProblem, drain, flush };
+  return { away, isFullscreen, connectionProblem, screenshotHidden, drain, flush };
 }
