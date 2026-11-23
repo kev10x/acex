@@ -412,7 +412,7 @@ const IntegrityReports: React.FC = () => {
             >
               {items.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.title}{item.owner_name ? ` — ${item.owner_name}` : ''}{item.settings ? ` · ${PRESET_LABELS[item.settings.preset]}` : ' · not monitored'}
+                  {item.title} · code {item.code} · {new Date(item.created_at).toLocaleDateString()}{item.owner_name ? ` — ${item.owner_name}` : ''}{item.settings ? ` · ${PRESET_LABELS[item.settings.preset]}` : ' · not monitored'}
                   {item.attempts.review_needed ? ` · ${item.attempts.review_needed} need review` : ''}
                 </option>
               ))}
@@ -424,6 +424,13 @@ const IntegrityReports: React.FC = () => {
               title="Monitoring settings"
               description={report?.settings ? `${PRESET_LABELS[report.settings.preset]} · changes apply to attempts started after saving` : 'This assessment is not monitored.'}
             >
+              {report && (
+                <p className="mb-4 text-xs text-gray-500 break-all">
+                  These settings apply to the student link{' '}
+                  <span className="font-mono text-gray-700">{`${window.location.origin}${window.location.pathname.replace(/\/[^/]*$/, '')}/take-assessment?code=${report.code}`}</span>.
+                  Check it matches the link your students use: each published copy has its own code.
+                </p>
+              )}
               <SettingsEditor
                 publishedId={selectedId}
                 settings={report?.settings ?? null}
