@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { AxiosResponse } from 'axios';
-import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
+import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History, ShieldCheck } from 'lucide-react';
 import { CourseFilterSelect, CourseAssignSelect, CourseGroupHeading, CourseFilter, useCourses, filterByCourse, sortByCourse, courseLabel } from './CourseLibraryControls';
-import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace, IntegritySettingsInput } from '../services/api';
+import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace, IntegritySettings, IntegritySettingsInput } from '../services/api';
+import PublishedMonitoringDialog from './PublishedMonitoringDialog';
+import { PRESET_LABELS } from '../utils/integrityText';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
@@ -60,7 +63,11 @@ const AssessmentGenerator: React.FC = () => {
   const [newModuleName, setNewModuleName] = useState('');
   const [publishIntegrity, setPublishIntegrity] = useState<'off' | 'quiz' | 'test' | 'exam'>('off');
   const [rubrics, setRubrics] = useState<any[]>([]);
-  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string; course_id?: number | null; course_name?: string | null; monitored?: boolean }[]>([]);
+  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string; course_id?: number | null; course_name?: string | null; monitored?: boolean; integrity_settings?: IntegritySettings | null; submission_count?: number }[]>([]);
+  const [monitoringItemId, setMonitoringItemId] = useState<number | null>(null);
+  // Same-title links found when publishing: update one of them in place, or publish a new copy.
+  const [duplicateChoice, setDuplicateChoice] = useState<{ matches: typeof publishedList; selectedId: number | null } | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
   const [history, setHistory] = useState<ApiAssessmentHistoryItem[]>([]);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
@@ -270,6 +277,41 @@ const AssessmentGenerator: React.FC = () => {
       setError(e.response?.data?.error || e.message || 'Failed to migrate legacy history');
     } finally {
       setIsMigratingHistory(false);
+    }
+  };
+
+  // Publish a new link, or update an existing one in place (same code, settings and gradebook entry).
+  const publishAssessment = async (replacePublishedId?: number) => {
+    if (!generatedAssessment || !savedRubricId) return;
+    setPublishing(true);
+    try {
+      const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null; integrity_settings?: IntegritySettingsInput | null; replace_published_id?: number } = {
+        assessment: generatedAssessment,
+        rubric_id: savedRubricId,
+      };
+      if (replacePublishedId) {
+        payload.replace_published_id = replacePublishedId;
+      } else {
+        payload.integrity_settings = publishIntegrity === 'off' ? null : { enabled: true, preset: publishIntegrity };
+        if (newModuleName.trim()) {
+          payload.module_name = newModuleName.trim();
+        } else if (selectedModuleId) {
+          payload.module_id = selectedModuleId;
+        }
+        if (publishCourse === 'none') payload.course_id = null;
+        else if (publishCourse) payload.course_id = Number(publishCourse);
+      }
+      const res = await assessmentsAPI.publish(payload);
+      if (res.data.success && res.data.code) {
+        setPublishedLink(`${window.location.origin}/tools/take-assessment?code=${res.data.code}`);
+        setDuplicateChoice(null);
+        loadPublished();
+        loadModules();
+      }
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'Failed to publish');
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -571,9 +613,10 @@ const AssessmentGenerator: React.FC = () => {
                   {courseFilter === 'all' && (idx === 0 || (arr[idx - 1].course_id ?? null) !== (item.course_id ?? null)) && <CourseGroupHeading label={courseLabel(item)} />}
                   <li className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
-                    {item.monitored && (
-                      <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200" title="Monitored: see Exam Integrity for settings and reports">
-                        Monitored
+                    <span className="font-mono text-[11px] text-gray-400">{item.code}</span>
+                    {item.integrity_settings && (
+                      <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200">
+                        Monitored: {PRESET_LABELS[item.integrity_settings.preset]}
                       </span>
                     )}
                     <CourseAssignSelect
@@ -595,6 +638,15 @@ const AssessmentGenerator: React.FC = () => {
                       className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
                     >
                       Copy link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringItemId(item.id)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 transition-colors"
+                      title="Monitoring settings and student preview for this link"
+                    >
+                      <ShieldCheck className="w-3 h-3" />
+                      Monitoring
                     </button>
                     <button
                       type="button"
@@ -1159,35 +1211,20 @@ const AssessmentGenerator: React.FC = () => {
                     </div>
                   </div>
                   <button
-                    onClick={async () => {
+                    onClick={() => {
                       if (!generatedAssessment || !savedRubricId) return;
-                      try {
-                        const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null; integrity_settings?: IntegritySettingsInput | null } = {
-                          assessment: generatedAssessment,
-                          rubric_id: savedRubricId,
-                          integrity_settings: publishIntegrity === 'off' ? null : { enabled: true, preset: publishIntegrity },
-                        };
-                        if (newModuleName.trim()) {
-                          payload.module_name = newModuleName.trim();
-                        } else if (selectedModuleId) {
-                          payload.module_id = selectedModuleId;
-                        }
-                        if (publishCourse === 'none') payload.course_id = null;
-                        else if (publishCourse) payload.course_id = Number(publishCourse);
-                        const res = await assessmentsAPI.publish(payload);
-                        if (res.data.success && res.data.code) {
-                          const link = `${window.location.origin}/tools/take-assessment?code=${res.data.code}`;
-                          setPublishedLink(link);
-                          loadPublished();
-                          loadModules();
-                        }
-                      } catch (e: any) {
-                        setError(e.response?.data?.error || 'Failed to publish');
+                      const title = String(generatedAssessment.title || '').trim().toLowerCase();
+                      const matches = title ? publishedList.filter((item) => String(item.title || '').trim().toLowerCase() === title) : [];
+                      if (matches.length > 0) {
+                        setDuplicateChoice({ matches, selectedId: matches[0].id });
+                      } else {
+                        void publishAssessment();
                       }
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                    disabled={publishing}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                   >
-                    <Link2 className="w-4 h-4" />
+                    {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
                     Publish for students
                   </button>
                 </>
@@ -1354,6 +1391,93 @@ const AssessmentGenerator: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {monitoringItemId != null && (() => {
+        const item = publishedList.find((entry) => entry.id === monitoringItemId);
+        if (!item) return null;
+        return (
+          <PublishedMonitoringDialog
+            item={item}
+            onClose={() => setMonitoringItemId(null)}
+            onSaved={(settings) => {
+              setPublishedList((prev) => prev.map((entry) => (
+                entry.id === item.id ? { ...entry, integrity_settings: settings, monitored: Boolean(settings) } : entry
+              )));
+            }}
+          />
+        );
+      })()}
+
+      {duplicateChoice && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4" onClick={() => setDuplicateChoice(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="duplicate-publish-title"
+            className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="duplicate-publish-title" className="text-base font-semibold text-gray-900">
+              You have already published "{generatedAssessment?.title}"
+            </h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Update an existing link so students keep using it, or publish a separate copy with a new link.
+            </p>
+            <div className="mt-4 space-y-2">
+              {duplicateChoice.matches.map((match) => (
+                <label
+                  key={match.id}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${duplicateChoice.selectedId === match.id ? 'border-primary-500 bg-primary-50/60 ring-1 ring-primary-500' : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <input
+                    type="radio"
+                    name="duplicate-target"
+                    checked={duplicateChoice.selectedId === match.id}
+                    onChange={() => setDuplicateChoice((prev) => (prev ? { ...prev, selectedId: match.id } : prev))}
+                    className="mt-0.5 h-4 w-4 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-gray-900">Update the link with code <span className="font-mono">{match.code}</span></span>
+                    <span className="block text-xs text-gray-500">
+                      Published {new Date(match.created_at).toLocaleDateString()}
+                      {match.integrity_settings ? ` · Monitored: ${PRESET_LABELS[match.integrity_settings.preset]}` : ' · Not monitored'}
+                      {match.course_name ? ` · ${match.course_name}` : ''}
+                    </span>
+                    {(match.submission_count || 0) > 0 && (
+                      <span className="mt-1 block text-xs text-amber-700">
+                        {match.submission_count} student{match.submission_count === 1 ? ' has' : 's have'} already submitted. Their answers stay marked against the earlier questions.
+                      </span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-gray-500">
+              Updating keeps the link's monitoring settings, course and module. Change monitoring with the Monitoring button on the link.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { void publishAssessment(); }}
+                disabled={publishing}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Publish as a new copy
+              </button>
+              <button
+                type="button"
+                onClick={() => { if (duplicateChoice.selectedId) void publishAssessment(duplicateChoice.selectedId); }}
+                disabled={publishing || !duplicateChoice.selectedId}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {publishing && <Loader2 className="w-4 h-4 animate-spin" />}
+                Update existing link
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

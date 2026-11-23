@@ -2,9 +2,10 @@ import { PublicBrand } from './BrandMark';
 import React, { useEffect, useRef, useState } from 'react';
 import { Award, Clock3, FileQuestion, Loader2, LogOut, Maximize, Send, ShieldCheck, Volume2 } from 'lucide-react';
 import { assessmentsAPI, integrityAPI } from '../services/api';
-import type { AssessmentSubmissionStatus, GeneratedAssessment, IntegritySettings } from '../services/api';
+import type { AssessmentSubmissionStatus, GeneratedAssessment, IntegrityClientEvent, IntegritySettings } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { enterFullscreen, getAttemptSessionId, isFullscreenSupported, useIntegrityMonitor } from '../hooks/useIntegrityMonitor';
+import { describeEvent } from '../utils/integrityText';
 
 export const POST_LOGIN_REDIRECT_KEY = 'acex-post-login-redirect';
 
@@ -116,6 +117,12 @@ const TakeAssessment: React.FC = () => {
   const [consentGiven, setConsentGiven] = useState(false);
   const [startingAttempt, setStartingAttempt] = useState(false);
   const [exitDialog, setExitDialog] = useState<'closed' | 'choose' | 'confirm_exit'>('closed');
+  // Staff preview (?preview=1): the student view with nothing recorded or submitted.
+  const [previewMode] = useState(() => new URLSearchParams(window.location.search).get('preview') === '1');
+  const [previewLog, setPreviewLog] = useState<IntegrityClientEvent[]>([]);
+  const addPreviewEvents = (events: IntegrityClientEvent[]) => {
+    if (events.length) setPreviewLog((prev) => [...prev, ...events].slice(-100));
+  };
   const attemptActive = monitored && Boolean(attemptToken) && !attemptEnded && step === 'form';
   const sessionId = code ? getAttemptSessionId(code) : '';
   const answersRef = useRef(answers);
@@ -125,7 +132,9 @@ const TakeAssessment: React.FC = () => {
     token: attemptToken,
     sessionId,
     settings: integritySettings,
-    getAnswers: () => answersRef.current
+    getAnswers: () => answersRef.current,
+    dryRun: previewMode,
+    onPreviewEvents: addPreviewEvents
   });
   const fullscreenRequired = Boolean(integritySettings?.require_fullscreen) && isFullscreenSupported();
   const showFullscreenGate = attemptActive && fullscreenRequired && !monitor.isFullscreen;
@@ -133,7 +142,7 @@ const TakeAssessment: React.FC = () => {
 
   // Closing or reloading the page does not end a monitored attempt; warn before leaving.
   useEffect(() => {
-    if (!attemptActive) return undefined;
+    if (!attemptActive || previewMode) return undefined;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
@@ -151,6 +160,23 @@ const TakeAssessment: React.FC = () => {
     setStartingAttempt(true);
     setError(null);
     if (integritySettings?.require_fullscreen) await enterFullscreen();
+    if (previewMode) {
+      try {
+        const res = await integrityAPI.preview(code);
+        setAssessment(res.data.assessment);
+        setIntegritySettings(res.data.settings);
+        setAnswers({});
+        setCurrentQuestionIndex(0);
+        setPreviewLog([]);
+        setAttemptToken('preview');
+      } catch (e: any) {
+        leaveFullscreen();
+        setError(e.response?.data?.error || 'Only the lecturer who published this assessment, or management, can preview it.');
+      } finally {
+        setStartingAttempt(false);
+      }
+      return;
+    }
     try {
       const res = await integrityAPI.start(code, getAttemptSessionId(code));
       setAssessment(res.data.assessment);
@@ -171,8 +197,19 @@ const TakeAssessment: React.FC = () => {
     }
   };
 
+  const endPreview = () => {
+    addPreviewEvents(monitor.drain());
+    setAttemptEnded('Preview finished. Nothing was recorded or submitted.');
+    setExitDialog('closed');
+    leaveFullscreen();
+  };
+
   const handleExitWithoutSubmitting = async () => {
     if (!attemptToken) return;
+    if (previewMode) {
+      endPreview();
+      return;
+    }
     try {
       await integrityAPI.exit(attemptToken, { session_id: sessionId, events: monitor.drain(), answers });
       setAttemptEnded('You exited the assessment without submitting. Ask your lecturer if you need it reopened.');
@@ -398,6 +435,11 @@ const TakeAssessment: React.FC = () => {
     if (!assessment || !code) {
       return;
     }
+    if (previewMode) {
+      if (monitored) endPreview();
+      else setError('Preview mode: answers are not submitted.');
+      return;
+    }
 
     setStep('submitting');
     setError(null);
@@ -587,6 +629,21 @@ const TakeAssessment: React.FC = () => {
   if (monitored && attemptEnded) {
     return (
       <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
+        {previewMode && (
+          <div className="fixed inset-x-0 top-0 z-[70] bg-amber-400 py-1.5 text-center text-sm font-medium text-amber-950">
+            Preview: you are seeing what students see. Nothing is recorded or submitted.
+          </div>
+        )}
+        {previewMode && previewLog.length > 0 && (
+          <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-5 order-last">
+            <h2 className="text-sm font-semibold text-gray-900 mb-2">What would have been recorded</h2>
+            <ul className="space-y-1 text-sm text-gray-700 list-disc pl-5">
+              {previewLog.map((event, index) => (
+                <li key={index}>{describeEvent({ type: event.type, duration_ms: event.duration_ms ?? null, question_number: event.question_number ?? null, details: { chars: event.chars, blocked: event.blocked, source: event.source, signature: event.signature } })}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6 text-center">
           <ShieldCheck className="w-10 h-10 text-violet-600 mx-auto mb-3" />
           <h1 className="text-xl font-bold text-gray-900 mb-2">{assessment.title}</h1>
@@ -600,6 +657,11 @@ const TakeAssessment: React.FC = () => {
     const settings = integritySettings;
     return (
       <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
+        {previewMode && (
+          <div className="fixed inset-x-0 top-0 z-[70] bg-amber-400 py-1.5 text-center text-sm font-medium text-amber-950">
+            Preview: you are seeing what students see. Nothing is recorded or submitted.
+          </div>
+        )}
         <div className="max-w-xl w-full bg-white rounded-xl shadow-lg p-6">
           <div className="flex items-center gap-3 mb-2">
             <ShieldCheck className="w-8 h-8 text-violet-600" />
@@ -761,7 +823,26 @@ const TakeAssessment: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="max-w-3xl mx-auto">
+      {previewMode && (
+        <div className="fixed inset-x-0 top-0 z-[70] bg-amber-400 py-1.5 text-center text-sm font-medium text-amber-950">
+          Preview: you are seeing what students see. Nothing is recorded or submitted.
+        </div>
+      )}
+      {previewMode && attemptActive && (
+        <div className="fixed bottom-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-amber-200 bg-white shadow-xl">
+          <div className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">What would be recorded</div>
+          <ul className="max-h-60 space-y-1 overflow-y-auto px-4 py-2 text-xs text-gray-700">
+            {previewLog.length === 0 ? (
+              <li className="text-gray-400">Nothing yet. Try switching tabs, pasting, or leaving full screen.</li>
+            ) : (
+              previewLog.slice().reverse().map((event, index) => (
+                <li key={index}>{describeEvent({ type: event.type, duration_ms: event.duration_ms ?? null, question_number: event.question_number ?? null, details: { chars: event.chars, blocked: event.blocked, source: event.source, signature: event.signature } })}</li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+      <div className={`max-w-3xl mx-auto ${previewMode ? 'pt-6' : ''}`}>
         <PublicBrand className="mb-6" />
         {monitored && attemptToken && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-white px-4 py-3 shadow-sm">

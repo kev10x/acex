@@ -762,6 +762,11 @@ export const integrityAPI = {
     api.put<{ success: boolean; settings: IntegritySettings | null }>(`/assessments/attempts/assessment/${publishedId}/settings`, { settings }),
   reopenAttempt: (attemptId: number) =>
     api.post(`/assessments/attempts/attempt/${attemptId}/reopen`),
+  getPresets: () =>
+    api.get<{ success: boolean; presets: Record<string, Omit<IntegritySettings, 'enabled' | 'preset' | 'allowed_ip_ranges'>> }>('/assessments/attempts/presets'),
+  // Staff preview of the student view: nothing is recorded.
+  preview: (code: string) =>
+    api.get<{ success: boolean; settings: IntegritySettings | null; assessment: GeneratedAssessment }>(`/assessments/attempts/preview/${encodeURIComponent(code)}`),
 };
 
 export interface GeneratedAssessment {
@@ -984,7 +989,7 @@ export const assessmentsAPI = {
     safety_focus?: string[];
   }) => api.post<{ success: boolean; practical: GeneratedPractical; input?: any }>('/assessments/generate-practical', data),
   getStats: () => api.get('/assessments/stats'),
-  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null; integrity_settings?: IntegritySettingsInput | null }) =>
+  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null; integrity_settings?: IntegritySettingsInput | null; replace_published_id?: number }) =>
     api.post('/assessments/publish', data),
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>

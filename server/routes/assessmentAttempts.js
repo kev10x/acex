@@ -436,6 +436,36 @@ const createAttemptsRouter = ({ createSubmission }) => {
     }
   };
 
+  router.get('/presets', requireAuth, requireStaff, (req, res) => {
+    res.json({ success: true, presets: integrity.PRESETS });
+  });
+
+  // Staff preview of the student view: questions without answer keys, and nothing recorded.
+  router.get('/preview/:code', requireAuth, requireStaff, async (req, res) => {
+    try {
+      const byCode = await loadPublishedByCode(req.params.code);
+      const pub = byCode ? await loadPublishedById(byCode.id) : null;
+      if (!pub || !canViewReports(req.user, pub)) return res.status(404).json({ error: 'Assessment not found' });
+      const settings = integrity.parseStoredSettings(pub.integrity_settings);
+      const assessment = parseJson(pub.assessment_json, {}) || {};
+      const count = Array.isArray(assessment.questions) ? assessment.questions.length : 0;
+      res.json({
+        success: true,
+        settings,
+        assessment: {
+          title: assessment.title,
+          topic: assessment.topic,
+          instructions: assessment.instructions,
+          estimated_time: assessment.estimated_time,
+          questions: studentQuestionsFor(assessment, settings?.shuffle_questions ? integrity.shuffledOrder(count) : null)
+        }
+      });
+    } catch (error) {
+      console.error('Integrity preview error:', error);
+      res.status(500).json({ error: 'Failed to load preview' });
+    }
+  });
+
   const loadAttemptRows = (publishedId) => query(
     `SELECT aa.*, u.name AS student_name, u.email AS student_email, s.submission_code
      FROM assessment_attempts aa
