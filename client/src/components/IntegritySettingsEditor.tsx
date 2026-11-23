@@ -90,7 +90,7 @@ export default function IntegritySettingsEditor({
     </label>
   );
 
-  const choice = (key: 'copy_paste' | 'right_click', label: string) => (
+  const choice = (key: 'copy_paste' | 'right_click' | 'screenshots', label: string, labels = { log: 'Allow and log', block: 'Block and log' }) => (
     <label className="block text-sm">
       <span className="font-medium text-gray-800">{label}</span>
       <select
@@ -99,8 +99,8 @@ export default function IntegritySettingsEditor({
         disabled={!draft.enabled}
         className="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
       >
-        <option value="log">Allow and log</option>
-        <option value="block">Block and log</option>
+        <option value="log">{labels.log}</option>
+        <option value="block">{labels.block}</option>
       </select>
     </label>
   );
@@ -137,6 +137,7 @@ export default function IntegritySettingsEditor({
         {toggle('shuffle_questions', 'Shuffle question order', 'Each student gets the questions in a different order.')}
         {choice('copy_paste', 'Copy and paste')}
         {choice('right_click', 'Right-click')}
+        {choice('screenshots', 'Screenshot keys', { log: 'Log only', block: 'Log, wipe clipboard and hide questions briefly' })}
         <label className="block text-sm">
           <span className="font-medium text-gray-800">Allowed networks (optional)</span>
           <textarea

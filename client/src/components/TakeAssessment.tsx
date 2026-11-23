@@ -18,6 +18,9 @@ const describeMonitoring = (settings: IntegritySettings) => [
     ? 'Copying and pasting are blocked. Attempts are recorded.'
     : 'Copying and pasting are allowed, but how much text is copied or pasted is recorded (not the text itself).',
   settings.right_click === 'block' ? 'Right-click is blocked.' : null,
+  settings.screenshots === 'block'
+    ? 'Screenshot keys are recorded, and questions are briefly hidden when one is pressed.'
+    : 'Screenshot keys (such as Print Screen) are recorded.',
   'Text that appears faster than it can be typed is recorded.',
   'Your IP address is recorded when you start and while you work.',
   settings.allowed_ip_ranges.length ? 'You can only start this assessment from the exam venue network.' : null,
@@ -140,7 +143,11 @@ const TakeAssessment: React.FC = () => {
   });
   const fullscreenRequired = Boolean(integritySettings?.require_fullscreen) && isFullscreenSupported();
   const showFullscreenGate = attemptActive && fullscreenRequired && !monitor.isFullscreen;
-  const hideQuestions = attemptActive && (showFullscreenGate || (Boolean(integritySettings?.hide_questions_on_leave) && monitor.away));
+  const hideQuestions = attemptActive && (
+    showFullscreenGate
+    || monitor.screenshotHidden
+    || (Boolean(integritySettings?.hide_questions_on_leave) && monitor.away)
+  );
 
   // Closing or reloading the page does not end a monitored attempt; warn before leaving.
   useEffect(() => {
@@ -414,7 +421,9 @@ const TakeAssessment: React.FC = () => {
     setQuestionAudioTarget(`question-${questionIndex}`);
     try {
       const sourceIndex = assessment?.questions[questionIndex]?.source_index ?? questionIndex;
-      const res = await assessmentsAPI.getQuestionAudio(code, sourceIndex, questionAudioVoice, questionAudioLanguage, attemptToken);
+      // Monitored attempts number questions in the order shown, so the narration says the same number.
+      const displayNumber = monitored ? questionIndex + 1 : null;
+      const res = await assessmentsAPI.getQuestionAudio(code, sourceIndex, questionAudioVoice, questionAudioLanguage, attemptToken, displayNumber);
       const blobUrl = URL.createObjectURL(res.data as Blob);
       if (questionAudioBlobUrlRef.current) {
         URL.revokeObjectURL(questionAudioBlobUrlRef.current);
@@ -642,7 +651,7 @@ const TakeAssessment: React.FC = () => {
             <h2 className="text-sm font-semibold text-gray-900 mb-2">What would have been recorded</h2>
             <ul className="space-y-1 text-sm text-gray-700 list-disc pl-5">
               {previewLog.map((event, index) => (
-                <li key={index}>{describeEvent({ type: event.type, duration_ms: event.duration_ms ?? null, question_number: event.question_number ?? null, details: { chars: event.chars, blocked: event.blocked, source: event.source, signature: event.signature } })}</li>
+                <li key={index}>{describeEvent({ type: event.type, duration_ms: event.duration_ms ?? null, question_number: event.question_number ?? null, details: { chars: event.chars, blocked: event.blocked, source: event.source, signature: event.signature, combo: event.combo } })}</li>
               ))}
             </ul>
           </div>
@@ -747,10 +756,16 @@ const TakeAssessment: React.FC = () => {
           <div className="max-w-md w-full rounded-xl bg-white p-6 text-center shadow-xl">
             <ShieldCheck className="w-10 h-10 text-violet-600 mx-auto mb-3" />
             <h2 className="text-lg font-semibold text-gray-900 mb-2">
-              {showFullscreenGate ? 'Return to full screen to continue' : 'Return to the assessment to continue'}
+              {showFullscreenGate
+                ? 'Return to full screen to continue'
+                : monitor.screenshotHidden && !monitor.away
+                  ? 'Screenshots are not allowed in this assessment'
+                  : 'Return to the assessment to continue'}
             </h2>
             <p className="text-sm text-gray-600 mb-4">
-              Questions are hidden while you are away. Time away from the assessment is recorded.
+              {monitor.screenshotHidden && !monitor.away && !showFullscreenGate
+                ? 'The questions will reappear in a moment. Screenshot keys are recorded.'
+                : 'Questions are hidden while you are away. Time away from the assessment is recorded.'}
             </p>
             {showFullscreenGate && (
               <button
@@ -839,7 +854,7 @@ const TakeAssessment: React.FC = () => {
               <li className="text-gray-400">Nothing yet. Try switching tabs, pasting, or leaving full screen.</li>
             ) : (
               previewLog.slice().reverse().map((event, index) => (
-                <li key={index}>{describeEvent({ type: event.type, duration_ms: event.duration_ms ?? null, question_number: event.question_number ?? null, details: { chars: event.chars, blocked: event.blocked, source: event.source, signature: event.signature } })}</li>
+                <li key={index}>{describeEvent({ type: event.type, duration_ms: event.duration_ms ?? null, question_number: event.question_number ?? null, details: { chars: event.chars, blocked: event.blocked, source: event.source, signature: event.signature, combo: event.combo } })}</li>
               ))
             )}
           </ul>
@@ -892,7 +907,16 @@ const TakeAssessment: React.FC = () => {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          // Enter in a one-line answer must not hand in the whole assessment.
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && event.target instanceof HTMLInputElement && event.target.type !== 'submit') {
+              event.preventDefault();
+            }
+          }}
+          className="space-y-6"
+        >
           {/* Logged-in students are identified by their account; only anonymous visitors are asked. */}
           {!defaultStudentName && (
             <div className="bg-white rounded-xl shadow-lg p-6">
@@ -930,7 +954,11 @@ const TakeAssessment: React.FC = () => {
             return (
               <div key={idx} data-question-number={qNum} className="bg-white rounded-xl shadow-lg p-6">
                 <div className="flex items-start gap-2 mb-3">
-                  <span className="font-semibold text-gray-800">Question {qNum}</span>
+                  {/* Shuffled monitored attempts read 1, 2, 3...; answers and reports keep the paper's numbers. */}
+                  <span className="font-semibold text-gray-800">Question {monitored ? idx + 1 : qNum}</span>
+                  {previewMode && monitored && idx + 1 !== qNum && (
+                    <span className="text-xs text-amber-700">Q{qNum} on your paper</span>
+                  )}
                   <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
                     {(q as any).points != null ? `${(q as any).points} pts` : ''} {type.replace(/_/g, ' ')}
                   </span>
@@ -1154,8 +1182,11 @@ const TakeAssessment: React.FC = () => {
             >
               Previous question
             </button>
+            {/* Distinct keys: otherwise React reuses this button as the submit button mid-click,
+                and the browser submits the form when moving to the last question. */}
             {safeQuestionIndex < totalQuestions - 1 ? (
               <button
+                key="next-question"
                 type="button"
                 onClick={() => setCurrentQuestionIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
                 className="flex-1 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700"
@@ -1164,6 +1195,7 @@ const TakeAssessment: React.FC = () => {
               </button>
             ) : (
               <button
+                key="submit-assessment"
                 type="submit"
                 disabled={step === 'submitting'}
                 className="flex-1 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"

@@ -341,12 +341,15 @@ function getPublishedAssessmentAudioCachePath(code, questionIndex, voiceId, lang
   return path.join(ASSESSMENT_AUDIO_DIR, `${cacheKey}.mp3`);
 }
 
-function buildAssessmentQuestionNarrationText(assessment, questionIndex) {
+// displayNumber: the number the student sees, when questions are shown in a shuffled order.
+function buildAssessmentQuestionNarrationText(assessment, questionIndex, displayNumber = null) {
   const questions = Array.isArray(assessment?.questions) ? assessment.questions : [];
   const question = questions[questionIndex];
   if (!question) return '';
 
-  const number = question.number != null ? question.number : question.question_number != null ? question.question_number : questionIndex + 1;
+  const number = displayNumber != null
+    ? displayNumber
+    : question.number != null ? question.number : question.question_number != null ? question.question_number : questionIndex + 1;
   const type = String(question.type || 'short_answer').replace(/-/g, '_');
   const parts = [
     assessment?.title ? `Assessment title: ${assessment.title}.` : '',
@@ -1874,7 +1877,12 @@ router.get('/audio/:code/:questionIndex', optionalAuth, async (req, res) => {
     }
 
     const assessment = typeof row.assessment_json === 'string' ? JSON.parse(row.assessment_json) : row.assessment_json;
-    const narrationText = buildAssessmentQuestionNarrationText(assessment, questionIndex);
+    const requestedDisplayNumber = Number.parseInt(req.query.display_number, 10);
+    const questionCount = Array.isArray(assessment?.questions) ? assessment.questions.length : 0;
+    const displayNumber = Number.isInteger(requestedDisplayNumber) && requestedDisplayNumber >= 1 && requestedDisplayNumber <= questionCount
+      ? requestedDisplayNumber
+      : null;
+    const narrationText = buildAssessmentQuestionNarrationText(assessment, questionIndex, displayNumber);
     if (!narrationText) {
       return res.status(404).json({ error: 'Question not found' });
     }

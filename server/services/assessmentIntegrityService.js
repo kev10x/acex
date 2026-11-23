@@ -15,6 +15,7 @@ const PRESETS = {
     hide_questions_on_leave: false,
     copy_paste: 'log',
     right_click: 'log',
+    screenshots: 'log',
     shuffle_questions: false
   },
   test: {
@@ -22,6 +23,7 @@ const PRESETS = {
     hide_questions_on_leave: true,
     copy_paste: 'log',
     right_click: 'log',
+    screenshots: 'log',
     shuffle_questions: true
   },
   exam: {
@@ -29,9 +31,13 @@ const PRESETS = {
     hide_questions_on_leave: true,
     copy_paste: 'block',
     right_click: 'block',
+    screenshots: 'block',
     shuffle_questions: true
   }
 };
+
+// Screenshot shortcuts the browser can see (macOS often handles its own before the page does).
+const SCREENSHOT_COMBOS = new Set(['Print Screen', 'Win+Shift+S', 'Cmd+Shift+3', 'Cmd+Shift+4', 'Cmd+Shift+5']);
 
 const DEFAULT_PRESET = 'test';
 
@@ -61,7 +67,8 @@ const CLIENT_EVENT_TYPES = new Set([
   'text_burst',
   'print_attempt',
   'extension_injected',
-  'second_tab'
+  'second_tab',
+  'screenshot_key'
 ]);
 
 const SERVER_EVENT_TYPES = new Set([
@@ -106,6 +113,7 @@ const normalizeSettings = (input) => {
     hide_questions_on_leave: bool('hide_questions_on_leave'),
     copy_paste: pick('copy_paste', ['log', 'block']),
     right_click: pick('right_click', ['log', 'block']),
+    screenshots: pick('screenshots', ['log', 'block']),
     shuffle_questions: bool('shuffle_questions'),
     allowed_ip_ranges: [...new Set(ranges)].slice(0, 20)
   };
@@ -186,6 +194,7 @@ const sanitizeClientEvents = (events) => {
     if (event.blocked === true) details.blocked = true;
     if (event.source === 'drop') details.source = 'drop';
     if (type === 'extension_injected') details.signature = cleanText(event.signature, 80);
+    if (type === 'screenshot_key') details.combo = SCREENSHOT_COMBOS.has(event.combo) ? event.combo : 'Screenshot shortcut';
     return [{
       type,
       question_number: toInt(event.question_number),
@@ -217,6 +226,7 @@ const classifyEvent = (event) => {
     case 'extension_injected':
     case 'print_attempt':
     case 'connection_gap':
+    case 'screenshot_key':
       return 'notice';
     default:
       return 'info';
@@ -310,6 +320,22 @@ const summarizeAttempt = (events) => {
     add('copy', Math.min(4, copies.length * 2), `Copied ${plural(copies.length, 'block')} of text${questionList(copies)}`);
   }
 
+  // Screenshots: one press is noted; repeats, or a screenshot followed by leaving, count more.
+  const screenshots = sorted.filter((event) => event.type === 'screenshot_key');
+  if (screenshots.length) {
+    const thenLeft = screenshots.filter((shot) => sorted.some((event) => {
+      if (event.type !== 'focus_lost' || (event.duration_ms || 0) < THRESHOLDS.longLeaveMs) return false;
+      const leftAt = event.client_time - event.duration_ms;
+      return leftAt >= shot.client_time && leftAt - shot.client_time <= THRESHOLDS.copyThenLeaveMs;
+    }));
+    const combos = [...new Set(screenshots.map((event) => event.details?.combo).filter(Boolean))].join(', ');
+    if (thenLeft.length) {
+      add('screenshot_then_leave', Math.min(6, thenLeft.length * 3), `Took a screenshot and then left the exam ${plural(thenLeft.length, 'time')}${questionList(thenLeft)}`);
+    } else {
+      add('screenshot', Math.min(4, screenshots.length), `Pressed ${combos || 'a screenshot shortcut'} ${plural(screenshots.length, 'time')}${questionList(screenshots)}`);
+    }
+  }
+
   if (byType('duplicate_session').length || byType('second_tab').length) {
     add('second_session', 5, 'The exam was open in a second tab or on another device');
   }
@@ -344,7 +370,8 @@ const summarizeAttempt = (events) => {
       fullscreen_exits: fullscreenExits.length,
       pastes: pastes.length,
       text_bursts: bursts.length,
-      copies: copies.length
+      copies: copies.length,
+      screenshots: screenshots.length
     }
   };
 };
