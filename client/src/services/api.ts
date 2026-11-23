@@ -223,6 +223,9 @@ export interface RubricCriterion {
   description: string;
 }
 
+// 'script': mark each script against the whole rubric. 'question': mark each question across all scripts.
+export type MarkingOrder = 'script' | 'question';
+
 export interface Rubric {
   id: number;
   name: string;
@@ -456,6 +459,7 @@ export const markingAPI = {
     feedback_type?: 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie';
     feedback_verbosity?: 'brief' | 'standard' | 'comprehensive';
     criterion_feedback_types?: Record<string, string> | null;
+    marking_order?: MarkingOrder;
   }, signal?: AbortSignal) => api.post('/mark/multiple', data, { signal }),
 
   markManual: (data: {

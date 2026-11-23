@@ -1709,6 +1709,38 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence TINYINT(1) DEFAULT 0`);
         }
 
+        const markingOrderCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'marking_order'
+        `);
+        if ((markingOrderCheck.rows?.[0]?.count || markingOrderCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN marking_order VARCHAR(20) DEFAULT 'script'`);
+        }
+
+        // One row per question/criterion per marked script, so a question can be reviewed
+        // across the whole batch (question-by-question marking) and re-marked on its own.
+        await query(`
+          CREATE TABLE IF NOT EXISTS marking_result_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            marking_result_id INT NOT NULL,
+            assignment_id INT NOT NULL,
+            criterion_index INT NOT NULL,
+            criterion_name VARCHAR(500) NOT NULL,
+            answer_text LONGTEXT NULL,
+            answer_found TINYINT(1) DEFAULT 1,
+            points_awarded DECIMAL(8,2) DEFAULT 0,
+            max_points DECIMAL(8,2) DEFAULT 0,
+            feedback TEXT NULL,
+            rubric_basis TEXT NULL,
+            confidence INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_mri_result (marking_result_id),
+            INDEX idx_mri_assignment (assignment_id),
+            FOREIGN KEY (marking_result_id) REFERENCES marking_results(id) ON DELETE CASCADE,
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+          )
+        `);
+
         const mediaTypeCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
           WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_type'
@@ -3330,6 +3362,34 @@ const initDatabase = async () => {
         if ((hasLowCriterionConfidenceCheckPg.rows?.[0]?.count || hasLowCriterionConfidenceCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence BOOLEAN DEFAULT FALSE`);
         }
+
+        const markingOrderCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'marking_order'
+        `);
+        if ((markingOrderCheckPg.rows?.[0]?.count || markingOrderCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN marking_order VARCHAR(20) DEFAULT 'script'`);
+        }
+
+        await query(`
+          CREATE TABLE IF NOT EXISTS marking_result_items (
+            id SERIAL PRIMARY KEY,
+            marking_result_id INTEGER NOT NULL REFERENCES marking_results(id) ON DELETE CASCADE,
+            assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+            criterion_index INTEGER NOT NULL,
+            criterion_name VARCHAR(500) NOT NULL,
+            answer_text TEXT NULL,
+            answer_found BOOLEAN DEFAULT TRUE,
+            points_awarded NUMERIC(8,2) DEFAULT 0,
+            max_points NUMERIC(8,2) DEFAULT 0,
+            feedback TEXT NULL,
+            rubric_basis TEXT NULL,
+            confidence INTEGER DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_mri_result ON marking_result_items (marking_result_id)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_mri_assignment ON marking_result_items (assignment_id)`);
 
         const mediaTypeCheckPg = await query(`
           SELECT COUNT(*) as count FROM information_schema.columns

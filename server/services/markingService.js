@@ -1267,6 +1267,70 @@ Set "prescriptive_table", "reflective_questions", and "critical_table" to null.`
 
 // Generate AI marking using OpenAI or Anthropic.
 // When assignmentImages (array of base64 strings) is provided, the PDF is marked from images instead of extracted text (vision-based).
+const getStrictnessGuidelines = (strictness) => {
+  const strictnessMap = {
+    'very_strict': `⚠️ CRITICAL: VERY STRICT MARKING MODE - THESE REQUIREMENTS OVERRIDE ALL OTHER INSTRUCTIONS ⚠️
+
+STRICTNESS LEVEL: VERY STRICT
+- Apply EXTREMELY RIGOROUS academic standards - be HIGHLY CRITICAL and DEMANDING
+- Award points ONLY when criteria are COMPLETELY and FULLY met with EXCEPTIONAL EXCELLENCE
+- Be VERY CRITICAL in your evaluation - identify ALL weaknesses, gaps, and areas that fall short
+- Do NOT award full marks unless the work demonstrates EXCEPTIONAL EXCELLENCE that FULLY satisfies ALL aspects of the criterion
+- For partial marks, be EXTREMELY PRECISE - award marks only for what is CLEARLY present and WELL-DEMONSTRATED
+- If work is incomplete, unclear, or lacks ANY required elements, award SIGNIFICANTLY LOWER marks
+- Hold students to the HIGHEST standards - expect EXCEPTIONAL thoroughness, accuracy, and depth
+- NEVER give benefit of the doubt - if something is missing, unclear, or incorrect, reflect this HARSHLY in the scoring
+- Be EXTREMELY RIGOROUS in assessing whether the work meets the performance level descriptions in the rubric
+- Penalize MINOR errors and omissions MORE SEVERELY
+- Expect NEAR-PERFECT work for top marks
+- IMPORTANT: This strictness level should result in LOWER overall scores compared to other strictness levels for the same quality of work`,
+
+    'strict': `⚠️ CRITICAL: STRICT MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
+
+STRICTNESS LEVEL: STRICT
+- Apply STRICT academic standards - do NOT be lenient or generous with marks
+- Award points ONLY when criteria are CLEARLY and FULLY met
+- Be CRITICAL in your evaluation - identify weaknesses, gaps, and areas that fall short
+- Do NOT award full marks unless the work demonstrates EXCELLENCE that FULLY satisfies all aspects of the criterion
+- For partial marks, be PRECISE - award marks only for what is ACTUALLY present and DEMONSTRATED
+- If work is incomplete, unclear, or lacks required elements, award LOWER marks accordingly
+- Hold students to HIGH standards - expect thoroughness, accuracy, and depth
+- Do NOT give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
+- Be RIGOROUS in assessing whether the work meets the performance level descriptions in the rubric
+- IMPORTANT: This strictness level should result in MODERATELY LOWER scores compared to moderate/lenient levels for the same quality of work`,
+
+    'moderate': `⚠️ CRITICAL: MODERATE MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
+
+STRICTNESS LEVEL: MODERATE
+- Apply FAIR but FIRM academic standards
+- Award points when criteria are SUBSTANTIALLY met, allowing for MINOR gaps
+- Be BALANCED in your evaluation - identify both strengths and areas for improvement
+- Award full marks when the work demonstrates STRONG performance that meets the KEY aspects of the criterion
+- For partial marks, be REASONABLE - award marks for demonstrated understanding even if not perfect
+- If work is incomplete or unclear, award partial marks based on what is present
+- Hold students to REASONABLE standards - expect good effort and understanding
+- Give SOME benefit of the doubt for minor issues or unclear areas
+- Be FAIR in assessing whether the work meets the performance level descriptions in the rubric
+- IMPORTANT: This strictness level should result in MODERATE scores that balance rigor with fairness`,
+
+    'lenient': `⚠️ CRITICAL: LENIENT MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
+
+STRICTNESS LEVEL: LENIENT
+- Apply SUPPORTIVE academic standards - focus on learning and improvement
+- Award points when criteria are GENERALLY met, even with some gaps
+- Be ENCOURAGING in your evaluation - emphasize strengths while noting areas for improvement
+- Award full marks when the work demonstrates GOOD understanding of the key concepts
+- For partial marks, be GENEROUS - award marks for effort and demonstrated understanding
+- If work is incomplete, award marks for what is present and shows understanding
+- Hold students to ACHIEVABLE standards - recognize effort and progress
+- Give benefit of the doubt for unclear areas or minor issues
+- Be SUPPORTIVE in assessing whether the work meets the performance level descriptions in the rubric
+- IMPORTANT: This strictness level should result in HIGHER overall scores compared to other strictness levels for the same quality of work`
+  };
+
+  return strictnessMap[strictness] || strictnessMap['strict'];
+};
+
 const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null, mediaMode = null) => {
   const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
   // Video/audio presentations: transcript text AND frame images are both real evidence and must
@@ -1715,69 +1779,6 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
 
     const evaluationGuidelines = getEvaluationGuidelines(documentType, levelCategory, isMemo);
 
-    const getStrictnessGuidelines = (strictness) => {
-      const strictnessMap = {
-        'very_strict': `⚠️ CRITICAL: VERY STRICT MARKING MODE - THESE REQUIREMENTS OVERRIDE ALL OTHER INSTRUCTIONS ⚠️
-
-STRICTNESS LEVEL: VERY STRICT
-- Apply EXTREMELY RIGOROUS academic standards - be HIGHLY CRITICAL and DEMANDING
-- Award points ONLY when criteria are COMPLETELY and FULLY met with EXCEPTIONAL EXCELLENCE
-- Be VERY CRITICAL in your evaluation - identify ALL weaknesses, gaps, and areas that fall short
-- Do NOT award full marks unless the work demonstrates EXCEPTIONAL EXCELLENCE that FULLY satisfies ALL aspects of the criterion
-- For partial marks, be EXTREMELY PRECISE - award marks only for what is CLEARLY present and WELL-DEMONSTRATED
-- If work is incomplete, unclear, or lacks ANY required elements, award SIGNIFICANTLY LOWER marks
-- Hold students to the HIGHEST standards - expect EXCEPTIONAL thoroughness, accuracy, and depth
-- NEVER give benefit of the doubt - if something is missing, unclear, or incorrect, reflect this HARSHLY in the scoring
-- Be EXTREMELY RIGOROUS in assessing whether the work meets the performance level descriptions in the rubric
-- Penalize MINOR errors and omissions MORE SEVERELY
-- Expect NEAR-PERFECT work for top marks
-- IMPORTANT: This strictness level should result in LOWER overall scores compared to other strictness levels for the same quality of work`,
-
-        'strict': `⚠️ CRITICAL: STRICT MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
-
-STRICTNESS LEVEL: STRICT
-- Apply STRICT academic standards - do NOT be lenient or generous with marks
-- Award points ONLY when criteria are CLEARLY and FULLY met
-- Be CRITICAL in your evaluation - identify weaknesses, gaps, and areas that fall short
-- Do NOT award full marks unless the work demonstrates EXCELLENCE that FULLY satisfies all aspects of the criterion
-- For partial marks, be PRECISE - award marks only for what is ACTUALLY present and DEMONSTRATED
-- If work is incomplete, unclear, or lacks required elements, award LOWER marks accordingly
-- Hold students to HIGH standards - expect thoroughness, accuracy, and depth
-- Do NOT give benefit of the doubt - if something is missing or incorrect, reflect this in the scoring
-- Be RIGOROUS in assessing whether the work meets the performance level descriptions in the rubric
-- IMPORTANT: This strictness level should result in MODERATELY LOWER scores compared to moderate/lenient levels for the same quality of work`,
-
-        'moderate': `⚠️ CRITICAL: MODERATE MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
-
-STRICTNESS LEVEL: MODERATE
-- Apply FAIR but FIRM academic standards
-- Award points when criteria are SUBSTANTIALLY met, allowing for MINOR gaps
-- Be BALANCED in your evaluation - identify both strengths and areas for improvement
-- Award full marks when the work demonstrates STRONG performance that meets the KEY aspects of the criterion
-- For partial marks, be REASONABLE - award marks for demonstrated understanding even if not perfect
-- If work is incomplete or unclear, award partial marks based on what is present
-- Hold students to REASONABLE standards - expect good effort and understanding
-- Give SOME benefit of the doubt for minor issues or unclear areas
-- Be FAIR in assessing whether the work meets the performance level descriptions in the rubric
-- IMPORTANT: This strictness level should result in MODERATE scores that balance rigor with fairness`,
-
-        'lenient': `⚠️ CRITICAL: LENIENT MARKING MODE - THESE REQUIREMENTS OVERRIDE GENERAL MARKING STANDARDS ⚠️
-
-STRICTNESS LEVEL: LENIENT
-- Apply SUPPORTIVE academic standards - focus on learning and improvement
-- Award points when criteria are GENERALLY met, even with some gaps
-- Be ENCOURAGING in your evaluation - emphasize strengths while noting areas for improvement
-- Award full marks when the work demonstrates GOOD understanding of the key concepts
-- For partial marks, be GENEROUS - award marks for effort and demonstrated understanding
-- If work is incomplete, award marks for what is present and shows understanding
-- Hold students to ACHIEVABLE standards - recognize effort and progress
-- Give benefit of the doubt for unclear areas or minor issues
-- Be SUPPORTIVE in assessing whether the work meets the performance level descriptions in the rubric
-- IMPORTANT: This strictness level should result in HIGHER overall scores compared to other strictness levels for the same quality of work`
-      };
-
-      return strictnessMap[strictness] || strictnessMap['strict'];
-    };
 
     const rubricLabel = isMemo ? 'MARKING MEMORANDUM (MEMO):' : 'EVALUATION RUBRIC:';
 
@@ -2358,6 +2359,7 @@ JSON format (return ONLY this, no other text):
 
 module.exports = {
   generateMarking,
+  getStrictnessGuidelines,
   parseMarkingResponsePayload,
   parseAiJsonResponse,
   extractFirstJsonObject,
