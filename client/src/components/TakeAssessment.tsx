@@ -1,9 +1,27 @@
 import { PublicBrand } from './BrandMark';
 import React, { useEffect, useRef, useState } from 'react';
-import { Award, Clock3, FileQuestion, Loader2, Send, Volume2 } from 'lucide-react';
-import { assessmentsAPI } from '../services/api';
-import type { AssessmentSubmissionStatus, GeneratedAssessment } from '../services/api';
+import { Award, Clock3, FileQuestion, Loader2, LogOut, Maximize, Send, ShieldCheck, Volume2 } from 'lucide-react';
+import { assessmentsAPI, integrityAPI } from '../services/api';
+import type { AssessmentSubmissionStatus, GeneratedAssessment, IntegritySettings } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { enterFullscreen, getAttemptSessionId, isFullscreenSupported, useIntegrityMonitor } from '../hooks/useIntegrityMonitor';
+
+export const POST_LOGIN_REDIRECT_KEY = 'acex-post-login-redirect';
+
+// What a student is told is recorded before they opt in to a monitored assessment.
+const describeMonitoring = (settings: IntegritySettings) => [
+  settings.require_fullscreen ? 'The assessment runs in full screen. Leaving full screen is recorded.' : null,
+  'Switching to another tab or app, and for how long, is recorded.',
+  settings.hide_questions_on_leave ? 'Questions are hidden while you are away from the assessment.' : null,
+  settings.copy_paste === 'block'
+    ? 'Copying and pasting are blocked. Attempts are recorded.'
+    : 'Copying and pasting are allowed, but how much text is copied or pasted is recorded (not the text itself).',
+  settings.right_click === 'block' ? 'Right-click is blocked.' : null,
+  'Text that appears faster than it can be typed is recorded.',
+  'Your IP address is recorded when you start and while you work.',
+  settings.allowed_ip_ranges.length ? 'You can only start this assessment from the exam venue network.' : null,
+  'You must choose to submit or exit when you finish. Closing the page does not end the assessment.'
+].filter(Boolean) as string[];
 
 type Step = 'code' | 'form' | 'submitting' | 'pending' | 'result';
 type DraggedMatch = {
@@ -91,6 +109,89 @@ const TakeAssessment: React.FC = () => {
   const [questionAudioLanguage, setQuestionAudioLanguage] = useState('en');
   const [questionAudioTarget, setQuestionAudioTarget] = useState<string | null>(null);
   const defaultStudentName = user?.name?.trim() || user?.email?.trim() || '';
+  const [monitored, setMonitored] = useState(false);
+  const [integritySettings, setIntegritySettings] = useState<IntegritySettings | null>(null);
+  const [attemptToken, setAttemptToken] = useState<string | null>(null);
+  const [attemptEnded, setAttemptEnded] = useState<string | null>(null);
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [startingAttempt, setStartingAttempt] = useState(false);
+  const [exitDialog, setExitDialog] = useState<'closed' | 'choose' | 'confirm_exit'>('closed');
+  const attemptActive = monitored && Boolean(attemptToken) && !attemptEnded && step === 'form';
+  const sessionId = code ? getAttemptSessionId(code) : '';
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  const monitor = useIntegrityMonitor({
+    active: attemptActive,
+    token: attemptToken,
+    sessionId,
+    settings: integritySettings,
+    getAnswers: () => answersRef.current
+  });
+  const fullscreenRequired = Boolean(integritySettings?.require_fullscreen) && isFullscreenSupported();
+  const showFullscreenGate = attemptActive && fullscreenRequired && !monitor.isFullscreen;
+  const hideQuestions = attemptActive && (showFullscreenGate || (Boolean(integritySettings?.hide_questions_on_leave) && monitor.away));
+
+  // Closing or reloading the page does not end a monitored attempt; warn before leaving.
+  useEffect(() => {
+    if (!attemptActive) return undefined;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [attemptActive]);
+
+  const leaveFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  };
+
+  const handleStartAttempt = async () => {
+    if (!code) return;
+    setStartingAttempt(true);
+    setError(null);
+    if (integritySettings?.require_fullscreen) await enterFullscreen();
+    try {
+      const res = await integrityAPI.start(code, getAttemptSessionId(code));
+      setAssessment(res.data.assessment);
+      setIntegritySettings(res.data.settings);
+      const draft = res.data.draft_answers || {};
+      setAnswers(Object.fromEntries(Object.entries(draft).map(([key, value]) => [Number(key), String(value)])));
+      setCurrentQuestionIndex(0);
+      setAttemptToken(res.data.attempt.token);
+    } catch (e: any) {
+      leaveFullscreen();
+      if (e.response?.status === 409) {
+        setAttemptEnded(e.response?.data?.error || 'This attempt has ended.');
+      } else {
+        setError(e.response?.data?.error || e.message || 'Could not start the assessment.');
+      }
+    } finally {
+      setStartingAttempt(false);
+    }
+  };
+
+  const handleExitWithoutSubmitting = async () => {
+    if (!attemptToken) return;
+    try {
+      await integrityAPI.exit(attemptToken, { session_id: sessionId, events: monitor.drain(), answers });
+      setAttemptEnded('You exited the assessment without submitting. Ask your lecturer if you need it reopened.');
+      setExitDialog('closed');
+      leaveFullscreen();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Could not exit. Check your connection and try again.');
+      setExitDialog('closed');
+    }
+  };
+
+  const goToSignIn = () => {
+    try {
+      window.sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, `${window.location.pathname}${window.location.search}`);
+    } catch (_) {
+      // Without storage the student lands on the home page after signing in.
+    }
+    window.location.href = window.location.pathname.replace(/take-assessment\/?$/, '') || '/';
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -172,6 +273,10 @@ const TakeAssessment: React.FC = () => {
     try {
       const res = await assessmentsAPI.getByCode(assessmentCode);
       if (res.data.success && res.data.assessment) {
+        setMonitored(Boolean(res.data.monitored));
+        setIntegritySettings(res.data.monitored ? res.data.integrity : null);
+        setAttemptToken(null);
+        setAttemptEnded(null);
         setAssessment(res.data.assessment);
         setCurrentQuestionIndex(0);
         if (!keepPendingStep) {
@@ -269,7 +374,8 @@ const TakeAssessment: React.FC = () => {
     setQuestionAudioError(null);
     setQuestionAudioTarget(`question-${questionIndex}`);
     try {
-      const res = await assessmentsAPI.getQuestionAudio(code, questionIndex, questionAudioVoice, questionAudioLanguage);
+      const sourceIndex = assessment?.questions[questionIndex]?.source_index ?? questionIndex;
+      const res = await assessmentsAPI.getQuestionAudio(code, sourceIndex, questionAudioVoice, questionAudioLanguage, attemptToken);
       const blobUrl = URL.createObjectURL(res.data as Blob);
       if (questionAudioBlobUrlRef.current) {
         URL.revokeObjectURL(questionAudioBlobUrlRef.current);
@@ -301,11 +407,17 @@ const TakeAssessment: React.FC = () => {
         const num = (q as any).number != null ? (q as any).number : (q as any).question_number;
         return { question_number: num, value: answers[num] ?? '' };
       });
-      const res = await assessmentsAPI.submit({
-        code,
-        student_name: studentName.trim(),
-        answers: answersList,
-      });
+      const res = monitored && attemptToken
+        ? await integrityAPI.submit(attemptToken, { session_id: sessionId, events: monitor.drain(), answers: answersList })
+        : await assessmentsAPI.submit({
+            code,
+            student_name: studentName.trim(),
+            answers: answersList,
+          });
+      if (monitored) {
+        setExitDialog('closed');
+        leaveFullscreen();
+      }
 
       if (res.data.success && res.data.submission?.submission_code) {
         const nextSubmission = res.data.submission as AssessmentSubmissionStatus;
@@ -472,6 +584,86 @@ const TakeAssessment: React.FC = () => {
     return null;
   }
 
+  if (monitored && attemptEnded) {
+    return (
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6 text-center">
+          <ShieldCheck className="w-10 h-10 text-violet-600 mx-auto mb-3" />
+          <h1 className="text-xl font-bold text-gray-900 mb-2">{assessment.title}</h1>
+          <p className="text-gray-600">{attemptEnded}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (monitored && !attemptToken) {
+    const settings = integritySettings;
+    return (
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-6 p-4"><PublicBrand />
+        <div className="max-w-xl w-full bg-white rounded-xl shadow-lg p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <ShieldCheck className="w-8 h-8 text-violet-600" />
+            <h1 className="text-xl font-bold text-gray-900 break-words">{assessment.title}</h1>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Monitored assessment{(assessment as any).question_count ? ` · ${(assessment as any).question_count} questions` : ''}
+            {assessment.estimated_time ? ` · ${assessment.estimated_time}` : ''}
+          </p>
+          {!user ? (
+            <>
+              <p className="text-gray-700 mb-4">Sign in with your student account to take this assessment.</p>
+              <button
+                type="button"
+                onClick={goToSignIn}
+                className="w-full py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700"
+              >
+                Sign in to continue
+              </button>
+            </>
+          ) : (
+            <>
+              {assessment.instructions && (
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap break-words">
+                  {assessment.instructions}
+                </div>
+              )}
+              <h2 className="text-sm font-semibold text-gray-900 mb-2">Before you start</h2>
+              <ul className="mb-4 space-y-1.5 text-sm text-gray-700 list-disc pl-5">
+                {settings && describeMonitoring(settings).map((line) => <li key={line}>{line}</li>)}
+              </ul>
+              <p className="mb-4 text-xs text-gray-500">
+                Your lecturer sees a summary of this record with your submission. Nothing you type or paste is recorded apart from your answers.
+              </p>
+              <label className="flex items-start gap-2 mb-4 text-sm text-gray-800">
+                <input
+                  type="checkbox"
+                  checked={consentGiven}
+                  onChange={(e) => setConsentGiven(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                I am {defaultStudentName}, I understand what is recorded, and I want to start the assessment now.
+              </label>
+              <button
+                type="button"
+                onClick={handleStartAttempt}
+                disabled={!consentGiven || startingAttempt}
+                className="w-full py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {startingAttempt ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
+                Start assessment
+              </button>
+            </>
+          )}
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const totalQuestions = assessment.questions.length;
   const safeQuestionIndex = Math.min(Math.max(currentQuestionIndex, 0), Math.max(0, totalQuestions - 1));
   const activeQuestion = assessment.questions[safeQuestionIndex];
@@ -485,8 +677,111 @@ const TakeAssessment: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-app py-8 px-4">
+      {hideQuestions && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 p-4">
+          <div className="max-w-md w-full rounded-xl bg-white p-6 text-center shadow-xl">
+            <ShieldCheck className="w-10 h-10 text-violet-600 mx-auto mb-3" />
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">
+              {showFullscreenGate ? 'Return to full screen to continue' : 'Return to the assessment to continue'}
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Questions are hidden while you are away. Time away from the assessment is recorded.
+            </p>
+            {showFullscreenGate && (
+              <button
+                type="button"
+                onClick={() => { void enterFullscreen(); }}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 font-semibold text-white hover:bg-primary-700"
+              >
+                <Maximize className="w-4 h-4" />
+                Return to full screen
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {exitDialog !== 'closed' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4">
+          <div className="max-w-md w-full rounded-xl bg-white p-6 shadow-xl">
+            {exitDialog === 'choose' ? (
+              <>
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Finish the assessment</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  You have answered {Object.values(answers).filter((value) => String(value || '').trim()).length} of {assessment.questions.length} questions.
+                </p>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={(event) => { void handleSubmit(event as unknown as React.FormEvent); }}
+                    disabled={step === 'submitting'}
+                    className="w-full py-2.5 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    Submit and exit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExitDialog('confirm_exit')}
+                    className="w-full py-2.5 border border-red-200 text-red-700 rounded-lg font-semibold hover:bg-red-50"
+                  >
+                    Exit without submitting
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExitDialog('closed')}
+                    className="w-full py-2.5 text-gray-600 rounded-lg font-medium hover:bg-gray-50"
+                  >
+                    Keep working
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Exit without submitting?</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  Your answers will not be marked, and you cannot come back unless your lecturer reopens the assessment.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExitDialog('choose')}
+                    className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50"
+                  >
+                    Go back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void handleExitWithoutSubmitting(); }}
+                    className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+                  >
+                    Exit
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <div className="max-w-3xl mx-auto">
         <PublicBrand className="mb-6" />
+        {monitored && attemptToken && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-white px-4 py-3 shadow-sm">
+            <span className="flex items-center gap-2 text-sm font-medium text-violet-800">
+              <ShieldCheck className="w-4 h-4" />
+              Monitored assessment
+              {monitor.connectionProblem && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Reconnecting... keep working</span>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => setExitDialog('choose')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <LogOut className="w-4 h-4" />
+              Finish / exit
+            </button>
+          </div>
+        )}
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-2 break-words">{assessment.title}</h1>
           {assessment.topic && (
@@ -549,7 +844,7 @@ const TakeAssessment: React.FC = () => {
               .filter(({ itemIndex }) => !assignedRightIndexes.has(itemIndex));
 
             return (
-              <div key={idx} className="bg-white rounded-xl shadow-lg p-6">
+              <div key={idx} data-question-number={qNum} className="bg-white rounded-xl shadow-lg p-6">
                 <div className="flex items-start gap-2 mb-3">
                   <span className="font-semibold text-gray-800">Question {qNum}</span>
                   <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
@@ -731,6 +1026,7 @@ const TakeAssessment: React.FC = () => {
                     value={value}
                     onChange={(e) => setAnswer(qNum, e.target.value)}
                     rows={5}
+                    autoComplete="off"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                     placeholder="Type your answer here..."
                   />
@@ -741,6 +1037,7 @@ const TakeAssessment: React.FC = () => {
                     type="text"
                     value={value}
                     onChange={(e) => setAnswer(qNum, e.target.value)}
+                    autoComplete="off"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
                     placeholder="Your answer"
                   />

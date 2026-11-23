@@ -247,6 +247,58 @@ const initDatabase = async () => {
         )
       `);
 
+      // Exam integrity: lecturer settings per published assessment, one attempt per student
+      // (opt-in to explicit exit) and the events recorded during it.
+      const integritySettingsCheck = await query(`
+        SELECT COUNT(*) as count FROM information_schema.COLUMNS
+        WHERE table_schema = DATABASE() AND table_name = 'published_assessments' AND column_name = 'integrity_settings'
+      `);
+      if ((integritySettingsCheck.rows?.[0]?.count || integritySettingsCheck?.[0]?.count || 0) === 0) {
+        await query(`ALTER TABLE published_assessments ADD COLUMN integrity_settings JSON NULL`);
+      }
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_attempts (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          attempt_token VARCHAR(64) NOT NULL UNIQUE,
+          published_assessment_id INT NOT NULL,
+          student_user_id INT NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
+          question_order JSON NULL,
+          draft_answers JSON NULL,
+          active_session_id VARCHAR(64) NULL,
+          ip_addresses JSON NULL,
+          user_agent VARCHAR(500) NULL,
+          integrity_score INT DEFAULT 0,
+          integrity_status VARCHAR(30) DEFAULT 'clean',
+          integrity_summary JSON NULL,
+          submission_id INT NULL,
+          exit_reason VARCHAR(30) NULL,
+          started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TIMESTAMP NULL,
+          ended_at TIMESTAMP NULL,
+          KEY idx_attempts_pub_student (published_assessment_id, student_user_id),
+          FOREIGN KEY (published_assessment_id) REFERENCES published_assessments(id) ON DELETE CASCADE,
+          FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (submission_id) REFERENCES assessment_submissions(id) ON DELETE SET NULL
+        )
+      `);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_attempt_events (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          attempt_id INT NOT NULL,
+          event_type VARCHAR(40) NOT NULL,
+          severity VARCHAR(10) NOT NULL DEFAULT 'info',
+          question_number INT NULL,
+          duration_ms INT NULL,
+          details JSON NULL,
+          ip_address VARCHAR(64) NULL,
+          client_time BIGINT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_attempt_events_attempt (attempt_id),
+          FOREIGN KEY (attempt_id) REFERENCES assessment_attempts(id) ON DELETE CASCADE
+        )
+      `);
+
       await query(`
         CREATE TABLE IF NOT EXISTS published_content (
           id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1709,6 +1761,38 @@ const initDatabase = async () => {
           await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence TINYINT(1) DEFAULT 0`);
         }
 
+        const markingOrderCheck = await query(`
+          SELECT COUNT(*) as count FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE() AND table_name = 'marking_results' AND column_name = 'marking_order'
+        `);
+        if ((markingOrderCheck.rows?.[0]?.count || markingOrderCheck?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN marking_order VARCHAR(20) DEFAULT 'script'`);
+        }
+
+        // One row per question/criterion per marked script, so a question can be reviewed
+        // across the whole batch (question-by-question marking) and re-marked on its own.
+        await query(`
+          CREATE TABLE IF NOT EXISTS marking_result_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            marking_result_id INT NOT NULL,
+            assignment_id INT NOT NULL,
+            criterion_index INT NOT NULL,
+            criterion_name VARCHAR(500) NOT NULL,
+            answer_text LONGTEXT NULL,
+            answer_found TINYINT(1) DEFAULT 1,
+            points_awarded DECIMAL(8,2) DEFAULT 0,
+            max_points DECIMAL(8,2) DEFAULT 0,
+            feedback TEXT NULL,
+            rubric_basis TEXT NULL,
+            confidence INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_mri_result (marking_result_id),
+            INDEX idx_mri_assignment (assignment_id),
+            FOREIGN KEY (marking_result_id) REFERENCES marking_results(id) ON DELETE CASCADE,
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+          )
+        `);
+
         const mediaTypeCheck = await query(`
           SELECT COUNT(*) as count FROM information_schema.COLUMNS
           WHERE table_schema = DATABASE() AND table_name = 'assignments' AND column_name = 'media_type'
@@ -2028,6 +2112,45 @@ const initDatabase = async () => {
         )
       `);
       await query(`CREATE INDEX IF NOT EXISTS idx_assessment_submissions_student_pub ON assessment_submissions(student_user_id, published_assessment_id)`);
+      await query(`ALTER TABLE published_assessments ADD COLUMN IF NOT EXISTS integrity_settings JSONB NULL`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_attempts (
+          id SERIAL PRIMARY KEY,
+          attempt_token VARCHAR(64) NOT NULL UNIQUE,
+          published_assessment_id INTEGER NOT NULL REFERENCES published_assessments(id) ON DELETE CASCADE,
+          student_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
+          question_order JSONB NULL,
+          draft_answers JSONB NULL,
+          active_session_id VARCHAR(64) NULL,
+          ip_addresses JSONB NULL,
+          user_agent VARCHAR(500) NULL,
+          integrity_score INTEGER DEFAULT 0,
+          integrity_status VARCHAR(30) DEFAULT 'clean',
+          integrity_summary JSONB NULL,
+          submission_id INTEGER NULL REFERENCES assessment_submissions(id) ON DELETE SET NULL,
+          exit_reason VARCHAR(30) NULL,
+          started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TIMESTAMP NULL,
+          ended_at TIMESTAMP NULL
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_attempts_pub_student ON assessment_attempts(published_assessment_id, student_user_id)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_attempt_events (
+          id SERIAL PRIMARY KEY,
+          attempt_id INTEGER NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+          event_type VARCHAR(40) NOT NULL,
+          severity VARCHAR(10) NOT NULL DEFAULT 'info',
+          question_number INTEGER NULL,
+          duration_ms INTEGER NULL,
+          details JSONB NULL,
+          ip_address VARCHAR(64) NULL,
+          client_time BIGINT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_attempt_events_attempt ON assessment_attempt_events(attempt_id)`);
 
       await query(`
         CREATE TABLE IF NOT EXISTS published_content (
@@ -3330,6 +3453,34 @@ const initDatabase = async () => {
         if ((hasLowCriterionConfidenceCheckPg.rows?.[0]?.count || hasLowCriterionConfidenceCheckPg?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN has_low_criterion_confidence BOOLEAN DEFAULT FALSE`);
         }
+
+        const markingOrderCheckPg = await query(`
+          SELECT COUNT(*) as count FROM information_schema.columns
+          WHERE table_name = 'marking_results' AND column_name = 'marking_order'
+        `);
+        if ((markingOrderCheckPg.rows?.[0]?.count || markingOrderCheckPg?.[0]?.count || 0) === 0) {
+          await query(`ALTER TABLE marking_results ADD COLUMN marking_order VARCHAR(20) DEFAULT 'script'`);
+        }
+
+        await query(`
+          CREATE TABLE IF NOT EXISTS marking_result_items (
+            id SERIAL PRIMARY KEY,
+            marking_result_id INTEGER NOT NULL REFERENCES marking_results(id) ON DELETE CASCADE,
+            assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+            criterion_index INTEGER NOT NULL,
+            criterion_name VARCHAR(500) NOT NULL,
+            answer_text TEXT NULL,
+            answer_found BOOLEAN DEFAULT TRUE,
+            points_awarded NUMERIC(8,2) DEFAULT 0,
+            max_points NUMERIC(8,2) DEFAULT 0,
+            feedback TEXT NULL,
+            rubric_basis TEXT NULL,
+            confidence INTEGER DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_mri_result ON marking_result_items (marking_result_id)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_mri_assignment ON marking_result_items (assignment_id)`);
 
         const mediaTypeCheckPg = await query(`
           SELECT COUNT(*) as count FROM information_schema.columns

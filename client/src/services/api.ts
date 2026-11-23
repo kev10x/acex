@@ -223,6 +223,9 @@ export interface RubricCriterion {
   description: string;
 }
 
+// 'script': mark each script against the whole rubric. 'question': mark each question across all scripts.
+export type MarkingOrder = 'script' | 'question';
+
 export interface Rubric {
   id: number;
   name: string;
@@ -456,6 +459,7 @@ export const markingAPI = {
     feedback_type?: 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie';
     feedback_verbosity?: 'brief' | 'standard' | 'comprehensive';
     criterion_feedback_types?: Record<string, string> | null;
+    marking_order?: MarkingOrder;
   }, signal?: AbortSignal) => api.post('/mark/multiple', data, { signal }),
 
   markManual: (data: {
@@ -619,6 +623,7 @@ export const batchesAPI = {
 export type AssessmentQuestionType = 'essay' | 'multiple_choice' | 'short_answer' | 'problem' | 'mix_and_match';
 export interface AssessmentQuestion {
   number: number;
+  source_index?: number; // position in the published assessment (monitored attempts may shuffle)
   type: AssessmentQuestionType;
   question: string;
   points: number;
@@ -636,6 +641,128 @@ export interface SuggestedRubricCriterion {
   max_points: number;
   description: string;
 }
+
+// ---------------------------------------------------------------------------
+// Exam integrity (monitored assessments)
+// ---------------------------------------------------------------------------
+
+export type IntegrityPreset = 'quiz' | 'test' | 'exam' | 'custom';
+
+export interface IntegritySettings {
+  enabled: true;
+  preset: IntegrityPreset;
+  require_fullscreen: boolean;
+  hide_questions_on_leave: boolean;
+  copy_paste: 'log' | 'block';
+  right_click: 'log' | 'block';
+  shuffle_questions: boolean;
+  allowed_ip_ranges: string[];
+}
+
+export type IntegritySettingsInput = Partial<Omit<IntegritySettings, 'enabled'>> & { enabled: boolean };
+
+export type IntegrityEventType =
+  | 'focus_lost'
+  | 'fullscreen_exit'
+  | 'fullscreen_unsupported'
+  | 'paste'
+  | 'copy'
+  | 'cut'
+  | 'context_menu'
+  | 'text_burst'
+  | 'print_attempt'
+  | 'extension_injected'
+  | 'second_tab';
+
+export interface IntegrityClientEvent {
+  type: IntegrityEventType;
+  client_time: number;
+  question_number?: number | null;
+  duration_ms?: number;
+  chars?: number;
+  blocked?: boolean;
+  source?: 'drop';
+  signature?: string;
+}
+
+export type IntegrityStatus = 'clean' | 'review_suggested' | 'review_needed';
+
+export interface IntegritySummary {
+  score: number;
+  status: IntegrityStatus;
+  reasons: { code: string; weight: number; text: string }[];
+  counts: Record<string, number>;
+}
+
+export interface IntegrityAttempt {
+  id: number;
+  student_user_id: number;
+  student_name: string;
+  student_email: string | null;
+  status: 'in_progress' | 'submitted' | 'exited';
+  exit_reason: string | null;
+  started_at: string;
+  last_seen_at: string | null;
+  ended_at: string | null;
+  integrity_score: number;
+  integrity_status: IntegrityStatus;
+  summary: IntegritySummary | null;
+  ip_addresses: { ip: string; first_seen: string; last_seen: string }[];
+  user_agent: string | null;
+  submission_code: string | null;
+  shared_ip_with?: string[];
+}
+
+export interface IntegrityEvent {
+  id: number;
+  type: string;
+  severity: 'info' | 'notice' | 'flag';
+  question_number: number | null;
+  duration_ms: number | null;
+  details: Record<string, any>;
+  ip_address: string | null;
+  client_time: number | null;
+  created_at: string;
+}
+
+export interface MonitoredAssessmentItem {
+  id: number;
+  code: string;
+  title: string;
+  created_at: string;
+  owner_name: string | null;
+  settings: IntegritySettings | null;
+  attempts: { total: number; in_progress: number; submitted: number; exited: number; review_suggested: number; review_needed: number };
+}
+
+export const integrityAPI = {
+  start: (code: string, sessionId: string) =>
+    api.post<{
+      success: boolean;
+      attempt: { token: string; status: string; started_at: string };
+      settings: IntegritySettings;
+      assessment: GeneratedAssessment;
+      draft_answers: Record<string, string>;
+    }>('/assessments/attempts/start', { code, session_id: sessionId }),
+  sendEvents: (token: string, data: { session_id: string; events: IntegrityClientEvent[]; answers?: Record<number, string>; away?: boolean }) =>
+    api.post(`/assessments/attempts/session/${token}/events`, data),
+  submit: (token: string, data: { session_id: string; events: IntegrityClientEvent[]; answers: { question_number: number; value: string }[] }) =>
+    api.post(`/assessments/attempts/session/${token}/submit`, data),
+  exit: (token: string, data: { session_id: string; events: IntegrityClientEvent[]; answers?: Record<number, string> }) =>
+    api.post(`/assessments/attempts/session/${token}/exit`, data),
+  listMonitored: () =>
+    api.get<{ success: boolean; items: MonitoredAssessmentItem[]; presets: Record<string, Omit<IntegritySettings, 'enabled' | 'preset' | 'allowed_ip_ranges'>> }>('/assessments/attempts/monitored'),
+  getReport: (publishedId: number) =>
+    api.get<{ success: boolean; assessment: { id: number; code: string; title: string }; settings: IntegritySettings | null; attempts: IntegrityAttempt[] }>(`/assessments/attempts/assessment/${publishedId}`),
+  getAttempt: (attemptId: number) =>
+    api.get<{ success: boolean; attempt: IntegrityAttempt; events: IntegrityEvent[] }>(`/assessments/attempts/attempt/${attemptId}`),
+  exportCsv: (publishedId: number) =>
+    api.get(`/assessments/attempts/assessment/${publishedId}/export.csv`, { responseType: 'blob' }),
+  updateSettings: (publishedId: number, settings: IntegritySettingsInput) =>
+    api.put<{ success: boolean; settings: IntegritySettings | null }>(`/assessments/attempts/assessment/${publishedId}/settings`, { settings }),
+  reopenAttempt: (attemptId: number) =>
+    api.post(`/assessments/attempts/attempt/${attemptId}/reopen`),
+};
 
 export interface GeneratedAssessment {
   title: string;
@@ -857,14 +984,14 @@ export const assessmentsAPI = {
     safety_focus?: string[];
   }) => api.post<{ success: boolean; practical: GeneratedPractical; input?: any }>('/assessments/generate-practical', data),
   getStats: () => api.get('/assessments/stats'),
-  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null }) =>
+  publish: (data: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null; integrity_settings?: IntegritySettingsInput | null }) =>
     api.post('/assessments/publish', data),
   getByCode: (code: string) => api.get(`/assessments/take/${code}`),
   submit: (data: { code: string; student_name: string; answers: { question_number: number; value: string }[] }) =>
     api.post('/assessments/submit', data),
-  getQuestionAudio: (code: string, questionIndex: number, voiceId = 'eve', language = 'en') =>
+  getQuestionAudio: (code: string, questionIndex: number, voiceId = 'eve', language = 'en', attemptToken?: string | null) =>
     api.get(`/assessments/audio/${code}/${questionIndex}`, {
-      params: { voice_id: voiceId, language },
+      params: { voice_id: voiceId, language, ...(attemptToken ? { attempt: attemptToken } : {}) },
       responseType: 'blob'
     }),
   getSubmissionStatus: (submissionCode: string) => api.get(`/assessments/submission-status/${submissionCode}`),

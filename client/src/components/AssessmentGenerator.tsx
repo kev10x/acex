@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History } from 'lucide-react';
 import { CourseFilterSelect, CourseAssignSelect, CourseGroupHeading, CourseFilter, useCourses, filterByCourse, sortByCourse, courseLabel } from './CourseLibraryControls';
-import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace } from '../services/api';
+import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace, IntegritySettingsInput } from '../services/api';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
@@ -58,8 +58,9 @@ const AssessmentGenerator: React.FC = () => {
   const [courseFilter, setCourseFilter] = useState<CourseFilter>('all');
   const [publishCourse, setPublishCourse] = useState('');
   const [newModuleName, setNewModuleName] = useState('');
+  const [publishIntegrity, setPublishIntegrity] = useState<'off' | 'quiz' | 'test' | 'exam'>('off');
   const [rubrics, setRubrics] = useState<any[]>([]);
-  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string; course_id?: number | null; course_name?: string | null }[]>([]);
+  const [publishedList, setPublishedList] = useState<{ id: number; code: string; title: string; link: string; created_at: string; course_id?: number | null; course_name?: string | null; monitored?: boolean }[]>([]);
   const [deletingPublishedId, setDeletingPublishedId] = useState<number | null>(null);
   const [history, setHistory] = useState<ApiAssessmentHistoryItem[]>([]);
   const [isMigratingHistory, setIsMigratingHistory] = useState(false);
@@ -570,6 +571,11 @@ const AssessmentGenerator: React.FC = () => {
                   {courseFilter === 'all' && (idx === 0 || (arr[idx - 1].course_id ?? null) !== (item.course_id ?? null)) && <CourseGroupHeading label={courseLabel(item)} />}
                   <li className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-gray-700 truncate max-w-[200px]" title={item.title}>{item.title || item.code}</span>
+                    {item.monitored && (
+                      <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200" title="Monitored: see Exam Integrity for settings and reports">
+                        Monitored
+                      </span>
+                    )}
                     <CourseAssignSelect
                       courses={courses}
                       value={item.course_id}
@@ -1128,6 +1134,20 @@ const AssessmentGenerator: React.FC = () => {
                         <option value="none">No course</option>
                       </select>
                     </div>
+                    <div className="flex-1 min-w-[180px]">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Exam integrity</label>
+                      <select
+                        value={publishIntegrity}
+                        onChange={(e) => setPublishIntegrity(e.target.value as typeof publishIntegrity)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                        title="Monitored assessments need students to sign in and opt in; settings can be changed later under Exam Integrity."
+                      >
+                        <option value="off">Not monitored</option>
+                        <option value="quiz">Monitored: low-stakes quiz</option>
+                        <option value="test">Monitored: test</option>
+                        <option value="exam">Monitored: formal exam</option>
+                      </select>
+                    </div>
                     <div className="flex-1 min-w-[220px]">
                       <label className="block text-xs font-semibold text-gray-700 mb-1">Create new module folder</label>
                       <input
@@ -1142,9 +1162,10 @@ const AssessmentGenerator: React.FC = () => {
                     onClick={async () => {
                       if (!generatedAssessment || !savedRubricId) return;
                       try {
-                        const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null } = {
+                        const payload: { assessment: GeneratedAssessment; rubric_id: number; module_id?: number; module_name?: string; course_id?: number | null; integrity_settings?: IntegritySettingsInput | null } = {
                           assessment: generatedAssessment,
                           rubric_id: savedRubricId,
+                          integrity_settings: publishIntegrity === 'off' ? null : { enabled: true, preset: publishIntegrity },
                         };
                         if (newModuleName.trim()) {
                           payload.module_name = newModuleName.trim();

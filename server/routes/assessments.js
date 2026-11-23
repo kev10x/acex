@@ -22,6 +22,8 @@ const { resolvePromptRegistryVersion } = require('../services/promptRegistryServ
 const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailService');
 
 const courseScope = require('../services/courseScopeService');
+const { normalizeSettings: normalizeIntegritySettings, parseStoredSettings: parseIntegritySettings } = require('../services/assessmentIntegrityService');
+const { createAttemptsRouter, findInProgressAttempt } = require('./assessmentAttempts');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -1394,8 +1396,8 @@ router.get('/published', requireAuth, async (req, res) => {
   try {
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = ? ORDER BY pa.created_at DESC', [req.user.id])
-      : await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = $1 ORDER BY pa.created_at DESC', [req.user.id]);
+      ? await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, pa.integrity_settings, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = ? ORDER BY pa.created_at DESC', [req.user.id])
+      : await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, pa.integrity_settings, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = $1 ORDER BY pa.created_at DESC', [req.user.id]);
     const rows = result.rows || result;
     const list = Array.isArray(rows) ? rows : [rows];
     const base = process.env.CLIENT_URL || '';
@@ -1418,6 +1420,7 @@ router.get('/published', requireAuth, async (req, res) => {
         created_at: r.created_at,
         course_id: r.course_id ?? null,
         course_name: r.course_name ?? null,
+        monitored: Boolean(parseIntegritySettings(r.integrity_settings)),
       };
     });
     res.json({ success: true, items });
@@ -1670,6 +1673,7 @@ router.get('/stats', async (req, res) => {
 router.post('/publish', requireAuth, requireFeature('assessment_creation'), async (req, res) => {
   try {
     const { assessment, rubric_id, module_id, module_name } = req.body;
+    const integritySettings = normalizeIntegritySettings(req.body.integrity_settings);
     if (!assessment || !rubric_id) {
       return res.status(400).json({ error: 'assessment and rubric_id are required' });
     }
@@ -1685,14 +1689,14 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
       try {
         if (isMySQL) {
           const insertResult = await query(
-            'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id) VALUES (?, ?, ?, ?)',
-            [code, JSON.stringify(assessment), rubric_id, req.user.id]
+            'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id, integrity_settings) VALUES (?, ?, ?, ?, ?)',
+            [code, JSON.stringify(assessment), rubric_id, req.user.id, integritySettings ? JSON.stringify(integritySettings) : null]
           );
           publishedId = insertResult.insertId ?? insertResult.lastID ?? null;
         } else {
           const insertResult = await query(
-            'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
-            [code, JSON.stringify(assessment), rubric_id, req.user.id]
+            'INSERT INTO published_assessments (code, assessment_json, rubric_id, user_id, integrity_settings) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            [code, JSON.stringify(assessment), rubric_id, req.user.id, integritySettings ? JSON.stringify(integritySettings) : null]
           );
           publishedId = insertResult.rows?.[0]?.id ?? insertResult?.[0]?.id ?? null;
         }
@@ -1761,14 +1765,31 @@ router.get('/take/:code', async (req, res) => {
     const { code } = req.params;
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT assessment_json, rubric_id FROM published_assessments WHERE code = ?', [code])
-      : await query('SELECT assessment_json, rubric_id FROM published_assessments WHERE code = $1', [code]);
+      ? await query('SELECT assessment_json, rubric_id, integrity_settings FROM published_assessments WHERE code = ?', [code])
+      : await query('SELECT assessment_json, rubric_id, integrity_settings FROM published_assessments WHERE code = $1', [code]);
     const rows = result.rows || result;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) {
       return res.status(404).json({ error: 'Assessment not found or link expired' });
     }
     const assessment = typeof row.assessment_json === 'string' ? JSON.parse(row.assessment_json) : row.assessment_json;
+    const integritySettings = parseIntegritySettings(row.integrity_settings);
+    if (integritySettings) {
+      // Monitored: questions are only sent once the student has opted in and started an attempt.
+      return res.json({
+        success: true,
+        monitored: true,
+        integrity: integritySettings,
+        assessment: {
+          title: assessment.title,
+          topic: assessment.topic,
+          instructions: assessment.instructions,
+          estimated_time: assessment.estimated_time,
+          question_count: Array.isArray(assessment.questions) ? assessment.questions.length : 0,
+          questions: []
+        }
+      });
+    }
     const stripAnswerKey = (q) => {
       const { correct_answer, correct_pairings, ...rest } = q;
       return rest;
@@ -1784,7 +1805,7 @@ router.get('/take/:code', async (req, res) => {
   }
 });
 
-router.get('/audio/:code/:questionIndex', async (req, res) => {
+router.get('/audio/:code/:questionIndex', optionalAuth, async (req, res) => {
   try {
     const { code } = req.params;
     const questionIndex = Number(req.params.questionIndex);
@@ -1793,12 +1814,19 @@ router.get('/audio/:code/:questionIndex', async (req, res) => {
     }
 
     const result = isMySQLDb()
-      ? await query('SELECT assessment_json FROM published_assessments WHERE code = ?', [code])
-      : await query('SELECT assessment_json FROM published_assessments WHERE code = $1', [code]);
+      ? await query('SELECT id, assessment_json, integrity_settings FROM published_assessments WHERE code = ?', [code])
+      : await query('SELECT id, assessment_json, integrity_settings FROM published_assessments WHERE code = $1', [code]);
     const rows = result.rows || result;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) {
       return res.status(404).json({ error: 'Assessment not found or link expired' });
+    }
+    if (parseIntegritySettings(row.integrity_settings)) {
+      const attempt = req.user ? await findInProgressAttempt(String(req.query.attempt || ''), req.user.id) : null;
+      if (!attempt || Number(attempt.published_assessment_id) !== Number(row.id)) {
+        return res.status(403).json({ error: 'Start the assessment to listen to its questions.' });
+      }
+      res.setHeader('Cache-Control', 'private, no-store');
     }
 
     const assessment = typeof row.assessment_json === 'string' ? JSON.parse(row.assessment_json) : row.assessment_json;
@@ -1820,7 +1848,7 @@ router.get('/audio/:code/:questionIndex', async (req, res) => {
     }
 
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Cache-Control', 'public, max-age=604800');
+    if (!res.getHeader('Cache-Control')) res.setHeader('Cache-Control', 'public, max-age=604800');
     res.sendFile(audioPath);
   } catch (error) {
     console.error('Assessment question audio error:', error);
@@ -2478,6 +2506,96 @@ router.post('/submission-identity-conflicts/:submissionId/resolve', requireAuth,
 /**
  * Submit student answers and queue marking. Public. Returns submission receipt.
  */
+/**
+ * Create a queued submission for a published assessment and trigger background marking.
+ * Shared by the open /submit route and monitored attempts.
+ */
+async function createAssessmentSubmission({ pub, assessment, studentName, studentUserId, answers }) {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error('Automated assessment marking is unavailable right now');
+    error.status = 503;
+    throw error;
+  }
+  const isMySQL = isMySQLDb();
+  const batchId = await ensurePublishedAssessmentBatch(pub, assessment);
+  const rubricResult = isMySQL
+    ? await query('SELECT id FROM rubrics WHERE id = ?', [pub.rubric_id])
+    : await query('SELECT id FROM rubrics WHERE id = $1', [pub.rubric_id]);
+  const rubricRows = rubricResult.rows || rubricResult;
+  const rubricRow = Array.isArray(rubricRows) ? rubricRows[0] : rubricRows;
+  if (!rubricRow) {
+    const error = new Error('Rubric not found');
+    error.status = 500;
+    throw error;
+  }
+
+  const scriptText = buildAssessmentScriptText(assessment.questions || [], answers);
+  const filename = `Submission - ${studentName} - ${pub.code}.txt`;
+  const insertAssign = isMySQL
+    ? await query(
+        'INSERT INTO assignments (filename, file_path, file_size, status, batch_id, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [filename, '', 0, 'uploaded', batchId, scriptText, pub.user_id]
+      )
+    : await query(
+        'INSERT INTO assignments (filename, file_path, file_size, status, batch_id, extracted_text, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+        [filename, '', 0, 'uploaded', batchId, scriptText, pub.user_id]
+      );
+  const assignmentId = isMySQL ? (insertAssign.insertId ?? insertAssign.lastID) : (insertAssign.rows?.[0]?.id ?? insertAssign?.[0]?.id);
+  let submissionCode;
+  let submissionId = null;
+  for (let i = 0; i < 5; i += 1) {
+    const candidate = generateSubmissionCode();
+    try {
+      const insertSubmission = isMySQL
+        ? await query(
+            `INSERT INTO assessment_submissions (
+              submission_code, published_assessment_id, assignment_id, student_user_id, student_name, status
+            ) VALUES (?, ?, ?, ?, ?, ?)`,
+            [candidate, pub.id, assignmentId, studentUserId, studentName, 'queued']
+          )
+        : await query(
+            `INSERT INTO assessment_submissions (
+              submission_code, published_assessment_id, assignment_id, student_user_id, student_name, status
+            ) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [candidate, pub.id, assignmentId, studentUserId, studentName, 'queued']
+          );
+      submissionId = isMySQL ? (insertSubmission.insertId ?? insertSubmission.lastID ?? null) : (insertSubmission.rows?.[0]?.id ?? null);
+      submissionCode = candidate;
+      break;
+    } catch (error) {
+      if (error.code === 'ER_DUP_ENTRY' || error.message?.includes('unique') || error.code === '23505') {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!submissionCode) {
+    const error = new Error('Could not generate submission receipt');
+    error.status = 500;
+    throw error;
+  }
+
+  await ensureQueuedAssessmentBatchJob({
+    batchId,
+    rubricId: pub.rubric_id,
+    userId: pub.user_id
+  });
+  runOpenAIBatchPollingCycle().catch((pollError) => {
+    console.error('Assessment submission batch polling trigger failed:', pollError);
+  });
+
+  return {
+    id: submissionId,
+    submission_code: submissionCode,
+    status: 'queued',
+    student_user_id: studentUserId,
+    student_name: studentName,
+    submitted_at: new Date().toISOString(),
+    batch_id: batchId
+  };
+}
+
 router.post('/submit', optionalAuth, async (req, res) => {
   try {
     const { code, student_name, answers } = req.body;
@@ -2486,90 +2604,41 @@ router.post('/submit', optionalAuth, async (req, res) => {
     }
     if (String(code).length > 32) return res.status(400).json({ error: 'code too long' });
     if (String(student_name).length > 200) return res.status(400).json({ error: 'student_name too long' });
-    const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
+    const isMySQL = isMySQLDb();
     if (!process.env.OPENAI_API_KEY) {
       return res.status(503).json({ error: 'Automated assessment marking is unavailable right now' });
     }
 
     const pubResult = isMySQL
-      ? await query('SELECT id, code, assessment_json, rubric_id, batch_id, user_id FROM published_assessments WHERE code = ?', [code])
-      : await query('SELECT id, code, assessment_json, rubric_id, batch_id, user_id FROM published_assessments WHERE code = $1', [code]);
+      ? await query('SELECT id, code, assessment_json, rubric_id, batch_id, user_id, integrity_settings FROM published_assessments WHERE code = ?', [code])
+      : await query('SELECT id, code, assessment_json, rubric_id, batch_id, user_id, integrity_settings FROM published_assessments WHERE code = $1', [code]);
     const pubRows = pubResult.rows || pubResult;
     const pub = Array.isArray(pubRows) ? pubRows[0] : pubRows;
     if (!pub) {
       return res.status(404).json({ error: 'Assessment not found or link expired' });
     }
-    const assessment = typeof pub.assessment_json === 'string' ? JSON.parse(pub.assessment_json) : pub.assessment_json;
-    const batchId = await ensurePublishedAssessmentBatch(pub, assessment);
-    const rubricResult = isMySQL
-      ? await query('SELECT id FROM rubrics WHERE id = ?', [pub.rubric_id])
-      : await query('SELECT id FROM rubrics WHERE id = $1', [pub.rubric_id]);
-    const rubricRows = rubricResult.rows || rubricResult;
-    const rubricRow = Array.isArray(rubricRows) ? rubricRows[0] : rubricRows;
-    if (!rubricRow) {
-      return res.status(500).json({ error: 'Rubric not found' });
+    if (parseIntegritySettings(pub.integrity_settings)) {
+      return res.status(409).json({ error: 'This assessment is monitored. Start it from the assessment page and submit from there.' });
     }
+    const assessment = typeof pub.assessment_json === 'string' ? JSON.parse(pub.assessment_json) : pub.assessment_json;
 
     const studentUserId = req.user && String(req.user.role || '').toLowerCase() === 'student'
       ? Number(req.user.id)
       : null;
 
-    const scriptText = buildAssessmentScriptText(assessment.questions || [], answers);
-    const filename = `Submission - ${student_name} - ${code}.txt`;
-    const insertAssign = isMySQL
-      ? await query(
-          'INSERT INTO assignments (filename, file_path, file_size, status, batch_id, extracted_text, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [filename, '', 0, 'uploaded', batchId, scriptText, pub.user_id]
-        )
-      : await query(
-          'INSERT INTO assignments (filename, file_path, file_size, status, batch_id, extracted_text, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-          [filename, '', 0, 'uploaded', batchId, scriptText, pub.user_id]
-        );
-    const assignmentId = isMySQL ? (insertAssign.insertId ?? insertAssign.lastID) : (insertAssign.rows?.[0]?.id ?? insertAssign?.[0]?.id);
-    let submissionCode;
-    for (let i = 0; i < 5; i += 1) {
-      submissionCode = generateSubmissionCode();
-      try {
-        await query(
-          `INSERT INTO assessment_submissions (
-            submission_code, published_assessment_id, assignment_id, student_user_id, student_name, status
-          ) VALUES (?, ?, ?, ?, ?, ?)`,
-          [submissionCode, pub.id, assignmentId, studentUserId, student_name.trim(), 'queued']
-        );
-        break;
-      } catch (error) {
-        if (error.code === 'ER_DUP_ENTRY' || error.message?.includes('unique') || error.code === '23505') {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    if (!submissionCode) {
-      return res.status(500).json({ error: 'Could not generate submission receipt' });
-    }
-
-    await ensureQueuedAssessmentBatchJob({
-      batchId,
-      rubricId: pub.rubric_id,
-      userId: pub.user_id
-    });
-    runOpenAIBatchPollingCycle().catch((pollError) => {
-      console.error('Assessment submission batch polling trigger failed:', pollError);
+    const { id: _submissionId, ...submission } = await createAssessmentSubmission({
+      pub,
+      assessment,
+      studentName: student_name.trim(),
+      studentUserId,
+      answers
     });
 
-    res.status(202).json({
-      success: true,
-      submission: {
-        submission_code: submissionCode,
-        status: 'queued',
-        student_user_id: studentUserId,
-        student_name: student_name.trim(),
-        submitted_at: new Date().toISOString(),
-        batch_id: batchId
-      },
-    });
+    res.status(202).json({ success: true, submission });
   } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Submit assessment error:', error);
     res.status(500).json({
       error: 'Failed to queue submission for marking',
@@ -2577,5 +2646,8 @@ router.post('/submit', optionalAuth, async (req, res) => {
     });
   }
 });
+
+// Monitored attempts: opt-in, integrity events, explicit exit, and lecturer reports.
+router.use('/attempts', createAttemptsRouter({ createSubmission: createAssessmentSubmission }));
 
 module.exports = router;

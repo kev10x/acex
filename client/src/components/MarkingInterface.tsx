@@ -1,7 +1,7 @@
 import { PageHeader } from './ui';
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, CheckCircle, AlertCircle, Loader, ChevronDown, ChevronUp, RefreshCw, Folder, X } from 'lucide-react';
-import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch, MarkingAssessmentType, MarkingOutputType } from '../services/api';
+import { uploadAPI, rubricsAPI, markingAPI, batchesAPI, Assignment, Rubric, Batch, MarkingAssessmentType, MarkingOrder, MarkingOutputType } from '../services/api';
 import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 
 function StepTitle({ n, title, optional, hint }: { n: number; title: string; optional?: boolean; hint?: string }) {
@@ -35,6 +35,8 @@ const MarkingInterface: React.FC = () => {
   const [criterionFeedbackTypes, setCriterionFeedbackTypes] = useState<Record<string, string>>({});
   const [showCriterionOverrides, setShowCriterionOverrides] = useState(false);
   const [markAsImage, setMarkAsImage] = useState(false);
+  const [markingOrder, setMarkingOrder] = useState<MarkingOrder>('script');
+  const [markingOrderTouched, setMarkingOrderTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -53,6 +55,7 @@ const MarkingInterface: React.FC = () => {
     feedback_type?: string;
     feedback_verbosity?: string;
     criterion_feedback_types?: Record<string, string> | null;
+    marking_order?: MarkingOrder;
   } | null>(null);
 
   const isDocxAssignment = (assignment?: Assignment) => /\.docx$/i.test(assignment?.filename || '');
@@ -97,6 +100,15 @@ const MarkingInterface: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const selectedRubricType = rubrics.find(r => r.id === selectedRubric)?.rubric_type;
+  const suggestedMarkingOrder: MarkingOrder = selectedRubricType === 'answer_key' ? 'question' : 'script';
+  const byQuestion = markingOrder === 'question';
+
+  // Suggest an order from the rubric (memo -> question by question) until the user picks one.
+  useEffect(() => {
+    if (!markingOrderTouched) setMarkingOrder(suggestedMarkingOrder);
+  }, [markingOrderTouched, suggestedMarkingOrder]);
 
   const fetchData = async () => {
     try {
@@ -207,10 +219,11 @@ const MarkingInterface: React.FC = () => {
         provider: provider,
         output_type: outputType,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage,
-        feedback_type: feedbackType,
+        mark_as_image: byQuestion ? false : markAsImage,
+        feedback_type: byQuestion ? 'standard' : feedbackType,
         feedback_verbosity: feedbackVerbosity,
-        criterion_feedback_types: activeCriterionTypes
+        criterion_feedback_types: byQuestion ? null : activeCriterionTypes,
+        marking_order: markingOrder
       });
 
       const response = await markingAPI.markMultiple({
@@ -222,10 +235,11 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage,
-        feedback_type: feedbackType,
+        mark_as_image: byQuestion ? false : markAsImage,
+        feedback_type: byQuestion ? 'standard' : feedbackType,
         feedback_verbosity: feedbackVerbosity,
-        criterion_feedback_types: activeCriterionTypes
+        criterion_feedback_types: byQuestion ? null : activeCriterionTypes,
+        marking_order: markingOrder
       });
 
       setSuccess(`Marked ${response.data.results.length} assignment(s) in batch`);
@@ -273,10 +287,11 @@ const MarkingInterface: React.FC = () => {
         provider: provider,
         output_type: outputType,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage,
-        feedback_type: feedbackType,
+        mark_as_image: byQuestion ? false : markAsImage,
+        feedback_type: byQuestion ? 'standard' : feedbackType,
         feedback_verbosity: feedbackVerbosity,
-        criterion_feedback_types: activeCriterionTypes
+        criterion_feedback_types: byQuestion ? null : activeCriterionTypes,
+        marking_order: markingOrder
       });
 
       const response = await markingAPI.markMultiple({
@@ -288,10 +303,11 @@ const MarkingInterface: React.FC = () => {
         level: level,
         provider: provider,
         strictness_level: strictnessLevel,
-        mark_as_image: markAsImage,
-        feedback_type: feedbackType,
+        mark_as_image: byQuestion ? false : markAsImage,
+        feedback_type: byQuestion ? 'standard' : feedbackType,
         feedback_verbosity: feedbackVerbosity,
-        criterion_feedback_types: activeCriterionTypes
+        criterion_feedback_types: byQuestion ? null : activeCriterionTypes,
+        marking_order: markingOrder
       }, abortControllerRef.current.signal);
 
       // Check if request was aborted
@@ -460,6 +476,64 @@ const MarkingInterface: React.FC = () => {
         <div className="px-4 py-5 sm:p-6">
           <StepTitle n={1} title="Assessment Settings" />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Marking order */}
+            <fieldset className="col-span-1 md:col-span-2 lg:col-span-4">
+              <legend className="block text-sm font-medium text-gray-700 mb-2">Marking order</legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {([
+                  {
+                    value: 'script' as MarkingOrder,
+                    title: 'Script by script',
+                    description: 'Each script is marked against the whole rubric. Best for essays, reports and other work judged as a whole.'
+                  },
+                  {
+                    value: 'question' as MarkingOrder,
+                    title: 'Question by question',
+                    description: 'Each question is marked across all scripts before the next, so every answer to it gets the same standard. Best for memo-based tests and exams.'
+                  }
+                ]).map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      markingOrder === option.value ? 'border-primary-500 bg-primary-50/60 ring-1 ring-primary-500' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="markingOrder"
+                      value={option.value}
+                      checked={markingOrder === option.value}
+                      onChange={() => {
+                        setMarkingOrder(option.value);
+                        setMarkingOrderTouched(true);
+                      }}
+                      className="mt-0.5 h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                    />
+                    <span>
+                      <span className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                        {option.title}
+                        {selectedRubric && option.value === suggestedMarkingOrder && (
+                          <span className="rounded-full bg-primary-100 px-2 py-0.5 text-[11px] font-semibold text-primary-700">Suggested</span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-gray-500">{option.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {selectedRubric && (
+                <p className="mt-2 text-xs text-gray-500">
+                  {byQuestion && selectedRubricType !== 'answer_key'
+                    ? 'This rubric has criteria rather than a memo, so each criterion is judged across the whole of every script. That keeps marks consistent but costs more than script by script.'
+                    : byQuestion
+                    ? 'Each script is first split into its answers per question, then every question is marked across the batch. Overall feedback is written per script at the end.'
+                    : selectedRubricType === 'answer_key'
+                    ? 'This rubric is a memo. Question by question usually gives more consistent marks for memo-based papers.'
+                    : 'Suggested for criterion rubrics, where each criterion is judged across the whole piece of work.'}
+                </p>
+              )}
+            </fieldset>
+
             {/* Assessment Type */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -531,9 +605,10 @@ const MarkingInterface: React.FC = () => {
                 Feedback Type
               </label>
               <select
-                value={feedbackType}
+                value={byQuestion ? 'standard' : feedbackType}
                 onChange={(e) => setFeedbackType(e.target.value as typeof feedbackType)}
-                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                disabled={byQuestion}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-500"
               >
                 <option value="standard">Standard</option>
                 <option value="prescriptive">Prescriptive (table)</option>
@@ -542,11 +617,12 @@ const MarkingInterface: React.FC = () => {
                 <option value="genie">Genie (AI rewrite)</option>
               </select>
               <p className="mt-1 text-xs text-gray-500">
-                {feedbackType === 'standard' && 'Comprehensive narrative feedback per criterion'}
-                {feedbackType === 'prescriptive' && 'Table of exact issues to fix, with location and priority'}
-                {feedbackType === 'reflective' && 'Thought-provoking questions to prompt self-reflection'}
-                {feedbackType === 'critical' && 'Table of weaknesses with evidence and severity rating'}
-                {feedbackType === 'genie' && 'AI-rewritten corrected version of weak sections'}
+                {byQuestion && 'Question-by-question marking gives standard feedback per question'}
+                {!byQuestion && feedbackType === 'standard' && 'Comprehensive narrative feedback per criterion'}
+                {!byQuestion && feedbackType === 'prescriptive' && 'Table of exact issues to fix, with location and priority'}
+                {!byQuestion && feedbackType === 'reflective' && 'Thought-provoking questions to prompt self-reflection'}
+                {!byQuestion && feedbackType === 'critical' && 'Table of weaknesses with evidence and severity rating'}
+                {!byQuestion && feedbackType === 'genie' && 'AI-rewritten corrected version of weak sections'}
               </p>
             </div>
 
@@ -572,7 +648,7 @@ const MarkingInterface: React.FC = () => {
             </div>
 
             {/* Per-criterion feedback type overrides */}
-            {selectedRubric && (() => {
+            {selectedRubric && !byQuestion && (() => {
               const rubric = rubrics.find(r => r.id === selectedRubric);
               if (!rubric?.criteria?.length) return null;
               return (
@@ -653,16 +729,19 @@ const MarkingInterface: React.FC = () => {
               <input
                 id="mark-as-image"
                 type="checkbox"
-                checked={markAsImage}
+                checked={markAsImage && !byQuestion}
                 onChange={(e) => setMarkAsImage(e.target.checked)}
-                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                disabled={byQuestion}
+                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded disabled:opacity-50"
               />
-              <label htmlFor="mark-as-image" className="ml-2 block text-sm text-gray-700">
+              <label htmlFor="mark-as-image" className={`ml-2 block text-sm ${byQuestion ? 'text-gray-400' : 'text-gray-700'}`}>
                 Mark as image (handwritten/scanned PDFs)
               </label>
             </div>
             <p className="text-xs text-gray-500 -mt-2 ml-6">
-              Send PDF pages as images to the AI instead of extracted text. Use for handwritten scripts or when text extraction fails.
+              {byQuestion
+                ? 'Not available question by question: answers are split out of the extracted text.'
+                : 'Send PDF pages as images to the AI instead of extracted text. Use for handwritten scripts or when text extraction fails.'}
             </p>
           </div>
         </div>
