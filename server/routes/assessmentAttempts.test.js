@@ -292,3 +292,20 @@ test('settings: owner can switch monitoring off and on', async (t) => {
   assert.equal(on.body.settings.copy_paste, 'block');
   assert.equal((await as(3, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: false } })).status, 404);
 });
+
+test('preview: staff see the student view without answer keys, and nothing is recorded', async (t) => {
+  const { as, db, restore } = setup();
+  t.after(restore);
+  const res = await as(2, 'get', '/attempts/preview/EXAM1');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.settings.preset, 'test');
+  assert.equal(res.body.assessment.questions.length, 3);
+  assert.ok(res.body.assessment.questions.every((q) => q.correct_answer === undefined && q.correct_pairings === undefined));
+  assert.equal(db.attempts.length, 0);
+  assert.equal(db.events.length, 0);
+
+  assert.equal((await as(4, 'get', '/attempts/preview/EXAM1')).status, 200, 'same-organisation management');
+  assert.equal((await as(3, 'get', '/attempts/preview/EXAM1')).status, 404, 'other lecturers');
+  assert.equal((await as(1, 'get', '/attempts/preview/EXAM1')).status, 403, 'students');
+  assert.equal((await as(2, 'get', '/attempts/presets')).body.presets.exam.copy_paste, 'block');
+});

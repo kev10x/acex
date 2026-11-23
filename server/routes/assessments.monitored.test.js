@@ -67,3 +67,40 @@ test('submit and audio: monitored assessment cannot bypass the attempt', async (
   const audio = await request(app).get('/assessments/audio/EXAM1/0');
   assert.equal(audio.status, 403);
 });
+
+test('publish with replace_published_id updates the existing link in place', async (t) => {
+  const calls = [];
+  const { module: router, restore } = loadWithMocks(path.join(__dirname, 'assessments.js'), {
+    '../database/connection': {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        if (sql.startsWith('SELECT id, code FROM published_assessments')) {
+          return params[0] === 10 && params[1] === 2 ? [{ id: 10, code: 'EXAM1' }] : [];
+        }
+        return [];
+      }
+    },
+    '../middleware/auth': {
+      requireAuth: (req, _res, next) => { req.user = { id: 2, role: 'lecturer' }; next(); },
+      optionalAuth: (req, _res, next) => next(),
+      requireFeature: () => (_req, _res, next) => next(),
+      requireRoles: () => (_req, _res, next) => next()
+    }
+  });
+  t.after(restore);
+  const app = express();
+  app.use(express.json());
+  app.use('/assessments', router);
+
+  const assessment = { title: 'Biology exam', questions: [{ number: 1, question: 'New wording' }] };
+  const res = await request(app).post('/assessments/publish').send({ assessment, rubric_id: 3, replace_published_id: 10 });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.updated, true);
+  assert.equal(res.body.code, 'EXAM1');
+  const update = calls.find((c) => c.sql.startsWith('UPDATE published_assessments SET assessment_json'));
+  assert.deepEqual(update.params, [JSON.stringify(assessment), 3, 10]);
+  assert.ok(!calls.some((c) => c.sql.startsWith('INSERT INTO published_assessments')), 'no new copy');
+
+  const missing = await request(app).post('/assessments/publish').send({ assessment, rubric_id: 3, replace_published_id: 99 });
+  assert.equal(missing.status, 404, 'cannot update someone else\'s link');
+});

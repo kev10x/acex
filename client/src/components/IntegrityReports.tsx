@@ -1,24 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, CheckCircle2, Download, Loader2, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, Eye, Loader2, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import {
   integrityAPI,
   IntegrityAttempt,
   IntegrityEvent,
-  IntegrityPreset,
   IntegritySettings,
-  IntegritySettingsInput,
   IntegrityStatus,
   MonitoredAssessmentItem
 } from '../services/api';
 import { EmptyState, PageHeader, SectionCard, btn } from './ui';
+import IntegritySettingsEditor from './IntegritySettingsEditor';
+import { openStudentPreview } from './PublishedMonitoringDialog';
+import { PRESET_LABELS, describeEvent } from '../utils/integrityText';
 
-const PRESET_LABELS: Record<IntegrityPreset, string> = {
-  quiz: 'Low-stakes quiz',
-  test: 'Test',
-  exam: 'Formal exam',
-  custom: 'Custom'
-};
 
 const STATUS_STYLES: Record<IntegrityStatus, { label: string; className: string }> = {
   clean: { label: 'Clean', className: 'bg-green-50 text-green-700 ring-green-200' },
@@ -32,44 +27,9 @@ const ATTEMPT_STATUS_LABELS: Record<IntegrityAttempt['status'], string> = {
   exited: 'Exited without submitting'
 };
 
-const formatDuration = (ms: number | null | undefined) => {
-  const totalSeconds = Math.round((ms || 0) / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes === 0) return `${seconds} s`;
-  return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`;
-};
 
 const formatTime = (value: string | number | null | undefined) => (value ? new Date(value).toLocaleString() : '—');
 
-const describeEvent = (event: IntegrityEvent) => {
-  const chars = event.details?.chars;
-  const blocked = event.details?.blocked ? ' (blocked)' : '';
-  const where = event.question_number ? ` in Q${event.question_number}` : '';
-  switch (event.type) {
-    case 'attempt_started': return 'Started the assessment';
-    case 'attempt_resumed': return 'Reopened the assessment page';
-    case 'focus_lost': return `Left the assessment for ${formatDuration(event.duration_ms)}`;
-    case 'fullscreen_exit': return `Out of full screen for ${formatDuration(event.duration_ms)}`;
-    case 'fullscreen_unsupported': return 'Browser does not support full screen';
-    case 'paste': return `${event.details?.source === 'drop' ? 'Dropped' : 'Pasted'} ${chars ?? 0} characters${where}${blocked}`;
-    case 'copy': return `Copied ${chars ?? 0} characters${where}${blocked}`;
-    case 'cut': return `Cut ${chars ?? 0} characters${where}${blocked}`;
-    case 'context_menu': return `Right-clicked${blocked}`;
-    case 'text_burst': return `${chars ?? 0} characters appeared at once${where} (faster than typing)`;
-    case 'print_attempt': return `Tried to print${blocked}`;
-    case 'extension_injected': return `Browser extension added content (${event.details?.signature || 'unknown'})`;
-    case 'second_tab': return 'Assessment open in a second tab';
-    case 'duplicate_session': return 'Assessment open on a second device or browser';
-    case 'ip_changed': return `IP address changed from ${event.details?.from} to ${event.details?.to}`;
-    case 'ip_outside_range': return `Connected from outside the allowed network (${event.details?.ip})`;
-    case 'connection_gap': return `No contact from the browser for ${formatDuration(event.duration_ms)}`;
-    case 'submitted': return 'Submitted and exited';
-    case 'exited': return 'Exited without submitting';
-    case 'reopened': return 'Reopened by staff';
-    default: return event.type;
-  }
-};
 
 function StatusBadge({ status }: { status: IntegrityStatus }) {
   const style = STATUS_STYLES[status] || STATUS_STYLES.clean;
@@ -78,135 +38,6 @@ function StatusBadge({ status }: { status: IntegrityStatus }) {
       {status === 'clean' ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
       {style.label}
     </span>
-  );
-}
-
-function SettingsEditor({
-  publishedId,
-  settings,
-  presets,
-  onSaved
-}: {
-  publishedId: number;
-  settings: IntegritySettings | null;
-  presets: Record<string, Omit<IntegritySettings, 'enabled' | 'preset' | 'allowed_ip_ranges'>>;
-  onSaved: (settings: IntegritySettings | null) => void;
-}) {
-  const [draft, setDraft] = useState<IntegritySettingsInput>(settings ?? { enabled: false, preset: 'test' });
-  const [ipText, setIpText] = useState((settings?.allowed_ip_ranges || []).join('\n'));
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(settings ?? { enabled: false, preset: 'test' });
-    setIpText((settings?.allowed_ip_ranges || []).join('\n'));
-    setMessage(null);
-  }, [settings, publishedId]);
-
-  const applyPreset = (preset: IntegrityPreset) => {
-    setDraft((prev) => (preset === 'custom' ? { ...prev, preset } : { ...prev, ...(presets[preset] || {}), preset }));
-  };
-  const setOption = (patch: Partial<IntegritySettingsInput>) => setDraft((prev) => ({ ...prev, ...patch, preset: 'custom' }));
-
-  const save = async () => {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const allowed = ipText.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
-      const res = await integrityAPI.updateSettings(publishedId, { ...draft, allowed_ip_ranges: allowed });
-      onSaved(res.data.settings);
-      setMessage(res.data.settings ? 'Monitoring settings saved.' : 'Monitoring is off for this assessment.');
-    } catch (e: any) {
-      setMessage(e.response?.data?.error || 'Could not save settings.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggle = (key: 'require_fullscreen' | 'hide_questions_on_leave' | 'shuffle_questions', label: string, hint: string) => (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        checked={Boolean(draft[key])}
-        onChange={(e) => setOption({ [key]: e.target.checked })}
-        disabled={!draft.enabled}
-        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-      />
-      <span>
-        <span className="font-medium text-gray-800">{label}</span>
-        <span className="block text-xs text-gray-500">{hint}</span>
-      </span>
-    </label>
-  );
-
-  const choice = (key: 'copy_paste' | 'right_click', label: string) => (
-    <label className="block text-sm">
-      <span className="font-medium text-gray-800">{label}</span>
-      <select
-        value={draft[key] || 'log'}
-        onChange={(e) => setOption({ [key]: e.target.value as 'log' | 'block' })}
-        disabled={!draft.enabled}
-        className="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
-      >
-        <option value="log">Allow and log</option>
-        <option value="block">Block and log</option>
-      </select>
-    </label>
-  );
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-4">
-        <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-          <input
-            type="checkbox"
-            checked={draft.enabled}
-            onChange={(e) => setDraft((prev) => ({ ...prev, enabled: e.target.checked }))}
-            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          />
-          Monitor this assessment
-        </label>
-        <label className="text-sm">
-          <span className="mr-2 font-medium text-gray-800">Preset</span>
-          <select
-            value={draft.preset || 'test'}
-            onChange={(e) => applyPreset(e.target.value as IntegrityPreset)}
-            disabled={!draft.enabled}
-            className="rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
-          >
-            {(Object.keys(PRESET_LABELS) as IntegrityPreset[]).map((preset) => (
-              <option key={preset} value={preset}>{PRESET_LABELS[preset]}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${draft.enabled ? '' : 'opacity-50'}`}>
-        {toggle('require_fullscreen', 'Require full screen', 'Questions are hidden until the student returns to full screen.')}
-        {toggle('hide_questions_on_leave', 'Hide questions when away', 'Questions disappear while the assessment is not the active window.')}
-        {toggle('shuffle_questions', 'Shuffle question order', 'Each student gets the questions in a different order.')}
-        {choice('copy_paste', 'Copy and paste')}
-        {choice('right_click', 'Right-click')}
-        <label className="block text-sm">
-          <span className="font-medium text-gray-800">Allowed networks (optional)</span>
-          <textarea
-            value={ipText}
-            onChange={(e) => setIpText(e.target.value)}
-            disabled={!draft.enabled}
-            rows={2}
-            placeholder="e.g. 196.21.0.0/16"
-            className="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
-          />
-          <span className="text-xs text-gray-500">For venue exams: students can only start from these IP ranges.</span>
-        </label>
-      </div>
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={save} disabled={saving} className={btn.primary}>
-          {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          Save settings
-        </button>
-        {message && <span className="text-sm text-gray-600">{message}</span>}
-      </div>
-    </div>
   );
 }
 
@@ -423,6 +254,12 @@ const IntegrityReports: React.FC = () => {
             <SectionCard
               title="Monitoring settings"
               description={report?.settings ? `${PRESET_LABELS[report.settings.preset]} · changes apply to attempts started after saving` : 'This assessment is not monitored.'}
+              actions={report ? (
+                <button type="button" onClick={() => openStudentPreview(report.code)} className={btn.secondary}>
+                  <Eye className="h-4 w-4" />
+                  Preview as student
+                </button>
+              ) : undefined}
             >
               {report && (
                 <p className="mb-4 text-xs text-gray-500 break-all">
@@ -431,7 +268,7 @@ const IntegrityReports: React.FC = () => {
                   Check it matches the link your students use: each published copy has its own code.
                 </p>
               )}
-              <SettingsEditor
+              <IntegritySettingsEditor
                 publishedId={selectedId}
                 settings={report?.settings ?? null}
                 presets={presets}

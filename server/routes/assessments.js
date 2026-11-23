@@ -23,7 +23,7 @@ const { assertWithinBudgetOrThrow } = require('../services/budgetGuardrailServic
 
 const courseScope = require('../services/courseScopeService');
 const { normalizeSettings: normalizeIntegritySettings, parseStoredSettings: parseIntegritySettings } = require('../services/assessmentIntegrityService');
-const { createAttemptsRouter, findInProgressAttempt } = require('./assessmentAttempts');
+const { createAttemptsRouter, findInProgressAttempt, canViewReports } = require('./assessmentAttempts');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -1396,8 +1396,8 @@ router.get('/published', requireAuth, async (req, res) => {
   try {
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, pa.integrity_settings, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = ? ORDER BY pa.created_at DESC', [req.user.id])
-      : await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, pa.integrity_settings, c.name AS course_name FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = $1 ORDER BY pa.created_at DESC', [req.user.id]);
+      ? await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, pa.integrity_settings, c.name AS course_name, (SELECT COUNT(*) FROM assessment_submissions s WHERE s.published_assessment_id = pa.id) AS submission_count FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = ? ORDER BY pa.created_at DESC', [req.user.id])
+      : await query('SELECT pa.id, pa.code, pa.assessment_json, pa.batch_id, pa.created_at, pa.course_id, pa.integrity_settings, c.name AS course_name, (SELECT COUNT(*) FROM assessment_submissions s WHERE s.published_assessment_id = pa.id) AS submission_count FROM published_assessments pa LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.user_id = $1 ORDER BY pa.created_at DESC', [req.user.id]);
     const rows = result.rows || result;
     const list = Array.isArray(rows) ? rows : [rows];
     const base = process.env.CLIENT_URL || '';
@@ -1421,6 +1421,8 @@ router.get('/published', requireAuth, async (req, res) => {
         course_id: r.course_id ?? null,
         course_name: r.course_name ?? null,
         monitored: Boolean(parseIntegritySettings(r.integrity_settings)),
+        integrity_settings: parseIntegritySettings(r.integrity_settings),
+        submission_count: Number(r.submission_count || 0),
       };
     });
     res.json({ success: true, items });
@@ -1677,10 +1679,32 @@ router.post('/publish', requireAuth, requireFeature('assessment_creation'), asyn
     if (!assessment || !rubric_id) {
       return res.status(400).json({ error: 'assessment and rubric_id are required' });
     }
-    const requestedCourse = await courseScope.parseRequestedCourse(req.user, req.body?.course_id);
     if (!assessment.title || !assessment.questions || !Array.isArray(assessment.questions)) {
       return res.status(400).json({ error: 'Invalid assessment: needs title and questions array' });
     }
+
+    // Update an existing link in place: same code, monitoring settings, batch, module and gradebook entry.
+    if (req.body.replace_published_id != null) {
+      const replaceId = Number(req.body.replace_published_id);
+      const existingResult = await query('SELECT id, code FROM published_assessments WHERE id = $1 AND user_id = $2', [replaceId, req.user.id]);
+      const existingRows = existingResult.rows || existingResult;
+      const existing = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+      if (!existing) {
+        return res.status(404).json({ error: 'The published assessment to update was not found' });
+      }
+      await query('UPDATE published_assessments SET assessment_json = $1, rubric_id = $2 WHERE id = $3', [JSON.stringify(assessment), rubric_id, existing.id]);
+      const updateBase = process.env.CLIENT_URL || '';
+      const updateTakePath = updateBase ? `${updateBase.replace(/\/$/, '')}/take-assessment` : '/take-assessment';
+      return res.json({
+        success: true,
+        updated: true,
+        code: existing.code,
+        link: `${updateTakePath}?code=${existing.code}`,
+        message: 'Published link updated. Students keep using the same link.',
+      });
+    }
+
+    const requestedCourse = await courseScope.parseRequestedCourse(req.user, req.body?.course_id);
     let code;
     let publishedId = null;
     for (let i = 0; i < 5; i++) {
@@ -1814,8 +1838,8 @@ router.get('/audio/:code/:questionIndex', optionalAuth, async (req, res) => {
     }
 
     const result = isMySQLDb()
-      ? await query('SELECT id, assessment_json, integrity_settings FROM published_assessments WHERE code = ?', [code])
-      : await query('SELECT id, assessment_json, integrity_settings FROM published_assessments WHERE code = $1', [code]);
+      ? await query('SELECT pa.id, pa.user_id, pa.assessment_json, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = ?', [code])
+      : await query('SELECT pa.id, pa.user_id, pa.assessment_json, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = $1', [code]);
     const rows = result.rows || result;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) {
@@ -1823,7 +1847,9 @@ router.get('/audio/:code/:questionIndex', optionalAuth, async (req, res) => {
     }
     if (parseIntegritySettings(row.integrity_settings)) {
       const attempt = req.user ? await findInProgressAttempt(String(req.query.attempt || ''), req.user.id) : null;
-      if (!attempt || Number(attempt.published_assessment_id) !== Number(row.id)) {
+      const inAttempt = attempt && Number(attempt.published_assessment_id) === Number(row.id);
+      // Staff previewing the student view can listen too.
+      if (!inAttempt && !canViewReports(req.user, row)) {
         return res.status(403).json({ error: 'Start the assessment to listen to its questions.' });
       }
       res.setHeader('Cache-Control', 'private, no-store');

@@ -67,9 +67,12 @@ interface Options {
   sessionId: string;
   settings: IntegritySettings | null;
   getAnswers: () => Record<number, string>;
+  // Staff preview: hand events to onPreviewEvents instead of sending them, more often.
+  dryRun?: boolean;
+  onPreviewEvents?: (events: IntegrityClientEvent[]) => void;
 }
 
-export function useIntegrityMonitor({ active, token, sessionId, settings, getAnswers }: Options) {
+export function useIntegrityMonitor({ active, token, sessionId, settings, getAnswers, dryRun = false, onPreviewEvents }: Options) {
   const [away, setAway] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(typeof document !== 'undefined' && document.fullscreenElement));
   const [connectionProblem, setConnectionProblem] = useState(false);
@@ -81,6 +84,8 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
   const flushingRef = useRef(false);
   const getAnswersRef = useRef(getAnswers);
   getAnswersRef.current = getAnswers;
+  const onPreviewEventsRef = useRef(onPreviewEvents);
+  onPreviewEventsRef.current = onPreviewEvents;
 
   const push = useCallback((event: Omit<IntegrityClientEvent, 'client_time'> & { client_time?: number }) => {
     const isLowValue = event.type === 'context_menu' || ((event.type === 'copy' || event.type === 'cut') && (event.chars ?? 0) < 20);
@@ -126,6 +131,12 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
 
   const flush = useCallback(async () => {
     if (!active || !token || flushingRef.current) return;
+    if (dryRun) {
+      const previewEvents = queueRef.current;
+      queueRef.current = [];
+      if (previewEvents.length) onPreviewEventsRef.current?.(previewEvents);
+      return;
+    }
     flushingRef.current = true;
     const events = queueRef.current;
     queueRef.current = [];
@@ -146,7 +157,7 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     } finally {
       flushingRef.current = false;
     }
-  }, [active, token, sessionId]);
+  }, [active, token, sessionId, dryRun]);
 
   // Track full screen at all times: the student enters it on the start button, before monitoring begins.
   useEffect(() => {
@@ -303,7 +314,7 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     document.addEventListener('focusin', onFocusIn, true);
     window.addEventListener('beforeprint', onBeforePrint);
 
-    const interval = window.setInterval(() => { void flush(); }, FLUSH_INTERVAL_MS);
+    const interval = window.setInterval(() => { void flush(); }, dryRun ? 1000 : FLUSH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(interval);
@@ -324,7 +335,7 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
       document.removeEventListener('focusin', onFocusIn, true);
       window.removeEventListener('beforeprint', onBeforePrint);
     };
-  }, [active, token, settings, push, markAway, markBack, flush]);
+  }, [active, token, settings, push, markAway, markBack, flush, dryRun]);
 
   return { away, isFullscreen, connectionProblem, drain, flush };
 }
