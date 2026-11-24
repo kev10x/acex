@@ -42,11 +42,16 @@ export default function IntegritySettingsEditor({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [webcamPolicy, setWebcamPolicy] = useState<WebcamPolicy | null>(null);
+  // False when the assessment is in no organisation's course and its publisher has no organisation.
+  const [hasOrganisation, setHasOrganisation] = useState(true);
 
   // The policy of the organisation that owns this assessment (which may not be the viewer's).
   useEffect(() => {
     integrityAPI.getWebcamPolicy({ published_id: publishedId })
-      .then((res) => setWebcamPolicy(res.data.policy))
+      .then((res) => {
+        setWebcamPolicy(res.data.policy);
+        setHasOrganisation(res.data.organisation_id != null);
+      })
       .catch(() => setWebcamPolicy(null));
   }, [publishedId]);
 
@@ -191,7 +196,9 @@ export default function IntegritySettingsEditor({
         </div>
         {!webcamPolicy?.allowed && (
           <p className="mt-2 text-xs text-gray-500">
-            Not available: management has not accepted the POPIA terms for webcam monitoring (Exam Integrity → Webcam monitoring).
+            {hasOrganisation
+              ? 'Not available: management has not accepted the POPIA terms for webcam monitoring (Exam Integrity → Webcam monitoring).'
+              : "Not available: this assessment isn't linked to an organisation. Put it in a course that belongs to an organisation, and that organisation's webcam policy will apply."}
           </p>
         )}
         {webcamPolicy?.allowed && draft.webcam && draft.webcam !== 'off' && (

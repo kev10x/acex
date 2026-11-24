@@ -66,7 +66,11 @@ function createFakeDb({ settings }) {
     submissions: []
   };
   let nextId = 1;
-  const withOwnerOrg = (pub) => pub && { ...pub, owner_organisation_id: USERS[pub.user_id]?.organisation_id };
+  const withOwnerOrg = (pub) => pub && {
+    ...pub,
+    owner_organisation_id: USERS[pub.user_id]?.organisation_id,
+    policy_organisation_id: db.courses.find((c) => c.id === pub.course_id)?.organisation_id ?? USERS[pub.user_id]?.organisation_id ?? null
+  };
   const attemptJoin = (a) => ({
     ...a,
     student_name: USERS[a.student_user_id]?.name,
@@ -79,7 +83,7 @@ function createFakeDb({ settings }) {
     if (q.startsWith('SELECT id, code, assessment_json, rubric_id, batch_id, user_id, integrity_settings FROM published_assessments WHERE code')) {
       return db.published.filter((p) => p.code === params[0]);
     }
-    if (q.includes('FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.id =')) {
+    if (q.includes('FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.id =')) {
       return [withOwnerOrg(db.published.find((p) => p.id === Number(params[0])))].filter(Boolean);
     }
     if (q.includes('FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN organisations o')) {
@@ -540,4 +544,14 @@ test('super admin: works across every organisation', async (t) => {
   // The settings panel asks for the policy of the organisation that owns the assessment.
   assert.equal((await as(7, 'get', '/attempts/webcam-policy?published_id=10')).body.organisation_id, 5);
   assert.equal((await as(3, 'get', '/attempts/webcam-policy?published_id=10')).status, 404, 'only people who can view the assessment');
+
+  // An assessment the super admin publishes in organisation 5's course follows organisation 5's policy,
+  // not the super admin's own organisation (which has not allowed webcam monitoring).
+  db.published[0].user_id = 7;
+  assert.equal((await as(7, 'get', '/attempts/webcam-policy?published_id=10')).body.policy.allowed, true);
+  const own = await as(7, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: true, preset: 'exam', webcam: 'snapshots' } });
+  assert.equal(own.body.settings.webcam, 'snapshots');
+  // Outside any course it falls back to the publisher's organisation.
+  db.published[0].course_id = null;
+  assert.equal((await as(7, 'get', '/attempts/webcam-policy?published_id=10')).body.organisation_id, 9);
 });
