@@ -956,9 +956,6 @@ const TakeAssessment: React.FC = () => {
                 <div className="flex items-start gap-2 mb-3">
                   {/* Shuffled monitored attempts read 1, 2, 3...; answers and reports keep the paper's numbers. */}
                   <span className="font-semibold text-gray-800">Question {monitored ? idx + 1 : qNum}</span>
-                  {previewMode && monitored && idx + 1 !== qNum && (
-                    <span className="text-xs text-amber-700">Q{qNum} on your paper</span>
-                  )}
                   <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
                     {(q as any).points != null ? `${(q as any).points} pts` : ''} {type.replace(/_/g, ' ')}
                   </span>
