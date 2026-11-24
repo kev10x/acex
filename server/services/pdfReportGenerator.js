@@ -65,6 +65,7 @@ class PDFReportGenerator {
         this.addOverallFeedback(doc, markingResult);
         
         // Language Errors
+        this.addReviewComments(doc, markingResult);
         this.addLanguageErrors(doc, markingResult);
 
         // Finalize the PDF
@@ -203,6 +204,39 @@ class PDFReportGenerator {
       
       doc.moveDown(1);
     }
+  }
+
+  // Treatise, thesis or dissertation: short comments by section, with page and quoted text.
+  addReviewComments(doc, markingResult) {
+    let comments = markingResult.review_comments;
+    if (typeof comments === 'string') {
+      try { comments = JSON.parse(comments); } catch (e) { comments = []; }
+    }
+    if (!Array.isArray(comments) || comments.length === 0) return;
+
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#000000')
+       .text(`Detailed Comments (${comments.length})`, { underline: true });
+    doc.moveDown(0.5);
+
+    let section = undefined;
+    for (const comment of comments) {
+      const current = comment.section || 'Before the first heading';
+      if (current !== section) {
+        section = current;
+        doc.moveDown(0.3);
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#374151').text(section);
+      }
+      const where = comment.page ? ` (p. ${comment.page})` : '';
+      const tag = comment.severity === 'major' ? ' [major]' : '';
+      doc.fontSize(10).font('Helvetica').fillColor('#000000')
+         .text(`• ${comment.id}.${tag} ${comment.comment}${where}`, { indent: 12 });
+      if (comment.quote) {
+        doc.fontSize(9).font('Helvetica-Oblique').fillColor('#6B7280')
+           .text(`"${comment.quote}"`, { indent: 24 });
+      }
+      doc.fillColor('#000000');
+    }
+    doc.moveDown(1);
   }
 
   addLanguageErrors(doc, markingResult) {

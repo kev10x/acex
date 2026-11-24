@@ -261,6 +261,18 @@ export interface LanguageError {
   explanation: string;
 }
 
+/** A detailed review comment on a treatise, thesis or dissertation, tied to where the change is needed. */
+export interface ReviewComment {
+  id: number;
+  section: string | null;
+  page?: number | null;
+  quote: string | null;
+  comment: string;
+  category: string;
+  severity: 'major' | 'minor';
+  criterion: string | null;
+}
+
 export interface MarkingResult {
   id: number;
   assignment_id: number;
@@ -285,6 +297,7 @@ export interface MarkingResult {
   estimated_cost_usd?: number | null;
   corrections?: Correction[]; // Array of corrections and suggestions with location information
   language_errors?: LanguageError[]; // Array of grammar, spelling, and reference errors
+  review_comments?: ReviewComment[] | null; // Treatise, thesis or dissertation: comments tied to locations
   feedback_type?: 'standard' | 'prescriptive' | 'reflective' | 'critical' | 'genie';
   feedback_verbosity?: 'brief' | 'standard' | 'comprehensive';
   prescriptive_table?: Array<{ criterion: string; issue: string; location: string; fix: string; priority: string }>;
@@ -2542,6 +2555,31 @@ export interface RevisionCriterionChange {
   detail: string;
 }
 
+/** A piece of feedback on the previous revision, checked against what changed. */
+export interface RevisionFeedbackCheck {
+  id: number;
+  location: string;
+  comment: string;
+  quote: string | null;
+  status: 'addressed' | 'partly_addressed' | 'not_addressed' | null;
+  note: string | null;
+}
+
+/** Sentence-level changes from the previous revision. */
+export interface RevisionChangeBlock {
+  before_context: string[];
+  removed: string[];
+  added: string[];
+  after_context: string[];
+}
+
+export interface RevisionChanges {
+  mode: 'identical' | 'diff' | 'rewrite';
+  stats: { added: number; removed: number; unchanged: number; change_density: number };
+  blocks: RevisionChangeBlock[];
+  truncated: boolean;
+}
+
 export interface RevisionComparison {
   improved_criteria: RevisionCriterionChange[];
   regressed_criteria: RevisionCriterionChange[];
@@ -2549,6 +2587,8 @@ export interface RevisionComparison {
   narrative_summary: string;
   key_improvement: string;
   key_remaining_issue: string;
+  previous_feedback?: RevisionFeedbackCheck[];
+  changes?: RevisionChanges;
 }
 
 export interface RevisionScore {
@@ -2567,6 +2607,7 @@ export interface RevisionSubmission {
   total_score: number;
   scores: RevisionScore[];
   corrections: unknown[];
+  review_comments?: ReviewComment[] | null;
   comparison: RevisionComparison | null;
   filename: string;
   uploaded_at: string;

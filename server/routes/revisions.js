@@ -3,14 +3,14 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-let diffLines;
-try { diffLines = require('diff').diffLines; } catch (e) { diffLines = null; }
 const { query, rowsOf, firstRow } = require('../database/connection');
 const { requireAuth, requireRoles, normalizeRole } = require('../middleware/auth');
 const { extractTextFromDocument } = require('../services/documentExtractService');
 const { generateMarking, parseMarkingResponsePayload, parseAiJsonResponse } = require('../services/markingService');
 const aiConfig = require('../config/ai-config');
 const aiService = require('../services/aiService');
+const { diffRevisions } = require('../services/revisionDiffService');
+const { attachReviewComments } = require('../services/reviewCommentsService');
 
 const router = express.Router();
 
@@ -41,83 +41,38 @@ const getInsertId = (result) => {
   return null;
 };
 
-// Extract changed hunks from two texts using line-level diff.
-// Returns { hunksText, stats, fullDiff } where hunksText is formatted for the AI prompt.
-const extractDiffHunks = (prevText, currText, contextLines = 4) => {
-  const normalize = (t) => String(t || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const prev = normalize(prevText);
-  const curr = normalize(currText);
-
-  const changes = diffLines(prev, curr);
-
-  // Flatten to annotated line objects
-  const lines = [];
-  let addedCount = 0;
-  let removedCount = 0;
-  for (const part of changes) {
-    const partLines = part.value.split('\n');
-    if (partLines[partLines.length - 1] === '') partLines.pop();
-    const type = part.added ? 'added' : part.removed ? 'removed' : 'unchanged';
-    if (part.added) addedCount += partLines.length;
-    if (part.removed) removedCount += partLines.length;
-    for (const line of partLines) {
-      lines.push({ type, text: line });
-    }
-  }
-
-  const totalLines = lines.length;
-  const changedLines = addedCount + removedCount;
-  const changeDensity = totalLines > 0 ? Math.round((changedLines / totalLines) * 100) : 0;
-
-  const stats = { addedCount, removedCount, totalLines, changeDensity };
-
-  // If nothing changed, signal that
-  if (changedLines === 0) return { hunksText: null, stats, fullDiff: false };
-
-  // If change density is very high (>70%), a diff doesn't help much — fall back to full texts
-  if (changeDensity > 70) return { hunksText: null, stats, fullDiff: true };
-
-  // Mark which lines should be included (changed lines + context window around each)
-  const included = new Uint8Array(lines.length);
-  lines.forEach((l, i) => {
-    if (l.type !== 'unchanged') {
-      const start = Math.max(0, i - contextLines);
-      const end = Math.min(lines.length - 1, i + contextLines);
-      for (let j = start; j <= end; j++) included[j] = 1;
-    }
-  });
-
-  // Build hunks: groups of contiguous included lines, separated by "..." markers
-  const hunkParts = [];
-  let inHunk = false;
-  let currentHunk = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    if (included[i]) {
-      if (!inHunk && hunkParts.length > 0) currentHunk.push('  ...');
-      inHunk = true;
-      const { type, text } = lines[i];
-      const prefix = type === 'added' ? '+ ' : type === 'removed' ? '- ' : '  ';
-      currentHunk.push(prefix + text);
-    } else if (inHunk) {
-      hunkParts.push(currentHunk.join('\n'));
-      currentHunk = [];
-      inHunk = false;
-    }
-  }
-  if (currentHunk.length > 0) hunkParts.push(currentHunk.join('\n'));
-
-  // Cap total hunk output at ~40k chars to stay within prompt budget
-  const MAX_HUNK_CHARS = 40000;
-  let hunksText = hunkParts.map((h, i) => `--- Change block ${i + 1} ---\n${h}`).join('\n\n');
-  if (hunksText.length > MAX_HUNK_CHARS) {
-    hunksText = hunksText.substring(0, MAX_HUNK_CHARS) + '\n\n...[further changes truncated]';
-  }
-
-  return { hunksText, stats, fullDiff: false };
+const parseJson = (value, fallback) => {
+  if (value == null) return fallback;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch (e) { return fallback; }
 };
 
-const generateRevisionComparison = async (prevText, currText, prevScores, currScores, rubric) => {
+// The previous revision's feedback, as numbered comments to check against the changes: its
+// detailed review comments (treatise, thesis, dissertation), else its per-criterion feedback.
+const previousFeedbackItems = (reviewComments, scores) => {
+  const review = Array.isArray(reviewComments) ? reviewComments : [];
+  if (review.length) {
+    return review.slice(0, 80).map((c) => ({
+      id: Number(c.id),
+      location: [c.section, c.page ? `p. ${c.page}` : null].filter(Boolean).join(', '),
+      comment: String(c.comment || '').slice(0, 300),
+      quote: c.quote ? String(c.quote).slice(0, 200) : null
+    }));
+  }
+  return (Array.isArray(scores) ? scores : [])
+    .filter((s) => s && s.feedback)
+    .slice(0, 30)
+    .map((s, index) => ({
+      id: index + 1,
+      location: s.criterion_name || '',
+      comment: String(s.feedback).slice(0, 400),
+      quote: null
+    }));
+};
+
+const COMMENT_STATUSES = new Set(['addressed', 'partly_addressed', 'not_addressed']);
+
+const generateRevisionComparison = async (prevText, currText, prevScores, currScores, rubric, previousItems = []) => {
   const config = aiConfig.getConfig('default');
   let criteria = rubric.criteria;
   if (typeof criteria === 'string') {
@@ -133,61 +88,61 @@ const generateRevisionComparison = async (prevText, currText, prevScores, currSc
     return `  - ${name}: ${prevStr} → ${currStr}`;
   }).join('\n');
 
-  const { hunksText, stats, fullDiff } = extractDiffHunks(prevText, currText);
+  const diff = diffRevisions(prevText, currText);
+  const changes = {
+    mode: diff.mode,
+    stats: diff.stats,
+    blocks: diff.blocks,
+    truncated: Boolean(diff.truncated)
+  };
 
   let diffSection;
-  if (hunksText) {
-    // Targeted diff mode: send only changed hunks
-    diffSection = `CHANGE STATISTICS:
-- Lines added: ${stats.addedCount}
-- Lines removed: ${stats.removedCount}
-- Change density: ${stats.changeDensity}% of document lines modified
+  if (diff.mode === 'identical') {
+    diffSection = 'NOTE: The two revisions are identical: no sentences were added, removed or changed.';
+  } else if (diff.mode === 'diff') {
+    diffSection = `CHANGE STATISTICS (by sentence):
+- Sentences added: ${diff.stats.added}
+- Sentences removed: ${diff.stats.removed}
+- Unchanged: ${diff.stats.unchanged} (${diff.stats.change_density}% of sentences changed)
 
-CHANGED SECTIONS (unified diff format — lines starting with + were added, lines starting with - were removed, other lines are unchanged context):
+CHANGES (lines starting with + were added, - were removed, other lines are unchanged context; a changed sentence shows as - then +):
 
-${hunksText}`;
+${diff.prompt_text}`;
   } else {
-    // Fallback: send both full texts (complete rewrite or identical)
-    const contextWindowTokens = config.provider === 'anthropic' ? 200000 : 128000;
-    const availableChars = Math.floor(((contextWindowTokens - 3000) * 4) / 2);
-    const maxChars = Math.min(availableChars, config.maxTextLength || 100000);
-    const prevContent = String(prevText || '').length > maxChars
-      ? String(prevText || '').substring(0, maxChars) + '\n...[truncated]'
-      : String(prevText || '');
-    const currContent = String(currText || '').length > maxChars
-      ? String(currText || '').substring(0, maxChars) + '\n...[truncated]'
-      : String(currText || '');
+    // Substantially rewritten: the sentence diff is still the best evidence, plus the start of the new text.
+    const currExcerpt = String(currText || '').slice(0, 30000);
+    diffSection = `NOTE: This revision is substantially rewritten (${diff.stats.change_density}% of sentences changed).
 
-    if (stats.changeDensity === 0) {
-      diffSection = `NOTE: The two revisions appear to be identical — no textual changes detected.
+CHANGES (+ added, - removed):
+${diff.prompt_text}
 
-DOCUMENT TEXT:
-${prevContent}`;
-    } else {
-      diffSection = `NOTE: This revision is substantially rewritten (${stats.changeDensity}% of lines changed). Full texts provided for comparison.
-
-PREVIOUS REVISION:
-${prevContent}
-
-CURRENT REVISION:
-${currContent}`;
-    }
+START OF THE CURRENT REVISION:
+${currExcerpt}`;
   }
+
+  const feedbackSection = previousItems.length
+    ? `FEEDBACK GIVEN ON THE PREVIOUS REVISION (check each one against the changes):
+${previousItems.map((item) => `${item.id}. ${item.location ? `[${item.location}] ` : ''}${item.comment}${item.quote ? ` (on: "${item.quote}")` : ''}`).join('\n')}
+`
+    : '';
 
   const prompt = `You are an academic evaluator comparing two revisions of a student submission.
 
 RUBRIC CRITERIA SCORE CHANGES (previous revision → current revision):
 ${scoreTable || '  (no criteria data available)'}
 
+${feedbackSection}
 ${diffSection}
 
-Analyze what changed between these two revisions. Be specific — reference the actual lines and content shown above.
+Analyze what changed between these two revisions. Be specific: refer to the actual sentences shown above.${previousItems.length ? `
+For EVERY numbered feedback item, decide from the changes whether the student addressed it: "addressed", "partly_addressed" or "not_addressed" (when nothing in the changes deals with it). Give a short note saying which change shows it, or what is still missing.` : ''}
 
 Respond with ONLY this JSON (no markdown, no explanation):
 {
   "improved_criteria": [{"criterion": "criterion name", "detail": "what specifically improved and how"}],
   "regressed_criteria": [{"criterion": "criterion name", "detail": "what got worse and why"}],
-  "unchanged_criteria": [{"criterion": "criterion name", "detail": "still needs work on this specific issue"}],
+  "unchanged_criteria": [{"criterion": "criterion name", "detail": "still needs work on this specific issue"}],${previousItems.length ? `
+  "previous_feedback": [{"id": 1, "status": "addressed|partly_addressed|not_addressed", "note": "short evidence"}],` : ''}
   "narrative_summary": "2-3 sentence overall summary of the revision quality and progress trajectory",
   "key_improvement": "The single most significant improvement made in this revision",
   "key_remaining_issue": "The most important issue still needing attention"
@@ -198,14 +153,15 @@ Respond with ONLY this JSON (no markdown, no explanation):
     model: config.model,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
-    maxTokens: 1200
+    maxTokens: previousItems.length ? 6000 : 2000
   });
 
+  let parsed;
   try {
-    return parseAiJsonResponse(result.content).parsed;
+    parsed = parseAiJsonResponse(result.content).parsed;
   } catch (e) {
     console.warn('Could not parse comparison JSON:', e.message);
-    return {
+    parsed = {
       improved_criteria: [],
       regressed_criteria: [],
       unchanged_criteria: [],
@@ -214,6 +170,27 @@ Respond with ONLY this JSON (no markdown, no explanation):
       key_remaining_issue: ''
     };
   }
+
+  // Keep the original wording of each feedback item next to its status.
+  const statuses = new Map((Array.isArray(parsed.previous_feedback) ? parsed.previous_feedback : [])
+    .filter((entry) => entry && COMMENT_STATUSES.has(entry.status))
+    .map((entry) => [Number(entry.id), entry]));
+  const previousFeedback = previousItems.map((item) => ({
+    ...item,
+    status: statuses.get(item.id)?.status || null,
+    note: statuses.get(item.id)?.note ? String(statuses.get(item.id).note).slice(0, 400) : null
+  }));
+
+  return {
+    improved_criteria: Array.isArray(parsed.improved_criteria) ? parsed.improved_criteria : [],
+    regressed_criteria: Array.isArray(parsed.regressed_criteria) ? parsed.regressed_criteria : [],
+    unchanged_criteria: Array.isArray(parsed.unchanged_criteria) ? parsed.unchanged_criteria : [],
+    narrative_summary: parsed.narrative_summary || '',
+    key_improvement: parsed.key_improvement || '',
+    key_remaining_issue: parsed.key_remaining_issue || '',
+    previous_feedback: previousFeedback,
+    changes
+  };
 };
 
 // Best-effort link to a student's own account, matched by display name
@@ -354,6 +331,9 @@ router.post('/:id/upload', requireAuth, requireRoles(['management', 'lecturer'])
       return res.status(500).json({ error: `AI marking failed: ${e.message}` });
     }
 
+    // Treatise, thesis or dissertation: detailed comments tied to locations (checked on the next revision).
+    await attachReviewComments({ markingResult, text: extractedText, documentType: markingResult.document_type, rubric: rubricObj });
+
     const totalPoints = parseFloat(series.total_points) || 1;
     const progressScore = Math.min(100, Math.round((markingResult.total_score / totalPoints) * 100 * 10) / 10);
 
@@ -380,13 +360,16 @@ router.post('/:id/upload', requireAuth, requireRoles(['management', 'lecturer'])
       );
       markingResultId = mrResult.rows[0].id;
     }
+    if (markingResult.review_comments?.length && markingResultId) {
+      await query('UPDATE marking_results SET review_comments = ? WHERE id = ?', [JSON.stringify(markingResult.review_comments), markingResultId]);
+    }
 
     // If this is revision 2+, run comparison with previous revision
     let comparisonData = null;
     if (revisionNumber > 1) {
       try {
         const prevRevision = firstRow(await query(
-          `SELECT rs.*, a.extracted_text, mr.scores AS prev_scores
+          `SELECT rs.*, a.extracted_text, mr.scores AS prev_scores, mr.review_comments AS prev_review_comments
            FROM revision_submissions rs
            JOIN assignments a ON a.id = rs.assignment_id
            LEFT JOIN marking_results mr ON mr.id = rs.marking_result_id
@@ -402,7 +385,8 @@ router.post('/:id/upload', requireAuth, requireRoles(['management', 'lecturer'])
             extractedText,
             prevScores,
             markingResult.scores,
-            rubricObj
+            rubricObj,
+            previousFeedbackItems(parseJson(prevRevision.prev_review_comments, []), prevScores)
           );
         }
       } catch (e) {
@@ -439,6 +423,7 @@ router.post('/:id/upload', requireAuth, requireRoles(['management', 'lecturer'])
       scores: markingResult.scores,
       overall_feedback: markingResult.overall_feedback,
       corrections: markingResult.corrections,
+      review_comments: markingResult.review_comments || null,
       comparison: comparisonData
     });
   } catch (err) {
@@ -513,7 +498,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     const revisions = rowsOf(await query(
       `SELECT rv.id, rv.revision_number, rv.progress_score, rv.comparison_json, rv.uploaded_at,
-              mr.scores, mr.feedback AS overall_feedback, mr.total_score, mr.corrections,
+              mr.scores, mr.feedback AS overall_feedback, mr.total_score, mr.corrections, mr.review_comments,
               a.filename, a.file_path
        FROM revision_submissions rv
        JOIN assignments a ON a.id = rv.assignment_id
@@ -539,6 +524,7 @@ router.get('/:id', requireAuth, async (req, res) => {
         total_score: parseFloat(r.total_score || 0),
         scores: scores || [],
         corrections: corrections || [],
+        review_comments: parseJson(r.review_comments, null),
         comparison,
         filename: r.filename,
         uploaded_at: r.uploaded_at
@@ -587,3 +573,6 @@ router.delete('/:id', requireAuth, requireRoles(['management', 'lecturer']), asy
 });
 
 module.exports = router;
+// For tests.
+module.exports.generateRevisionComparison = generateRevisionComparison;
+module.exports.previousFeedbackItems = previousFeedbackItems;

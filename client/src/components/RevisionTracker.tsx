@@ -12,9 +12,12 @@ import {
   X,
   XCircle
 } from 'lucide-react';
+import ReviewCommentsPanel from './ReviewCommentsPanel';
 import {
   revisionsApi,
+  type RevisionChanges,
   type RevisionComparison,
+  type RevisionFeedbackCheck,
   type RevisionSeriesListItem,
   type RevisionSubmission,
   type RevisionSeries
@@ -101,6 +104,78 @@ function ScoreTable({ scores, totalScore, totalPoints }: {
   );
 }
 
+// ─── Previous feedback check ──────────────────────────────────────────────────
+
+const FEEDBACK_STATUS: Record<string, { label: string; className: string }> = {
+  addressed: { label: 'Addressed', className: 'bg-emerald-100 text-emerald-800' },
+  partly_addressed: { label: 'Partly addressed', className: 'bg-amber-100 text-amber-800' },
+  not_addressed: { label: 'Not addressed', className: 'bg-red-100 text-red-800' }
+};
+
+function PreviousFeedbackCheck({ items }: { items: RevisionFeedbackCheck[] }) {
+  const count = (status: string) => items.filter((item) => item.status === status).length;
+  return (
+    <div>
+      <h4 className="mb-1 text-sm font-semibold text-gray-800">Feedback from the previous revision</h4>
+      <p className="mb-2 text-xs text-gray-500">
+        {count('addressed')} addressed · {count('partly_addressed')} partly · {count('not_addressed')} not addressed
+        {items.some((item) => !item.status) ? ` · ${items.filter((item) => !item.status).length} not checked` : ''}
+      </p>
+      <ul className="space-y-1.5">
+        {items.map((item) => {
+          const status = item.status ? FEEDBACK_STATUS[item.status] : null;
+          return (
+            <li key={item.id} className="rounded-md border border-gray-200 px-3 py-2 text-xs">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 text-gray-800">
+                  <span className="font-semibold">{item.id}.</span>{' '}
+                  {item.location && <span className="text-gray-500">[{item.location}] </span>}
+                  {item.comment}
+                </p>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${status?.className || 'bg-gray-100 text-gray-600'}`}>
+                  {status?.label || 'Not checked'}
+                </span>
+              </div>
+              {item.note && <p className="mt-1 text-gray-600">{item.note}</p>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Changes (sentence diff) ──────────────────────────────────────────────────
+
+function ChangesPanel({ changes }: { changes: RevisionChanges }) {
+  const { stats } = changes;
+  if (changes.mode === 'identical') {
+    return <p className="text-sm text-gray-600">No changes: this revision has the same text as the previous one.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-600">
+        {stats.added} sentence{stats.added === 1 ? '' : 's'} added, {stats.removed} removed, {stats.unchanged} unchanged
+        ({stats.change_density}% changed){changes.mode === 'rewrite' ? '. Substantially rewritten.' : '.'}
+        {' '}A changed sentence shows as removed then added.
+      </p>
+      {changes.blocks.map((block, index) => (
+        <div key={index} className="overflow-hidden rounded-md border border-gray-200 text-xs leading-relaxed">
+          {block.before_context.map((text, i) => <p key={`b${i}`} className="px-3 py-1 text-gray-500">{text}</p>)}
+          {block.removed.map((text, i) => (
+            <p key={`r${i}`} className="bg-red-50 px-3 py-1 text-red-800 line-through decoration-red-300"><span className="mr-1 font-mono no-underline">−</span>{text}</p>
+          ))}
+          {block.added.map((text, i) => (
+            <p key={`a${i}`} className="bg-emerald-50 px-3 py-1 text-emerald-900"><span className="mr-1 font-mono">+</span>{text}</p>
+          ))}
+          {block.after_context.map((text, i) => <p key={`f${i}`} className="px-3 py-1 text-gray-500">{text}</p>)}
+        </div>
+      ))}
+      {changes.truncated && <p className="text-xs text-gray-500">Only the first {changes.blocks.length} changes are shown.</p>}
+    </div>
+  );
+}
+
 // ─── Comparison Panel ─────────────────────────────────────────────────────────
 
 function ComparisonPanel({ comparison }: { comparison: RevisionComparison }) {
@@ -162,6 +237,10 @@ function ComparisonPanel({ comparison }: { comparison: RevisionComparison }) {
         )}
       </div>
 
+      {comparison.previous_feedback && comparison.previous_feedback.length > 0 && (
+        <PreviousFeedbackCheck items={comparison.previous_feedback} />
+      )}
+
       {(comparison.key_improvement || comparison.key_remaining_issue) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-1">
           {comparison.key_improvement && (
@@ -197,7 +276,16 @@ function RevisionCard({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'scores' | 'feedback' | 'comparison'>('scores');
+  const [activeTab, setActiveTab] = useState<'scores' | 'feedback' | 'comments' | 'comparison' | 'changes'>('scores');
+  const hasComments = Boolean(revision.review_comments && revision.review_comments.length > 0);
+  const tabs = [
+    'scores',
+    'feedback',
+    ...(hasComments ? ['comments'] : []),
+    ...(revision.comparison ? ['comparison'] : []),
+    ...(revision.comparison?.changes ? ['changes'] : [])
+  ] as const;
+  const tabLabel: Record<string, string> = { comments: 'Detailed comments', comparison: 'Vs. Previous', changes: 'Changes' };
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -233,7 +321,7 @@ function RevisionCard({
       {isExpanded && (
         <div className="border-t border-gray-200">
           <div className="flex border-b border-gray-200 bg-gray-50">
-            {(['scores', 'feedback', ...(revision.comparison ? ['comparison'] : [])] as const).map(tab => (
+            {tabs.map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as typeof activeTab)}
@@ -243,7 +331,7 @@ function RevisionCard({
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                {tab === 'comparison' ? 'Vs. Previous' : tab}
+                {tabLabel[tab] || tab}
               </button>
             ))}
           </div>
@@ -256,8 +344,14 @@ function RevisionCard({
                 {revision.overall_feedback || 'No feedback available.'}
               </p>
             )}
+            {activeTab === 'comments' && revision.review_comments && (
+              <ReviewCommentsPanel comments={revision.review_comments} title={`Revision ${revision.revision_number}${revision.filename ? ` – ${revision.filename}` : ''}`} />
+            )}
             {activeTab === 'comparison' && revision.comparison && (
               <ComparisonPanel comparison={revision.comparison} />
+            )}
+            {activeTab === 'changes' && revision.comparison?.changes && (
+              <ChangesPanel changes={revision.comparison.changes} />
             )}
           </div>
         </div>

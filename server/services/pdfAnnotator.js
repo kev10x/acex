@@ -6,6 +6,17 @@ async function getPdfJs() {
   return mod;
 }
 
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Whitespace-, case- and quote-style-tolerant pattern for a phrase.
+function phrasePattern(phrase) {
+  const tokens = String(phrase || '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens
+    .map((token) => escapeRegExp(token).replace(/['‘’]/g, "['‘’]").replace(/["“”]/g, '["“”]').replace(/[-–—]/g, '[-–—]'))
+    .join('\\s*');
+}
+
 async function extractAnchorsWithPositions(pdfPath, anchorPhrases, maxMatchesPerPhrase = 3) {
   const pdfjsLib = await getPdfJs();
   const pdfData = fs.readFileSync(pdfPath);
@@ -23,27 +34,28 @@ async function extractAnchorsWithPositions(pdfPath, anchorPhrases, maxMatchesPer
       width: it.width,
       height: it.height
     }));
-    const joined = items.map((item) => item.str).join('\n');
+    // Items joined with spaces; phrases are matched token by token so they may span lines.
+    const itemStarts = [];
+    let joined = '';
+    for (const item of items) {
+      itemStarts.push(joined.length);
+      joined += `${item.str} `;
+    }
 
     for (const phrase of anchorPhrases) {
       if (!phrase || phrase.length < 8) continue;
+      const pattern = phrasePattern(phrase);
+      if (!pattern) continue;
 
-      let searchIdx = 0;
+      const regex = new RegExp(pattern, 'gi');
       let foundCount = 0;
-      while (foundCount < maxMatchesPerPhrase) {
-        const idx = joined.toLowerCase().indexOf(phrase.toLowerCase(), searchIdx);
-        if (idx === -1) break;
-
-        searchIdx = idx + phrase.length;
+      let match;
+      while (foundCount < maxMatchesPerPhrase && (match = regex.exec(joined)) !== null) {
+        const idx = match.index;
         foundCount++;
 
-        let cumulative = 0;
         let itemIdx = 0;
-        for (; itemIdx < items.length; itemIdx++) {
-          const len = items[itemIdx].str.length + 1;
-          if (cumulative + len > idx) break;
-          cumulative += len;
-        }
+        while (itemIdx + 1 < itemStarts.length && itemStarts[itemIdx + 1] <= idx) itemIdx++;
 
         const item = items[itemIdx];
         if (!item) continue;
@@ -140,7 +152,7 @@ async function annotatePdfWithIssues(inputPath, outputPath, issues) {
 
     console.log(`Page ${pageIndex + 1}: Found ${pagePositions.length} anchor positions`);
 
-    pagePositions.slice(0, 20).forEach((pos) => {
+    pagePositions.slice(0, 30).forEach((pos) => {
       const rect = getHighlightRect(pos, pageWidth, pageHeight);
       page.drawRectangle({
         x: rect.x,
@@ -186,7 +198,7 @@ async function annotatePdfWithIssues(inputPath, outputPath, issues) {
 
     const occupiedAnnotationPoints = [];
 
-    issuesToShow.slice(0, 15).forEach((issue, idx) => {
+    issuesToShow.slice(0, 25).forEach((issue, idx) => {
       const text = (issue.note || '').slice(0, 500);
       if (!text) return;
 
@@ -238,7 +250,7 @@ async function annotatePdfWithIssues(inputPath, outputPath, issues) {
       }
     });
 
-    console.log(`Added ${Math.min(issuesToShow.length, 15)} PDF comment annotations to page ${pageIndex + 1}`);
+    console.log(`Added ${Math.min(issuesToShow.length, 25)} PDF comment annotations to page ${pageIndex + 1}`);
   }
 
   const outBytes = await pdfDoc.save();
@@ -298,7 +310,36 @@ function buildIssuesFromMarking(markingResult) {
   return issues;
 }
 
+// The words of a review comment's quote used to find it in a PDF (short enough to sit on few lines).
+const reviewAnchorPhrase = (quote) => String(quote || '').trim().split(/\s+/).slice(0, 10).join(' ').slice(0, 150);
+
+/** Map of phrase -> 1-based page number for the phrases found in the PDF. */
+async function findPhrasePages(pdfPath, phrases) {
+  const wanted = Array.from(new Set((phrases || []).filter((phrase) => typeof phrase === 'string' && phrase.length >= 8)));
+  const pages = new Map();
+  if (wanted.length === 0) return pages;
+  for (const position of await extractAnchorsWithPositions(pdfPath, wanted, 1)) {
+    if (!pages.has(position.phrase)) pages.set(position.phrase, position.pageIndex + 1);
+  }
+  return pages;
+}
+
+/** One PDF note per detailed review comment, anchored on its quote. */
+function buildReviewIssues(reviewComments) {
+  return (reviewComments || []).map((comment) => {
+    const label = `Comment ${comment.id}${comment.severity === 'major' ? ' (major)' : ''}`;
+    const phrase = reviewAnchorPhrase(comment.quote);
+    return {
+      anchorPhrases: phrase.length >= 8 ? [phrase] : [],
+      note: `${label}: ${comment.comment}`
+    };
+  });
+}
+
 module.exports = {
   annotatePdfWithIssues,
-  buildIssuesFromMarking
+  buildIssuesFromMarking,
+  buildReviewIssues,
+  findPhrasePages,
+  reviewAnchorPhrase
 };

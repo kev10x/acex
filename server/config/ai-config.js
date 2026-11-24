@@ -163,6 +163,12 @@ module.exports = {
       anthropic: { model: 'claude-sonnet-4-6', maxTokens: 16000, temperature: 0.45 },
       ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 4096, temperature: 0.45 }
     },
+    // Section-by-section comments on a treatise, thesis or dissertation (one call per part).
+    detailedReview: {
+      openai: { model: 'gpt-5.2', maxTokens: 4000, temperature: 0.3 },
+      anthropic: { model: 'claude-sonnet-4-6', maxTokens: 4000, temperature: 0.3 },
+      ollama: { model: process.env.OLLAMA_MODEL || 'llama3.2', maxTokens: 4000, temperature: 0.3 }
+    },
     anchorExtraction: {
       openai: { model: 'gpt-4o-mini', maxTokens: 250, temperature: 0.1 },
       anthropic: { model: 'claude-haiku-4-5-20251001', maxTokens: 250, temperature: 0.1 },

@@ -91,6 +91,7 @@ function mapResultRow(row) {
   const reflective_questions = parseJsonArray(plain.reflective_questions);
   const critical_table = parseJsonArray(plain.critical_table);
   const genie_output = parseJsonArray(plain.genie_output);
+  const review_comments = parseJsonArray(plain.review_comments);
 
   const review_reasons = [];
   const flagged = plain.flagged_for_moderation === true || plain.flagged_for_moderation === 1;
@@ -117,6 +118,7 @@ function mapResultRow(row) {
     reflective_questions,
     critical_table,
     genie_output,
+    review_comments,
     improvement_forecast: plain.improvement_forecast || null,
     comparative_insight: plain.comparative_insight || null,
     feedback_type: plain.feedback_type || 'standard',

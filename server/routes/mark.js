@@ -4,7 +4,8 @@ const path = require('path');
 const { query } = require('../database/connection');
 const aiConfig = require('../config/ai-config');
 const aiService = require('../services/aiService');
-const { annotatePdfWithIssues, buildIssuesFromMarking } = require('../services/pdfAnnotator');
+const { annotatePdfWithIssues, buildIssuesFromMarking, buildReviewIssues, findPhrasePages, reviewAnchorPhrase } = require('../services/pdfAnnotator');
+const { attachReviewComments } = require('../services/reviewCommentsService');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
 const { requireAuth } = require('../middleware/auth');
 const {
@@ -32,6 +33,31 @@ const resolveStudentName = (studentName, assignment) => {
 
   const displayName = getAssignmentDisplayName(assignment);
   return displayName ? path.basename(displayName) : null;
+};
+
+// Treatise, thesis or dissertation: add detailed review comments (section and, for PDFs, page).
+const prepareReviewComments = async ({ markingResult, assignment, assignmentText, docType, rubric, provider }) => {
+  await attachReviewComments({ markingResult, text: assignmentText, documentType: docType, rubric, provider });
+  const comments = markingResult?.review_comments;
+  if (!comments?.length || !assignment?.file_path || !isPdfDocument(getAssignmentDisplayName(assignment))) return;
+  try {
+    const pages = await findPhrasePages(assignment.file_path, comments.map((comment) => reviewAnchorPhrase(comment.quote)));
+    for (const comment of comments) {
+      const page = pages.get(reviewAnchorPhrase(comment.quote));
+      if (page) comment.page = page;
+    }
+  } catch (error) {
+    console.warn('Could not find page numbers for review comments (non-fatal):', error.message);
+  }
+};
+
+// Stored separately from the main insert; returns the comments (or null) for the response.
+const saveReviewComments = async (markingResultId, markingResult) => {
+  const comments = Array.isArray(markingResult?.review_comments) && markingResult.review_comments.length ? markingResult.review_comments : null;
+  if (comments && markingResultId) {
+    await query('UPDATE marking_results SET review_comments = ? WHERE id = ?', [JSON.stringify(comments), markingResultId]);
+  }
+  return comments;
 };
 
 // Save a marking result as the new current version for the assignment. Results marked
@@ -92,7 +118,9 @@ const saveMarkingResult = async ({ userId, assignment_id, rubric_id, studentName
   );
 
   const insertedId = result.lastID || result.rows?.[0]?.id;
+  const reviewComments = await saveReviewComments(insertedId, markingResult);
   const markingWithId = {
+    review_comments: reviewComments,
     id: insertedId,
     assignment_id,
     rubric_id,
@@ -203,7 +231,7 @@ const renderMarkingOutput = async ({ markingWithId, markingResult, assignment, r
       console.log('✅ Anchor phrases generated:', Object.keys(anchorsMap || {}).length, 'criteria');
 
       console.log('🔨 Building issues from marking result...');
-      const issues = buildIssuesWithAnchors(markingResult, anchorsMap);
+      const issues = [...buildIssuesWithAnchors(markingResult, anchorsMap), ...buildReviewIssues(markingResult.review_comments)];
       console.log('✅ Issues built:', issues.length, 'issues');
 
       const originalPath = assignment.file_path;
@@ -851,6 +879,8 @@ router.post('/single', requireAuth, async (req, res) => {
         });
       }
 
+      await prepareReviewComments({ markingResult, assignment, assignmentText, docType, rubric, provider });
+
       const versionResult = await query(
         'SELECT COALESCE(MAX(version), 0) as max_version FROM marking_results WHERE assignment_id = ?',
         [assignment_id]
@@ -903,7 +933,9 @@ router.post('/single', requireAuth, async (req, res) => {
       );
 
       const insertedId = result.lastID || result.rows?.[0]?.id;
+      const reviewComments = await saveReviewComments(insertedId, markingResult);
       const markingWithId = {
+        review_comments: reviewComments,
         id: insertedId,
         assignment_id,
         rubric_id,
@@ -981,7 +1013,7 @@ router.post('/single', requireAuth, async (req, res) => {
           console.log('✅ Anchor phrases generated:', Object.keys(anchorsMap || {}).length, 'criteria');
 
           console.log('🔨 Building issues from marking result...');
-          const issues = buildIssuesWithAnchors(markingResult, anchorsMap);
+          const issues = [...buildIssuesWithAnchors(markingResult, anchorsMap), ...buildReviewIssues(markingResult.review_comments)];
           console.log('✅ Issues built:', issues.length, 'issues');
 
           const originalPath = assignment.file_path;
@@ -1382,6 +1414,8 @@ router.post('/multiple', requireAuth, async (req, res) => {
             errors.push({ assignment_id, error: 'Request was cancelled after marking' });
             continue;
           }
+
+          await prepareReviewComments({ markingResult, assignment, assignmentText, docType, rubric, provider });
 
           const markingWithId = await saveMarkingResult({
             userId: req.user.id,

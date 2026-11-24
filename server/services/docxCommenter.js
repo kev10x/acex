@@ -153,7 +153,25 @@ function keywordsForComment(comment) {
   return Array.from(new Set(words.filter((word) => !stopWords.has(word)))).slice(0, 10);
 }
 
+const squash = (value) => String(value || '').toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
+
+// Paragraph containing a review comment's quote (its opening words, then its closing words).
+function paragraphWithQuote(paragraphTexts, quote) {
+  const words = squash(quote).split(' ').filter(Boolean);
+  if (words.length < 3) return -1;
+  for (const probe of [words.slice(0, 8), words.slice(-6)]) {
+    const needle = probe.join(' ');
+    const index = paragraphTexts.findIndex((text) => squash(text).includes(needle));
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
 function selectParagraphIndex(paragraphs, paragraphTexts, comment, fallbackIndex) {
+  if (comment.quote) {
+    const quoted = paragraphWithQuote(paragraphTexts, comment.quote);
+    if (quoted >= 0) return quoted;
+  }
   const keywords = keywordsForComment(comment);
   if (keywords.length === 0) return fallbackIndex % Math.max(paragraphs.length, 1);
 
@@ -171,13 +189,18 @@ function selectParagraphIndex(paragraphs, paragraphTexts, comment, fallbackIndex
   return bestIndex >= 0 ? bestIndex : fallbackIndex % Math.max(paragraphs.length, 1);
 }
 
+// The comment covers the whole paragraph, so Word highlights the text it refers to.
 function insertCommentReference(paragraphXml, commentId) {
-  const marker = [
-    `<w:commentRangeStart w:id="${commentId}"/>`,
-    `<w:commentRangeEnd w:id="${commentId}"/>`,
-    `<w:r><w:commentReference w:id="${commentId}"/></w:r>`
-  ].join('');
-  return String(paragraphXml).replace('</w:p>', `${marker}</w:p>`);
+  const xml = String(paragraphXml);
+  const start = `<w:commentRangeStart w:id="${commentId}"/>`;
+  const end = `<w:commentRangeEnd w:id="${commentId}"/><w:r><w:commentReference w:id="${commentId}"/></w:r>`;
+  const propertiesEnd = xml.indexOf('</w:pPr>');
+  const openingEnd = xml.indexOf('>');
+  const insertAt = propertiesEnd >= 0 ? propertiesEnd + '</w:pPr>'.length : openingEnd + 1;
+  const withStart = xml.endsWith('/>') && !xml.includes('</w:p>')
+    ? xml
+    : xml.slice(0, insertAt) + start + xml.slice(insertAt);
+  return withStart.replace(/<\/w:p>$/, `${end}</w:p>`);
 }
 
 function annotateDocumentXml(documentXml, comments) {
@@ -222,6 +245,19 @@ function buildCommentsFromMarking(markingResult) {
     comments.unshift({
       criterion: 'Overall feedback',
       text: `Overall feedback\n${markingResult.overall_feedback}`
+    });
+  }
+
+  // Detailed review comments (treatise, thesis, dissertation): one Word comment each, on its quote.
+  for (const review of Array.isArray(markingResult?.review_comments) ? markingResult.review_comments : []) {
+    const heading = [
+      `Comment ${review.id}${review.severity === 'major' ? ' (major)' : ''}`,
+      review.criterion ? `– ${review.criterion}` : ''
+    ].filter(Boolean).join(' ');
+    comments.push({
+      criterion: review.criterion || '',
+      quote: review.quote || null,
+      text: `${heading}\n${review.comment}`
     });
   }
 

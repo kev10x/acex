@@ -16,6 +16,7 @@ import { ReviewMode, filterResultsByReviewMode, summarizeReviewQueue } from './r
 import StatePanel from './feedback/StatePanel';
 import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import FeedbackChatWidget from './FeedbackChatWidget';
+import ReviewCommentsPanel from './ReviewCommentsPanel';
 
 type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
@@ -2085,6 +2086,13 @@ const ResultsDashboard: React.FC = () => {
                       ))}
                     </div>
                   </div>
+                )}
+
+                {Array.isArray(selectedResult.review_comments) && selectedResult.review_comments.length > 0 && (
+                  <ReviewCommentsPanel
+                    comments={selectedResult.review_comments}
+                    title={[selectedResult.student_name, selectedResult.filename].filter(Boolean).join(' – ') || undefined}
+                  />
                 )}
 
                 {Array.isArray(selectedResult.corrections) && selectedResult.corrections.length > 0 && (

@@ -1192,6 +1192,7 @@ const normalizeDocumentType = (documentType) => {
   const value = String(documentType || '').trim().toLowerCase();
   if (value === 'project_proposal' || value === 'project proposal' || value === 'proposal') return 'project_proposal';
   if (value === 'exam' || value === 'examination') return 'exam';
+  if (value === 'dissertation') return 'treatise';
   if (value === 'code' || value === 'source_code' || value === 'programming') return 'code';
   return documentType;
 };
@@ -1331,7 +1332,7 @@ STRICTNESS LEVEL: LENIENT
   return strictnessMap[strictness] || strictnessMap['strict'];
 };
 
-const generateMarking = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null, mediaMode = null) => {
+const generateMarkingCore = async (assignmentText, rubric, documentType = null, level = null, provider = null, strictnessLevel = 'strict', assignmentId = null, assignmentImages = null, feedbackType = 'standard', feedbackVerbosity = 'standard', criterionFeedbackTypes = null, mediaMode = null, onDocumentType = null) => {
   const imageBased = Array.isArray(assignmentImages) && assignmentImages.length > 0;
   // Video/audio presentations: transcript text AND frame images are both real evidence and must
   // both reach the model at full strength (not the PDF mark_as_image path, which discards text
@@ -1354,6 +1355,7 @@ const generateMarking = async (assignmentText, rubric, documentType = null, leve
       }
     }
     documentType = normalizeDocumentType(documentType);
+    if (typeof onDocumentType === 'function') onDocumentType(documentType);
 
     // Check if rubric is actually a memo (answer key)
     let rubricText = (rubric.name || '') + ' ';
@@ -2355,6 +2357,17 @@ JSON format (return ONLY this, no other text):
     });
     throw new Error('Failed to generate marking with AI');
   }
+};
+
+// The result also records the document type used (detected when not given), so callers can add
+// type-specific output such as detailed review comments for a treatise or thesis.
+const generateMarking = async (...args) => {
+  let resolvedType = null;
+  const coreArgs = args.slice(0, 12);
+  while (coreArgs.length < 12) coreArgs.push(undefined);
+  const result = await generateMarkingCore(...coreArgs, (type) => { resolvedType = type; });
+  if (result && typeof result === 'object' && !result.document_type && resolvedType) result.document_type = resolvedType;
+  return result;
 };
 
 module.exports = {

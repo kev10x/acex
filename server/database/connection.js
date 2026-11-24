@@ -1017,6 +1017,19 @@ const initDatabase = async () => {
           console.log('Adding language_errors column to marking_results table...');
           await query(`ALTER TABLE marking_results ADD COLUMN language_errors JSON`);
         }
+
+        // Detailed review comments (treatise, thesis, dissertation)
+        const reviewCommentsCheck = await query(`
+          SELECT COUNT(*) as count
+          FROM information_schema.COLUMNS
+          WHERE table_schema = DATABASE()
+          AND table_name = 'marking_results'
+          AND column_name = 'review_comments'
+        `);
+        if ((reviewCommentsCheck.rows?.[0]?.count || reviewCommentsCheck?.[0]?.count || 0) == 0) {
+          console.log('Adding review_comments column to marking_results table...');
+          await query(`ALTER TABLE marking_results ADD COLUMN review_comments JSON`);
+        }
         
         // Check if batch_id column exists in assignments
         const batchIdCheck = await query(`
@@ -2791,6 +2804,9 @@ const initDatabase = async () => {
         if ((languageErrorsCheck.rows?.[0]?.count || languageErrorsCheck?.[0]?.count || 0) === 0) {
           await query(`ALTER TABLE marking_results ADD COLUMN language_errors JSONB`);
         }
+
+        // Detailed review comments (treatise, thesis, dissertation)
+        await query(`ALTER TABLE marking_results ADD COLUMN IF NOT EXISTS review_comments JSONB`);
         
         // Check if batch_id column exists in assignments
         const batchIdCheck = await query(`
