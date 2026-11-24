@@ -1413,16 +1413,17 @@ router.put('/admin/users/:id/organisation', requireAuth, requireAdmin, [
       const orgCheck = await query('SELECT id, name FROM organisations WHERE id = $1', [orgId]);
       const org = orgCheck.rows?.[0] || orgCheck?.[0];
       if (!org) return res.status(404).json({ error: 'Organisation not found' });
+      // Each placeholder is used once: on MySQL, $n become positional '?' markers.
       await query(
         `UPDATE users
          SET organisation_id = $1,
              organisation_name = $2,
              department_id = CASE
-               WHEN department_id IN (SELECT id FROM departments WHERE organisation_id = $1) THEN department_id
+               WHEN department_id IN (SELECT id FROM departments WHERE organisation_id = $3) THEN department_id
                ELSE NULL
              END
-         WHERE id = $3`,
-        [orgId, org.name, id]
+         WHERE id = $4`,
+        [orgId, org.name, orgId, id]
       );
     } else {
       await query('UPDATE users SET organisation_id = NULL, organisation_name = NULL, department_id = NULL WHERE id = $1', [id]);
