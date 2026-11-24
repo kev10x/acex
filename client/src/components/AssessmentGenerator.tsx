@@ -4,7 +4,7 @@ import type { AxiosResponse } from 'axios';
 import { Sparkles, Loader2, Download, FileText, BookOpen, Clock, Target, Link2, Upload, X, Trash2, History, ShieldCheck } from 'lucide-react';
 import { CourseFilterSelect, CourseAssignSelect, CourseGroupHeading, CourseFilter, useCourses, filterByCourse, sortByCourse, courseLabel } from './CourseLibraryControls';
 import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment, AssessmentHistoryItem as ApiAssessmentHistoryItem, LearningModule, GenerationTrace, IntegritySettings, IntegritySettingsInput, CourseIntegrityPolicy, integrityAPI } from '../services/api';
-import PublishedMonitoringDialog from './PublishedMonitoringDialog';
+import PublishedMonitoringDialog, { studentTakeLink } from './PublishedMonitoringDialog';
 import { PRESET_LABELS } from '../utils/integrityText';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import { studentFacingInstructions } from '../utils/assessmentInstructions';
@@ -327,7 +327,7 @@ const AssessmentGenerator: React.FC = () => {
       }
       const res = await assessmentsAPI.publish(payload);
       if (res.data.success && res.data.code) {
-        setPublishedLink(`${window.location.origin}/tools/take-assessment?code=${res.data.code}`);
+        setPublishedLink(studentTakeLink(res.data.code));
         const applied: IntegritySettings | null | undefined = res.data.integrity_settings;
         setPublishNote(res.data.updated
           ? 'Existing link updated: students keep using the same link and monitoring settings.'
@@ -661,10 +661,10 @@ const AssessmentGenerator: React.FC = () => {
                         }
                       }}
                     />
-                    <input readOnly value={item.link} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
+                    <input readOnly value={studentTakeLink(item.code)} className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded text-sm bg-white" />
                     <button
                       type="button"
-                      onClick={() => navigator.clipboard.writeText(item.link)}
+                      onClick={() => navigator.clipboard.writeText(studentTakeLink(item.code))}
                       className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700"
                     >
                       Copy link

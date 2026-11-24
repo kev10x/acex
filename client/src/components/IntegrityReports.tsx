@@ -15,7 +15,7 @@ import CourseIntegrityRules from './CourseIntegrityRules';
 import WebcamPolicyPanel from './WebcamPolicyPanel';
 import AttemptWebcamMedia from './AttemptWebcamMedia';
 import { useAuth } from '../contexts/AuthContext';
-import { openStudentPreview } from './PublishedMonitoringDialog';
+import { openStudentPreview, studentTakeLink } from './PublishedMonitoringDialog';
 import { PRESET_LABELS, describeEvent } from '../utils/integrityText';
 
 
@@ -273,7 +273,7 @@ const IntegrityReports: React.FC = () => {
               {report && (
                 <p className="mb-4 text-xs text-gray-500 break-all">
                   These settings apply to the student link{' '}
-                  <span className="font-mono text-gray-700">{`${window.location.origin}${window.location.pathname.replace(/\/[^/]*$/, '')}/take-assessment?code=${report.code}`}</span>.
+                  <span className="font-mono text-gray-700">{studentTakeLink(report.code)}</span>.
                   Check it matches the link your students use: each published copy has its own code.
                 </p>
               )}
