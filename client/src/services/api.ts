@@ -770,6 +770,7 @@ export interface CourseIntegrityRuleItem {
   id: number;
   name: string;
   code: string | null;
+  organisation_name?: string | null; // shown to the super admin, who sees every organisation
   policy: CourseIntegrityPolicy | null;
   assessment_count: number;
   unmonitored_count: number;
@@ -814,9 +815,16 @@ export const integrityAPI = {
     api.get<{ success: boolean; courses: CourseIntegrityRuleItem[] }>('/assessments/attempts/course-rules'),
   saveCourseRule: (courseId: number, data: { settings: IntegritySettingsInput; required: boolean; apply_to_existing?: boolean }) =>
     api.put<{ success: boolean; policy: CourseIntegrityPolicy | null; applied_to_existing: number }>(`/assessments/attempts/course-rules/${courseId}`, data),
-  getWebcamPolicy: () =>
-    api.get<{ success: boolean; policy: WebcamPolicy; acknowledgements: string[] }>('/assessments/attempts/webcam-policy'),
-  saveWebcamPolicy: (data: { allowed: boolean; allow_video: boolean; retention_days: number; acknowledgements: Record<string, boolean> }) =>
+  // published_id: the policy of the organisation owning that assessment; organisation_id: super admin only.
+  getWebcamPolicy: (params?: { published_id?: number; organisation_id?: number }) =>
+    api.get<{
+      success: boolean;
+      organisation_id: number | null;
+      policy: WebcamPolicy;
+      acknowledgements: string[];
+      organisations?: { id: number; name: string }[];
+    }>('/assessments/attempts/webcam-policy', { params }),
+  saveWebcamPolicy: (data: { organisation_id?: number | null; allowed: boolean; allow_video: boolean; retention_days: number; acknowledgements: Record<string, boolean> }) =>
     api.put<{ success: boolean; policy: WebcamPolicy }>('/assessments/attempts/webcam-policy', data),
   uploadWebcamMedia: (token: string, kind: 'snapshot' | 'video', reason: 'interval' | 'flag', blob: Blob) =>
     api.post(`/assessments/attempts/session/${token}/media`, blob, {

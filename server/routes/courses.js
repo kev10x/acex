@@ -11,10 +11,16 @@ const emailService = require('../services/emailService');
 const accountSetup = require('../services/accountSetupService');
 const gradebookService = require('../services/gradebookService');
 const enrollmentService = require('../services/enrollmentService');
+const { getCourseWithOrganisation, managementCoversCourse } = require('../services/courseScopeService');
 
 const router = express.Router();
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const rowList = (result) => (Array.isArray(result) ? result : (result?.rows || []));
+
+// Management (own organisation) or the super admin (every organisation) for this course.
+async function managesCourse(user, courseId) {
+  return managementCoversCourse(user, await getCourseWithOrganisation(courseId));
+}
 
 async function getCourseRow(courseId) {
   const q = isMySQL()
@@ -43,7 +49,7 @@ async function isCourseStudent(courseId, userId) {
 async function requireCourseStaff(req, res, next) {
   const courseId = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(courseId)) return res.status(400).json({ error: 'Invalid course id' });
-  if (req.user.role === 'management') return next();
+  if (await managesCourse(req.user, courseId)) return next();
   const allowed = await isCourseStaff(courseId, req.user.id);
   if (!allowed) return res.status(403).json({ error: 'You do not have access to this course' });
   next();
@@ -115,10 +121,18 @@ router.get('/', requireAuth, async (req, res) => {
             [req.user.id]
           );
       rows = rowList(q);
+    } else if (req.user.is_super_admin === true) {
+      rows = rowList(await query('SELECT * FROM courses ORDER BY created_at DESC'));
     } else if (req.user.role === 'management') {
-      const q = isMySQL()
-        ? await query('SELECT * FROM courses ORDER BY created_at DESC')
-        : await query('SELECT * FROM courses ORDER BY created_at DESC');
+      // Management sees their own organisation's courses, plus any they own or teach on.
+      const q = await query(
+        `SELECT DISTINCT c.* FROM courses c
+         LEFT JOIN users owner ON owner.id = c.owner_user_id
+         LEFT JOIN course_staff cs ON cs.course_id = c.id
+         WHERE c.organisation_id = $1 OR owner.organisation_id = $2 OR c.owner_user_id = $3 OR cs.user_id = $4
+         ORDER BY c.created_at DESC`,
+        [req.user.organisation_id, req.user.organisation_id, req.user.id, req.user.id]
+      );
       rows = rowList(q);
     } else {
       const q = isMySQL()
@@ -156,7 +170,8 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     const isStaff = await isCourseStaff(courseId, req.user.id);
     const isStudent = req.user.role === 'student' && (await isCourseStudent(courseId, req.user.id));
-    if (req.user.role !== 'management' && !isStaff && !isStudent) {
+    const isManager = await managesCourse(req.user, courseId);
+    if (!isManager && !isStaff && !isStudent) {
       return res.status(403).json({ error: 'You do not have access to this course' });
     }
 
@@ -168,7 +183,7 @@ router.get('/:id', requireAuth, async (req, res) => {
       : await query("SELECT COUNT(*) as count FROM course_enrollments WHERE course_id = $1 AND status = 'active'", [courseId]);
 
     // Modules in this course; a student only sees the ones they were given access to.
-    const modulesQ = isStudent && !isStaff && req.user.role !== 'management'
+    const modulesQ = isStudent && !isStaff && !isManager
       ? (isMySQL()
           ? await query(
               `SELECT m.id, m.name, (SELECT COUNT(*) FROM module_items mi WHERE mi.module_id = m.id) AS item_count
@@ -237,7 +252,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     const courseId = Number.parseInt(req.params.id, 10);
     const course = await getCourseRow(courseId);
     if (!course) return res.status(404).json({ error: 'Course not found' });
-    if (req.user.role !== 'management' && Number(course.owner_user_id) !== Number(req.user.id)) {
+    if (!(await managesCourse(req.user, courseId)) && Number(course.owner_user_id) !== Number(req.user.id)) {
       return res.status(403).json({ error: 'Only the course owner can delete it' });
     }
     if (isMySQL()) {
@@ -504,7 +519,7 @@ router.delete('/:id/grade-items/:itemId', requireAuth, requireCourseStaff, async
 router.get('/:id/gradebook', requireAuth, async (req, res) => {
   try {
     const courseId = Number.parseInt(req.params.id, 10);
-    const isStaff = req.user.role === 'management' || (await isCourseStaff(courseId, req.user.id));
+    const isStaff = (await managesCourse(req.user, courseId)) || (await isCourseStaff(courseId, req.user.id));
     const isStudent = req.user.role === 'student' && (await isCourseStudent(courseId, req.user.id));
     if (!isStaff && !isStudent) {
       return res.status(403).json({ error: 'You do not have access to this course gradebook' });

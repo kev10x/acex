@@ -9,6 +9,7 @@ const DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
+const isSuperAdminEmail = (email) => String(email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 const ROLE_ALIASES = {
   admin: 'management',
   user: 'lecturer'
@@ -102,6 +103,8 @@ const authenticateToken = async (req, res, next) => {
       department_id: user.department_id || null,
       department_name: user.department_name || null,
       features,
+      // The super admin works across every organisation.
+      is_super_admin: isSuperAdminEmail(user.email),
       impersonation: decoded.impersonatedBy
         ? {
             active: true,
@@ -162,6 +165,7 @@ const optionalAuth = async (req, res, next) => {
           department_id: user.department_id || null,
           department_name: user.department_name || null,
           features,
+          is_super_admin: isSuperAdminEmail(user.email),
           impersonation: decoded.impersonatedBy
             ? {
                 active: true,
@@ -269,7 +273,7 @@ const requireFeature = (featureName) => {
       if (!req.user) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      if (String(req.user.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL) {
+      if (isSuperAdminEmail(req.user.email)) {
         return next();
       }
       const result = await query(

@@ -48,6 +48,7 @@ function CourseRuleRow({ course, onSaved }: { course: CourseIntegrityRuleItem; o
     <tr className="align-top">
       <td className="px-4 py-3">
         <div className="font-medium text-gray-900">{course.name}</div>
+        {course.organisation_name && <div className="text-xs font-medium text-violet-700">{course.organisation_name}</div>}
         <div className="text-xs text-gray-500">
           {course.code ? `${course.code} · ` : ''}{course.assessment_count} published
           {course.unmonitored_count > 0 ? ` · ${course.unmonitored_count} not monitored` : ''}
@@ -122,7 +123,7 @@ export default function CourseIntegrityRules({ onChanged }: { onChanged?: () => 
   return (
     <SectionCard
       title="Course rules"
-      description="Default monitoring for assessments published to each course in your organisation. Lecturers see the rule when they publish."
+      description="Default monitoring for assessments published to each course. Lecturers see the rule when they publish."
       bodyClassName="p-0"
     >
       {error && <p className="px-5 py-4 text-sm text-red-700">{error}</p>}

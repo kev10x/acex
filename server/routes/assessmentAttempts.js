@@ -89,9 +89,13 @@ const findInProgressAttempt = async (token, userId) => {
   return attempt && attempt.status === 'in_progress' ? attempt : null;
 };
 
+// The super admin belongs to every organisation (flag set by the auth middleware).
+const isSuperAdmin = (user) => user?.is_super_admin === true;
+
 const canViewReports = (user, pub) => {
   if (!user || !pub) return false;
   if (Number(pub.user_id) === Number(user.id)) return true;
+  if (isSuperAdmin(user)) return true;
   return normalizeRole(user.role) === 'management'
     && user.organisation_id != null
     && Number(user.organisation_id) === Number(pub.owner_organisation_id);
@@ -465,7 +469,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
 
   const requireStaff = (req, res, next) => {
     const role = normalizeRole(req.user?.role);
-    if (role !== 'lecturer' && role !== 'management') {
+    if (role !== 'lecturer' && role !== 'management' && !isSuperAdmin(req.user)) {
       return res.status(403).json({ error: 'Only lecturers and management can view integrity reports' });
     }
     return next();
@@ -528,14 +532,22 @@ const createAttemptsRouter = ({ createSubmission }) => {
   // Assessments this user can report on: their own, plus their organisation's for management.
   router.get('/monitored', requireAuth, requireStaff, async (req, res) => {
     try {
-      const isManagement = normalizeRole(req.user.role) === 'management' && req.user.organisation_id != null;
+      const superAdmin = isSuperAdmin(req.user);
+      const isManagement = !superAdmin && normalizeRole(req.user.role) === 'management' && req.user.organisation_id != null;
+      const scope = superAdmin
+        ? { where: '1 = 1', params: [] }
+        : isManagement
+          ? { where: '(pa.user_id = $1 OR u.organisation_id = $2)', params: [req.user.id, req.user.organisation_id] }
+          : { where: 'pa.user_id = $1', params: [req.user.id] };
       const result = await query(
         `SELECT pa.id, pa.code, pa.assessment_json, pa.integrity_settings, pa.created_at, pa.user_id,
-                u.name AS owner_name, u.email AS owner_email
-         FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id
-         WHERE ${isManagement ? '(pa.user_id = $1 OR u.organisation_id = $2)' : 'pa.user_id = $1'}
+                u.name AS owner_name, u.email AS owner_email, o.name AS owner_organisation_name
+         FROM published_assessments pa
+         LEFT JOIN users u ON u.id = pa.user_id
+         LEFT JOIN organisations o ON o.id = u.organisation_id
+         WHERE ${scope.where}
          ORDER BY pa.created_at DESC`,
-        isManagement ? [req.user.id, req.user.organisation_id] : [req.user.id]
+        scope.params
       );
       const publishedRows = rowsOf(result);
       const counts = new Map();
@@ -564,7 +576,9 @@ const createAttemptsRouter = ({ createSubmission }) => {
           code: row.code,
           title: assessment.title || `Assessment ${row.id}`,
           created_at: row.created_at,
-          owner_name: Number(row.user_id) === Number(req.user.id) ? null : (row.owner_name || row.owner_email),
+          owner_name: Number(row.user_id) === Number(req.user.id)
+            ? null
+            : [row.owner_name || row.owner_email, superAdmin ? row.owner_organisation_name : null].filter(Boolean).join(', '),
           settings: integrity.parseStoredSettings(row.integrity_settings),
           attempts: counts.get(Number(row.id)) || { total: 0, in_progress: 0, submitted: 0, exited: 0, review_suggested: 0, review_needed: 0 }
         };
@@ -652,7 +666,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
   // ------------------------------------------------------------ course rules
 
   const requireManagement = (req, res, next) => {
-    if (normalizeRole(req.user?.role) !== 'management') {
+    if (normalizeRole(req.user?.role) !== 'management' && !isSuperAdmin(req.user)) {
       return res.status(403).json({ error: 'Only management can set course rules' });
     }
     return next();
@@ -663,22 +677,26 @@ const createAttemptsRouter = ({ createSubmission }) => {
      FROM courses c LEFT JOIN users u ON u.id = c.owner_user_id WHERE c.id = $1`,
     [courseId]
   ));
-  const inUserOrganisation = (user, course) => Boolean(course) && user.organisation_id != null && (
+  const inUserOrganisation = (user, course) => Boolean(course) && (isSuperAdmin(user) || (user.organisation_id != null && (
     Number(course.organisation_id) === Number(user.organisation_id)
     || Number(course.owner_organisation_id) === Number(user.organisation_id)
-  );
+  )));
 
   router.get('/course-rules', requireAuth, requireManagement, async (req, res) => {
     try {
-      if (req.user.organisation_id == null) return res.json({ success: true, courses: [] });
+      const superAdmin = isSuperAdmin(req.user);
+      if (!superAdmin && req.user.organisation_id == null) return res.json({ success: true, courses: [] });
       const courses = rowsOf(await query(
-        `SELECT c.id, c.name, c.code, c.integrity_policy,
+        `SELECT c.id, c.name, c.code, c.integrity_policy, COALESCE(co.name, uo.name) AS organisation_name,
                 (SELECT COUNT(*) FROM published_assessments pa WHERE pa.course_id = c.id) AS assessment_count,
                 (SELECT COUNT(*) FROM published_assessments pa WHERE pa.course_id = c.id AND pa.integrity_settings IS NULL) AS unmonitored_count
-         FROM courses c LEFT JOIN users u ON u.id = c.owner_user_id
-         WHERE c.organisation_id = $1 OR u.organisation_id = $2
-         ORDER BY c.name`,
-        [req.user.organisation_id, req.user.organisation_id]
+         FROM courses c
+         LEFT JOIN users u ON u.id = c.owner_user_id
+         LEFT JOIN organisations co ON co.id = c.organisation_id
+         LEFT JOIN organisations uo ON uo.id = u.organisation_id
+         WHERE ${superAdmin ? '1 = 1' : '(c.organisation_id = $1 OR u.organisation_id = $2)'}
+         ORDER BY organisation_name, c.name`,
+        superAdmin ? [] : [req.user.organisation_id, req.user.organisation_id]
       ));
       res.json({
         success: true,
@@ -686,6 +704,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
           id: course.id,
           name: course.name,
           code: course.code,
+          organisation_name: superAdmin ? (course.organisation_name || null) : undefined,
           policy: coursePolicy.parsePolicy(course.integrity_policy),
           assessment_count: Number(course.assessment_count || 0),
           unmonitored_count: Number(course.unmonitored_count || 0)
@@ -803,10 +822,41 @@ const createAttemptsRouter = ({ createSubmission }) => {
     res.json({ success: true, deleted });
   }));
 
+  /**
+   * Which organisation's webcam policy a request is about:
+   * - published_id: the organisation owning that assessment (anyone who may view its reports);
+   * - organisation_id: any organisation for the super admin, otherwise only one's own;
+   * - default: the user's own organisation.
+   */
+  const resolvePolicyOrganisation = async (req, source) => {
+    if (source.published_id != null) {
+      const pub = await loadPublishedById(Number(source.published_id));
+      if (!pub || !canViewReports(req.user, pub)) return { status: 404 };
+      return { organisationId: pub.owner_organisation_id };
+    }
+    if (source.organisation_id != null) {
+      const organisationId = Number(source.organisation_id);
+      if (!isSuperAdmin(req.user) && organisationId !== Number(req.user.organisation_id)) return { status: 404 };
+      return { organisationId };
+    }
+    return { organisationId: req.user.organisation_id };
+  };
+
   // Organisation webcam policy: readable by staff, changed by management after the POPIA acknowledgements.
   router.get('/webcam-policy', requireAuth, requireStaff, async (req, res) => {
     try {
-      res.json({ success: true, policy: await webcam.getOrganisationPolicy(req.user.organisation_id), acknowledgements: webcam.ACKNOWLEDGEMENTS });
+      const target = await resolvePolicyOrganisation(req, req.query);
+      if (target.status) return res.status(target.status).json({ error: 'Not found' });
+      const organisations = isSuperAdmin(req.user)
+        ? rowsOf(await query('SELECT id, name FROM organisations ORDER BY name', [])).map((row) => ({ id: row.id, name: row.name }))
+        : undefined;
+      res.json({
+        success: true,
+        organisation_id: target.organisationId ?? null,
+        policy: await webcam.getOrganisationPolicy(target.organisationId),
+        acknowledgements: webcam.ACKNOWLEDGEMENTS,
+        organisations
+      });
     } catch (error) {
       console.error('Webcam policy read error:', error);
       res.status(500).json({ error: 'Failed to load webcam policy' });
@@ -815,13 +865,16 @@ const createAttemptsRouter = ({ createSubmission }) => {
 
   router.put('/webcam-policy', requireAuth, requireManagement, async (req, res) => {
     try {
-      if (req.user.organisation_id == null) {
+      const target = await resolvePolicyOrganisation(req, { organisation_id: req.body?.organisation_id });
+      if (target.status) return res.status(target.status).json({ error: 'Organisation not found' });
+      if (target.organisationId == null) {
         return res.status(400).json({ error: 'Your account is not linked to an organisation.' });
       }
       const result = webcam.buildPolicy(req.body, req.user);
       if (result.error) return res.status(400).json({ error: result.error, missing: result.missing });
-      await query('UPDATE organisations SET webcam_policy = $1 WHERE id = $2', [JSON.stringify(result.policy), req.user.organisation_id]);
+      await query('UPDATE organisations SET webcam_policy = $1 WHERE id = $2', [JSON.stringify(result.policy), target.organisationId]);
       await audit(req, result.policy.allowed ? 'webcam_policy_accepted' : 'webcam_policy_disabled', {
+        organisation_id: target.organisationId,
         allow_video: result.policy.allow_video,
         retention_days: result.policy.retention_days
       });
