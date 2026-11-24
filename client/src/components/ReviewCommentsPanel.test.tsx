@@ -22,3 +22,26 @@ describe('ReviewCommentsPanel', () => {
     expect(screen.getByText('Synthesise the sources instead of listing them.')).toBeTruthy();
   });
 });
+
+describe('ReviewCommentsPanel editing', () => {
+  it('edits, deletes and adds comments, then saves the list', async () => {
+    const saved: unknown[] = [];
+    render(<ReviewCommentsPanel comments={comments} onSave={async (list) => { saved.push(list); }} />);
+    fireEvent.click(screen.getByText('Edit comments'));
+
+    fireEvent.change(screen.getByLabelText('Comment 1'), { target: { value: 'Cite Statistics SA for this figure.' } });
+    fireEvent.click(screen.getByLabelText('Delete comment 2'));
+    fireEvent.click(screen.getByText('Add comment'));
+    fireEvent.click(screen.getByText('Save comments'));
+    expect(await screen.findByRole('alert')).toBeTruthy(); // the new comment is empty
+    expect(saved).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText('Comment 2'), { target: { value: 'Number the tables.' } });
+    fireEvent.click(screen.getByText('Save comments'));
+    await screen.findByText('Edit comments');
+    const [list] = saved as Array<Array<Record<string, unknown>>>;
+    expect(list.map((c) => c.comment)).toEqual(['Cite Statistics SA for this figure.', 'Number the tables.']);
+    expect(list[0]).toMatchObject({ id: 1, quote: 'within two years of appointment', page: 3, edited: true });
+    expect(list[1]).toMatchObject({ id: null, edited: true });
+  });
+});

@@ -17,6 +17,7 @@ import StatePanel from './feedback/StatePanel';
 import { DEFAULT_MARKING_LEVEL, EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
 import FeedbackChatWidget from './FeedbackChatWidget';
 import ReviewCommentsPanel from './ReviewCommentsPanel';
+import EditableFeedback from './EditableFeedback';
 
 type GroupByOption = 'none' | 'rubric' | 'date' | 'folder';
 
@@ -376,6 +377,12 @@ const ResultsDashboard: React.FC = () => {
   const applyResultPatch = (id: number, patch: Partial<MarkingResult>) => {
     setAllResults((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     setSelectedResult((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  // Lecturer edits to generated comments; the server also rebuilds the Word/PDF outputs.
+  const saveComments = async (result: MarkingResult, data: Parameters<typeof resultsAPI.saveComments>[1]) => {
+    const res = await resultsAPI.saveComments(result.id, data);
+    applyResultPatch(result.id, { scores: res.data.scores, review_comments: res.data.review_comments });
   };
 
   const handleToggleModerationFlag = async (result: MarkingResult) => {
@@ -1927,12 +1934,15 @@ const ResultsDashboard: React.FC = () => {
                               </p>
                             </div>
                           )}
-                          {score.feedback && (
+                          {(score.feedback || canModerate) && (
                             <div className="mt-3 pt-3 border-t border-gray-100">
-                            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed">
-                              {score.feedback}
-                            </p>
-                          </div>
+                              <EditableFeedback
+                                text={score.feedback || ''}
+                                label={score.criterion_name}
+                                edited={score.feedback_edited}
+                                onSave={canModerate ? (text) => saveComments(selectedResult, { criterion_feedback: { [score.criterion_name]: text } }) : undefined}
+                              />
+                            </div>
                           )}
                         </div>
                       ))}
@@ -2088,10 +2098,11 @@ const ResultsDashboard: React.FC = () => {
                   </div>
                 )}
 
-                {Array.isArray(selectedResult.review_comments) && selectedResult.review_comments.length > 0 && (
+                {((Array.isArray(selectedResult.review_comments) && selectedResult.review_comments.length > 0) || canModerate) && (
                   <ReviewCommentsPanel
-                    comments={selectedResult.review_comments}
+                    comments={selectedResult.review_comments || []}
                     title={[selectedResult.student_name, selectedResult.filename].filter(Boolean).join(' – ') || undefined}
+                    onSave={canModerate ? (comments) => saveComments(selectedResult, { review_comments: comments }) : undefined}
                   />
                 )}
 

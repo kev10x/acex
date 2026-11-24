@@ -13,6 +13,9 @@ const { createGenerationJob, updateGenerationJob, JOB_STATUS } = require('../ser
 const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 const { isDocxDocument } = require('../services/documentExtractService');
 const { addCommentsToDocx } = require('../services/docxCommenter');
+const { annotatePdfWithIssues, buildReviewIssues, findPhrasePages, reviewAnchorPhrase } = require('../services/pdfAnnotator');
+const { buildHeuristicAnchorsMap, buildIssuesWithAnchors } = require('../services/annotationAnchorService');
+const { normalizeEditedComments } = require('../services/reviewCommentsService');
 
 const router = express.Router();
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'kkativu@gmail.com').trim().toLowerCase();
@@ -402,6 +405,115 @@ router.put('/:id/lecturer-override', requireAuth, requireRoles(['lecturer', 'man
   } catch (error) {
     console.error('Lecturer override error:', error);
     res.status(500).json({ error: 'Failed to save lecturer override' });
+  }
+});
+
+/**
+ * Edit the generated comments: the detailed review comments (edit, delete, add, reorder) and the
+ * feedback text of each criterion (marks are unchanged). The commented Word document and
+ * annotated PDF are rebuilt from the edited text.
+ */
+router.put('/:id/comments', requireAuth, requireRoles(['lecturer', 'management']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { review_comments: reviewInput, criterion_feedback: feedbackInput } = req.body || {};
+    const row = rowsOf(await query(
+      `SELECT mr.*, a.filename, a.file_path, a.extracted_text
+       FROM marking_results mr JOIN assignments a ON a.id = mr.assignment_id
+       WHERE mr.id = ? AND mr.user_id = ?`,
+      [id, req.user.id]
+    ))[0];
+    if (!row) return res.status(404).json({ error: 'Result not found' });
+    const current = mapResultRow(row);
+
+    let reviewComments = current.review_comments || null;
+    if (reviewInput !== undefined) {
+      const edited = normalizeEditedComments(reviewInput);
+      if (edited.error) return res.status(400).json({ error: edited.error });
+      reviewComments = edited.comments.length ? edited.comments : null;
+    }
+
+    let scores = current.scores;
+    if (feedbackInput !== undefined) {
+      if (!feedbackInput || typeof feedbackInput !== 'object' || Array.isArray(feedbackInput)) {
+        return res.status(400).json({ error: 'criterion_feedback must map criterion names to feedback' });
+      }
+      const known = new Set(scores.map((score) => score.criterion_name));
+      const unknown = Object.keys(feedbackInput).filter((name) => !known.has(name));
+      if (unknown.length) return res.status(400).json({ error: `Unknown criterion: ${unknown[0]}` });
+      scores = scores.map((score) => (Object.prototype.hasOwnProperty.call(feedbackInput, score.criterion_name)
+        ? { ...score, feedback: String(feedbackInput[score.criterion_name] ?? '').slice(0, 5000), feedback_edited: true }
+        : score));
+    }
+
+    const isPdf = /\.pdf$/i.test(row.filename || row.file_path || '');
+    const fileOnDisk = row.file_path && fs.existsSync(row.file_path);
+
+    // Page numbers follow edited quotes in PDFs.
+    if (reviewComments && isPdf && fileOnDisk) {
+      try {
+        const pages = await findPhrasePages(row.file_path, reviewComments.map((c) => reviewAnchorPhrase(c.quote)));
+        for (const comment of reviewComments) {
+          const page = pages.get(reviewAnchorPhrase(comment.quote));
+          if (page) comment.page = page;
+        }
+      } catch (error) {
+        console.warn('Could not update review comment pages (non-fatal):', error.message);
+      }
+    }
+
+    await query('UPDATE marking_results SET scores = ?, review_comments = ? WHERE id = ?', [
+      JSON.stringify(scores),
+      reviewComments ? JSON.stringify(reviewComments) : null,
+      id
+    ]);
+    const updated = { ...current, scores, review_comments: reviewComments };
+
+    // Rebuild the outputs that show these comments.
+    const outputs = {};
+    if (fileOnDisk && isDocxDocument(row.filename || row.file_path)) {
+      const commentedPath = row.file_path.replace(/\.docx$/i, '.marked-comments.docx');
+      if (fs.existsSync(commentedPath)) {
+        try {
+          await addCommentsToDocx(row.file_path, commentedPath, updated);
+          outputs.commented_docx = 'updated';
+        } catch (error) {
+          fs.rmSync(commentedPath, { force: true });
+          outputs.commented_docx = 'removed';
+        }
+      }
+    }
+    if (fileOnDisk && isPdf) {
+      const annotatedPath = row.file_path.replace(/\.pdf$/i, '.annotated.pdf');
+      if (fs.existsSync(annotatedPath)) {
+        try {
+          const anchors = buildHeuristicAnchorsMap(row.extracted_text || '', updated);
+          const issues = [...buildIssuesWithAnchors(updated, anchors), ...buildReviewIssues(reviewComments)];
+          await annotatePdfWithIssues(row.file_path, annotatedPath, issues);
+          outputs.annotated_pdf = 'updated';
+        } catch (error) {
+          console.warn('Annotated PDF rebuild failed after comment edit:', error.message);
+          outputs.annotated_pdf = 'failed';
+        }
+      }
+    }
+
+    await recordAuditEvent({
+      user_id: req.user.id,
+      category: 'marking',
+      action: 'marking_comments_edited',
+      organisation_id: req.user.organisation_id,
+      metadata: getRequestMetadata(req, {
+        result_id: Number(id),
+        review_comments: reviewComments ? reviewComments.length : 0,
+        criteria_edited: feedbackInput ? Object.keys(feedbackInput).length : 0
+      })
+    });
+
+    res.json({ success: true, scores, review_comments: reviewComments, outputs });
+  } catch (error) {
+    console.error('Edit comments error:', error);
+    res.status(500).json({ error: 'Failed to save the comments' });
   }
 });
 

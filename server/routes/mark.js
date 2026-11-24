@@ -4,8 +4,15 @@ const path = require('path');
 const { query } = require('../database/connection');
 const aiConfig = require('../config/ai-config');
 const aiService = require('../services/aiService');
-const { annotatePdfWithIssues, buildIssuesFromMarking, buildReviewIssues, findPhrasePages, reviewAnchorPhrase } = require('../services/pdfAnnotator');
+const { annotatePdfWithIssues, buildReviewIssues, findPhrasePages, reviewAnchorPhrase } = require('../services/pdfAnnotator');
 const { attachReviewComments } = require('../services/reviewCommentsService');
+const {
+  chunkArray,
+  getDocumentAnchorCandidates,
+  rankAnchorCandidates,
+  buildHeuristicAnchorsMap,
+  buildIssuesWithAnchors
+} = require('../services/annotationAnchorService');
 const PDFReportGenerator = require('../services/pdfReportGenerator');
 const { requireAuth } = require('../middleware/auth');
 const {
@@ -218,16 +225,9 @@ const renderMarkingOutput = async ({ markingWithId, markingResult, assignment, r
     try {
       console.log(`📝 Starting PDF annotation for assignment ${assignment.id}...`);
       const batchDocType = annotationDocType || 'treatise';
-      const config = aiConfig.getConfig(batchDocType);
-      const tpmLimit = 30000;
-      const requestMaxTokens = Math.min(config.maxTokens, 6000);
-      const promptBudgetTokens = Math.max(1000, tpmLimit - requestMaxTokens - 1000);
-      const maxPromptCharsByTPM = promptBudgetTokens * 4;
-      const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByTPM, 8000);
-      const essayForAnchors = assignmentText.length > maxAllowedChars ? assignmentText.substring(0, maxAllowedChars) : assignmentText;
 
       console.log('🔍 Generating anchor phrases...');
-      const anchorsMap = await generateAnchorPhrases(essayForAnchors, markingResult, batchDocType);
+      const anchorsMap = await generateAnchorPhrases(assignmentText, markingResult, batchDocType);
       console.log('✅ Anchor phrases generated:', Object.keys(anchorsMap || {}).length, 'criteria');
 
       console.log('🔨 Building issues from marking result...');
@@ -569,120 +569,46 @@ router.post('/debug', requireAuth, async (req, res) => {
 // Anchor phrase utilities (used by /single and /multiple route handlers)
 // ---------------------------------------------------------------------------
 
-const ANCHOR_STOP_WORDS = new Set([
-  'about', 'after', 'again', 'against', 'because', 'before', 'between', 'could', 'does',
-  'doing', 'during', 'each', 'from', 'have', 'having', 'into', 'more', 'most', 'other',
-  'over', 'should', 'some', 'such', 'than', 'that', 'their', 'there', 'these', 'they',
-  'this', 'those', 'through', 'under', 'very', 'what', 'when', 'where', 'which', 'while',
-  'with', 'would', 'your', 'student', 'criterion', 'feedback'
-]);
-
-const chunkArray = (items, chunkSize) => {
-  const result = [];
-  for (let index = 0; index < items.length; index += chunkSize) {
-    result.push(items.slice(index, index + chunkSize));
-  }
-  return result;
-};
-
-const extractAnchorKeywords = (...values) => {
-  const seen = new Set();
-  const keywords = [];
-
-  values
-    .map((value) => String(value || '').toLowerCase())
-    .join(' ')
-    .match(/[a-z0-9]{4,}/g)
-    ?.forEach((word) => {
-      if (seen.has(word) || ANCHOR_STOP_WORDS.has(word)) return;
-      seen.add(word);
-      keywords.push(word);
-    });
-
-  return keywords.slice(0, 12);
-};
-
-const getDocumentAnchorCandidates = (documentText) => {
-  const rawSegments = String(documentText || '')
-    .split(/\n+/)
-    .flatMap((line) => line.split(/(?<=[.!?;:])\s+/))
-    .map((segment) => segment.replace(/\s+/g, ' ').trim())
-    .filter((segment) => segment.length >= 20 && segment.length <= 160);
-
-  const unique = [];
-  const seen = new Set();
-  for (const segment of rawSegments) {
-    const normalized = segment.toLowerCase();
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    unique.push(segment);
-    if (unique.length >= 500) break;
-  }
-
-  return unique;
-};
-
-const buildHeuristicAnchorsMap = (documentText, markingResult) => {
-  const candidates = getDocumentAnchorCandidates(documentText);
-  const map = new Map();
-
-  for (const score of markingResult?.scores || []) {
-    const keywords = extractAnchorKeywords(score.criterion_name, score.feedback);
-    if (keywords.length === 0) continue;
-
-    const ranked = candidates
-      .map((candidate) => {
-        const lower = candidate.toLowerCase();
-        const keywordHits = keywords.reduce((sum, keyword) => sum + (lower.includes(keyword) ? 1 : 0), 0);
-        const phraseBoost = lower.includes(String(score.criterion_name || '').toLowerCase()) ? 1 : 0;
-        const scoreValue = keywordHits * 10 + phraseBoost - Math.abs(candidate.length - 90) / 40;
-        return { candidate, scoreValue };
-      })
-      .filter((item) => item.scoreValue > 0)
-      .sort((a, b) => b.scoreValue - a.scoreValue)
-      .slice(0, 3)
-      .map((item) => item.candidate);
-
-    if (ranked.length > 0) {
-      map.set(score.criterion_name, ranked);
-    }
-  }
-
-  return map;
-};
-
-// Generate short anchor quotes from the document for each criterion to enable pinpoint annotations
 const generateAnchorPhrases = async (documentText, markingResult, documentType = 'treatise') => {
-  const heuristicAnchors = buildHeuristicAnchorsMap(documentText, markingResult);
+  const candidates = getDocumentAnchorCandidates(documentText);
+  const heuristicAnchors = buildHeuristicAnchorsMap(documentText, markingResult, candidates);
+  const normalizedDocument = String(documentText || '').replace(/\s+/g, ' ').toLowerCase();
+  const inDocument = (quote) => normalizedDocument.includes(String(quote).replace(/\s+/g, ' ').trim().toLowerCase());
 
   try {
     const config = aiConfig.getConfig(documentType);
-
-    const maxEssayChars = Math.min(4000, documentText?.length || 0);
-    const essaySnippet = documentText?.substring(0, maxEssayChars) || '';
-
-    const compactScores = (markingResult?.scores || []).map(s => ({
-      criterion_name: s.criterion_name,
-      feedback: (s.feedback || '').slice(0, 220)
-    }));
-
     const map = new Map();
     const anchorConfig = aiConfig.getTaskConfig('anchorExtraction', config.provider);
-    const scoreChunks = chunkArray(compactScores, 6);
+    const scoreChunks = chunkArray(markingResult?.scores || [], 6);
 
     for (const scoreChunk of scoreChunks) {
+      // The passages that best match these criteria, from anywhere in the document (not just its start).
+      const passages = [];
+      for (const score of scoreChunk) {
+        for (const candidate of rankAnchorCandidates(candidates, score, 8)) {
+          if (!passages.includes(candidate)) passages.push(candidate);
+        }
+      }
+      const excerpt = passages.length
+        ? passages.join('\n').slice(0, 8000)
+        : String(documentText || '').slice(0, 4000);
+      const compactScores = scoreChunk.map((s) => ({
+        criterion_name: s.criterion_name,
+        feedback: (s.feedback || '').slice(0, 220)
+      }));
+
       const anchorPrompt = `Return exact anchor quotes for PDF comments.
 Use only the excerpt below.
-For each criterion, return up to 2 exact quotes copied verbatim from the excerpt.
+For each criterion, return up to 2 exact quotes copied verbatim from the excerpt, choosing the text the feedback is about.
 Each quote must be 8 to 120 characters.
 Return JSON only:
 {"anchors":[{"criterion_name":"...","quotes":["exact quote"]}]}
 
 EXCERPT:
-${essaySnippet}
+${excerpt}
 
 CRITERIA:
-${JSON.stringify(scoreChunk)}`;
+${JSON.stringify(compactScores)}`;
 
       const result = await aiService.createCompletionWithRetry({
         provider: anchorConfig.provider,
@@ -692,11 +618,10 @@ ${JSON.stringify(scoreChunk)}`;
         maxTokens: anchorConfig.maxTokens
       }, 2);
 
-      const raw = result.content || '';
-      const parsed = parseAiJsonResponse(raw).parsed;
+      const parsed = parseAiJsonResponse(result.content || '').parsed;
       for (const item of parsed.anchors || []) {
         if (!item?.criterion_name || !Array.isArray(item.quotes)) continue;
-        const filteredQuotes = item.quotes.filter((q) => typeof q === 'string' && q.length >= 8 && q.length <= 160);
+        const filteredQuotes = item.quotes.filter((q) => typeof q === 'string' && q.length >= 8 && q.length <= 160 && inDocument(q));
         if (filteredQuotes.length > 0) {
           map.set(item.criterion_name, filteredQuotes.slice(0, 2));
         }
@@ -715,24 +640,6 @@ ${JSON.stringify(scoreChunk)}`;
     return heuristicAnchors;
   }
 };
-
-function buildIssuesWithAnchors(markingResult, anchorsMap) {
-  if (!(anchorsMap && anchorsMap.size)) {
-    return buildIssuesFromMarking(markingResult);
-  }
-  const issues = [];
-  for (const s of markingResult.scores || []) {
-    const note = `${s.criterion_name}: ${s.feedback}`;
-    const anchorPhrases = anchorsMap.get(s.criterion_name) || [];
-    if (anchorPhrases.length === 0) {
-      const fallback = buildIssuesFromMarking({ scores: [s] });
-      issues.push(...fallback);
-    } else {
-      issues.push({ anchorPhrases, note });
-    }
-  }
-  return issues;
-}
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -1000,16 +907,9 @@ router.post('/single', requireAuth, async (req, res) => {
       } else {
         try {
           console.log('📝 Starting PDF annotation process...');
-          const config = aiConfig.getConfig(docType || 'treatise');
-          const tpmLimit = 30000;
-          const requestMaxTokens = Math.min(config.maxTokens, 6000);
-          const promptBudgetTokens = Math.max(1000, tpmLimit - requestMaxTokens - 1000);
-          const maxPromptCharsByTPM = promptBudgetTokens * 4;
-          const maxAllowedChars = Math.min(config.maxTextLength, maxPromptCharsByTPM, 8000);
-          const essayForAnchors = assignmentText.length > maxAllowedChars ? assignmentText.substring(0, maxAllowedChars) : assignmentText;
 
           console.log('🔍 Generating anchor phrases...');
-          const anchorsMap = await generateAnchorPhrases(essayForAnchors, markingResult, docType || 'treatise');
+          const anchorsMap = await generateAnchorPhrases(assignmentText, markingResult, docType || 'treatise');
           console.log('✅ Anchor phrases generated:', Object.keys(anchorsMap || {}).length, 'criteria');
 
           console.log('🔨 Building issues from marking result...');

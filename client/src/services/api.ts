@@ -242,6 +242,7 @@ export interface MarkingScore {
   rubric_basis?: string; // which rubric descriptor/level drove this score
   feedback: string;
   confidence?: number; // 0-100 confidence level for this criterion
+  feedback_edited?: boolean; // changed by the lecturer after marking
 }
 
 export interface Correction {
@@ -271,6 +272,7 @@ export interface ReviewComment {
   category: string;
   severity: 'major' | 'minor';
   criterion: string | null;
+  edited?: boolean;
 }
 
 export interface MarkingResult {
@@ -516,6 +518,9 @@ export const resultsAPI = {
   getFeedbackVideoContent: (resultId: number) => api.get(`/results/feedback-video/${resultId}/content`, { responseType: 'blob' }),
   setModerationFlag: (id: number, data: { flagged: boolean; moderation_reason?: string }) =>
     api.post(`/results/${id}/moderation-flag`, data),
+  // Edit generated comments: detailed review comments (whole list) and/or criterion feedback text.
+  saveComments: (id: number, data: { review_comments?: Partial<ReviewComment>[]; criterion_feedback?: Record<string, string> }) =>
+    api.put<{ success: boolean; scores: MarkingResult['scores']; review_comments: ReviewComment[] | null; outputs: Record<string, string> }>(`/results/${id}/comments`, data),
   saveLecturerOverride: (id: number, data: { custom_feedback?: string | null; override_total_score?: number | null; moderation_reason?: string | null }) =>
     api.put(`/results/${id}/lecturer-override`, data),
   chat: (id: number, data: { question: string; history?: Array<{ role: string; content: string }> }) =>

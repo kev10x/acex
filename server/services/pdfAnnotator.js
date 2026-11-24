@@ -19,7 +19,7 @@ function phrasePattern(phrase) {
 
 async function extractAnchorsWithPositions(pdfPath, anchorPhrases, maxMatchesPerPhrase = 3) {
   const pdfjsLib = await getPdfJs();
-  const pdfData = fs.readFileSync(pdfPath);
+  const pdfData = new Uint8Array(fs.readFileSync(pdfPath));
   const loadingTask = pdfjsLib.getDocument({ data: pdfData, useSystemFonts: true });
   const pdf = await loadingTask.promise;
 
@@ -138,6 +138,11 @@ async function annotatePdfWithIssues(inputPath, outputPath, issues) {
     console.warn('Anchor extraction failed, proceeding with page-level notes only:', error.message);
   }
 
+  const foundPhrases = new Set(positions.map((pos) => normalizePhrase(pos.phrase)));
+  const unplacedIssues = issues.filter((issue) =>
+    !(issue.anchorPhrases || []).some((phrase) => foundPhrases.has(normalizePhrase(phrase)))
+  );
+
   const byPage = new Map();
   for (const pos of positions) {
     if (!byPage.has(pos.pageIndex)) byPage.set(pos.pageIndex, []);
@@ -173,22 +178,17 @@ async function annotatePdfWithIssues(inputPath, outputPath, issues) {
       });
     });
 
-    let pageIssues = [];
-    if (pagePositions.length > 0) {
-      pageIssues = issues.filter((issue) =>
-        (issue.anchorPhrases || []).some((phrase) =>
-          pagePositions.some((pos) => normalizePhrase(pos.phrase) === normalizePhrase(phrase))
+    // Each note goes on the page(s) where its text was found; notes not found anywhere go on page 1.
+    let issuesToShow = pagePositions.length > 0
+      ? issues.filter((issue) =>
+          (issue.anchorPhrases || []).some((phrase) =>
+            pagePositions.some((pos) => normalizePhrase(pos.phrase) === normalizePhrase(phrase))
+          )
         )
-      );
-    } else if (pageIndex === 0) {
-      pageIssues = issues;
-    }
+      : [];
+    if (pageIndex === 0) issuesToShow = [...issuesToShow, ...unplacedIssues];
+    if (issuesToShow.length === 0) continue;
 
-    if (pageIssues.length === 0 && !(pageIndex === 0 && issues.length > 0)) {
-      continue;
-    }
-
-    const issuesToShow = pageIssues.length > 0 ? pageIssues : issues;
     const pageDict = page.node;
     let annotsArray = pageDict.get(PDFName.of('Annots'));
     if (!annotsArray) {

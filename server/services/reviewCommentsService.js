@@ -218,6 +218,34 @@ const attachReviewComments = async ({ markingResult, text, documentType, rubric,
   return markingResult;
 };
 
+/**
+ * A lecturer's edited list of comments, validated. Comments are renumbered in the order given;
+ * returns { comments } or { error }.
+ */
+const normalizeEditedComments = (input) => {
+  if (!Array.isArray(input)) return { error: 'review_comments must be a list' };
+  if (input.length > 300) return { error: 'Too many comments (at most 300)' };
+  const comments = [];
+  for (const item of input) {
+    const comment = String(item?.comment ?? '').trim().slice(0, 1000);
+    if (!comment) return { error: 'Every comment needs some text' };
+    const page = Number.parseInt(item?.page, 10);
+    const category = String(item?.category || '').toLowerCase();
+    comments.push({
+      id: comments.length + 1,
+      section: cleanText(item?.section, 200) || null,
+      page: Number.isFinite(page) && page > 0 ? page : null,
+      quote: cleanText(item?.quote, 300) || null,
+      comment,
+      category: CATEGORIES.includes(category) ? category : 'argument',
+      severity: item?.severity === 'major' ? 'major' : 'minor',
+      criterion: cleanText(item?.criterion, 80) || null,
+      ...(item?.edited || item?.id == null ? { edited: true } : {})
+    });
+  }
+  return { comments };
+};
+
 /** One-line reference for a comment: "Chapter 2 › 2.3 Method, p. 14". */
 const commentLocation = (comment) => [comment?.section, comment?.page ? `p. ${comment.page}` : null].filter(Boolean).join(', ');
 
@@ -226,6 +254,8 @@ module.exports = {
   generateReviewComments,
   attachReviewComments,
   commentLocation,
+  normalizeEditedComments,
+  CATEGORIES,
   findHeadings,
   sectionAt,
   locateQuote,
