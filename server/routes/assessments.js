@@ -1811,8 +1811,8 @@ router.get('/take/:code', async (req, res) => {
     const { code } = req.params;
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT pa.assessment_json, pa.rubric_id, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = ?', [code])
-      : await query('SELECT pa.assessment_json, pa.rubric_id, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = $1', [code]);
+      ? await query('SELECT pa.assessment_json, pa.rubric_id, pa.integrity_settings, COALESCE(c.organisation_id, u.organisation_id) AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.code = ?', [code])
+      : await query('SELECT pa.assessment_json, pa.rubric_id, pa.integrity_settings, COALESCE(c.organisation_id, u.organisation_id) AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.code = $1', [code]);
     const rows = result.rows || result;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) {
@@ -1863,8 +1863,8 @@ router.get('/audio/:code/:questionIndex', optionalAuth, async (req, res) => {
     }
 
     const result = isMySQLDb()
-      ? await query('SELECT pa.id, pa.user_id, pa.assessment_json, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = ?', [code])
-      : await query('SELECT pa.id, pa.user_id, pa.assessment_json, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = $1', [code]);
+      ? await query('SELECT pa.id, pa.user_id, pa.assessment_json, pa.integrity_settings, COALESCE(c.organisation_id, u.organisation_id) AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.code = ?', [code])
+      : await query('SELECT pa.id, pa.user_id, pa.assessment_json, pa.integrity_settings, COALESCE(c.organisation_id, u.organisation_id) AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN courses c ON c.id = pa.course_id WHERE pa.code = $1', [code]);
     const rows = result.rows || result;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) {

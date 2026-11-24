@@ -74,8 +74,11 @@ const loadPublishedByCode = async (code) => firstRow(await query(
 
 const loadPublishedById = async (id) => firstRow(await query(
   `SELECT pa.id, pa.code, pa.assessment_json, pa.rubric_id, pa.batch_id, pa.user_id, pa.integrity_settings, pa.course_id,
-          u.organisation_id AS owner_organisation_id
-   FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id
+          u.organisation_id AS owner_organisation_id,
+          COALESCE(c.organisation_id, u.organisation_id) AS policy_organisation_id
+   FROM published_assessments pa
+   LEFT JOIN users u ON u.id = pa.user_id
+   LEFT JOIN courses c ON c.id = pa.course_id
    WHERE pa.id = $1`,
   [id]
 ));
@@ -101,11 +104,15 @@ const canViewReports = (user, pub) => {
     && Number(user.organisation_id) === Number(pub.owner_organisation_id);
 };
 
-// Stored settings limited by the owner's organisation webcam policy (revoking it turns webcam off).
+// The organisation whose webcam policy applies: the course's organisation, else the publisher's
+// (the super admin may publish without belonging to an organisation).
+const policyOrganisationOf = (pub) => pub?.policy_organisation_id ?? pub?.owner_organisation_id ?? null;
+
+// Stored settings limited by the organisation's webcam policy (revoking it turns webcam off).
 const effectiveSettings = async (pub) => {
   const settings = integrity.parseStoredSettings(pub?.integrity_settings);
   if (!settings) return null;
-  return webcam.clampSettings(settings, await webcam.getOrganisationPolicy(pub.owner_organisation_id));
+  return webcam.clampSettings(settings, await webcam.getOrganisationPolicy(policyOrganisationOf(pub)));
 };
 
 const recordEvent = async (attemptId, event, ip) => {
@@ -452,7 +459,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
       ))?.n || 0);
       if (recent >= 12) return res.status(429).json({ error: 'Too many webcam uploads' });
 
-      const policy = await webcam.getOrganisationPolicy(pub.owner_organisation_id);
+      const policy = await webcam.getOrganisationPolicy(policyOrganisationOf(pub));
       await webcam.saveMedia({
         attemptId: attempt.id,
         kind,
@@ -629,7 +636,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
     // Webcam options only where the organisation has accepted the POPIA terms.
     const settings = webcam.clampSettings(
       integrity.normalizeSettings(req.body?.settings),
-      await webcam.getOrganisationPolicy(pub.owner_organisation_id)
+      await webcam.getOrganisationPolicy(policyOrganisationOf(pub))
     );
     const policy = await coursePolicy.getCoursePolicy(pub.course_id);
     if (!settings && policy?.required) {
@@ -832,7 +839,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
     if (source.published_id != null) {
       const pub = await loadPublishedById(Number(source.published_id));
       if (!pub || !canViewReports(req.user, pub)) return { status: 404 };
-      return { organisationId: pub.owner_organisation_id };
+      return { organisationId: policyOrganisationOf(pub) };
     }
     if (source.organisation_id != null) {
       const organisationId = Number(source.organisation_id);
