@@ -150,6 +150,7 @@ const startServer = async () => {
     startGenerationJobWorkerPolling();
     startVideoProcessingPolling();
     scheduleFailedResponseCleanup();
+    require('./services/webcamPolicyService').startMediaRetentionPurge();
     require('./services/lessonSummaryVideoService').startWorker();
     require('./services/courseBuilderService').markInterruptedJobs().catch(() => {});
     app.listen(PORT, () => {
