@@ -848,7 +848,7 @@ Respond with a JSON object in this exact format (no markdown, only JSON):
   "topic": "${topic || 'From memo/rubric'}",
   "difficulty_level": "${difficulty_level}",
   "assessment_type": "${assessment_type}",
-  "instructions": "Clear instructions for students. Mention how to answer each question type (e.g. for MCQ choose one option; for mix and match draw lines).",
+  "instructions": "Clear instructions for students, in plain language. Briefly say how to answer each question type used (e.g. 'For multiple-choice questions, choose one option.' 'For matching questions, match each item on the left to one on the right.'). Never use field or type names from this JSON (such as multiple_choice, short_answer, mix_and_match or correct_pairings), and do not mention answers, answer keys or marking data.",
   "questions": [
     {
       "number": 1,

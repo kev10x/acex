@@ -7,6 +7,7 @@ import { assessmentsAPI, rubricsAPI, modulesAPI, contentAPI, GeneratedAssessment
 import PublishedMonitoringDialog from './PublishedMonitoringDialog';
 import { PRESET_LABELS } from '../utils/integrityText';
 import { EDUCATION_LEVEL_OPTIONS, normalizeEducationLevelValue } from '../constants/educationLevels';
+import { studentFacingInstructions } from '../utils/assessmentInstructions';
 
 export type QuestionTypeOption = 'mcq' | 'essay' | 'short_answer' | 'mix_and_match';
 
@@ -493,7 +494,7 @@ const AssessmentGenerator: React.FC = () => {
       `Total Points: ${generatedAssessment.total_points}`,
       '',
       'INSTRUCTIONS:',
-      generatedAssessment.instructions,
+      studentFacingInstructions(generatedAssessment.instructions),
       '',
       'QUESTIONS:',
       '',
@@ -1339,7 +1340,7 @@ const AssessmentGenerator: React.FC = () => {
           <div className="mb-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Instructions</h3>
             <div className="bg-gray-50 p-4 rounded-lg whitespace-pre-wrap text-gray-700">
-              {generatedAssessment.instructions}
+              {studentFacingInstructions(generatedAssessment.instructions)}
             </div>
           </div>
 

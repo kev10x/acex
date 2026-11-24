@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { enterFullscreen, getAttemptSessionId, isFullscreenSupported, useIntegrityMonitor } from '../hooks/useIntegrityMonitor';
 import { describeEvent } from '../utils/integrityText';
 import { useWebcamCapture } from '../hooks/useWebcamCapture';
+import { studentFacingInstructions } from '../utils/assessmentInstructions';
 
 export const POST_LOGIN_REDIRECT_KEY = 'acex-post-login-redirect';
 
@@ -740,7 +741,7 @@ const TakeAssessment: React.FC = () => {
             <>
               {assessment.instructions && (
                 <div className="mb-4 p-4 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap break-words">
-                  {assessment.instructions}
+                  {studentFacingInstructions(assessment.instructions)}
                 </div>
               )}
               <h2 className="text-sm font-semibold text-gray-900 mb-2">Before you start</h2>
@@ -999,7 +1000,7 @@ const TakeAssessment: React.FC = () => {
           )}
           {assessment.instructions && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg text-gray-700 whitespace-pre-wrap break-words">
-              {assessment.instructions}
+              {studentFacingInstructions(assessment.instructions)}
             </div>
           )}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-violet-50 px-4 py-3 text-sm">
