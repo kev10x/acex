@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import { integrityAPI, IntegrityPreset, IntegritySaveImpact, IntegritySettings, IntegritySettingsInput } from '../services/api';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import { integrityAPI, IntegrityPreset, IntegritySaveImpact, IntegritySettings, IntegritySettingsInput, WebcamPolicy } from '../services/api';
 import { btn } from './ui';
 import { PRESET_LABELS } from '../utils/integrityText';
 
@@ -41,6 +41,11 @@ export default function IntegritySettingsEditor({
   const [ipText, setIpText] = useState((settings?.allowed_ip_ranges || []).join('\n'));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [webcamPolicy, setWebcamPolicy] = useState<WebcamPolicy | null>(null);
+
+  useEffect(() => {
+    integrityAPI.getWebcamPolicy().then((res) => setWebcamPolicy(res.data.policy)).catch(() => setWebcamPolicy(null));
+  }, []);
 
   useEffect(() => {
     setDraft(settings ?? { enabled: false, preset: 'test' });
@@ -150,6 +155,56 @@ export default function IntegritySettingsEditor({
           />
           <span className="text-xs text-gray-500">For venue exams: students can only start from these IP ranges.</span>
         </label>
+      </div>
+      <div className={`rounded-lg border border-gray-200 p-4 ${draft.enabled ? '' : 'opacity-50'}`}>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block text-sm">
+            <span className="font-medium text-gray-800">Webcam</span>
+            <select
+              value={webcamPolicy?.allowed ? (draft.webcam || 'off') : 'off'}
+              onChange={(e) => setDraft((prev) => ({ ...prev, webcam: e.target.value as IntegritySettings['webcam'] }))}
+              disabled={!draft.enabled || !webcamPolicy?.allowed}
+              className="mt-1 block rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
+            >
+              <option value="off">Off</option>
+              <option value="snapshots">Photo every 30 seconds</option>
+              <option value="video" disabled={!webcamPolicy?.allow_video}>Continuous video (low resolution)</option>
+            </select>
+          </label>
+          {webcamPolicy?.allowed && draft.webcam && draft.webcam !== 'off' && (
+            <label className="block text-sm">
+              <span className="font-medium text-gray-800">If a student has no webcam</span>
+              <select
+                value={draft.webcam_required ? 'block' : 'allow'}
+                onChange={(e) => setDraft((prev) => ({ ...prev, webcam_required: e.target.value === 'block' }))}
+                disabled={!draft.enabled}
+                className="mt-1 block rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              >
+                <option value="allow">Let them start, and flag it</option>
+                <option value="block">Don't let them start</option>
+              </select>
+            </label>
+          )}
+        </div>
+        {!webcamPolicy?.allowed && (
+          <p className="mt-2 text-xs text-gray-500">
+            Not available: management has not accepted the POPIA terms for webcam monitoring (Exam Integrity → Webcam monitoring).
+          </p>
+        )}
+        {webcamPolicy?.allowed && draft.webcam && draft.webcam !== 'off' && (
+          <div role="note" className="mt-3 flex gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-semibold">Webcam images are biometric information: special personal information under POPIA.</p>
+              <p>
+                Use it only where it is necessary and proportionate for this assessment. Students must give explicit consent on the start screen
+                {draft.webcam_required ? ', and students without a working webcam will not be able to start: make sure an alternative is available' : ''}.
+                Take extra care if any students are under 18. Images are kept for {webcamPolicy.retention_days} days, then deleted automatically,
+                and every viewing is logged.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <button type="button" onClick={save} disabled={saving} className={btn.primary}>

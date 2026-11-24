@@ -12,6 +12,8 @@ import {
 import { EmptyState, PageHeader, SectionCard, btn } from './ui';
 import IntegritySettingsEditor from './IntegritySettingsEditor';
 import CourseIntegrityRules from './CourseIntegrityRules';
+import WebcamPolicyPanel from './WebcamPolicyPanel';
+import AttemptWebcamMedia from './AttemptWebcamMedia';
 import { useAuth } from '../contexts/AuthContext';
 import { openStudentPreview } from './PublishedMonitoringDialog';
 import { PRESET_LABELS, describeEvent } from '../utils/integrityText';
@@ -125,6 +127,9 @@ function AttemptDetail({ attemptId, onClose, onChanged }: { attemptId: number; o
               <dd className="text-gray-800">{data.attempt.ip_addresses.map((entry) => entry.ip).join(', ') || '—'}</dd>
               <dt className="text-gray-500">Browser</dt><dd className="break-words text-xs text-gray-600">{data.attempt.user_agent || '—'}</dd>
             </dl>
+            {(data.attempt.media_count || 0) > 0 && (
+              <AttemptWebcamMedia attemptId={data.attempt.id} count={data.attempt.media_count || 0} onDeleted={() => { void load(); onChanged(); }} />
+            )}
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-gray-900">Timeline</h4>
@@ -364,6 +369,8 @@ const IntegrityReports: React.FC = () => {
           </SectionCard>
         </>
       )}
+
+      {isManagement && <WebcamPolicyPanel />}
 
       {isManagement && (
         <CourseIntegrityRules

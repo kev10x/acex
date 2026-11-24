@@ -57,6 +57,9 @@ function createFakeDb({ settings }) {
       { id: 30, name: 'Biology 101', code: 'BIO101', organisation_id: 5, owner_user_id: 2, integrity_policy: null },
       { id: 31, name: 'Other org course', code: 'X1', organisation_id: 9, owner_user_id: 5, integrity_policy: null }
     ],
+    organisations: [{ id: 5, webcam_policy: null }, { id: 9, webcam_policy: null }],
+    media: [],
+    audit: [],
     attempts: [],
     events: [],
     submissions: []
@@ -179,6 +182,35 @@ function createFakeDb({ settings }) {
       db.published.find((p) => p.id === params[1]).integrity_settings = params[0];
       return {};
     }
+    if (q.startsWith('SELECT webcam_policy FROM organisations')) {
+      return db.organisations.filter((o) => o.id === params[0]);
+    }
+    if (q.startsWith('UPDATE organisations SET webcam_policy')) {
+      db.organisations.find((o) => o.id === params[1]).webcam_policy = params[0];
+      return {};
+    }
+    if (q.startsWith('INSERT INTO audit')) {
+      db.audit.push(params);
+      return {};
+    }
+    if (q.startsWith('SELECT COUNT(*) AS n FROM assessment_attempt_media')) {
+      return [{ n: db.media.filter((m) => m.attempt_id === params[0]).length }];
+    }
+    if (q.startsWith('INSERT INTO assessment_attempt_media')) {
+      const [attempt_id, kind, reason, file_path, mime_type, bytes, client_time, expires_at] = params;
+      db.media.push({ id: nextId++, attempt_id, kind, reason, file_path, mime_type, bytes, client_time, expires_at });
+      return {};
+    }
+    if (q.startsWith('SELECT id, kind, reason, mime_type')) {
+      return db.media.filter((m) => m.attempt_id === params[0]);
+    }
+    if (q.startsWith('SELECT id, file_path FROM assessment_attempt_media')) {
+      return db.media.filter((m) => m.attempt_id === params[0]);
+    }
+    if (q.startsWith('DELETE FROM assessment_attempt_media WHERE attempt_id')) {
+      db.media = db.media.filter((m) => m.attempt_id !== params[0]);
+      return {};
+    }
     if (q.startsWith('SELECT id, owner_user_id FROM courses')) {
       return db.courses.filter((c) => c.id === params[0]);
     }
@@ -194,7 +226,7 @@ function setup({ settings = { enabled: true, preset: 'test' }, ip = '10.0.0.5' }
   const fake = createFakeDb({ settings });
   const submissions = [];
   // Services that query the database must load fresh so they use this test's fake.
-  for (const service of ['courseIntegrityPolicyService', 'courseScopeService']) {
+  for (const service of ['courseIntegrityPolicyService', 'courseScopeService', 'webcamPolicyService', 'auditEventService']) {
     delete require.cache[require.resolve(path.join(__dirname, '..', 'services', `${service}.js`))];
   }
   const { module: attemptsModule, restore } = loadWithMocks(path.join(__dirname, 'assessmentAttempts.js'), {
@@ -408,4 +440,60 @@ test('course rules: management sets a required rule, existing assessments follow
   const removed = await as(4, 'put', '/attempts/course-rules/30').send({ settings: { enabled: false } });
   assert.equal(removed.body.policy, null);
   assert.equal(db.courses[0].integrity_policy, null);
+});
+
+test('webcam: off until management accepts the POPIA terms; uploads, viewing (audited) and deletion', async (t) => {
+  const fs = require('fs');
+  const { as, db, restore } = setup();
+  t.after(restore);
+  const acks = { lawful_basis: true, explicit_consent: true, minors: true, retention: true, access: true, information_officer: true };
+
+  // Before the organisation allows it, a lecturer's webcam choice is not saved.
+  const early = await as(2, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: true, preset: 'exam', webcam: 'snapshots' } });
+  assert.equal(early.body.settings.webcam, 'off');
+
+  assert.equal((await as(2, 'put', '/attempts/webcam-policy').send({ allowed: true, acknowledgements: acks })).status, 403, 'lecturers cannot accept the terms');
+  const incomplete = await as(4, 'put', '/attempts/webcam-policy').send({ allowed: true, acknowledgements: { ...acks, information_officer: false } });
+  assert.equal(incomplete.status, 400);
+  const accepted = await as(4, 'put', '/attempts/webcam-policy').send({ allowed: true, allow_video: false, retention_days: 14, acknowledgements: acks });
+  assert.equal(accepted.status, 200);
+  assert.ok(db.audit.length >= 1, 'accepting the terms is audit-logged');
+  assert.equal((await as(2, 'get', '/attempts/webcam-policy')).body.policy.retention_days, 14);
+
+  const saved = await as(2, 'put', '/attempts/assessment/10/settings').send({ settings: { enabled: true, preset: 'exam', webcam: 'video', webcam_required: true } });
+  assert.equal(saved.body.settings.webcam, 'snapshots', 'video needs separate permission');
+
+  const start = await as(1, 'post', '/attempts/start').send({ code: 'EXAM1', session_id: 'tab-a' });
+  assert.equal(start.body.settings.webcam, 'snapshots');
+  const token = start.body.attempt.token;
+
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const upload = await as(1, 'post', `/attempts/session/${token}/media?kind=snapshot&reason=interval&client_time=123`).set('Content-Type', 'image/jpeg').send(jpeg);
+  assert.equal(upload.status, 201);
+  assert.equal(db.media.length, 1);
+  const stored = db.media[0];
+  assert.ok(fs.existsSync(stored.file_path));
+  const days = (new Date(stored.expires_at) - Date.now()) / 86400000;
+  assert.ok(days > 13.9 && days <= 14, 'expires after the organisation retention period');
+
+  const video = await as(1, 'post', `/attempts/session/${token}/media?kind=video`).set('Content-Type', 'video/webm').send(Buffer.from('webm'));
+  assert.equal(video.status, 403, 'video not enabled');
+  const wrongType = await as(1, 'post', `/attempts/session/${token}/media?kind=snapshot`).set('Content-Type', 'image/png').send(Buffer.from('png'));
+  assert.equal(wrongType.status, 400);
+
+  const attemptId = db.attempts[0].id;
+  assert.equal((await as(3, 'get', `/attempts/attempt/${attemptId}/media`)).status, 404, 'other lecturers cannot see images');
+  const auditBefore = db.audit.length;
+  const list = await as(2, 'get', `/attempts/attempt/${attemptId}/media`);
+  assert.equal(list.body.media.length, 1);
+  assert.equal(db.audit.length, auditBefore + 1, 'viewing images is audit-logged');
+
+  const deleted = await as(2, 'delete', `/attempts/attempt/${attemptId}/media`);
+  assert.equal(deleted.body.deleted, 1);
+  assert.equal(fs.existsSync(stored.file_path), false, 'file removed from disk');
+
+  // Revoking the policy switches webcam off for attempts started afterwards.
+  await as(4, 'put', '/attempts/webcam-policy').send({ allowed: false });
+  const preview = await as(2, 'get', '/attempts/preview/EXAM1');
+  assert.equal(preview.body.settings.webcam, 'off');
 });

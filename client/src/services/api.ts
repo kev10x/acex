@@ -657,6 +657,8 @@ export interface IntegritySettings {
   right_click: 'log' | 'block';
   screenshots: 'log' | 'block';
   shuffle_questions: boolean;
+  webcam: 'off' | 'snapshots' | 'video';
+  webcam_required: boolean;
   allowed_ip_ranges: string[];
 }
 
@@ -674,7 +676,9 @@ export type IntegrityEventType =
   | 'print_attempt'
   | 'extension_injected'
   | 'second_tab'
-  | 'screenshot_key';
+  | 'screenshot_key'
+  | 'webcam_unavailable'
+  | 'webcam_stopped';
 
 export interface IntegrityClientEvent {
   type: IntegrityEventType;
@@ -714,6 +718,27 @@ export interface IntegrityAttempt {
   user_agent: string | null;
   submission_code: string | null;
   shared_ip_with?: string[];
+  media_count?: number;
+}
+
+// Organisation webcam policy (POPIA): off until management accepts every acknowledgement.
+export interface WebcamPolicy {
+  allowed: boolean;
+  allow_video: boolean;
+  retention_days: number;
+  accepted_by: { id: number; name: string } | null;
+  accepted_at: string | null;
+}
+
+export interface WebcamMediaItem {
+  id: number;
+  kind: 'snapshot' | 'video';
+  reason: 'interval' | 'flag';
+  mime_type: string;
+  bytes: number;
+  client_time: number | null;
+  created_at: string;
+  expires_at: string | null;
 }
 
 export interface IntegrityEvent {
@@ -789,6 +814,21 @@ export const integrityAPI = {
     api.get<{ success: boolean; courses: CourseIntegrityRuleItem[] }>('/assessments/attempts/course-rules'),
   saveCourseRule: (courseId: number, data: { settings: IntegritySettingsInput; required: boolean; apply_to_existing?: boolean }) =>
     api.put<{ success: boolean; policy: CourseIntegrityPolicy | null; applied_to_existing: number }>(`/assessments/attempts/course-rules/${courseId}`, data),
+  getWebcamPolicy: () =>
+    api.get<{ success: boolean; policy: WebcamPolicy; acknowledgements: string[] }>('/assessments/attempts/webcam-policy'),
+  saveWebcamPolicy: (data: { allowed: boolean; allow_video: boolean; retention_days: number; acknowledgements: Record<string, boolean> }) =>
+    api.put<{ success: boolean; policy: WebcamPolicy }>('/assessments/attempts/webcam-policy', data),
+  uploadWebcamMedia: (token: string, kind: 'snapshot' | 'video', reason: 'interval' | 'flag', blob: Blob) =>
+    api.post(`/assessments/attempts/session/${token}/media`, blob, {
+      params: { kind, reason, client_time: Date.now() },
+      headers: { 'Content-Type': kind === 'video' ? 'video/webm' : 'image/jpeg' }
+    }),
+  listAttemptMedia: (attemptId: number) =>
+    api.get<{ success: boolean; media: WebcamMediaItem[] }>(`/assessments/attempts/attempt/${attemptId}/media`),
+  getMediaFile: (mediaId: number) =>
+    api.get(`/assessments/attempts/media/${mediaId}`, { responseType: 'blob' }),
+  deleteAttemptMedia: (attemptId: number) =>
+    api.delete<{ success: boolean; deleted: number }>(`/assessments/attempts/attempt/${attemptId}/media`),
   getCourseRule: (courseId: number) =>
     api.get<{ success: boolean; policy: CourseIntegrityPolicy | null }>(`/assessments/attempts/course-rules/${courseId}`),
   reopenAttempt: (attemptId: number) =>

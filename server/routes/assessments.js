@@ -25,6 +25,7 @@ const courseScope = require('../services/courseScopeService');
 const { normalizeSettings: normalizeIntegritySettings, parseStoredSettings: parseIntegritySettings } = require('../services/assessmentIntegrityService');
 const { createAttemptsRouter, findInProgressAttempt, canViewReports } = require('./assessmentAttempts');
 const coursePolicy = require('../services/courseIntegrityPolicyService');
+const webcamPolicy = require('../services/webcamPolicyService');
 
 const router = express.Router();
 const isMySQLDb = () => (process.env.DATABASE_URL || '').startsWith('mysql');
@@ -1810,15 +1811,18 @@ router.get('/take/:code', async (req, res) => {
     const { code } = req.params;
     const isMySQL = (process.env.DATABASE_URL || '').startsWith('mysql');
     const result = isMySQL
-      ? await query('SELECT assessment_json, rubric_id, integrity_settings FROM published_assessments WHERE code = ?', [code])
-      : await query('SELECT assessment_json, rubric_id, integrity_settings FROM published_assessments WHERE code = $1', [code]);
+      ? await query('SELECT pa.assessment_json, pa.rubric_id, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = ?', [code])
+      : await query('SELECT pa.assessment_json, pa.rubric_id, pa.integrity_settings, u.organisation_id AS owner_organisation_id FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.code = $1', [code]);
     const rows = result.rows || result;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) {
       return res.status(404).json({ error: 'Assessment not found or link expired' });
     }
     const assessment = typeof row.assessment_json === 'string' ? JSON.parse(row.assessment_json) : row.assessment_json;
-    const integritySettings = parseIntegritySettings(row.integrity_settings);
+    const storedIntegrity = parseIntegritySettings(row.integrity_settings);
+    const integritySettings = storedIntegrity
+      ? webcamPolicy.clampSettings(storedIntegrity, await webcamPolicy.getOrganisationPolicy(row.owner_organisation_id))
+      : null;
     if (integritySettings) {
       // Monitored: questions are only sent once the student has opted in and started an attempt.
       return res.json({

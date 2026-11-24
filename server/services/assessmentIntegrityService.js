@@ -68,7 +68,9 @@ const CLIENT_EVENT_TYPES = new Set([
   'print_attempt',
   'extension_injected',
   'second_tab',
-  'screenshot_key'
+  'screenshot_key',
+  'webcam_unavailable',
+  'webcam_stopped'
 ]);
 
 const SERVER_EVENT_TYPES = new Set([
@@ -115,6 +117,10 @@ const normalizeSettings = (input) => {
     right_click: pick('right_click', ['log', 'block']),
     screenshots: pick('screenshots', ['log', 'block']),
     shuffle_questions: bool('shuffle_questions'),
+    // Webcam is never part of a preset: it is switched on deliberately, and only where the
+    // organisation has accepted the POPIA terms (enforced by webcamPolicyService).
+    webcam: ['off', 'snapshots', 'video'].includes(input.webcam) ? input.webcam : 'off',
+    webcam_required: input.webcam_required === true,
     allowed_ip_ranges: [...new Set(ranges)].slice(0, 20)
   };
 };
@@ -227,6 +233,8 @@ const classifyEvent = (event) => {
     case 'print_attempt':
     case 'connection_gap':
     case 'screenshot_key':
+    case 'webcam_unavailable':
+    case 'webcam_stopped':
       return 'notice';
     default:
       return 'info';
@@ -335,6 +343,12 @@ const summarizeAttempt = (events) => {
       add('screenshot', Math.min(4, screenshots.length), `Pressed ${combos || 'a screenshot shortcut'} ${plural(screenshots.length, 'time')}${questionList(screenshots)}`);
     }
   }
+
+  if (byType('webcam_unavailable').length) {
+    add('webcam_unavailable', 2, 'No webcam during the attempt (declined or not available)');
+  }
+  const webcamStops = byType('webcam_stopped');
+  add('webcam_stopped', Math.min(4, webcamStops.length * 2), `Webcam stopped during the attempt ${plural(webcamStops.length, 'time')}`);
 
   if (byType('duplicate_session').length || byType('second_tab').length) {
     add('second_session', 5, 'The exam was open in a second tab or on another device');

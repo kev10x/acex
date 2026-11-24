@@ -1,11 +1,12 @@
 import { PublicBrand } from './BrandMark';
 import React, { useEffect, useRef, useState } from 'react';
-import { Award, Clock3, FileQuestion, Loader2, LogOut, Maximize, Send, ShieldCheck, Volume2 } from 'lucide-react';
+import { Award, Camera, Clock3, FileQuestion, Loader2, LogOut, Maximize, Send, ShieldCheck, Volume2 } from 'lucide-react';
 import { assessmentsAPI, integrityAPI } from '../services/api';
 import type { AssessmentSubmissionStatus, GeneratedAssessment, IntegrityClientEvent, IntegritySettings } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { enterFullscreen, getAttemptSessionId, isFullscreenSupported, useIntegrityMonitor } from '../hooks/useIntegrityMonitor';
 import { describeEvent } from '../utils/integrityText';
+import { useWebcamCapture } from '../hooks/useWebcamCapture';
 
 export const POST_LOGIN_REDIRECT_KEY = 'acex-post-login-redirect';
 
@@ -132,6 +133,11 @@ const TakeAssessment: React.FC = () => {
   const sessionId = code ? getAttemptSessionId(code) : '';
   const answersRef = useRef(answers);
   answersRef.current = answers;
+  // Webcam (only where the lecturer and the organisation's POPIA policy allow it).
+  const webcamMode = integritySettings?.webcam ?? 'off';
+  const webcamRequired = webcamMode !== 'off' && Boolean(integritySettings?.webcam_required);
+  const [webcamConsent, setWebcamConsent] = useState(false);
+  const flagSnapshotRef = useRef<() => void>(() => {});
   const monitor = useIntegrityMonitor({
     active: attemptActive,
     token: attemptToken,
@@ -139,8 +145,37 @@ const TakeAssessment: React.FC = () => {
     settings: integritySettings,
     getAnswers: () => answersRef.current,
     dryRun: previewMode,
-    onPreviewEvents: addPreviewEvents
+    onPreviewEvents: addPreviewEvents,
+    // A webcam snapshot when something serious happens.
+    onEvent: (event) => {
+      const serious = event.type === 'text_burst'
+        || event.type === 'second_tab'
+        || event.type === 'screenshot_key'
+        || event.type === 'extension_injected'
+        || (event.type === 'paste' && !event.blocked && (event.chars ?? 0) >= 200)
+        || (event.type === 'focus_lost' && (event.duration_ms ?? 0) >= 5000);
+      if (serious) flagSnapshotRef.current();
+    }
   });
+  const webcam = useWebcamCapture({
+    mode: webcamMode,
+    active: attemptActive && webcamConsent,
+    token: attemptToken,
+    dryRun: previewMode,
+    onStopped: () => monitor.record({ type: 'webcam_stopped' })
+  });
+  flagSnapshotRef.current = webcam.flagSnapshot;
+  const cameraReady = webcam.cameraState === 'on';
+  const webcamBlocksStart = webcamRequired && !(cameraReady && webcamConsent);
+
+  // Webcam declined, unavailable or not consented to: no capture, and the report says so.
+  const noteWebcamOutcome = () => {
+    if (webcamMode === 'off') return;
+    if (!(cameraReady && webcamConsent)) {
+      webcam.stopCamera();
+      monitor.record({ type: 'webcam_unavailable' });
+    }
+  };
   const fullscreenRequired = Boolean(integritySettings?.require_fullscreen) && isFullscreenSupported();
   const showFullscreenGate = attemptActive && fullscreenRequired && !monitor.isFullscreen;
   const hideQuestions = attemptActive && (
@@ -178,6 +213,7 @@ const TakeAssessment: React.FC = () => {
         setCurrentQuestionIndex(0);
         setPreviewLog([]);
         setAttemptToken('preview');
+        noteWebcamOutcome();
       } catch (e: any) {
         leaveFullscreen();
         setError(e.response?.data?.error || 'Only the lecturer who published this assessment, or management, can preview it.');
@@ -194,6 +230,7 @@ const TakeAssessment: React.FC = () => {
       setAnswers(Object.fromEntries(Object.entries(draft).map(([key, value]) => [Number(key), String(value)])));
       setCurrentQuestionIndex(0);
       setAttemptToken(res.data.attempt.token);
+      noteWebcamOutcome();
     } catch (e: any) {
       leaveFullscreen();
       if (e.response?.status === 409) {
@@ -207,6 +244,7 @@ const TakeAssessment: React.FC = () => {
   };
 
   const endPreview = () => {
+    webcam.stopCamera();
     addPreviewEvents(monitor.drain());
     setAttemptEnded('Preview finished. Nothing was recorded or submitted.');
     setExitDialog('closed');
@@ -220,7 +258,9 @@ const TakeAssessment: React.FC = () => {
       return;
     }
     try {
+      await webcam.finish();
       await integrityAPI.exit(attemptToken, { session_id: sessionId, events: monitor.drain(), answers });
+      webcam.stopCamera();
       setAttemptEnded('You exited the assessment without submitting. Ask your lecturer if you need it reopened.');
       setExitDialog('closed');
       leaveFullscreen();
@@ -460,6 +500,7 @@ const TakeAssessment: React.FC = () => {
         const num = (q as any).number != null ? (q as any).number : (q as any).question_number;
         return { question_number: num, value: answers[num] ?? '' };
       });
+      if (monitored && attemptToken) await webcam.finish();
       const res = monitored && attemptToken
         ? await integrityAPI.submit(attemptToken, { session_id: sessionId, events: monitor.drain(), answers: answersList })
         : await assessmentsAPI.submit({
@@ -470,6 +511,7 @@ const TakeAssessment: React.FC = () => {
       if (monitored) {
         setExitDialog('closed');
         leaveFullscreen();
+        webcam.stopCamera();
       }
 
       if (res.data.success && res.data.submission?.submission_code) {
@@ -708,6 +750,55 @@ const TakeAssessment: React.FC = () => {
               <p className="mb-4 text-xs text-gray-500">
                 Your lecturer sees a summary of this record with your submission. Nothing you type or paste is recorded apart from your answers.
               </p>
+              {settings && webcamMode !== 'off' && (
+                <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50/50 p-4">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <Camera className="h-4 w-4 text-violet-600" />
+                    Webcam {webcamRequired ? '(required)' : '(optional)'}
+                  </h3>
+                  <p className="mt-1 text-xs text-gray-700">
+                    {webcamMode === 'video'
+                      ? 'This assessment records low-resolution video from your webcam while you work. '
+                      : 'This assessment takes a small photo from your webcam every 30 seconds, and when something unusual is recorded. '}
+                    Images are seen only by your lecturer and your institution's management, are never analysed automatically,
+                    and are deleted automatically after a set period. Every time someone views them, it is logged.
+                    {webcamRequired
+                      ? ' You need a working webcam to take this assessment.'
+                      : ' You can take the assessment without a webcam; your lecturer will see that no webcam was used.'}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-start gap-3">
+                    <div className="h-24 w-32 overflow-hidden rounded-md bg-gray-900">
+                      <video ref={webcam.videoRef} muted playsInline className={`h-full w-full object-cover ${cameraReady ? '' : 'hidden'}`} style={{ transform: 'scaleX(-1)' }} />
+                    </div>
+                    <div className="min-w-0 flex-1 text-xs">
+                      {!cameraReady && (
+                        <button
+                          type="button"
+                          onClick={() => { void webcam.requestCamera(); }}
+                          disabled={webcam.cameraState === 'requesting'}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                        >
+                          <Camera className="h-4 w-4" />
+                          {webcam.cameraState === 'requesting' ? 'Waiting for permission...' : 'Turn on camera'}
+                        </button>
+                      )}
+                      {webcam.cameraState === 'denied' && <p className="mt-2 text-red-700">Camera permission was refused. Allow the camera in your browser's site settings, then try again.</p>}
+                      {webcam.cameraState === 'unavailable' && <p className="mt-2 text-red-700">No camera was found, or it is in use by another app.</p>}
+                      {cameraReady && (
+                        <label className="flex items-start gap-2 text-gray-800">
+                          <input
+                            type="checkbox"
+                            checked={webcamConsent}
+                            onChange={(e) => setWebcamConsent(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          <span>I agree to webcam {webcamMode === 'video' ? 'video' : 'photos'} being recorded during this assessment, as described above.</span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               <label className="flex items-start gap-2 mb-4 text-sm text-gray-800">
                 <input
                   type="checkbox"
@@ -720,12 +811,15 @@ const TakeAssessment: React.FC = () => {
               <button
                 type="button"
                 onClick={handleStartAttempt}
-                disabled={!consentGiven || startingAttempt}
+                disabled={!consentGiven || startingAttempt || webcamBlocksStart}
                 className="w-full py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {startingAttempt ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
                 Start assessment
               </button>
+              {webcamBlocksStart && consentGiven && (
+                <p className="mt-2 text-center text-xs text-gray-600">Turn on your camera and agree to webcam recording to start.</p>
+              )}
             </>
           )}
           {error && (
@@ -850,6 +944,11 @@ const TakeAssessment: React.FC = () => {
         <div className="fixed bottom-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-amber-200 bg-white shadow-xl">
           <div className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">What would be recorded</div>
           <ul className="max-h-60 space-y-1 overflow-y-auto px-4 py-2 text-xs text-gray-700">
+            {webcamMode !== 'off' && (
+              <li className="font-medium text-violet-800">
+                Webcam {webcamConsent && cameraReady ? `on: ${webcam.captured} ${webcamMode === 'video' ? 'capture(s)' : 'photo(s)'} would have been uploaded` : 'not used'}
+              </li>
+            )}
             {previewLog.length === 0 ? (
               <li className="text-gray-400">Nothing yet. Try switching tabs, pasting, or leaving full screen.</li>
             ) : (
@@ -862,6 +961,15 @@ const TakeAssessment: React.FC = () => {
       )}
       <div className={`max-w-3xl mx-auto ${previewMode ? 'pt-6' : ''}`}>
         <PublicBrand className="mb-6" />
+        {attemptActive && webcamConsent && cameraReady && (
+          <div className="fixed bottom-4 left-4 z-[60] overflow-hidden rounded-lg border border-gray-200 bg-gray-900 shadow-lg" title="Your webcam is on for this assessment">
+            <video ref={webcam.videoRef} muted playsInline className="h-20 w-28 object-cover" style={{ transform: 'scaleX(-1)' }} />
+            <div className="flex items-center gap-1 bg-gray-900 px-2 py-0.5 text-[10px] font-medium text-white">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              Camera on
+            </div>
+          </div>
+        )}
         {monitored && attemptToken && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-white px-4 py-3 shadow-sm">
             <span className="flex items-center gap-2 text-sm font-medium text-violet-800">

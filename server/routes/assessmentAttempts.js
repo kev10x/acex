@@ -17,6 +17,8 @@ const { requireAuth } = require('../middleware/auth');
 const integrity = require('../services/assessmentIntegrityService');
 const coursePolicy = require('../services/courseIntegrityPolicyService');
 const { userCanUseCourse } = require('../services/courseScopeService');
+const webcam = require('../services/webcamPolicyService');
+const { recordAuditEvent, getRequestMetadata } = require('../services/auditEventService');
 
 // Another browser session sending events within this window counts as a second session.
 const ACTIVE_SESSION_MS = 45000;
@@ -93,6 +95,13 @@ const canViewReports = (user, pub) => {
   return normalizeRole(user.role) === 'management'
     && user.organisation_id != null
     && Number(user.organisation_id) === Number(pub.owner_organisation_id);
+};
+
+// Stored settings limited by the owner's organisation webcam policy (revoking it turns webcam off).
+const effectiveSettings = async (pub) => {
+  const settings = integrity.parseStoredSettings(pub?.integrity_settings);
+  if (!settings) return null;
+  return webcam.clampSettings(settings, await webcam.getOrganisationPolicy(pub.owner_organisation_id));
 };
 
 const recordEvent = async (attemptId, event, ip) => {
@@ -223,7 +232,8 @@ const attemptReportRow = (row) => ({
   summary: parseJson(row.integrity_summary, null),
   ip_addresses: parseJson(row.ip_addresses, []) || [],
   user_agent: row.user_agent,
-  submission_code: row.submission_code || null
+  submission_code: row.submission_code || null,
+  media_count: Number(row.media_count || 0)
 });
 
 // Students on the same network share a public IP: note it, so remote exams can be checked.
@@ -260,9 +270,10 @@ const createAttemptsRouter = ({ createSubmission }) => {
 
   router.post('/start', requireAuth, async (req, res) => {
     try {
-      const pub = await loadPublishedByCode(req.body?.code);
+      const byCode = await loadPublishedByCode(req.body?.code);
+      const pub = byCode ? await loadPublishedById(byCode.id) : null;
       if (!pub) return res.status(404).json({ error: 'Assessment not found or link expired' });
-      const settings = integrity.parseStoredSettings(pub.integrity_settings);
+      const settings = await effectiveSettings(pub);
       if (!settings) return res.status(400).json({ error: 'This assessment is not monitored.' });
 
       const assessment = parseJson(pub.assessment_json, {}) || {};
@@ -349,7 +360,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
         return res.status(409).json({ error: 'This attempt has already ended.', status: attempt.status });
       }
       const pub = await loadPublishedById(attempt.published_assessment_id);
-      const settings = integrity.parseStoredSettings(pub?.integrity_settings) || integrity.normalizeSettings({ enabled: true });
+      const settings = (await effectiveSettings(pub)) || integrity.normalizeSettings({ enabled: true });
       return await handler(req, res, { attempt, pub, settings });
     } catch (error) {
       console.error('Monitored attempt error:', error);
@@ -415,6 +426,41 @@ const createAttemptsRouter = ({ createSubmission }) => {
     res.json({ success: true, status: 'exited' });
   }));
 
+  // Webcam snapshot or video chunk from the student's browser. Raw body: image/jpeg or video/webm.
+  router.post(
+    '/session/:token/media',
+    requireAuth,
+    express.raw({ type: ['image/jpeg', 'video/webm'], limit: '7mb' }),
+    withAttempt(async (req, res, { attempt, pub, settings }) => {
+      const kind = req.query.kind === 'video' ? 'video' : 'snapshot';
+      const type = webcam.MEDIA_TYPES[kind];
+      if (settings.webcam === 'off' || (kind === 'video' && settings.webcam !== 'video')) {
+        return res.status(403).json({ error: 'Webcam capture is not enabled for this assessment.' });
+      }
+      const buffer = Buffer.isBuffer(req.body) ? req.body : null;
+      if (!buffer || !buffer.length || req.get('content-type') !== type.mime || buffer.length > type.maxBytes) {
+        return res.status(400).json({ error: 'Invalid webcam upload' });
+      }
+      // Snapshots arrive every 30 s plus on flags: refuse floods.
+      const recent = Number(firstRow(await query(
+        `SELECT COUNT(*) AS n FROM assessment_attempt_media WHERE attempt_id = $1 AND created_at > $2`,
+        [attempt.id, new Date(Date.now() - 60000)]
+      ))?.n || 0);
+      if (recent >= 12) return res.status(429).json({ error: 'Too many webcam uploads' });
+
+      const policy = await webcam.getOrganisationPolicy(pub.owner_organisation_id);
+      await webcam.saveMedia({
+        attemptId: attempt.id,
+        kind,
+        reason: req.query.reason === 'flag' ? 'flag' : 'interval',
+        buffer,
+        clientTime: Number.isFinite(Number(req.query.client_time)) ? Number(req.query.client_time) : null,
+        retentionDays: policy.retention_days
+      });
+      res.status(201).json({ success: true });
+    })
+  );
+
   // ------------------------------------------------------- lecturers / management
 
   const requireStaff = (req, res, next) => {
@@ -448,7 +494,7 @@ const createAttemptsRouter = ({ createSubmission }) => {
       const byCode = await loadPublishedByCode(req.params.code);
       const pub = byCode ? await loadPublishedById(byCode.id) : null;
       if (!pub || !canViewReports(req.user, pub)) return res.status(404).json({ error: 'Assessment not found' });
-      const settings = integrity.parseStoredSettings(pub.integrity_settings);
+      const settings = await effectiveSettings(pub);
       const assessment = parseJson(pub.assessment_json, {}) || {};
       const count = Array.isArray(assessment.questions) ? assessment.questions.length : 0;
       res.json({
@@ -469,7 +515,8 @@ const createAttemptsRouter = ({ createSubmission }) => {
   });
 
   const loadAttemptRows = (publishedId) => query(
-    `SELECT aa.*, u.name AS student_name, u.email AS student_email, s.submission_code
+    `SELECT aa.*, u.name AS student_name, u.email AS student_email, s.submission_code,
+            (SELECT COUNT(*) FROM assessment_attempt_media m WHERE m.attempt_id = aa.id) AS media_count
      FROM assessment_attempts aa
      LEFT JOIN users u ON u.id = aa.student_user_id
      LEFT JOIN assessment_submissions s ON s.id = aa.submission_id
@@ -565,7 +612,11 @@ const createAttemptsRouter = ({ createSubmission }) => {
   }));
 
   router.put('/assessment/:publishedId/settings', requireAuth, requireStaff, withViewablePublished(async (req, res, pub) => {
-    const settings = integrity.normalizeSettings(req.body?.settings);
+    // Webcam options only where the organisation has accepted the POPIA terms.
+    const settings = webcam.clampSettings(
+      integrity.normalizeSettings(req.body?.settings),
+      await webcam.getOrganisationPolicy(pub.owner_organisation_id)
+    );
     const policy = await coursePolicy.getCoursePolicy(pub.course_id);
     if (!settings && policy?.required) {
       const course = firstRow(await query('SELECT name FROM courses WHERE id = $1', [pub.course_id]));
@@ -677,7 +728,8 @@ const createAttemptsRouter = ({ createSubmission }) => {
   const withViewableAttempt = (handler) => async (req, res) => {
     try {
       const row = firstRow(await query(
-        `SELECT aa.*, u.name AS student_name, u.email AS student_email, s.submission_code
+        `SELECT aa.*, u.name AS student_name, u.email AS student_email, s.submission_code,
+                (SELECT COUNT(*) FROM assessment_attempt_media m WHERE m.attempt_id = aa.id) AS media_count
          FROM assessment_attempts aa
          LEFT JOIN users u ON u.id = aa.student_user_id
          LEFT JOIN assessment_submissions s ON s.id = aa.submission_id
@@ -705,6 +757,80 @@ const createAttemptsRouter = ({ createSubmission }) => {
     await recordEvent(row.id, { type: 'reopened', client_time: Date.now(), details: { by_user_id: req.user.id } }, null);
     res.json({ success: true, status: 'in_progress' });
   }));
+
+  // ------------------------------------------------------------ webcam media
+
+  const audit = (req, action, metadata) => recordAuditEvent({
+    user_id: req.user.id,
+    organisation_id: req.user.organisation_id,
+    category: 'exam_integrity',
+    action,
+    metadata: getRequestMetadata(req, metadata)
+  });
+
+  // Listing an attempt's webcam images counts as viewing them, and is audit-logged.
+  router.get('/attempt/:attemptId/media', requireAuth, requireStaff, withViewableAttempt(async (req, res, { row }) => {
+    const media = rowsOf(await query(
+      'SELECT id, kind, reason, mime_type, bytes, client_time, created_at, expires_at FROM assessment_attempt_media WHERE attempt_id = $1 ORDER BY id',
+      [row.id]
+    ));
+    await audit(req, 'webcam_media_viewed', { attempt_id: row.id, student_user_id: row.student_user_id, items: media.length });
+    res.json({ success: true, media });
+  }));
+
+  router.get('/media/:mediaId', requireAuth, requireStaff, async (req, res) => {
+    try {
+      const media = firstRow(await query(
+        'SELECT m.id, m.file_path, m.mime_type, a.published_assessment_id FROM assessment_attempt_media m JOIN assessment_attempts a ON a.id = m.attempt_id WHERE m.id = $1',
+        [Number(req.params.mediaId)]
+      ));
+      const pub = media ? await loadPublishedById(media.published_assessment_id) : null;
+      if (!media || !canViewReports(req.user, pub)) return res.status(404).json({ error: 'Not found' });
+      res.setHeader('Content-Type', media.mime_type);
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.sendFile(media.file_path, (error) => {
+        if (error && !res.headersSent) res.status(404).json({ error: 'File no longer available' });
+      });
+    } catch (error) {
+      console.error('Webcam media error:', error);
+      res.status(500).json({ error: 'Failed to load webcam media' });
+    }
+  });
+
+  router.delete('/attempt/:attemptId/media', requireAuth, requireStaff, withViewableAttempt(async (req, res, { row }) => {
+    const deleted = await webcam.deleteAttemptMedia(row.id);
+    await audit(req, 'webcam_media_deleted', { attempt_id: row.id, student_user_id: row.student_user_id, items: deleted });
+    res.json({ success: true, deleted });
+  }));
+
+  // Organisation webcam policy: readable by staff, changed by management after the POPIA acknowledgements.
+  router.get('/webcam-policy', requireAuth, requireStaff, async (req, res) => {
+    try {
+      res.json({ success: true, policy: await webcam.getOrganisationPolicy(req.user.organisation_id), acknowledgements: webcam.ACKNOWLEDGEMENTS });
+    } catch (error) {
+      console.error('Webcam policy read error:', error);
+      res.status(500).json({ error: 'Failed to load webcam policy' });
+    }
+  });
+
+  router.put('/webcam-policy', requireAuth, requireManagement, async (req, res) => {
+    try {
+      if (req.user.organisation_id == null) {
+        return res.status(400).json({ error: 'Your account is not linked to an organisation.' });
+      }
+      const result = webcam.buildPolicy(req.body, req.user);
+      if (result.error) return res.status(400).json({ error: result.error, missing: result.missing });
+      await query('UPDATE organisations SET webcam_policy = $1 WHERE id = $2', [JSON.stringify(result.policy), req.user.organisation_id]);
+      await audit(req, result.policy.allowed ? 'webcam_policy_accepted' : 'webcam_policy_disabled', {
+        allow_video: result.policy.allow_video,
+        retention_days: result.policy.retention_days
+      });
+      res.json({ success: true, policy: result.policy });
+    } catch (error) {
+      console.error('Webcam policy save error:', error);
+      res.status(500).json({ error: 'Failed to save webcam policy' });
+    }
+  });
 
   return router;
 };

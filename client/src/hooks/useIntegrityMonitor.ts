@@ -86,9 +86,11 @@ interface Options {
   // Staff preview: hand events to onPreviewEvents instead of sending them, more often.
   dryRun?: boolean;
   onPreviewEvents?: (events: IntegrityClientEvent[]) => void;
+  // Called for every recorded event (e.g. to take a webcam snapshot on serious ones).
+  onEvent?: (event: IntegrityClientEvent) => void;
 }
 
-export function useIntegrityMonitor({ active, token, sessionId, settings, getAnswers, dryRun = false, onPreviewEvents }: Options) {
+export function useIntegrityMonitor({ active, token, sessionId, settings, getAnswers, dryRun = false, onPreviewEvents, onEvent }: Options) {
   const [away, setAway] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(typeof document !== 'undefined' && document.fullscreenElement));
   const [connectionProblem, setConnectionProblem] = useState(false);
@@ -103,6 +105,8 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
   getAnswersRef.current = getAnswers;
   const onPreviewEventsRef = useRef(onPreviewEvents);
   onPreviewEventsRef.current = onPreviewEvents;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
 
   const push = useCallback((event: Omit<IntegrityClientEvent, 'client_time'> & { client_time?: number }) => {
     const isLowValue = event.type === 'context_menu' || ((event.type === 'copy' || event.type === 'cut') && (event.chars ?? 0) < 20);
@@ -111,7 +115,9 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
       if (count >= MAX_PER_INFO_TYPE) return;
       typeCountsRef.current[event.type] = count + 1;
     }
-    queueRef.current.push({ client_time: Date.now(), ...event });
+    const recorded = { client_time: Date.now(), ...event } as IntegrityClientEvent;
+    queueRef.current.push(recorded);
+    onEventRef.current?.(recorded);
     if (queueRef.current.length > MAX_QUEUE) queueRef.current.splice(0, queueRef.current.length - MAX_QUEUE);
   }, []);
 
@@ -379,5 +385,5 @@ export function useIntegrityMonitor({ active, token, sessionId, settings, getAns
     };
   }, [active, token, settings, push, markAway, markBack, flush, dryRun]);
 
-  return { away, isFullscreen, connectionProblem, screenshotHidden, drain, flush };
+  return { away, isFullscreen, connectionProblem, screenshotHidden, drain, flush, record: push };
 }

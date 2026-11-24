@@ -299,6 +299,33 @@ const initDatabase = async () => {
         )
       `);
 
+      // Webcam proctoring (opt-in per organisation under POPIA): snapshots or video chunks per attempt,
+      // stored privately and deleted at expires_at.
+      const webcamPolicyCheck = await query(`
+        SELECT COUNT(*) as count FROM information_schema.COLUMNS
+        WHERE table_schema = DATABASE() AND table_name = 'organisations' AND column_name = 'webcam_policy'
+      `);
+      if ((webcamPolicyCheck.rows?.[0]?.count || webcamPolicyCheck?.[0]?.count || 0) === 0) {
+        await query(`ALTER TABLE organisations ADD COLUMN webcam_policy JSON NULL`);
+      }
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_attempt_media (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          attempt_id INT NOT NULL,
+          kind VARCHAR(20) NOT NULL,
+          reason VARCHAR(20) NOT NULL DEFAULT 'interval',
+          file_path VARCHAR(500) NOT NULL,
+          mime_type VARCHAR(50) NOT NULL,
+          bytes INT NOT NULL DEFAULT 0,
+          client_time BIGINT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP NULL,
+          KEY idx_attempt_media_attempt (attempt_id),
+          KEY idx_attempt_media_expires (expires_at),
+          FOREIGN KEY (attempt_id) REFERENCES assessment_attempts(id) ON DELETE CASCADE
+        )
+      `);
+
       await query(`
         CREATE TABLE IF NOT EXISTS published_content (
           id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2159,6 +2186,23 @@ const initDatabase = async () => {
         )
       `);
       await query(`CREATE INDEX IF NOT EXISTS idx_attempt_events_attempt ON assessment_attempt_events(attempt_id)`);
+      await query(`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS webcam_policy JSONB NULL`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS assessment_attempt_media (
+          id SERIAL PRIMARY KEY,
+          attempt_id INTEGER NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+          kind VARCHAR(20) NOT NULL,
+          reason VARCHAR(20) NOT NULL DEFAULT 'interval',
+          file_path VARCHAR(500) NOT NULL,
+          mime_type VARCHAR(50) NOT NULL,
+          bytes INTEGER NOT NULL DEFAULT 0,
+          client_time BIGINT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP NULL
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_attempt_media_attempt ON assessment_attempt_media(attempt_id)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_attempt_media_expires ON assessment_attempt_media(expires_at)`);
 
       await query(`
         CREATE TABLE IF NOT EXISTS published_content (

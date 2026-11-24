@@ -34,6 +34,8 @@ export const describeEvent = (event: Pick<IntegrityEvent, 'type' | 'duration_ms'
     case 'context_menu': return `Right-clicked${blocked}`;
     case 'text_burst': return `${chars ?? 0} characters appeared at once${where} (faster than typing)`;
     case 'print_attempt': return `Tried to print${blocked}`;
+    case 'webcam_unavailable': return 'No webcam (declined or not available)';
+    case 'webcam_stopped': return 'Webcam stopped during the attempt';
     case 'screenshot_key': return `Pressed ${event.details?.combo || 'a screenshot shortcut'}${where}${blocked}`;
     case 'extension_injected': return `Browser extension added content (${event.details?.signature || 'unknown'})`;
     case 'second_tab': return 'Assessment open in a second tab';
