@@ -56,6 +56,8 @@ export default function WebcamPolicyPanel() {
   useEffect(() => { load(); }, []);
 
   const allAcknowledged = keys.length > 0 && keys.every((key) => acks[key]);
+  // The super admin (who may not belong to any organisation) must say which organisation this is for.
+  const needsOrganisation = organisations != null && organisationId == null;
   // Re-confirming is needed whenever webcam monitoring is being (re)allowed or widened.
   const needsAcknowledgement = allowed && (!policy?.allowed || (allowVideo && !policy.allow_video));
 
@@ -87,7 +89,12 @@ export default function WebcamPolicyPanel() {
       title="Webcam monitoring"
       description="Off unless you allow it for your organisation. Lecturers then choose it per assessment."
     >
-      {organisations && (
+      {organisations && organisations.length === 0 && (
+        <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+          There are no organisations yet. Create one in the Admin dashboard (Organisations &amp; departments), then set its webcam policy here.
+        </p>
+      )}
+      {organisations && organisations.length > 0 && (
         <label className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-gray-800">Organisation</span>
           <select
@@ -98,7 +105,11 @@ export default function WebcamPolicyPanel() {
             {organisationId == null && <option value="">Choose an organisation</option>}
             {organisations.map((organisation) => <option key={organisation.id} value={organisation.id}>{organisation.name}</option>)}
           </select>
-          <span className="text-xs text-gray-500">As super admin you set this for each organisation.</span>
+          <span className={`text-xs ${needsOrganisation ? 'font-semibold text-amber-800' : 'text-gray-500'}`}>
+            {needsOrganisation
+              ? 'Choose the organisation whose webcam policy you are setting.'
+              : 'As super admin you set this for each organisation.'}
+          </span>
         </label>
       )}
       {!policy ? (
@@ -162,11 +173,13 @@ export default function WebcamPolicyPanel() {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={save} disabled={saving || (needsAcknowledgement && !allAcknowledged)} className={btn.primary}>
+            <button type="button" onClick={save} disabled={saving || needsOrganisation || (needsAcknowledgement && !allAcknowledged)} className={btn.primary}>
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               Save
             </button>
-            {needsAcknowledgement && !allAcknowledged && <span className="text-xs text-gray-500">Confirm all {keys.length} statements to allow webcam monitoring.</span>}
+            {needsOrganisation
+              ? <span className="text-xs text-gray-500">Choose an organisation first.</span>
+              : needsAcknowledgement && !allAcknowledged && <span className="text-xs text-gray-500">Confirm all {keys.length} statements to allow webcam monitoring.</span>}
           </div>
           {message && <p role="status" className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700 ring-1 ring-inset ring-gray-200">{message}</p>}
         </div>
