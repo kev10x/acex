@@ -43,9 +43,12 @@ export default function IntegritySettingsEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [webcamPolicy, setWebcamPolicy] = useState<WebcamPolicy | null>(null);
 
+  // The policy of the organisation that owns this assessment (which may not be the viewer's).
   useEffect(() => {
-    integrityAPI.getWebcamPolicy().then((res) => setWebcamPolicy(res.data.policy)).catch(() => setWebcamPolicy(null));
-  }, []);
+    integrityAPI.getWebcamPolicy({ published_id: publishedId })
+      .then((res) => setWebcamPolicy(res.data.policy))
+      .catch(() => setWebcamPolicy(null));
+  }, [publishedId]);
 
   useEffect(() => {
     setDraft(settings ?? { enabled: false, preset: 'test' });

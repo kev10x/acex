@@ -22,6 +22,9 @@ const ACKNOWLEDGEMENT_TEXT: Record<string, string> = {
 /** Management: organisation-wide permission for webcam monitoring, behind POPIA acknowledgements. */
 export default function WebcamPolicyPanel() {
   const [policy, setPolicy] = useState<WebcamPolicy | null>(null);
+  // The super admin manages every organisation's policy; others only their own.
+  const [organisations, setOrganisations] = useState<{ id: number; name: string }[] | null>(null);
+  const [organisationId, setOrganisationId] = useState<number | null>(null);
   const [keys, setKeys] = useState<string[]>([]);
   const [allowed, setAllowed] = useState(false);
   const [allowVideo, setAllowVideo] = useState(false);
@@ -37,14 +40,20 @@ export default function WebcamPolicyPanel() {
     setRetention(next.retention_days);
   };
 
-  useEffect(() => {
-    integrityAPI.getWebcamPolicy()
+  const load = (targetOrganisationId?: number | null) => {
+    setPolicy(null);
+    setAcks({});
+    integrityAPI.getWebcamPolicy(targetOrganisationId ? { organisation_id: targetOrganisationId } : undefined)
       .then((res) => {
         apply(res.data.policy);
         setKeys(res.data.acknowledgements || Object.keys(ACKNOWLEDGEMENT_TEXT));
+        setOrganisationId(res.data.organisation_id ?? targetOrganisationId ?? null);
+        if (res.data.organisations) setOrganisations(res.data.organisations);
       })
       .catch(() => setMessage('Could not load the webcam policy.'));
-  }, []);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const allAcknowledged = keys.length > 0 && keys.every((key) => acks[key]);
   // Re-confirming is needed whenever webcam monitoring is being (re)allowed or widened.
@@ -55,6 +64,7 @@ export default function WebcamPolicyPanel() {
     setMessage(null);
     try {
       const res = await integrityAPI.saveWebcamPolicy({
+        organisation_id: organisations ? organisationId : undefined,
         allowed,
         allow_video: allowed && allowVideo,
         retention_days: retention,
@@ -77,6 +87,20 @@ export default function WebcamPolicyPanel() {
       title="Webcam monitoring"
       description="Off unless you allow it for your organisation. Lecturers then choose it per assessment."
     >
+      {organisations && (
+        <label className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium text-gray-800">Organisation</span>
+          <select
+            value={organisationId ?? ''}
+            onChange={(e) => { setMessage(null); load(Number(e.target.value)); }}
+            className="rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
+          >
+            {organisationId == null && <option value="">Choose an organisation</option>}
+            {organisations.map((organisation) => <option key={organisation.id} value={organisation.id}>{organisation.name}</option>)}
+          </select>
+          <span className="text-xs text-gray-500">As super admin you set this for each organisation.</span>
+        </label>
+      )}
       {!policy ? (
         <div className="flex justify-center p-4"><Loader2 className="h-5 w-5 animate-spin text-primary-600" /></div>
       ) : (

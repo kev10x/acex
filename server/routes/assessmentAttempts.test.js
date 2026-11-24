@@ -19,7 +19,8 @@ const USERS = {
   3: { id: 3, role: 'lecturer', name: 'Other Lecturer', email: 'other@uni.test', organisation_id: 5 },
   4: { id: 4, role: 'management', name: 'Manager', email: 'boss@uni.test', organisation_id: 5 },
   5: { id: 5, role: 'management', name: 'Other Org Manager', email: 'x@other.test', organisation_id: 9 },
-  6: { id: 6, role: 'student', name: 'Pat Student', email: 'pat@uni.test', organisation_id: 5 }
+  6: { id: 6, role: 'student', name: 'Pat Student', email: 'pat@uni.test', organisation_id: 5 },
+  7: { id: 7, role: 'management', name: 'Super Admin', email: 'super@platform.test', organisation_id: 9, is_super_admin: true }
 };
 
 // Minimal in-memory stand-in for the SQL this router issues.
@@ -81,10 +82,13 @@ function createFakeDb({ settings }) {
     if (q.includes('FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.id =')) {
       return [withOwnerOrg(db.published.find((p) => p.id === Number(params[0])))].filter(Boolean);
     }
-    if (q.includes('FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id WHERE')) {
+    if (q.includes('FROM published_assessments pa LEFT JOIN users u ON u.id = pa.user_id LEFT JOIN organisations o')) {
       return db.published
-        .filter((p) => p.user_id === params[0] || (params[1] != null && USERS[p.user_id].organisation_id === params[1]))
-        .map((p) => ({ ...p, owner_name: USERS[p.user_id].name, owner_email: USERS[p.user_id].email }));
+        .filter((p) => params.length === 0 || p.user_id === params[0] || (params[1] != null && USERS[p.user_id].organisation_id === params[1]))
+        .map((p) => ({ ...p, owner_name: USERS[p.user_id].name, owner_email: USERS[p.user_id].email, owner_organisation_name: `Org ${USERS[p.user_id].organisation_id}` }));
+    }
+    if (q.startsWith('SELECT id, name FROM organisations')) {
+      return db.organisations.map((o) => ({ id: o.id, name: `Org ${o.id}` }));
     }
     if (q.startsWith('SELECT * FROM assessment_attempts WHERE published_assessment_id')) {
       return db.attempts.filter((a) => a.published_assessment_id === params[0] && a.student_user_id === params[1]).slice(-1);
@@ -164,7 +168,7 @@ function createFakeDb({ settings }) {
     }
     if (q.startsWith('SELECT c.id, c.name, c.code, c.integrity_policy')) {
       return db.courses
-        .filter((c) => c.organisation_id === params[0] || USERS[c.owner_user_id]?.organisation_id === params[1])
+        .filter((c) => params.length === 0 || c.organisation_id === params[0] || USERS[c.owner_user_id]?.organisation_id === params[1])
         .map((c) => ({
           ...c,
           assessment_count: db.published.filter((p) => p.course_id === c.id).length,
@@ -496,4 +500,41 @@ test('webcam: off until management accepts the POPIA terms; uploads, viewing (au
   await as(4, 'put', '/attempts/webcam-policy').send({ allowed: false });
   const preview = await as(2, 'get', '/attempts/preview/EXAM1');
   assert.equal(preview.body.settings.webcam, 'off');
+});
+
+test('super admin: works across every organisation', async (t) => {
+  const { as, db, restore } = setup();
+  t.after(restore);
+  await as(1, 'post', '/attempts/start').send({ code: 'EXAM1', session_id: 'tab-a' });
+
+  // Reports, attempts and preview for another organisation's assessment.
+  assert.equal((await as(7, 'get', '/attempts/assessment/10')).status, 200);
+  assert.equal((await as(7, 'get', `/attempts/attempt/${db.attempts[0].id}`)).status, 200);
+  assert.equal((await as(7, 'get', '/attempts/preview/EXAM1')).status, 200);
+  assert.equal((await as(5, 'get', '/attempts/assessment/10')).status, 404, 'other-organisation management still cannot');
+
+  const list = await as(7, 'get', '/attempts/monitored');
+  assert.equal(list.body.items.length, 2);
+  assert.equal(list.body.items[0].owner_name, 'Owner Lecturer, Org 5', 'owner and organisation shown');
+
+  const rules = await as(7, 'get', '/attempts/course-rules');
+  assert.deepEqual(rules.body.courses.map((c) => c.name).sort(), ['Biology 101', 'Other org course']);
+  assert.equal((await as(7, 'put', '/attempts/course-rules/30').send({ settings: { enabled: true, preset: 'test' } })).status, 200);
+
+  // Webcam policy for any organisation, chosen explicitly.
+  const policy = await as(7, 'get', '/attempts/webcam-policy?organisation_id=5');
+  assert.equal(policy.body.organisation_id, 5);
+  assert.deepEqual(policy.body.organisations.map((o) => o.id), [5, 9]);
+  const acks = { lawful_basis: true, explicit_consent: true, minors: true, retention: true, access: true, information_officer: true };
+  const saved = await as(7, 'put', '/attempts/webcam-policy').send({ organisation_id: 5, allowed: true, acknowledgements: acks });
+  assert.equal(saved.status, 200);
+  assert.equal(JSON.parse(db.organisations[0].webcam_policy).allowed, true, 'organisation 5 updated, not the super admin\'s own');
+  assert.equal(db.organisations[1].webcam_policy, null);
+
+  // Ordinary management cannot pick another organisation.
+  assert.equal((await as(4, 'get', '/attempts/webcam-policy?organisation_id=9')).status, 404);
+  assert.equal((await as(4, 'put', '/attempts/webcam-policy').send({ organisation_id: 9, allowed: false })).status, 404);
+  // The settings panel asks for the policy of the organisation that owns the assessment.
+  assert.equal((await as(7, 'get', '/attempts/webcam-policy?published_id=10')).body.organisation_id, 5);
+  assert.equal((await as(3, 'get', '/attempts/webcam-policy?published_id=10')).status, 404, 'only people who can view the assessment');
 });

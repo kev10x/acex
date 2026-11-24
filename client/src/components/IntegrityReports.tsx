@@ -160,7 +160,7 @@ function AttemptDetail({ attemptId, onClose, onChanged }: { attemptId: number; o
 
 const IntegrityReports: React.FC = () => {
   const { user } = useAuth();
-  const isManagement = user?.role === 'management' || user?.role === 'admin';
+  const isManagement = user?.role === 'management' || user?.role === 'admin' || user?.is_super_admin === true;
   const [items, setItems] = useState<MonitoredAssessmentItem[]>([]);
   const [presets, setPresets] = useState<Record<string, any>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
