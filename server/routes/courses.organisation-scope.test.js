@@ -24,6 +24,8 @@ const COURSES = [
   { id: 31, name: 'Org B course', organisation_id: 9, owner_user_id: 2, created_at: '2026-11-01' }
 ];
 
+const ORGANISATIONS = [{ id: 5, name: 'Org A' }, { id: 9, name: 'Org B' }];
+
 function setup() {
   const query = async (sql, params = []) => {
     const q = sql.replace(/\s+/g, ' ').trim();
@@ -41,6 +43,17 @@ function setup() {
     if (q.startsWith('SELECT COUNT(*) as count FROM course_enrollments')) return [{ count: 0 }];
     if (q.includes('FROM modules')) return [];
     if (q.startsWith('DELETE FROM courses')) return {};
+    if (q.startsWith('SELECT id, name FROM organisations')) return ORGANISATIONS;
+    if (q.startsWith('SELECT id FROM organisations WHERE id')) return ORGANISATIONS.filter((o) => o.id === params[0]);
+    if (q.startsWith('INSERT INTO courses')) {
+      const id = 100 + COURSES.length;
+      COURSES.push({ id, organisation_id: params[0], name: params[1], owner_user_id: params[7], created_at: '2026-11-24' });
+      return [{ id }];
+    }
+    if (q.startsWith('UPDATE courses SET organisation_id')) {
+      COURSES.find((c) => c.id === params[1]).organisation_id = params[0];
+      return {};
+    }
     return [];
   };
   for (const service of ['courseScopeService']) {
@@ -83,4 +96,29 @@ test('the super admin covers every organisation', async (t) => {
   assert.deepEqual(list.body.courses.map((c) => c.name), ['Org A course', 'Org B course']);
   assert.equal((await as(3, 'get', '/courses/30')).status, 200);
   assert.equal((await as(3, 'get', '/courses/31')).status, 200);
+});
+
+test('the super admin chooses and changes a course\'s organisation; nobody else can', async (t) => {
+  const { as, restore } = setup();
+  const original = COURSES.map((c) => ({ ...c }));
+  t.after(() => { COURSES.splice(0, COURSES.length, ...original); restore(); });
+
+  assert.deepEqual((await as(3, 'get', '/courses/organisations')).body.organisations.map((o) => o.id), [5, 9]);
+  assert.equal((await as(1, 'get', '/courses/organisations')).status, 403);
+
+  // Created in the chosen organisation, not the super admin's own.
+  const created = await as(3, 'post', '/courses').send({ name: 'New course', organisation_id: 5 });
+  assert.equal(created.status, 200);
+  assert.equal(COURSES.at(-1).organisation_id, 5);
+  assert.equal((await as(3, 'post', '/courses').send({ name: 'Bad', organisation_id: 77 })).status, 400);
+  // Everyone else's courses go to their own organisation, whatever they send.
+  await as(1, 'post', '/courses').send({ name: 'Manager course', organisation_id: 9 });
+  assert.equal(COURSES.at(-1).organisation_id, 5);
+
+  const moved = await as(3, 'put', '/courses/31/organisation').send({ organisation_id: 5 });
+  assert.equal(moved.status, 200);
+  assert.equal(COURSES.find((c) => c.id === 31).organisation_id, 5);
+  assert.equal((await as(3, 'put', '/courses/31/organisation').send({ organisation_id: 77 })).status, 400);
+  assert.equal((await as(3, 'put', '/courses/999/organisation').send({ organisation_id: 5 })).status, 404);
+  assert.equal((await as(1, 'put', '/courses/30/organisation').send({ organisation_id: 9 })).status, 403);
 });
