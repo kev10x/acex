@@ -31,3 +31,15 @@ test('policy input: off removes the rule; stored JSON is parsed', () => {
   assert.deepEqual(svc.parsePolicy(JSON.stringify(exam)), exam);
   assert.equal(svc.parsePolicy('not json'), null);
 });
+
+test('course access: management only in their own organisation, super admin everywhere', () => {
+  const { managementCoversCourse } = require('./courseScopeService');
+  const course = { organisation_id: 5, owner_organisation_id: 5 };
+  const ownerOnly = { organisation_id: null, owner_organisation_id: 5 };
+  assert.equal(managementCoversCourse({ role: 'management', organisation_id: 5 }, course), true);
+  assert.equal(managementCoversCourse({ role: 'management', organisation_id: 5 }, ownerOnly), true, 'through the owner\'s organisation');
+  assert.equal(managementCoversCourse({ role: 'management', organisation_id: 9 }, course), false);
+  assert.equal(managementCoversCourse({ role: 'management', organisation_id: null }, course), false);
+  assert.equal(managementCoversCourse({ role: 'lecturer', organisation_id: 5 }, course), false);
+  assert.equal(managementCoversCourse({ role: 'management', organisation_id: 9, is_super_admin: true }, course), true);
+});

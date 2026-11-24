@@ -215,6 +215,9 @@ function createFakeDb({ settings }) {
       db.media = db.media.filter((m) => m.attempt_id !== params[0]);
       return {};
     }
+    if (q.startsWith('SELECT c.id, c.owner_user_id, c.organisation_id, u.organisation_id AS owner_organisation_id')) {
+      return db.courses.filter((c) => c.id === params[0]).map((c) => ({ ...c, owner_organisation_id: USERS[c.owner_user_id]?.organisation_id }));
+    }
     if (q.startsWith('SELECT id, owner_user_id FROM courses')) {
       return db.courses.filter((c) => c.id === params[0]);
     }

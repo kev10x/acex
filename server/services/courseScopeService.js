@@ -7,14 +7,35 @@ const { query } = require('../database/connection');
 const isMySQL = () => (process.env.DATABASE_URL || '').startsWith('mysql');
 const rowList = (result) => (Array.isArray(result) ? result : (result?.rows || []));
 
+// A course belongs to an organisation directly, or through its owner.
+async function getCourseWithOrganisation(courseId) {
+  if (!Number.isFinite(courseId) || courseId <= 0) return null;
+  const q = await query(
+    `SELECT c.id, c.owner_user_id, c.organisation_id, u.organisation_id AS owner_organisation_id
+     FROM courses c LEFT JOIN users u ON u.id = c.owner_user_id WHERE c.id = $1`,
+    [courseId]
+  );
+  return rowList(q)[0] || null;
+}
+
+/**
+ * Management may act on any course in their own organisation; the super admin on every
+ * course. Management in one organisation cannot see or change another organisation's
+ * courses (or their gradebooks).
+ */
+function managementCoversCourse(user, course) {
+  if (!user || !course) return false;
+  if (user.is_super_admin === true) return true;
+  if (String(user.role || '').toLowerCase() !== 'management' || user.organisation_id == null) return false;
+  const organisationId = Number(user.organisation_id);
+  return Number(course.organisation_id) === organisationId || Number(course.owner_organisation_id) === organisationId;
+}
+
 async function userCanUseCourse(user, courseId) {
   if (!Number.isFinite(courseId) || courseId <= 0) return false;
-  const courseQ = isMySQL()
-    ? await query('SELECT id, owner_user_id FROM courses WHERE id = ?', [courseId])
-    : await query('SELECT id, owner_user_id FROM courses WHERE id = $1', [courseId]);
-  const course = rowList(courseQ)[0];
+  const course = await getCourseWithOrganisation(courseId);
   if (!course) return false;
-  if (String(user.role || '').toLowerCase() === 'management') return true;
+  if (managementCoversCourse(user, course)) return true;
   if (Number(course.owner_user_id) === Number(user.id)) return true;
   const staffQ = isMySQL()
     ? await query('SELECT id FROM course_staff WHERE course_id = ? AND user_id = ?', [courseId, user.id])
@@ -65,4 +86,12 @@ async function fileItemUnderCourse(kind, itemId, requested, moduleId) {
   return courseId;
 }
 
-module.exports = { userCanUseCourse, parseRequestedCourse, courseIdOfModule, setItemCourse, fileItemUnderCourse };
+module.exports = {
+  userCanUseCourse,
+  getCourseWithOrganisation,
+  managementCoversCourse,
+  parseRequestedCourse,
+  courseIdOfModule,
+  setItemCourse,
+  fileItemUnderCourse
+};
