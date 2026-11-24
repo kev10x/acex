@@ -55,6 +55,19 @@ async function requireCourseStaff(req, res, next) {
   next();
 }
 
+const isSuperAdmin = (user) => user?.is_super_admin === true;
+
+// The super admin chooses a course's organisation; returns { id } (null = none) or { error }.
+async function parseOrganisationChoice(value) {
+  if (value === null || value === '' || value === 'none') return { id: null };
+  const id = Number.parseInt(value, 10);
+  if (!Number.isFinite(id)) return { error: 'Invalid organisation' };
+  const q = isMySQL()
+    ? await query('SELECT id FROM organisations WHERE id = ?', [id])
+    : await query('SELECT id FROM organisations WHERE id = $1', [id]);
+  return rowList(q).length ? { id } : { error: 'Organisation not found' };
+}
+
 async function findUserByEmail(email) {
   const q = isMySQL()
     ? await query('SELECT id, name, email, role FROM users WHERE email = ?', [String(email).trim().toLowerCase()])
@@ -78,16 +91,23 @@ router.post('/', requireAuth, requireRoles(['lecturer', 'management']), async (r
     if (!String(name || '').trim()) {
       return res.status(400).json({ error: 'name is required' });
     }
+    // Courses belong to their creator's organisation; the super admin (who may have none) picks one.
+    let organisationId = req.user.organisation_id || null;
+    if (isSuperAdmin(req.user) && req.body?.organisation_id !== undefined) {
+      const choice = await parseOrganisationChoice(req.body.organisation_id);
+      if (choice.error) return res.status(400).json({ error: choice.error });
+      organisationId = choice.id;
+    }
     const insert = isMySQL()
       ? await query(
           `INSERT INTO courses (organisation_id, name, code, description, term, start_date, end_date, owner_user_id, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-          [req.user.organisation_id || null, name.trim(), code || null, description || null, term || null, start_date || null, end_date || null, req.user.id]
+          [organisationId, name.trim(), code || null, description || null, term || null, start_date || null, end_date || null, req.user.id]
         )
       : await query(
           `INSERT INTO courses (organisation_id, name, code, description, term, start_date, end_date, owner_user_id, status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active') RETURNING id`,
-          [req.user.organisation_id || null, name.trim(), code || null, description || null, term || null, start_date || null, end_date || null, req.user.id]
+          [organisationId, name.trim(), code || null, description || null, term || null, start_date || null, end_date || null, req.user.id]
         );
     const courseId = isMySQL() ? insert.insertId : rowList(insert)[0]?.id;
     const course = await getCourseRow(courseId);
@@ -95,6 +115,20 @@ router.post('/', requireAuth, requireRoles(['lecturer', 'management']), async (r
   } catch (error) {
     console.error('Course create error:', error);
     res.status(500).json({ error: 'Failed to create course' });
+  }
+});
+
+/**
+ * Organisations a course can be put in (super admin only).
+ */
+router.get('/organisations', requireAuth, async (req, res) => {
+  if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Only the super admin can choose a course\'s organisation' });
+  try {
+    const rows = rowList(await query('SELECT id, name FROM organisations ORDER BY name', []));
+    res.json({ success: true, organisations: rows.map((row) => ({ id: row.id, name: row.name })) });
+  } catch (error) {
+    console.error('Course organisations error:', error);
+    res.status(500).json({ error: 'Failed to load organisations' });
   }
 });
 
@@ -215,6 +249,26 @@ router.get('/:id', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Course get error:', error);
     res.status(500).json({ error: 'Failed to load course' });
+  }
+});
+
+/**
+ * Move a course to another organisation (super admin only). Its assessments then follow that
+ * organisation's policies (e.g. webcam monitoring) and its management can see it.
+ */
+router.put('/:id/organisation', requireAuth, async (req, res) => {
+  if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Only the super admin can change a course\'s organisation' });
+  try {
+    const courseId = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(courseId) || !(await getCourseRow(courseId))) return res.status(404).json({ error: 'Course not found' });
+    const choice = await parseOrganisationChoice(req.body?.organisation_id ?? null);
+    if (choice.error) return res.status(400).json({ error: choice.error });
+    if (isMySQL()) await query('UPDATE courses SET organisation_id = ? WHERE id = ?', [choice.id, courseId]);
+    else await query('UPDATE courses SET organisation_id = $1 WHERE id = $2', [choice.id, courseId]);
+    res.json({ success: true, course: await getCourseRow(courseId) });
+  } catch (error) {
+    console.error('Course organisation update error:', error);
+    res.status(500).json({ error: 'Failed to change the course organisation' });
   }
 });
 

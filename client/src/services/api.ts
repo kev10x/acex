@@ -2004,8 +2004,12 @@ export const cohortsAPI = {
 };
 
 export const coursesAPI = {
-  create: (data: { name: string; code?: string; description?: string; term?: string; start_date?: string; end_date?: string }) =>
+  // organisation_id: super admin only (others' courses always go to their own organisation).
+  create: (data: { name: string; code?: string; description?: string; term?: string; start_date?: string; end_date?: string; organisation_id?: number | null }) =>
     api.post<{ success: boolean; course: Course }>('/courses', data),
+  organisations: () => api.get<{ success: boolean; organisations: { id: number; name: string }[] }>('/courses/organisations'),
+  setOrganisation: (courseId: number, organisationId: number | null) =>
+    api.put<{ success: boolean; course: Course }>(`/courses/${courseId}/organisation`, { organisation_id: organisationId }),
   list: () => api.get<{ success: boolean; courses: Course[] }>('/courses'),
   get: (courseId: number) =>
     api.get<{ success: boolean; course: Course; staff: CourseStaffMember[]; enrollment_count: number; modules: { id: number; name: string; item_count: number }[] }>(`/courses/${courseId}`),

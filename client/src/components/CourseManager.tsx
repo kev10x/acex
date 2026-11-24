@@ -22,6 +22,11 @@ const CourseManager: React.FC = () => {
   const { notifySuccess, notifyError } = useNotification();
   const { user } = useAuth();
   const isStudent = (user?.role || '').toLowerCase() === 'student';
+  // The super admin decides which organisation each course belongs to.
+  const isSuperAdmin = user?.is_super_admin === true;
+  const [organisations, setOrganisations] = useState<{ id: number; name: string }[]>([]);
+  const [newOrganisationId, setNewOrganisationId] = useState('');
+  const [savingOrganisation, setSavingOrganisation] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -69,6 +74,7 @@ const CourseManager: React.FC = () => {
   useEffect(() => {
     cohortsAPI.list().then((res) => setCohorts(res.data.cohorts)).catch(() => { /* cohort enrol is optional */ });
     loadCourses();
+    if (isSuperAdmin) coursesAPI.organisations().then((res) => setOrganisations(res.data.organisations)).catch(() => { /* picker stays empty */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -76,19 +82,43 @@ const CourseManager: React.FC = () => {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const res = await coursesAPI.create({ name: newName.trim(), code: newCode.trim() || undefined, term: newTerm.trim() || undefined });
+      const res = await coursesAPI.create({
+        name: newName.trim(),
+        code: newCode.trim() || undefined,
+        term: newTerm.trim() || undefined,
+        ...(isSuperAdmin ? { organisation_id: newOrganisationId ? Number(newOrganisationId) : null } : {})
+      });
       if (res.data.success) {
         setCourses((prev) => [res.data.course, ...prev]);
         setShowCreate(false);
         setNewName('');
         setNewCode('');
         setNewTerm('');
+        setNewOrganisationId('');
         notifySuccess('Course created', 'Success');
       }
     } catch (e: any) {
       notifyError(getApiErrorMessage(e, 'Failed to create course'), 'Create failed');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const organisationName = (id: number | null) => organisations.find((o) => o.id === Number(id))?.name;
+
+  const changeOrganisation = async (course: Course, value: string) => {
+    setSavingOrganisation(true);
+    try {
+      const res = await coursesAPI.setOrganisation(course.id, value ? Number(value) : null);
+      setSelectedCourse(res.data.course);
+      setCourses((prev) => prev.map((c) => (c.id === course.id ? res.data.course : c)));
+      notifySuccess(value
+        ? `Moved to ${organisationName(Number(value)) || 'the organisation'}. Its assessments now follow that organisation's policies, such as webcam monitoring.`
+        : 'This course is no longer in an organisation.', 'Organisation changed');
+    } catch (e: any) {
+      notifyError(getApiErrorMessage(e, 'Could not change the organisation'), 'Change failed');
+    } finally {
+      setSavingOrganisation(false);
     }
   };
 
@@ -318,6 +348,25 @@ const CourseManager: React.FC = () => {
           <p className="text-sm text-gray-500 mt-1">
             {[selectedCourse.code, selectedCourse.term].filter(Boolean).join(' · ') || 'No code or term set'}
           </p>
+          {isSuperAdmin && (
+            <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium text-gray-700">Organisation</span>
+              <select
+                value={selectedCourse.organisation_id ?? ''}
+                disabled={savingOrganisation}
+                onChange={(e) => changeOrganisation(selectedCourse, e.target.value)}
+                className="rounded-md border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              >
+                <option value="">No organisation</option>
+                {organisations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              <span className="text-xs text-gray-500">
+                {selectedCourse.organisation_id == null
+                  ? "Not in an organisation, so organisation policies (such as webcam monitoring) don't apply to its assessments."
+                  : "Its management can see this course, and its assessments follow this organisation's policies."}
+              </span>
+            </label>
+          )}
 
           {!isStudent && (
             <div className="mt-4 flex gap-2 border-b border-gray-200">
@@ -671,6 +720,17 @@ const CourseManager: React.FC = () => {
               placeholder="Term (e.g. 2026 S2)"
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
             />
+            {isSuperAdmin && (
+              <select
+                value={newOrganisationId}
+                onChange={(e) => setNewOrganisationId(e.target.value)}
+                aria-label="Organisation"
+                className="sm:col-span-3 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 bg-white shadow-sm"
+              >
+                <option value="">No organisation (organisation policies won't apply)</option>
+                {organisations.map((o) => <option key={o.id} value={o.id}>Organisation: {o.name}</option>)}
+              </select>
+            )}
             <button
               type="button"
               onClick={handleCreate}
@@ -699,6 +759,11 @@ const CourseManager: React.FC = () => {
             >
               <h3 className="text-lg font-semibold text-gray-800">{course.name}</h3>
               <p className="text-xs text-gray-400 mt-0.5">{[course.code, course.term].filter(Boolean).join(' · ') || 'No code or term'}</p>
+              {isSuperAdmin && (
+                <p className={`mt-1 text-xs ${course.organisation_id == null ? 'font-medium text-amber-700' : 'text-gray-500'}`}>
+                  {course.organisation_id == null ? 'No organisation' : organisationName(course.organisation_id) || 'Organisation'}
+                </p>
+              )}
               <div className="mt-3 inline-flex items-center gap-1.5 text-xs text-gray-500">
                 <Users className="h-3.5 w-3.5" />
                 {course.status}
